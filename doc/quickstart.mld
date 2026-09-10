@@ -4,6 +4,7 @@
 
 {[
 open Typed_sql
+open Expr.Infix
 
 module Person = struct
   type row
@@ -29,10 +30,16 @@ Query строится без connection и эффекта:
 {[
 let by_name name =
   Query.from Person.table ~select:Person.projection
-  |> Query.where (fun person -> Expr.eq_value (Person.name person) name)
+  |> Query.where (fun person -> Person.name person =$ name)
   |> Query.order_by (fun person -> Person.id person) `Asc
   |> Query.limit 100
 ]}
+
+[Expr.Infix] — основной API для сравнений: операторы с точкой сравнивают два
+выражения ([=.], [<.], [<=.], [>.], [>=.], [<>.]), а варианты с [$] создают
+bind parameter из значения OCaml ([=$], [<$], [<=$], [>$], [>=$], [<>$]).
+Для строк есть [=~.] и [=~$] ([LIKE]). Условия комбинируются через
+[Condition.Infix]: [&&.] и [||.].
 
 SQL можно проверить до выполнения:
 

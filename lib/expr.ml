@@ -63,9 +63,19 @@ let db_type expression = expression.db_type
 
 module Infix = struct
   let ( =. ) = eq
-  let ( =: ) = eq_value
   let ( <>. ) = neq
-  let ( <>: ) = neq_value
+  let ( <. ) left right = compare Ast.Lt left right
+  let ( <=. ) left right = compare Ast.Lte left right
+  let ( >. ) left right = compare Ast.Gt left right
+  let ( >=. ) left right = compare Ast.Gte left right
+  let ( =$ ) = eq_value
+  let ( <>$ ) = neq_value
+  let ( <$ ) left value = compare_value Ast.Lt left value
+  let ( <=$ ) left value = compare_value Ast.Lte left value
+  let ( >$ ) left value = compare_value Ast.Gt left value
+  let ( >=$ ) left value = compare_value Ast.Gte left value
+  let ( =~. ) = like
+  let ( =~$ ) = like_value
 end
 
 module Private = struct

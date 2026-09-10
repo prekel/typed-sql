@@ -152,6 +152,8 @@ PostgreSQL и SQLite.
 `INNER JOIN`, `LEFT JOIN`, arbitrary `ON`, повторные table occurrences и
 несколько visible sources реализованы. Aliases назначаются renderer'ом, а
 SQLite integration test проверяет nullable правую сторону outer join.
+Comparison и logical predicates теперь строятся через публичные infix
+operators; функциональные `and_`, `or_`, `all` и `any` скрыты из API.
 
 Следующие portable выражения:
 

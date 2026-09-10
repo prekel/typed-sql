@@ -1,5 +1,7 @@
 open! Base
 open Typed_sql
+open Expr.Infix
+open Condition.Infix
 module T = Caqti.Template
 
 let ( let* ) = Lwt.bind
@@ -125,11 +127,10 @@ let run conn =
   let query =
     Query.from Person.table ~select:Person.projection
     |> Query.where (fun person ->
-      Condition.all
-        [ Expr.gt_value Db_type.Ordering.int64 (Person.id person) 0L
-        ; Expr.eq_value (Person.role person) `Admin
-        ; Expr.like_value (Person.name person) "%d%"
-        ])
+      Person.id person
+      >$ 0L
+      &&. (Person.role person =$ `Admin)
+      &&. (Person.name person =~$ "%d%"))
     |> Query.order_by (fun person -> Person.id person) `Asc
   in
   let* rows =
@@ -143,7 +144,7 @@ let run conn =
     failwith "fetch_one returned the wrong row";
   let missing =
     Query.from Person.table ~select:Person.projection
-    |> Query.where (fun person -> Expr.eq_value (Person.name person) "missing")
+    |> Query.where (fun person -> Person.name person =$ "missing")
   in
   let* missing =
     Typed_sql_caqti_lwt.fetch_opt ~conn (Query.to_result missing) >>= adapter_or_fail
@@ -153,7 +154,7 @@ let run conn =
   let injection = "'; DROP TABLE people; --" in
   let injected =
     Query.from Person.table ~select:Person.projection
-    |> Query.where (fun person -> Expr.eq_value (Person.name person) injection)
+    |> Query.where (fun person -> Person.name person =$ injection)
   in
   let* rows =
     Typed_sql_caqti_lwt.fetch ~conn (Query.to_result injected) >>= adapter_or_fail
@@ -161,8 +162,7 @@ let run conn =
   assert_equal [] rows;
   let all =
     Query.from Person.table ~select:Person.projection
-    |> Query.where_opt None ~f:(fun person name ->
-      Expr.eq_value (Person.name person) name)
+    |> Query.where_opt None ~f:(fun person name -> Person.name person =$ name)
     |> Query.order_by (fun person -> Person.id person) `Asc
   in
   let* rows = Typed_sql_caqti_lwt.fetch ~conn (Query.to_result all) >>= adapter_or_fail in
@@ -175,7 +175,7 @@ let run conn =
   let departments =
     Query.from Person.table ~select:(fun person -> Projection.expr (Person.name person))
     |> Query.left_join Department.table ~on:(fun person department ->
-      Expr.eq (Person.id person) (Department.person_id department))
+      Person.id person =. Department.person_id department)
     |> Query.select (fun (person, department) ->
       Projection.map2
         (fun person_name department_name -> person_name, department_name)
@@ -200,7 +200,7 @@ let run conn =
   let update =
     Update.table Person.table
     |> Update.set Person.name_column "Dijkstra"
-    |> Update.where (fun person -> Expr.eq_value (Person.id person) 4L)
+    |> Update.where (fun person -> Person.id person =$ 4L)
     |> Update.command
   in
   let* affected = Typed_sql_caqti_lwt.execute ~conn update >>= adapter_or_fail in
@@ -211,13 +211,13 @@ let run conn =
    | Affected_rows.Unknown -> ());
   let delete =
     Delete.from Person.table
-    |> Delete.where (fun person -> Expr.eq_value (Person.id person) 4L)
+    |> Delete.where (fun person -> Person.id person =$ 4L)
     |> Delete.command
   in
   let* _ = Typed_sql_caqti_lwt.execute ~conn delete >>= adapter_or_fail in
   let deleted =
     Query.from Person.table ~select:Person.projection
-    |> Query.where (fun person -> Expr.eq_value (Person.id person) 4L)
+    |> Query.where (fun person -> Person.id person =$ 4L)
     |> Query.to_result
   in
   let* deleted = Typed_sql_caqti_lwt.fetch_opt ~conn deleted >>= adapter_or_fail in

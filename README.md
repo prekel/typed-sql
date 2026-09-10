@@ -12,6 +12,7 @@ PostgreSQL.
 
 ```ocaml
 open Typed_sql
+open Expr.Infix
 
 module Person = struct
   type row
@@ -31,7 +32,7 @@ end
 
 let query name =
   Query.from Person.table ~select:Person.projection
-  |> Query.where (fun row -> Expr.eq_value (Person.name row) name)
+  |> Query.where (fun row -> Person.name row =$ name)
   |> Query.order_by (fun row -> Person.id row) `Asc
   |> Query.limit 100
 ```

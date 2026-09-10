@@ -1,5 +1,6 @@
 open! Base
 open Typed_sql
+open Expr.Infix
 
 module Item = struct
   type row
@@ -13,5 +14,5 @@ let _ =
   Query.from Item.table ~select:(fun item ->
     Projection.expr (Expr.column item Item.id_column))
   |> Query.where (fun item ->
-    Expr.eq (Expr.column item Item.id_column) (Expr.column item Item.name_column))
+    Expr.column item Item.id_column =. Expr.column item Item.name_column)
 ;;

@@ -1,5 +1,6 @@
 open! Base
 open Typed_sql
+open Expr.Infix
 
 module Item = struct
   type row
@@ -20,7 +21,7 @@ end
 
 let query value =
   Query.from Item.table ~select:Item.projection
-  |> Query.where (fun item -> Expr.eq_value (Item.name item) value)
+  |> Query.where (fun item -> Item.name item =$ value)
   |> Query.order_by (fun item -> Item.id item) `Asc
   |> Query.limit 100
 ;;

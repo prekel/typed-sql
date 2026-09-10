@@ -1,5 +1,7 @@
 open! Base
 open Typed_sql
+open Expr.Infix
+open Condition.Infix
 
 module Person = struct
   type row
@@ -48,11 +50,7 @@ let%expect_test "PostgreSQL and SQLite rendering" =
   let query =
     Query.from Person.table ~select:Person.projection
     |> Query.where (fun person ->
-      Condition.all
-        [ Condition.true_
-        ; Expr.eq_value (Person.name person) "Ada"
-        ; Expr.gt_value Db_type.Ordering.int64 (Person.id person) 10L
-        ])
+      Condition.true_ &&. (Person.name person =$ "Ada") &&. (Person.id person >$ 10L))
     |> Query.order_by (fun person -> Person.id person) `Desc
     |> Query.limit 20
     |> Query.offset 5
@@ -67,10 +65,27 @@ let%expect_test "PostgreSQL and SQLite rendering" =
     SELECT t0."id", t0."name", t0."nickname" FROM "public"."people" AS t0 WHERE ((t0."name" = ?1) AND (t0."id" > ?2)) ORDER BY t0."id" DESC LIMIT 20 OFFSET 5 |}]
 ;;
 
+let%expect_test "infix comparison operators render in source order" =
+  let query =
+    Query.from Person.table ~select:Person.projection
+    |> Query.where (fun person ->
+      Person.id person
+      <$ 1L
+      &&. (Person.id person <=$ 2L)
+      &&. (Person.id person >$ 3L)
+      &&. (Person.id person >=$ 4L)
+      &&. (Person.id person <>$ 5L)
+      &&. (Person.name person =~$ "A%"))
+  in
+  query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
+  [%expect
+    {| SELECT t0."id", t0."name", t0."nickname" FROM "public"."people" AS t0 WHERE ((t0."id" < $1) AND (t0."id" <= $2) AND (t0."id" > $3) AND (t0."id" >= $4) AND (t0."id" <> $5) AND (t0."name" LIKE $6)) |}]
+;;
+
 let%expect_test "query shape excludes values and generative source ids" =
   let make value =
     Query.from Person.table ~select:Person.projection
-    |> Query.where (fun person -> Expr.eq_value (Person.name person) value)
+    |> Query.where (fun person -> Person.name person =$ value)
     |> compile_exn Dialect.Postgresql
   in
   let first = make "Ada" in
@@ -95,7 +110,7 @@ let%expect_test "escaped table reference is rejected" =
   let foreign = Option.value_exn !escaped in
   let query =
     Query.from Person.table ~select:Person.projection
-    |> Query.where (fun _ -> Expr.eq_value (Person.name foreign) "Ada")
+    |> Query.where (fun _ -> Person.name foreign =$ "Ada")
   in
   (match Compiler.compile ~dialect:Dialect.Sqlite (Query.to_result query) with
    | Ok _ -> Stdlib.print_endline "unexpected success"
@@ -134,7 +149,7 @@ let%expect_test "joins use deterministic aliases and LEFT JOIN makes its side nu
   let inner =
     Query.from Person.table ~select:(fun person -> Projection.expr (Person.id person))
     |> Query.inner_join Department.table ~on:(fun person department ->
-      Expr.eq (Person.id person) (Department.person_id department))
+      Person.id person =. Department.person_id department)
     |> Query.select (fun (person, department) ->
       Projection.map2
         (fun person_id department_name -> person_id, department_name)
@@ -144,7 +159,7 @@ let%expect_test "joins use deterministic aliases and LEFT JOIN makes its side nu
   let left =
     Query.from Person.table ~select:(fun person -> Projection.expr (Person.id person))
     |> Query.left_join Department.table ~on:(fun person department ->
-      Expr.eq (Person.id person) (Department.person_id department))
+      Person.id person =. Department.person_id department)
     |> Query.select (fun (person, department) ->
       Projection.map2
         (fun person_id department_name -> person_id, department_name)
@@ -181,7 +196,7 @@ let%expect_test "portable DML and RETURNING" =
   |> Stdlib.print_endline;
   Update.table Person.table
   |> Update.set Person.name_column "Grace"
-  |> Update.where (fun person -> Expr.eq_value (Person.id person) 42L)
+  |> Update.where (fun person -> Person.id person =$ 42L)
   |> Update.command
   |> compile_command_exn Dialect.Sqlite
   |> Compiled_command.sql

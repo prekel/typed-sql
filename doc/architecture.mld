@@ -32,6 +32,10 @@ column descriptor отражает schema nullability: [Column.v] даёт об�
 [Nullable_table_ref]; [Expr.nullable_column] возвращает один [option] даже для
 schema-nullable колонки.
 
+Основной surface для predicates — [Expr.Infix] и [Condition.Infix]. Операторы
+сохраняют тип левого expression при создании bind parameter, поэтому строка
+SQL по-прежнему не строится из пользовательского значения.
+
 {1 Граница backend}
 
 Пакет [typed-sql] не зависит от Caqti, Lwt и PG'OCaml. [Result_query] содержит
