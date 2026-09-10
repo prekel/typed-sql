@@ -39,6 +39,7 @@ SQL можно проверить до выполнения:
 {[
 let sql =
   by_name "Ada"
+  |> Query.to_result
   |> Compiler.compile ~dialect:Dialect.Postgresql
   |> Result.map ~f:Compiled_query.sql
 ]}
@@ -46,7 +47,7 @@ let sql =
 На Caqti Lwt connection запрос выполняется отдельно:
 
 {[
-Typed_sql_caqti_lwt.fetch ~conn (by_name "Ada")
+Typed_sql_caqti_lwt.fetch ~conn (by_name "Ada" |> Query.to_result)
 ]}
 
 Приложение должно самостоятельно подключить нужный Caqti driver. Параметры

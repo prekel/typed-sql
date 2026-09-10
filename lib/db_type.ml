@@ -13,6 +13,7 @@ type _ t =
       ; encode : 'b -> ('a, string) Result.t
       ; decode : 'a -> ('b, string) Result.t
       ; name : string
+      ; id : int
       }
       -> 'b t
 
@@ -42,6 +43,7 @@ let float = Float_type
 let text = Text_type
 let bytes = Bytes_type
 let option typ = Option_type typ
+let next_mapping_id = Atomic.make 0
 
 let rec name : type a. a t -> string = function
   | Bool_type -> "bool"
@@ -56,7 +58,19 @@ let rec name : type a. a t -> string = function
 
 let map ?name:custom_name ~encode ~decode repr =
   let name = Option.value custom_name ~default:("mapped(" ^ name repr ^ ")") in
-  Map_type { repr; encode; decode; name }
+  let id = Atomic.fetch_and_add next_mapping_id 1 in
+  Map_type { repr; encode; decode; name; id }
+;;
+
+let rec fingerprint : type a. a t -> string = function
+  | Bool_type -> "bool"
+  | Int_type -> "int"
+  | Int64_type -> "int64"
+  | Float_type -> "float"
+  | Text_type -> "text"
+  | Bytes_type -> "bytes"
+  | Option_type typ -> "option(" ^ fingerprint typ ^ ")"
+  | Map_type { repr; id; _ } -> "map#" ^ Int.to_string id ^ "(" ^ fingerprint repr ^ ")"
 ;;
 
 let view : type a. a t -> a view = function
@@ -67,7 +81,7 @@ let view : type a. a t -> a view = function
   | Text_type -> Text
   | Bytes_type -> Bytes
   | Option_type typ -> Option typ
-  | Map_type { repr; encode; decode; name } -> Map { repr; encode; decode; name }
+  | Map_type { repr; encode; decode; name; _ } -> Map { repr; encode; decode; name }
 ;;
 
 module Ordering = struct

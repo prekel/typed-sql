@@ -4,9 +4,11 @@
 строится как immutable deferred value, компилируется в dialect-specific SQL и
 только затем передаётся execution backend.
 
-Первый срез поддерживает `SELECT`, `FROM`, `WHERE`, `ORDER BY`, `LIMIT` и
-`OFFSET`, типизированные параметры, applicative projections и PostgreSQL/SQLite
-rendering. Пакет `typed-sql-caqti-lwt` выполняет запросы через Caqti.
+Текущий срез поддерживает типизированные `SELECT` с `INNER JOIN` и `LEFT JOIN`,
+`WHERE`, `ORDER BY`, `LIMIT` и `OFFSET`, а также single-row `INSERT`, `UPDATE`,
+`DELETE` и `RETURNING`. Пакет `typed-sql-caqti-lwt` выполняет запросы через
+Caqti для PostgreSQL и SQLite; `typed-sql-pgocaml-lwt` — через PG'OCaml для
+PostgreSQL.
 
 ```ocaml
 open Typed_sql
@@ -37,7 +39,7 @@ let query name =
 Query не содержит connection или `Lwt.t`. Materialization выполняется отдельно:
 
 ```ocaml
-Typed_sql_caqti_lwt.fetch ~conn (query "Ada")
+Typed_sql_caqti_lwt.fetch ~conn (query "Ada" |> Query.to_result)
 ```
 
 ## Сборка
@@ -51,6 +53,7 @@ make check
 make release-check
 ```
 
-SQLite integration tests используют `sqlite3::memory:`. PostgreSQL compiler и
-Caqti dialect branch собираются без подключения к внешнему PostgreSQL server.
+SQLite integration tests используют `sqlite3::memory:`. PostgreSQL compiler,
+Caqti dialect branch и PG'OCaml adapter собираются без подключения к внешнему
+PostgreSQL server.
 На Ubuntu для сборки SQLite driver нужен системный пакет `libsqlite3-dev`.

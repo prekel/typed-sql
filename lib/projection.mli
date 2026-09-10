@@ -21,4 +21,5 @@ val view : 'a t -> 'a view
 
 module Private : sig
   val expressions : 'a t -> Ast.expr list
+  val types : 'a t -> Db_type.packed list
 end

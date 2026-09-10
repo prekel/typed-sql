@@ -10,9 +10,11 @@ execution adapter.
 - типы БД, table/column descriptors и bind parameters;
 - отдельные scalar expressions и SQL conditions;
 - applicative projections произвольного OCaml-типа;
-- [SELECT], [WHERE], [ORDER BY], [LIMIT] и [OFFSET];
+- [SELECT], [INNER JOIN], [LEFT JOIN], [WHERE], [ORDER BY], [LIMIT] и [OFFSET];
+- single-row [INSERT], scoped [UPDATE]/[DELETE] и [RETURNING];
 - PostgreSQL и SQLite compiler;
-- Lwt execution через пакет [typed-sql-caqti-lwt].
+- Lwt execution через [typed-sql-caqti-lwt] и PostgreSQL execution через
+  [typed-sql-pgocaml-lwt].
 
 Начать работу можно с {!page-quickstart}. Границы между DSL, compiler и Caqti
 описаны в {!page-architecture}.

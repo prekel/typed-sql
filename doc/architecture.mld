@@ -9,7 +9,7 @@ Typed DSL: Db_type -> Column -> Expr -> Condition -> Projection -> Query
           v
 Immutable semantic AST
           |
-    validate / normalize
+ normalize -> validate -> lower -> render
           |
           v
 PostgreSQL or SQLite lowering
@@ -18,7 +18,7 @@ PostgreSQL or SQLite lowering
 Backend-neutral template + typed parameters + projection plan
           |
           v
-Caqti Lwt adapter
+Caqti Lwt adapter / PG'OCaml Lwt adapter
 v}
 
 {1 Граница типов}
@@ -26,16 +26,23 @@ v}
 [Expr] и [Projection] сохраняют OCaml-типы во время построения DSL. Compiler
 получает type-erased semantic nodes только после того, как публичные функции
 проверили совместимость выражений. Source identity остаётся в AST для проверки
-принадлежности колонок, а SQL aliases назначаются только renderer.
+принадлежности колонок, а SQL aliases назначаются только renderer. Обычная
+column descriptor отражает schema nullability: [Column.v] даёт обязательное
+значение, [Column.nullable_v] — [option]. Правая таблица [LEFT JOIN] имеет
+[Nullable_table_ref]; [Expr.nullable_column] возвращает один [option] даже для
+schema-nullable колонки.
 
 {1 Граница backend}
 
-Пакет [typed-sql] не зависит от Caqti или Lwt. Compiled query содержит template
-fragments с нумерованными parameter slots, existential parameter values и
-typed projection plan. Caqti adapter интерпретирует эти descriptors в
-[Caqti.Template.Row_type] и создаёт связанный request/parameter product без
-unchecked casts.
+Пакет [typed-sql] не зависит от Caqti, Lwt и PG'OCaml. [Result_query] содержит
+typed projection plan, а [Command] представляет statement без строк результата.
+После compiler они становятся [Compiled_query] или [Compiled_command] с
+template fragments, packed parameters и shape. Caqti adapter интерпретирует
+descriptors в [Caqti.Template.Row_type]. PG'OCaml adapter кодирует параметры и
+декодирует строки через тот же [Db_type] контракт без unchecked casts.
 
-Prepared statement lifetime принадлежит Caqti. Shape в ядре предназначен для
-будущего compilation cache и не включает значения параметров, connection,
-generative source IDs или generated aliases.
+Prepared statement lifetime принадлежит adapter'у. Shape включает type identity
+parameters и projection, поэтому различает mapped codecs с одинаковым именем;
+он не включает значения параметров, connection, generative source IDs или
+generated aliases. PG'OCaml low-level API не сообщает affected rows, поэтому
+его [execute] возвращает [Affected_rows.Unknown].

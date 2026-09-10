@@ -16,6 +16,22 @@ let column reference column =
   }
 ;;
 
+let nullable_column reference column =
+  let db_type = Db_type.option (Column.base_db_type column) in
+  { node =
+      Ast.Column
+        { source_id = Nullable_table_ref.Private.source_id reference
+        ; name = Column.name column
+        ; db_type = Db_type.Pack db_type
+        }
+  ; db_type
+  }
+;;
+
+let to_nullable expression =
+  { node = expression.node; db_type = Db_type.option expression.db_type }
+;;
+
 let param db_type value = { node = Ast.Param (Db_type.Value (db_type, value)); db_type }
 
 let compare : type a. Ast.comparison -> a t -> a t -> Condition.t =
@@ -54,4 +70,5 @@ end
 
 module Private = struct
   let node expression = expression.node
+  let create node db_type = { node; db_type }
 end

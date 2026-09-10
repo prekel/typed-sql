@@ -1,0 +1,52 @@
+open! Base
+
+type unscoped
+type scoped
+
+type ('row, 'scope) t =
+  { reference : 'row Table_ref.t
+  ; source : Ast.source
+  ; where_ : Ast.condition option
+  }
+
+let from table =
+  let reference = Table_ref.create table in
+  { reference
+  ; source =
+      { Ast.source_id = Table_ref.source_id reference
+      ; schema = Table.schema table
+      ; table = Table.name table
+      }
+  ; where_ = None
+  }
+;;
+
+let where make_condition delete =
+  let condition = make_condition delete.reference |> Condition.Private.node in
+  let where_ =
+    match delete.where_ with
+    | None -> Some condition
+    | Some existing -> Some (Ast.And [ existing; condition ])
+  in
+  { delete with where_ }
+;;
+
+let all_rows delete = { delete with where_ = None }
+
+let ast delete =
+  { Ast.kind = Ast.Delete
+  ; source = delete.source
+  ; assignments = []
+  ; where_ = delete.where_
+  }
+;;
+
+let command delete = Command.Private.create (ast delete)
+
+let returning make_projection delete =
+  let projection = make_projection delete.reference in
+  Result_query.Private.create
+    (Ast.Returning
+       { command = ast delete; projection = Projection.Private.expressions projection })
+    projection
+;;

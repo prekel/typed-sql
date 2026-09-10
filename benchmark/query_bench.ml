@@ -31,6 +31,7 @@ let () =
   let started = Unix.gettimeofday () in
   for index = 1 to iterations do
     query (Int.to_string index)
+    |> Query.to_result
     |> Compiler.compile ~dialect:Dialect.Postgresql
     |> Stdlib.Sys.opaque_identity
     |> ignore

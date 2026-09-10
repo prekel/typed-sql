@@ -46,3 +46,18 @@
   (uri :with-test))
  (tags
   (database sql caqti lwt postgresql sqlite)))
+
+(package
+ (name typed-sql-pgocaml-lwt)
+ (synopsis "PG'OCaml Lwt execution backend for typed-sql")
+ (description
+  "An Lwt adapter that executes typed-sql queries through PG'OCaml on PostgreSQL.")
+ (depends
+  (ocaml (>= 5.5.1))
+  (typed-sql (= :version))
+  base
+  ppx_let
+  lwt
+  (pgocaml (>= 4.4.0)))
+ (tags
+  (database sql pgocaml lwt postgresql)))

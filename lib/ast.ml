@@ -42,11 +42,49 @@ type source =
   ; table : Identifier.t
   }
 
+type join_kind =
+  | Inner
+  | Left
+
+type join =
+  { kind : join_kind
+  ; source : source
+  ; on : condition
+  }
+
 type select =
   { source : source
+  ; joins : join list
   ; projection : expr list
   ; where_ : condition option
   ; order_by : order list
   ; limit : int option
   ; offset : int option
   }
+
+type assignment =
+  { source_id : int
+  ; column : Identifier.t
+  ; value : expr
+  }
+
+type command_kind =
+  | Insert
+  | Update
+  | Delete
+
+type command =
+  { kind : command_kind
+  ; source : source
+  ; assignments : assignment list
+  ; where_ : condition option
+  }
+
+type returning =
+  { command : command
+  ; projection : expr list
+  }
+
+type result_query =
+  | Select of select
+  | Returning of returning

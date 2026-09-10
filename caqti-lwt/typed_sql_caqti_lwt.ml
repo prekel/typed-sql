@@ -110,6 +110,13 @@ let compile dialect query =
   |> Result.map_error ~f:(fun error -> Compile error)
 ;;
 
+let compile_command dialect command =
+  let open Result.Let_syntax in
+  let%bind dialect = dialect_of_caqti dialect in
+  Typed_sql.Compiler.compile_command ~dialect command
+  |> Result.map_error ~f:(fun error -> Compile error)
+;;
+
 let fetch ~conn query =
   let module Connection = (val conn : Caqti_lwt.CONNECTION) in
   match compile Connection.dialect query with
@@ -170,4 +177,25 @@ let fetch_opt ~conn query =
           Connection.find_opt request parameters.value
           |> Lwt.map (fun result ->
             map_caqti_error result |> Result.map ~f:(Option.map ~f:row.decode))))
+;;
+
+let execute ~conn command =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  match compile_command Connection.dialect command with
+  | Error error -> Lwt.return (Error error)
+  | Ok compiled ->
+    (match pack_parameters (Typed_sql.Compiled_command.parameters compiled) with
+     | Parameters parameters ->
+       let request_type =
+         T.Request_type.Infix.(parameters.row_type -->. T.Row_type.unit)
+       in
+       let request =
+         T.Request.create T.Request.Dynamic request_type (fun _ ->
+           caqti_query (Typed_sql.Compiled_command.template compiled))
+       in
+       Connection.exec_with_affected_count request parameters.value
+       |> Lwt.map (function
+         | Ok count -> Ok (Typed_sql.Affected_rows.Known count)
+         | Error `Unsupported -> Ok Typed_sql.Affected_rows.Unknown
+         | Error (#Caqti.Error.t as error) -> Error (Caqti error)))
 ;;

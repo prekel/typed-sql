@@ -1,5 +1,12 @@
 (rule
  (alias runtest)
- (deps foreign_column.ml mismatched_expression.ml wrong_ordering.ml run.sh)
+ (deps
+  foreign_column.ml
+  left_join_requires_nullable_column.ml
+  mismatched_expression.ml
+  private_ast_is_not_public.ml
+  run.sh
+  update_requires_scope.ml
+  wrong_ordering.ml)
  (action
   (run bash %{dep:run.sh} %{bin:ocamlfind} %{lib:typed-sql:typed_sql.cmi})))

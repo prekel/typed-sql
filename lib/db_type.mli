@@ -41,6 +41,10 @@ val map
 val view : 'a t -> 'a view
 val name : 'a t -> string
 
+(** Stable within one process and distinct for separately constructed mapped
+    codecs, even when their display names match. *)
+val fingerprint : 'a t -> string
+
 (** An explicit witness that the database representation has a meaningful
     total ordering for the intended query. Mapped domain types only gain this
     capability through an explicit [map]. *)

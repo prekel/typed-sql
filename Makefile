@@ -1,6 +1,7 @@
 all: build
 
 PACKAGES = ./typed-sql.opam ./typed-sql-caqti-lwt.opam
+PGOCAML_PACKAGE = ./_build/default/typed-sql-pgocaml-lwt.opam
 
 .PHONY: create_switch
 create_switch:
@@ -9,11 +10,13 @@ create_switch:
 
 .PHONY: deps
 deps:
-	opam install --deps-only $(PACKAGES) -y
+	opam exec -- dune build --root . typed-sql-pgocaml-lwt.opam
+	opam install --deps-only $(PACKAGES) $(PGOCAML_PACKAGE) -y
 
 .PHONY: deps_all
 deps_all:
-	opam install --deps-only --with-test --with-doc --with-dev-setup $(PACKAGES) -y
+	opam exec -- dune build --root . typed-sql-pgocaml-lwt.opam
+	opam install --deps-only --with-test --with-doc --with-dev-setup $(PACKAGES) $(PGOCAML_PACKAGE) -y
 
 .PHONY: build
 build:
@@ -34,12 +37,14 @@ doc:
 .PHONY: package
 package: smoke
 	opam exec -- dune build --root . @install
-	opam lint $(PACKAGES)
+	opam exec -- dune build --root . typed-sql-pgocaml-lwt.opam
+	opam lint $(PACKAGES) $(PGOCAML_PACKAGE)
 
 .PHONY: smoke
 smoke:
 	opam exec -- dune build -p typed-sql @install @runtest
 	opam exec -- dune build --only-packages typed-sql,typed-sql-caqti-lwt @install @runtest
+	opam exec -- dune build --only-packages typed-sql,typed-sql-pgocaml-lwt @install @runtest
 
 .PHONY: check
 check: fmt build test doc package

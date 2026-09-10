@@ -40,4 +40,11 @@ module Private = struct
     | Map_projection (_, projection) -> expressions projection
     | Both_projection (left, right) -> expressions left @ expressions right
   ;;
+
+  let rec types : type a. a t -> Db_type.packed list = function
+    | Pure_projection _ -> []
+    | Expr_projection expression -> [ Db_type.Pack (Expr.db_type expression) ]
+    | Map_projection (_, projection) -> types projection
+    | Both_projection (left, right) -> types left @ types right
+  ;;
 end
