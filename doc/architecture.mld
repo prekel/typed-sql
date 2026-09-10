@@ -1,0 +1,41 @@
+{0 Архитектура}
+
+{v
+Generated/manual schema
+          |
+          v
+Typed DSL: Db_type -> Column -> Expr -> Condition -> Projection -> Query
+          |
+          v
+Immutable semantic AST
+          |
+    validate / normalize
+          |
+          v
+PostgreSQL or SQLite lowering
+          |
+          v
+Backend-neutral template + typed parameters + projection plan
+          |
+          v
+Caqti Lwt adapter
+v}
+
+{1 Граница типов}
+
+[Expr] и [Projection] сохраняют OCaml-типы во время построения DSL. Compiler
+получает type-erased semantic nodes только после того, как публичные функции
+проверили совместимость выражений. Source identity остаётся в AST для проверки
+принадлежности колонок, а SQL aliases назначаются только renderer.
+
+{1 Граница backend}
+
+Пакет [typed-sql] не зависит от Caqti или Lwt. Compiled query содержит template
+fragments с нумерованными parameter slots, existential parameter values и
+typed projection plan. Caqti adapter интерпретирует эти descriptors в
+[Caqti.Template.Row_type] и создаёт связанный request/parameter product без
+unchecked casts.
+
+Prepared statement lifetime принадлежит Caqti. Shape в ядре предназначен для
+будущего compilation cache и не включает значения параметров, connection,
+generative source IDs или generated aliases.

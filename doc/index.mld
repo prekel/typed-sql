@@ -1,0 +1,18 @@
+{0 typed-sql}
+
+[typed-sql] — backend-independent typed relational query DSL. Публичные типы
+не позволяют сравнить выражения с разными OCaml-типами или применить колонку к
+ссылке другой таблицы. Query остаётся immutable значением до явного вызова
+execution adapter.
+
+Первый срез включает:
+
+- типы БД, table/column descriptors и bind parameters;
+- отдельные scalar expressions и SQL conditions;
+- applicative projections произвольного OCaml-типа;
+- [SELECT], [WHERE], [ORDER BY], [LIMIT] и [OFFSET];
+- PostgreSQL и SQLite compiler;
+- Lwt execution через пакет [typed-sql-caqti-lwt].
+
+Начать работу можно с {!page-quickstart}. Границы между DSL, compiler и Caqti
+описаны в {!page-architecture}.

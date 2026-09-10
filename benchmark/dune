@@ -1,0 +1,4 @@
+(executable
+ (name query_bench)
+ (modules query_bench)
+ (libraries base typed-sql unix))

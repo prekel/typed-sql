@@ -1,0 +1,13 @@
+(test
+ (name sqlite_test)
+ (package typed-sql-caqti-lwt)
+ (libraries
+  base
+  caqti
+  caqti-driver-sqlite3
+  caqti-lwt
+  caqti-lwt.unix
+  lwt.unix
+  typed-sql
+  typed-sql-caqti-lwt
+  uri))

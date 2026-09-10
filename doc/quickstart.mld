@@ -1,0 +1,53 @@
+{0 Быстрый старт}
+
+Таблица объявляется модулем с абстрактным phantom row type:
+
+{[
+open Typed_sql
+
+module Person = struct
+  type row
+
+  type t = { id : int64; name : string }
+
+  let table : row Table.t = Table.v_exn "people"
+  let id_column = Column.v_exn table "id" Db_type.int64
+  let name_column = Column.v_exn table "name" Db_type.text
+  let id row = Expr.column row id_column
+  let name row = Expr.column row name_column
+
+  let projection row =
+    Projection.map2
+      (fun id name -> { id; name })
+      (Projection.expr (id row))
+      (Projection.expr (name row))
+end
+]}
+
+Query строится без connection и эффекта:
+
+{[
+let by_name name =
+  Query.from Person.table ~select:Person.projection
+  |> Query.where (fun person -> Expr.eq_value (Person.name person) name)
+  |> Query.order_by (fun person -> Person.id person) `Asc
+  |> Query.limit 100
+]}
+
+SQL можно проверить до выполнения:
+
+{[
+let sql =
+  by_name "Ada"
+  |> Compiler.compile ~dialect:Dialect.Postgresql
+  |> Result.map ~f:Compiled_query.sql
+]}
+
+На Caqti Lwt connection запрос выполняется отдельно:
+
+{[
+Typed_sql_caqti_lwt.fetch ~conn (by_name "Ada")
+]}
+
+Приложение должно самостоятельно подключить нужный Caqti driver. Параметры
+остаются отдельными значениями и не вставляются в SQL string.

@@ -1,0 +1,6 @@
+(library
+ (name typed_sql_caqti_lwt)
+ (public_name typed-sql-caqti-lwt)
+ (libraries base caqti caqti-lwt lwt typed-sql)
+ (preprocess
+  (pps ppx_let)))

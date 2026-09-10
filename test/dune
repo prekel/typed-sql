@@ -1,0 +1,12 @@
+(library
+ (name typed_sql_expect_tests)
+ (modules query_test)
+ (libraries base typed-sql)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
+
+(test
+ (name property_test)
+ (modules property_test)
+ (libraries base qcheck typed-sql))

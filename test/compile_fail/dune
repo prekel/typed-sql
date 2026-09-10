@@ -1,0 +1,5 @@
+(rule
+ (alias runtest)
+ (deps foreign_column.ml mismatched_expression.ml wrong_ordering.ml run.sh)
+ (action
+  (run bash %{dep:run.sh} %{bin:ocamlfind} %{lib:typed-sql:typed_sql.cmi})))
