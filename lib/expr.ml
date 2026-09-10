@@ -20,7 +20,7 @@ let nullable_column reference column =
   let db_type = Db_type.option (Column.base_db_type column) in
   { node =
       Ast.Column
-        { source_id = Nullable_table_ref.Private.source_id reference
+        { source_id = Nullable_table_ref.source_id reference
         ; name = Column.name column
         ; db_type = Db_type.Pack db_type
         }
@@ -36,7 +36,7 @@ let param db_type value = { node = Ast.Param (Db_type.Value (db_type, value)); d
 
 let compare : type a. Ast.comparison -> a t -> a t -> Condition.t =
   fun comparison left right ->
-  Condition.Private.create (Ast.Compare (comparison, left.node, right.node))
+  Condition.create (Ast.Compare (comparison, left.node, right.node))
 ;;
 
 let compare_value : type a. Ast.comparison -> a t -> a -> Condition.t =
@@ -57,8 +57,8 @@ let gte _ left right = compare Ast.Gte left right
 let gte_value _ left value = compare_value Ast.Gte left value
 let like left right = compare Ast.Like left right
 let like_value left value = compare_value Ast.Like left value
-let is_null expression = Condition.Private.create (Ast.Is_null expression.node)
-let is_not_null expression = Condition.Private.create (Ast.Is_not_null expression.node)
+let is_null expression = Condition.create (Ast.Is_null expression.node)
+let is_not_null expression = Condition.create (Ast.Is_not_null expression.node)
 let db_type expression = expression.db_type
 
 module Infix = struct
@@ -78,7 +78,5 @@ module Infix = struct
   let ( =~$ ) = like_value
 end
 
-module Private = struct
-  let node expression = expression.node
-  let create node db_type = { node; db_type }
-end
+let node expression = expression.node
+let create node db_type = { node; db_type }

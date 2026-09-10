@@ -8,6 +8,12 @@ type t = part list
 
 let parts template = template
 
+let map template ~text ~param =
+  List.map template ~f:(function
+    | Text value -> text value
+    | Param index -> param index)
+;;
+
 let parameter_sql dialect index =
   let number = Int.to_string (index + 1) in
   match dialect with
@@ -22,13 +28,11 @@ let to_sql ~dialect template =
   |> String.concat
 ;;
 
-module Private = struct
-  let of_parts parts = parts
+let of_parts parts = parts
 
-  let shape_string template =
-    List.map template ~f:(function
-      | Text text -> text
-      | Param index -> "${" ^ Int.to_string index ^ "}")
-    |> String.concat
-  ;;
-end
+let shape_string template =
+  List.map template ~f:(function
+    | Text text -> text
+    | Param index -> "${" ^ Int.to_string index ^ "}")
+  |> String.concat
+;;

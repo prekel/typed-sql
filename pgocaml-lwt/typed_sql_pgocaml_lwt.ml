@@ -3,8 +3,14 @@ open! Base
 module Thread = struct
   type 'a t = 'a Lwt.t
 
-  let return = Lwt.return
-  let ( >>= ) = Lwt.bind
+  include Monad.Make (struct
+      type nonrec 'a t = 'a t
+
+      let return = Lwt.return
+      let bind t ~f = Lwt.bind t f
+      let map = `Custom (fun t ~f -> Lwt.map f t)
+    end)
+
   let fail = Lwt.fail
   let catch = Lwt.catch
 
@@ -52,9 +58,11 @@ let protect ~context f =
   | error -> Error (context ^ ": " ^ Exn.to_string error)
 ;;
 
-let rec encode : type a. a Typed_sql.Db_type.t -> a -> (string option, string) Result.t =
+let rec encode
+  : type a. a Typed_sql_backend.Db_type.t -> a -> (string option, string) Result.t
+  =
   fun db_type value ->
-  match Typed_sql.Db_type.view db_type with
+  match Typed_sql_backend.Db_type.view db_type with
   | Bool -> Ok (Some (Pgocaml.string_of_bool value))
   | Int -> Ok (Some (Pgocaml.string_of_int value))
   | Int64 -> Ok (Some (Pgocaml.string_of_int64 value))
@@ -71,13 +79,15 @@ let rec encode : type a. a Typed_sql.Db_type.t -> a -> (string option, string) R
     encode repr value
 ;;
 
-let rec decode : type a. a Typed_sql.Db_type.t -> string option -> (a, string) Result.t =
+let rec decode
+  : type a. a Typed_sql_backend.Db_type.t -> string option -> (a, string) Result.t
+  =
   fun db_type field ->
-  match Typed_sql.Db_type.view db_type, field with
+  match Typed_sql_backend.Db_type.view db_type, field with
   | Option _, None -> Ok None
   | Option db_type, Some value -> Result.map (decode db_type (Some value)) ~f:Option.some
   | (Bool | Int | Int64 | Float | Text | Bytes | Map _), None ->
-    Error ("unexpected NULL for " ^ Typed_sql.Db_type.name db_type)
+    Error ("unexpected NULL for " ^ Typed_sql_backend.Db_type.name db_type)
   | Bool, Some value -> protect ~context:"bool" (fun () -> Pgocaml.bool_of_string value)
   | Int, Some value -> protect ~context:"int" (fun () -> Pgocaml.int_of_string value)
   | Int64, Some value ->
@@ -93,10 +103,10 @@ let rec decode : type a. a Typed_sql.Db_type.t -> string option -> (a, string) R
     map value
 ;;
 
-let rec oid : type a. a Typed_sql.Db_type.t -> Pgocaml.oid =
+let rec oid : type a. a Typed_sql_backend.Db_type.t -> Pgocaml.oid =
   fun db_type ->
   let value =
-    match Typed_sql.Db_type.view db_type with
+    match Typed_sql_backend.Db_type.view db_type with
     | Bool -> 16
     | Bytes -> 17
     | Int64 -> 20
@@ -111,39 +121,46 @@ let rec oid : type a. a Typed_sql.Db_type.t -> Pgocaml.oid =
 
 let encode_parameters parameters =
   Result.all
-    (List.map parameters ~f:(fun (Typed_sql.Db_type.Value (db_type, value)) ->
+    (List.map parameters ~f:(fun (Typed_sql_backend.Db_type.Value (db_type, value)) ->
        encode db_type value))
 ;;
 
 let parameter_oids parameters =
-  List.map parameters ~f:(fun (Typed_sql.Db_type.Value (db_type, _)) -> oid db_type)
+  List.map parameters ~f:(fun (Typed_sql_backend.Db_type.Value (db_type, _)) ->
+    oid db_type)
 ;;
 
-let rec decode_projection
-  : type result.
-    result Typed_sql.Projection.t
-    -> Pgocaml.row
-    -> (result * Pgocaml.row, string) Result.t
-  =
-  fun projection fields ->
-  match Typed_sql.Projection.view projection with
-  | Pure value -> Ok (value, fields)
-  | Expr expression ->
-    (match fields with
-     | [] -> Error "row has fewer columns than the projection"
-     | field :: fields ->
-       Result.map
-         (decode (Typed_sql.Expr.db_type expression) field)
-         ~f:(fun value -> value, fields))
-  | Map (map, projection) ->
-    Result.map (decode_projection projection fields) ~f:(fun (value, fields) ->
-      map value, fields)
-  | Both (left, right) ->
-    let open Result.Let_syntax in
-    let%bind left, fields = decode_projection left fields in
-    let%map right, fields = decode_projection right fields in
-    (left, right), fields
-;;
+module Projection_decoder = Typed_sql_backend.Projection.Make (struct
+    type 'a t = Pgocaml.row -> ('a * Pgocaml.row, string) Result.t
+
+    include Applicative.Make_using_map2 (struct
+        type nonrec 'a t = 'a t
+
+        let return value fields = Ok (value, fields)
+
+        let map decode ~f fields =
+          Result.map (decode fields) ~f:(fun (value, fields) -> f value, fields)
+        ;;
+
+        let map2 left right ~f fields =
+          let open Result.Let_syntax in
+          let%bind left, fields = left fields in
+          let%map right, fields = right fields in
+          f left right, fields
+        ;;
+
+        let map = `Custom map
+      end)
+
+    let field db_type fields =
+      match fields with
+      | [] -> Error "row has fewer columns than the projection"
+      | field :: fields ->
+        Result.map (decode db_type field) ~f:(fun value -> value, fields)
+    ;;
+  end)
+
+let decode_projection = Projection_decoder.run
 
 let decode_row projection row =
   let open Result.Let_syntax in
@@ -178,12 +195,12 @@ let fetch ~conn query =
       run
         ~conn
         ~sql:(Typed_sql.Compiled_query.sql compiled)
-        ~parameters:(Typed_sql.Compiled_query.parameters compiled)
+        ~parameters:(Typed_sql_backend.Compiled_query.parameters compiled)
     in
     (match rows with
      | Error error -> Lwt.return (Error error)
      | Ok rows ->
-       Typed_sql.Compiled_query.projection compiled |> fun projection ->
+       Typed_sql_backend.Compiled_query.projection compiled |> fun projection ->
        Result.all (List.map rows ~f:(decode_row projection))
        |> Result.map_error ~f:(fun message -> Decode message)
        |> Lwt.return)
@@ -223,7 +240,7 @@ let execute ~conn command =
       run
         ~conn
         ~sql:(Typed_sql.Compiled_command.sql compiled)
-        ~parameters:(Typed_sql.Compiled_command.parameters compiled)
+        ~parameters:(Typed_sql_backend.Compiled_command.parameters compiled)
     in
     (match rows with
      | Error error -> Lwt.return (Error error)

@@ -1,6 +1,14 @@
 (library
- (name typed_sql)
- (public_name typed-sql)
+ (name typed_sql_private)
+ (public_name typed-sql.private)
+ (modules
+  (:standard \ typed_sql))
  (libraries base)
  (preprocess
   (pps ppx_let)))
+
+(library
+ (name typed_sql)
+ (public_name typed-sql)
+ (modules typed_sql)
+ (libraries typed_sql_private))

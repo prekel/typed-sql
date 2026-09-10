@@ -1,0 +1,9 @@
+(rule
+ (alias runtest)
+ (deps construct_view.ml construct_parameter.ml run.sh)
+ (action
+  (run
+   bash
+   %{dep:run.sh}
+   %{bin:ocamlfind}
+   %{lib:typed-sql.backend:typed_sql_backend.cmi})))

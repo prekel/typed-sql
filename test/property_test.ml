@@ -28,12 +28,15 @@ let parameter_count_matches =
        | Error _ -> false
        | Ok compiled ->
          let bind_count =
-           Typed_sql.Template.parts (Compiled_query.template compiled)
-           |> List.count ~f:(function
-             | Template.Param _ -> true
-             | Template.Text _ -> false)
+           Typed_sql_backend.Template.map
+             (Typed_sql_backend.Compiled_query.template compiled)
+             ~text:(Fn.const false)
+             ~param:(Fn.const true)
+           |> List.count ~f:Fn.id
          in
-         Int.equal bind_count (List.length (Compiled_query.parameters compiled)))
+         Int.equal
+           bind_count
+           (List.length (Typed_sql_backend.Compiled_query.parameters compiled)))
 ;;
 
 let values_never_appear_in_sql =

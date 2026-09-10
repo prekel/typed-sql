@@ -10,4 +10,6 @@
   lwt.unix
   typed-sql
   typed-sql-caqti-lwt
-  uri))
+  uri)
+ (preprocess
+  (pps ppx_let)))

@@ -5,8 +5,5 @@ type command = Ast.command
 
 let result_query ~dialect:_ query = Ok query
 let command ~dialect:_ command = Ok command
-
-module Private = struct
-  let result_query_ast query = query
-  let command_ast command = command
-end
+let result_query_ast query = query
+let command_ast command = command

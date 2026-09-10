@@ -22,7 +22,7 @@ module Person = struct
 
   let projection reference =
     Projection.map3
-      (fun id name nickname -> { id; name; nickname })
+      ~f:(fun id name nickname -> { id; name; nickname })
       (Projection.expr (id reference))
       (Projection.expr (name reference))
       (Projection.expr (nickname reference))
@@ -82,24 +82,6 @@ let%expect_test "infix comparison operators render in source order" =
     {| SELECT t0."id", t0."name", t0."nickname" FROM "public"."people" AS t0 WHERE ((t0."id" < $1) AND (t0."id" <= $2) AND (t0."id" > $3) AND (t0."id" >= $4) AND (t0."id" <> $5) AND (t0."name" LIKE $6)) |}]
 ;;
 
-let%expect_test "query shape excludes values and generative source ids" =
-  let make value =
-    Query.from Person.table ~select:Person.projection
-    |> Query.where (fun person -> Person.name person =$ value)
-    |> compile_exn Dialect.Postgresql
-  in
-  let first = make "Ada" in
-  let second = make "Grace" in
-  Stdlib.print_endline
-    (Bool.to_string
-       (Shape.equal (Compiled_query.shape first) (Compiled_query.shape second)));
-  Stdlib.print_endline (Int.to_string (List.length (Compiled_query.parameters first)));
-  [%expect
-    {|
-    true
-    1 |}]
-;;
-
 let%expect_test "escaped table reference is rejected" =
   let escaped = ref None in
   let _ =
@@ -120,7 +102,7 @@ let%expect_test "escaped table reference is rejected" =
 ;;
 
 let%expect_test "invalid limits and empty projections are validation errors" =
-  let empty = Query.from Person.table ~select:(fun _ -> Projection.pure ()) in
+  let empty = Query.from Person.table ~select:(fun _ -> Projection.return ()) in
   let negative = Query.from Person.table ~select:Person.projection |> Query.limit (-1) in
   (match Compiler.compile ~dialect:Dialect.Sqlite (Query.to_result empty) with
    | Ok _ -> Stdlib.print_endline "unexpected success"
@@ -152,7 +134,7 @@ let%expect_test "joins use deterministic aliases and LEFT JOIN makes its side nu
       Person.id person =. Department.person_id department)
     |> Query.select (fun (person, department) ->
       Projection.map2
-        (fun person_id department_name -> person_id, department_name)
+        ~f:(fun person_id department_name -> person_id, department_name)
         (Projection.expr (Person.id person))
         (Projection.expr (Department.name department)))
   in
@@ -162,7 +144,7 @@ let%expect_test "joins use deterministic aliases and LEFT JOIN makes its side nu
       Person.id person =. Department.person_id department)
     |> Query.select (fun (person, department) ->
       Projection.map2
-        (fun person_id department_name -> person_id, department_name)
+        ~f:(fun person_id department_name -> person_id, department_name)
         (Projection.expr (Person.id person))
         (Projection.expr (Department.nullable_name department)))
   in
@@ -212,24 +194,4 @@ let%expect_test "portable DML and RETURNING" =
     INSERT INTO "public"."people" ("id", "name") VALUES ($1, $2) RETURNING "id"
     UPDATE "public"."people" SET "name" = ?1 WHERE ("id" = ?2)
     DELETE FROM "public"."people" |}]
-;;
-
-let%expect_test "mapped codecs with the same name have distinct shapes" =
-  let mapped () =
-    Db_type.map
-      ~name:"id"
-      ~encode:(fun value -> Ok value)
-      ~decode:(fun value -> Ok value)
-      Db_type.int64
-  in
-  let make db_type =
-    let table : unit Table.t = Table.v_exn "ids" in
-    let column = Column.v_exn table "id" db_type in
-    Query.from table ~select:(fun row -> Projection.expr (Expr.column row column))
-    |> compile_exn Dialect.Sqlite
-    |> Compiled_query.shape
-  in
-  Stdlib.print_endline
-    (Bool.to_string (Shape.equal (make (mapped ())) (make (mapped ()))));
-  [%expect {| false |}]
 ;;

@@ -15,7 +15,5 @@ module Infix = struct
   let ( ||. ) = or_
 end
 
-module Private = struct
-  let create condition = condition
-  let node condition = condition
-end
+let create condition = condition
+let node condition = condition

@@ -1,0 +1,4 @@
+(library
+ (name typed_sql_backend)
+ (public_name typed-sql.backend)
+ (libraries base typed-sql typed-sql.private))

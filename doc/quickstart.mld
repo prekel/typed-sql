@@ -19,11 +19,25 @@ module Person = struct
 
   let projection row =
     Projection.map2
-      (fun id name -> { id; name })
+      ~f:(fun id name -> { id; name })
       (Projection.expr (id row))
       (Projection.expr (name row))
 end
 ]}
+
+[Projection] реализует [Base.Applicative.S]. С [ppx_let] сборку результата
+можно записать через [let%map]:
+
+{[
+let projection row =
+  let open Projection.Let_syntax in
+  let%map id = Projection.expr (Person.id row)
+  and name = Projection.expr (Person.name row) in
+  { Person.id; name }
+]}
+
+[Projection.return] добавляет OCaml-значение без SQL-колонки. В итоговой
+projection должно быть хотя бы одно выражение [Projection.expr].
 
 Query строится без connection и эффекта:
 

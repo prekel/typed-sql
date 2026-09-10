@@ -236,10 +236,10 @@ let render_command_ast (command : Ast.command) state =
        parts @ [ Template.Text " WHERE " ] @ condition, state)
 ;;
 
-let finish (parts, state) = Template.Private.of_parts parts, List.rev state.parameters_rev
+let finish (parts, state) = Template.of_parts parts, List.rev state.parameters_rev
 
 let result_query query =
-  match Lower.Private.result_query_ast query with
+  match Lower.result_query_ast query with
   | Ast.Select select -> finish (render_select select)
   | Ast.Returning returning ->
     let parts, state = render_command_ast returning.command initial_state in
@@ -251,5 +251,5 @@ let result_query query =
 ;;
 
 let command command =
-  finish (render_command_ast (Lower.Private.command_ast command) initial_state)
+  finish (render_command_ast (Lower.command_ast command) initial_state)
 ;;

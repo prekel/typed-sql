@@ -8,8 +8,18 @@
 
 P0 и выбранный P1-срез реализованы. Ядро теперь имеет отдельные этапы
 normalization, validation, lowering и rendering; `Shape.t` учитывает identity
-codec и layout projection. Публичный facade скрывает внутренние `Private`
-модули, поэтому semantic AST нельзя собрать из обычного пользовательского API.
+codec и layout projection. Основной API скрывает внутренние constructors;
+отдельная внутренняя библиотека `typed_sql_private` открывает AST и этапы
+compiler для white-box тестов. Это нестабильный интерфейс с явным обходом
+ограничений DSL.
+
+Контракт приложения и его документация собраны в `typed_sql.mli`,
+а `Typed_sql` реэкспортирует их из внутренней библиотеки `typed_sql_private`.
+Модули реализации имеют только `.ml` и обычные внутренние функции. Абстракция
+типов задаётся на границе центрального facade. Адаптеры используют отдельный
+`typed-sql.backend` с контрактом в `backend/typed_sql_backend.mli`. Общими
+остаются только непрозрачные compiled query/command; параметры и декодеры
+доступны через backend API.
 
 Реализованы arbitrary `INNER JOIN` и `LEFT JOIN` с deterministic aliases,
 несколькими visible sources и compiler validation. Тип колонки разделён на
@@ -34,8 +44,8 @@ PG'OCaml API не предоставляет affected-row count.
   generative `Table_ref`;
 - typed `Expr<'a>` и отдельный `Condition.t` с равенством, неравенством,
   сравнениями, `LIKE`, проверками `NULL` и трёхзначной логикой условий;
-- applicative `Projection<'a>` с `map`, `both`, `map2`, `map3` и функцией
-  декодирования результата;
+- `Projection<'a>` с полным `Base.Applicative.S`, `Let_syntax` и интерпретатором
+  `Projection.Make` для декодеров адаптеров;
 - immutable deferred `SELECT` с `FROM`, `SELECT`, `WHERE`, `where_opt`,
   `INNER JOIN`, `LEFT JOIN`, `ORDER BY`, `LIMIT` и `OFFSET`;
 - `INSERT`, scoped `UPDATE`/`DELETE`, `RETURNING`, commands и результат
@@ -101,6 +111,14 @@ plan. `Shape.t` содержит fingerprint mapped codec и projection type lay
 Собственного LRU compilation cache и explicit parameter slots пока нет;
 compiled values по-прежнему содержат реальные parameters.
 
+API приложения не содержит codec views, packed values, шаблонов, shape и
+интерпретатора projection. Они доступны адаптерам через `Typed_sql_backend`;
+конструкторы `view` и packed values разрешены только для pattern matching.
+Адаптеры используют `Projection.Make` и `Template.map` из backend API.
+`Projection.return` заменяет `pure`,
+а `map`, `map2`, `map3` принимают именованный `~f` согласно Base.
+Монадическая обёртка Lwt в PG'OCaml использует `Base.Monad.Make`.
+
 ## Результаты аудита
 
 ### Проверки
@@ -139,9 +157,17 @@ compile-fail cases и SQLite execution. Подключения к PostgreSQL в 
 
 Semantic AST, normalization, validation, lowering и rendering разделены.
 `Result_query`/`Command` и compiled counterparts образуют общий backend-neutral
-контракт. Shape включает identity codec и типы projection; публичный facade
-скрывает `Private`. Regression tests покрывают bind count, source scope, shape,
+контракт. Shape включает identity codec и типы projection. Тестовый интерфейс
+выделен во внутреннюю библиотеку `typed_sql_private`; основной API не
+раскрывает constructors AST.
+Regression tests покрывают bind count, source scope, shape,
 JOIN, DML, public API boundary и SQLite execution.
+
+Отдельные тесты private API проверяют нормализацию и её идемпотентность,
+ошибочные assignments и projections, ссылку на ещё не видимый source в JOIN ON,
+а также порядок и значения bind parameters после lowering/rendering.
+Доступ к внутренним этапам подготовлен для дальнейшего расширения покрытия;
+процент покрытия пока не измеряется.
 
 Остаётся только уточнить capability errors одновременно с первой
 vendor-specific возможностью: пока все реализованные конструкции portable для

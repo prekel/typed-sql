@@ -13,7 +13,7 @@ module Item = struct
 
   let projection reference =
     Projection.map2
-      (fun id name -> id, name)
+      ~f:(fun id name -> id, name)
       (Projection.expr (id reference))
       (Projection.expr (name reference))
   ;;

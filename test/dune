@@ -4,9 +4,25 @@
  (libraries base typed-sql)
  (inline_tests)
  (preprocess
+  (pps ppx_expect ppx_let)))
+
+(library
+ (name typed_sql_backend_expect_tests)
+ (modules projection_test backend_test)
+ (libraries base typed-sql typed-sql.backend)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect ppx_let)))
+
+(library
+ (name typed_sql_private_expect_tests)
+ (modules private_api_test)
+ (libraries base typed_sql_private)
+ (inline_tests)
+ (preprocess
   (pps ppx_expect)))
 
 (test
  (name property_test)
  (modules property_test)
- (libraries base qcheck typed-sql))
+ (libraries base qcheck typed-sql typed-sql.backend))

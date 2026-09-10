@@ -24,9 +24,9 @@ let dialect_of_caqti = function
   | _ -> Error (Unsupported_dialect "unregistered")
 ;;
 
-let rec caqti_type : type a. a Typed_sql.Db_type.t -> a T.Row_type.t =
+let rec caqti_type : type a. a Typed_sql_backend.Db_type.t -> a T.Row_type.t =
   fun db_type ->
-  match Typed_sql.Db_type.view db_type with
+  match Typed_sql_backend.Db_type.view db_type with
   | Bool -> T.Row_type.bool
   | Int -> T.Row_type.int
   | Int64 -> T.Row_type.int64
@@ -52,7 +52,7 @@ let pack_parameters parameters =
   List.fold
     parameters
     ~init:(Parameters { row_type = T.Row_type.unit; value = () })
-    ~f:(fun (Parameters packed) (Typed_sql.Db_type.Value (db_type, value)) ->
+    ~f:(fun (Parameters packed) (Typed_sql_backend.Db_type.Value (db_type, value)) ->
       Parameters
         { row_type = T.Row_type.t2 packed.row_type (caqti_type db_type)
         ; value = packed.value, value
@@ -66,36 +66,38 @@ type 'result projection_row =
       }
       -> 'result projection_row
 
-let rec projection_row
-  : type result. result Typed_sql.Projection.t -> result projection_row
-  =
-  fun projection ->
-  match Typed_sql.Projection.view projection with
-  | Pure value ->
-    Projection_row { row_type = T.Row_type.unit; decode = (fun () -> value) }
-  | Expr expression ->
-    Projection_row
-      { row_type = caqti_type (Typed_sql.Expr.db_type expression); decode = Fn.id }
-  | Map (function_, projection) ->
-    (match projection_row projection with
-     | Projection_row row ->
-       Projection_row
-         { row_type = row.row_type; decode = (fun raw -> function_ (row.decode raw)) })
-  | Both (left, right) ->
-    (match projection_row left, projection_row right with
-     | Projection_row left, Projection_row right ->
-       Projection_row
-         { row_type = T.Row_type.t2 left.row_type right.row_type
-         ; decode =
-             (fun (left_raw, right_raw) -> left.decode left_raw, right.decode right_raw)
-         })
-;;
+module Projection_decoder = Typed_sql_backend.Projection.Make (struct
+    type 'a t = 'a projection_row
+
+    include Applicative.Make_using_map2 (struct
+        type nonrec 'a t = 'a t
+
+        let return value =
+          Projection_row { row_type = T.Row_type.unit; decode = (fun () -> value) }
+        ;;
+
+        let map (Projection_row row) ~f =
+          Projection_row
+            { row_type = row.row_type; decode = (fun raw -> f (row.decode raw)) }
+        ;;
+
+        let map2 (Projection_row left) (Projection_row right) ~f =
+          Projection_row
+            { row_type = T.Row_type.t2 left.row_type right.row_type
+            ; decode = (fun (a, b) -> f (left.decode a) (right.decode b))
+            }
+        ;;
+
+        let map = `Custom map
+      end)
+
+    let field db_type = Projection_row { row_type = caqti_type db_type; decode = Fn.id }
+  end)
+
+let projection_row = Projection_decoder.run
 
 let caqti_query template =
-  Typed_sql.Template.parts template
-  |> List.map ~f:(function
-    | Typed_sql.Template.Text text -> T.Query.lit text
-    | Typed_sql.Template.Param index -> T.Query.param index)
+  Typed_sql_backend.Template.map template ~text:T.Query.lit ~param:T.Query.param
   |> T.Query.concat
 ;;
 
@@ -122,16 +124,16 @@ let fetch ~conn query =
   match compile Connection.dialect query with
   | Error error -> Lwt.return (Error error)
   | Ok compiled ->
-    (match pack_parameters (Typed_sql.Compiled_query.parameters compiled) with
+    (match pack_parameters (Typed_sql_backend.Compiled_query.parameters compiled) with
      | Parameters parameters ->
-       (match projection_row (Typed_sql.Compiled_query.projection compiled) with
+       (match projection_row (Typed_sql_backend.Compiled_query.projection compiled) with
         | Projection_row row ->
           let request_type =
             T.Request_type.Infix.(parameters.row_type -->* row.row_type)
           in
           let request =
             T.Request.create T.Request.Dynamic request_type (fun _ ->
-              caqti_query (Typed_sql.Compiled_query.template compiled))
+              caqti_query (Typed_sql_backend.Compiled_query.template compiled))
           in
           Connection.collect_list request parameters.value
           |> Lwt.map (fun result ->
@@ -143,16 +145,16 @@ let fetch_one ~conn query =
   match compile Connection.dialect query with
   | Error error -> Lwt.return (Error error)
   | Ok compiled ->
-    (match pack_parameters (Typed_sql.Compiled_query.parameters compiled) with
+    (match pack_parameters (Typed_sql_backend.Compiled_query.parameters compiled) with
      | Parameters parameters ->
-       (match projection_row (Typed_sql.Compiled_query.projection compiled) with
+       (match projection_row (Typed_sql_backend.Compiled_query.projection compiled) with
         | Projection_row row ->
           let request_type =
             T.Request_type.Infix.(parameters.row_type -->! row.row_type)
           in
           let request =
             T.Request.create T.Request.Dynamic request_type (fun _ ->
-              caqti_query (Typed_sql.Compiled_query.template compiled))
+              caqti_query (Typed_sql_backend.Compiled_query.template compiled))
           in
           Connection.find request parameters.value
           |> Lwt.map (fun result -> map_caqti_error result |> Result.map ~f:row.decode)))
@@ -163,16 +165,16 @@ let fetch_opt ~conn query =
   match compile Connection.dialect query with
   | Error error -> Lwt.return (Error error)
   | Ok compiled ->
-    (match pack_parameters (Typed_sql.Compiled_query.parameters compiled) with
+    (match pack_parameters (Typed_sql_backend.Compiled_query.parameters compiled) with
      | Parameters parameters ->
-       (match projection_row (Typed_sql.Compiled_query.projection compiled) with
+       (match projection_row (Typed_sql_backend.Compiled_query.projection compiled) with
         | Projection_row row ->
           let request_type =
             T.Request_type.Infix.(parameters.row_type -->? row.row_type)
           in
           let request =
             T.Request.create T.Request.Dynamic request_type (fun _ ->
-              caqti_query (Typed_sql.Compiled_query.template compiled))
+              caqti_query (Typed_sql_backend.Compiled_query.template compiled))
           in
           Connection.find_opt request parameters.value
           |> Lwt.map (fun result ->
@@ -184,14 +186,14 @@ let execute ~conn command =
   match compile_command Connection.dialect command with
   | Error error -> Lwt.return (Error error)
   | Ok compiled ->
-    (match pack_parameters (Typed_sql.Compiled_command.parameters compiled) with
+    (match pack_parameters (Typed_sql_backend.Compiled_command.parameters compiled) with
      | Parameters parameters ->
        let request_type =
          T.Request_type.Infix.(parameters.row_type -->. T.Row_type.unit)
        in
        let request =
          T.Request.create T.Request.Dynamic request_type (fun _ ->
-           caqti_query (Typed_sql.Compiled_command.template compiled))
+           caqti_query (Typed_sql_backend.Compiled_command.template compiled))
        in
        Connection.exec_with_affected_count request parameters.value
        |> Lwt.map (function

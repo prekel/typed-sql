@@ -36,6 +36,66 @@ schema-nullable колонки.
 сохраняют тип левого expression при создании bind parameter, поэтому строка
 SQL по-прежнему не строится из пользовательского значения.
 
+{1 API приложения, адаптеров и тестов}
+
+Полный контракт приложения с odoc-комментариями перечислен в
+[lib/typed_sql.mli]. Библиотека [typed-sql] содержит только facade
+[Typed_sql], который реэкспортирует описанные в этой сигнатуре модули из
+внутренней [typed_sql_private]. Поэтому представления скрыты абстрактными
+типами, а остальным модулям реализации отдельные [.mli] не нужны.
+
+[typed_sql_private] устанавливается как техническая зависимость facade, но не
+входит в поддерживаемый пользовательский API. White-box тесты зависят от неё
+непосредственно через Dune. Внутри ядра функции вроде [Expr.node] и
+[Query.ast] вызываются напрямую.
+
+[Typed_sql] предоставляет схему, DSL, компиляцию, SQL и ошибки. Его
+сигнатура не раскрывает internal constructors и AST. Например, white-box тест
+может вызвать [Typed_sql_private.Query.ast query] или
+[Typed_sql_private.Command.create ast], чтобы проверить compiler на намеренно
+некорректном command.
+
+[Projection] реализует [Base.Applicative.S]: [return], [map] с именованным [f],
+[apply], [both], [all] и аппликативные операторы. [Projection.Let_syntax]
+поддерживает [let%map ... and ...]. Структура SELECT известна до декодирования,
+поэтому зависимый от результата [bind] у projection отсутствует.
+
+Библиотека [typed-sql.backend] предоставляет отдельный контракт в
+[backend/typed_sql_backend.mli]. Только здесь находятся [Db_type.view],
+[packed_value], [Template], [Shape] и доступ к декодерам. Конструкторы codec
+views и packed values объявлены [private]: адаптеры могут их разбирать, но не
+создавать. Варианты ошибок, dialect и affected rows остаются в API приложения.
+
+Адаптеры интерпретируют результат через [Typed_sql_backend.Projection.Make],
+предоставляя свой аппликатив и обработчик codec одного поля. SQL-выражения при
+этом им не нужны. [Typed_sql_backend.Template.map] позволяет преобразовать
+текст и bind slots в представление backend.
+
+Общая граница двух API — только [Compiled_query.t] и [Compiled_command.t].
+Их представления закрыты локальными сигнатурами в соответствующих [.ml] ядра,
+а пользовательский фасад сохраняет равенство этих непрозрачных типов.
+Backend принимает результаты обычного compiler без копирования или casts.
+Типы схемы и DSL остаются абстрактными на границе [Typed_sql].
+
+Монадическая обёртка Lwt для PG'OCaml реализована через [Base.Monad.Make].
+Она находится в адаптере; ядро остаётся независимым от эффекта выполнения.
+
+Внутренняя библиотека не гарантирует обратной совместимости и допускает обход
+инвариантов DSL. В ней доступны [Ast], [Table_ref], helpers выражений и
+projections, compiled constructors, а также [Normalizer], [Validator], [Lower]
+и [Renderer]. Перед прямым вызовом renderer тест должен обеспечить validation,
+normalization и lowering входного AST.
+
+[test/query_test.ml] зависит только от API приложения. [test/backend_test.ml]
+и [test/projection_test.ml] проверяют передачу скомпилированных запросов в
+backend, shape, параметры и декодеры. [test/private_api_test.ml] проверяет
+отдельные этапы и ошибки AST.
+Compile-fail tests подтверждают недоступность [Typed_sql.Query.Private] и
+внутренних constructors, абстракцию identifiers, различие phantom row types,
+nullable refs и обязательный scope DML. Дополнительные compile-fail tests
+запрещают доступ приложения к codec views, параметрам, декодерам и shape,
+изменение compiled record и создание private значений через backend API.
+
 {1 Граница backend}
 
 Пакет [typed-sql] не зависит от Caqti, Lwt и PG'OCaml. [Result_query] содержит

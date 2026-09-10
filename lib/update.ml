@@ -27,7 +27,7 @@ let set_expr column expression update =
   let assignment =
     { Ast.source_id = Table_ref.source_id update.reference
     ; column = Column.name column
-    ; value = Expr.Private.node expression
+    ; value = Expr.node expression
     }
   in
   { update with assignments = update.assignments @ [ assignment ] }
@@ -38,7 +38,7 @@ let set column value update =
 ;;
 
 let where make_condition update =
-  let condition = make_condition update.reference |> Condition.Private.node in
+  let condition = make_condition update.reference |> Condition.node in
   let where_ =
     match update.where_ with
     | None -> Some condition
@@ -57,12 +57,12 @@ let ast update =
   }
 ;;
 
-let command update = Command.Private.create (ast update)
+let command update = Command.create (ast update)
 
 let returning make_projection update =
   let projection = make_projection update.reference in
-  Result_query.Private.create
+  Result_query.create
     (Ast.Returning
-       { command = ast update; projection = Projection.Private.expressions projection })
+       { command = ast update; projection = Projection.expressions projection })
     projection
 ;;

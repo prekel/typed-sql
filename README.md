@@ -25,7 +25,7 @@ module Person = struct
 
   let projection row =
     Projection.map2
-      (fun id name -> id, name)
+      ~f:(fun id name -> id, name)
       (Projection.expr (id row))
       (Projection.expr (name row))
 end
@@ -42,6 +42,20 @@ Query не содержит connection или `Lwt.t`. Materialization выпо�
 ```ocaml
 Typed_sql_caqti_lwt.fetch ~conn (query "Ada" |> Query.to_result)
 ```
+
+Весь API приложения с документацией находится в
+[`lib/typed_sql.mli`](lib/typed_sql.mli): схема, выражения, запросы, компиляция,
+SQL и ошибки. Для приложения достаточно библиотеки `typed-sql` и выбранного
+execution adapter.
+
+Авторы адаптеров используют отдельную библиотеку `typed-sql.backend` и
+[`backend/typed_sql_backend.mli`](backend/typed_sql_backend.mli): параметры,
+codec, шаблоны, shape и декодеры. Она принимает результаты обычного
+`Typed_sql.Compiler` без преобразований.
+
+Внутренняя `typed-sql.private` содержит реализацию только в `.ml`, включая AST
+и этапы compiler. White-box тесты используют её напрямую; этот интерфейс не
+имеет гарантий совместимости.
 
 ## Сборка
 

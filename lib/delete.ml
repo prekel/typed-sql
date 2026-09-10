@@ -22,7 +22,7 @@ let from table =
 ;;
 
 let where make_condition delete =
-  let condition = make_condition delete.reference |> Condition.Private.node in
+  let condition = make_condition delete.reference |> Condition.node in
   let where_ =
     match delete.where_ with
     | None -> Some condition
@@ -41,12 +41,12 @@ let ast delete =
   }
 ;;
 
-let command delete = Command.Private.create (ast delete)
+let command delete = Command.create (ast delete)
 
 let returning make_projection delete =
   let projection = make_projection delete.reference in
-  Result_query.Private.create
+  Result_query.create
     (Ast.Returning
-       { command = ast delete; projection = Projection.Private.expressions projection })
+       { command = ast delete; projection = Projection.expressions projection })
     projection
 ;;

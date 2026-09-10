@@ -25,7 +25,7 @@ let from table ~select =
   ; ast =
       { source
       ; joins = []
-      ; projection = Projection.Private.expressions projection
+      ; projection = Projection.expressions projection
       ; where_ = None
       ; order_by = []
       ; limit = None
@@ -47,7 +47,7 @@ let inner_join table ~on query =
   let join =
     { Ast.kind = Ast.Inner
     ; source = source_of_reference reference
-    ; on = on query.context reference |> Condition.Private.node
+    ; on = on query.context reference |> Condition.node
     }
   in
   { context = query.context, reference
@@ -61,10 +61,10 @@ let left_join table ~on query =
   let join =
     { Ast.kind = Ast.Left
     ; source = source_of_reference reference
-    ; on = on query.context reference |> Condition.Private.node
+    ; on = on query.context reference |> Condition.node
     }
   in
-  { context = query.context, Nullable_table_ref.Private.of_table_ref reference
+  { context = query.context, Nullable_table_ref.of_table_ref reference
   ; projection = query.projection
   ; ast = { query.ast with joins = query.ast.joins @ [ join ] }
   }
@@ -74,12 +74,12 @@ let select make_projection query =
   let projection = make_projection query.context in
   { context = query.context
   ; projection
-  ; ast = { query.ast with projection = Projection.Private.expressions projection }
+  ; ast = { query.ast with projection = Projection.expressions projection }
   }
 ;;
 
 let where make_condition query =
-  let condition = make_condition query.context |> Condition.Private.node in
+  let condition = make_condition query.context |> Condition.node in
   let where_ =
     match query.ast.where_ with
     | None -> Some condition
@@ -95,7 +95,7 @@ let where_opt value ~f query =
 ;;
 
 let order_by make_expression direction query =
-  let expr = make_expression query.context |> Expr.Private.node in
+  let expr = make_expression query.context |> Expr.node in
   let direction =
     match direction with
     | `Asc -> Ast.Asc
@@ -107,9 +107,6 @@ let order_by make_expression direction query =
 
 let limit limit query = { query with ast = { query.ast with limit = Some limit } }
 let offset offset query = { query with ast = { query.ast with offset = Some offset } }
-let to_result query = Result_query.Private.create (Ast.Select query.ast) query.projection
-
-module Private = struct
-  let ast query = query.ast
-  let projection query = query.projection
-end
+let to_result query = Result_query.create (Ast.Select query.ast) query.projection
+let ast query = query.ast
+let projection query = query.projection

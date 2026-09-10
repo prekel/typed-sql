@@ -22,7 +22,7 @@ let set_expr column expression insert =
   let assignment =
     { Ast.source_id = Table_ref.source_id insert.reference
     ; column = Column.name column
-    ; value = Expr.Private.node expression
+    ; value = Expr.node expression
     }
   in
   { insert with assignments = insert.assignments @ [ assignment ] }
@@ -40,12 +40,12 @@ let ast insert =
   }
 ;;
 
-let command insert = Command.Private.create (ast insert)
+let command insert = Command.create (ast insert)
 
 let returning make_projection insert =
   let projection = make_projection insert.reference in
-  Result_query.Private.create
+  Result_query.create
     (Ast.Returning
-       { command = ast insert; projection = Projection.Private.expressions projection })
+       { command = ast insert; projection = Projection.expressions projection })
     projection
 ;;

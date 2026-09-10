@@ -18,3 +18,7 @@ execution adapter.
 
 Начать работу можно с {!page-quickstart}. Границы между DSL, compiler и Caqti
 описаны в {!page-architecture}.
+
+API приложения целиком описан в [lib/typed_sql.mli]. Для авторов execution
+adapters есть отдельная библиотека [typed-sql.backend] и контракт
+[backend/typed_sql_backend.mli].

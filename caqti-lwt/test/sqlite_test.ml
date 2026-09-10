@@ -53,7 +53,7 @@ module Person = struct
   let projection reference =
     let identity ((id, name), (role, nickname)) = { id; name; role; nickname } in
     Projection.map
-      identity
+      ~f:identity
       (Projection.both
          (Projection.both
             (Projection.expr (id reference))
@@ -178,7 +178,7 @@ let run conn =
       Person.id person =. Department.person_id department)
     |> Query.select (fun (person, department) ->
       Projection.map2
-        (fun person_name department_name -> person_name, department_name)
+        ~f:(fun person_name department_name -> person_name, department_name)
         (Projection.expr (Person.name person))
         (Projection.expr (Department.nullable_name department)))
     |> Query.order_by (fun (person, _) -> Person.id person) `Asc
@@ -186,6 +186,26 @@ let run conn =
   in
   let* departments = Typed_sql_caqti_lwt.fetch ~conn departments >>= adapter_or_fail in
   assert_equal [ "Ada", Some "Mathematics"; "Grace", None; "Linus", None ] departments;
+  let applicative =
+    Query.from Person.table ~select:(fun person ->
+      let open Projection.Let_syntax in
+      let%map name = Projection.expr (Person.name person)
+      and values =
+        Projection.all
+          [ Projection.expr (Expr.param Db_type.int 11)
+          ; Projection.apply
+              (Projection.return Int.succ)
+              (Projection.expr (Expr.param Db_type.int 22))
+          ]
+      and empty = Projection.all [] in
+      name, values, empty)
+    |> Query.order_by (fun person -> Person.id person) `Asc
+    |> Query.to_result
+  in
+  let* rows = Typed_sql_caqti_lwt.fetch ~conn applicative >>= adapter_or_fail in
+  assert_equal
+    [ "Ada", [ 11; 23 ], []; "Grace", [ 11; 23 ], []; "Linus", [ 11; 23 ], [] ]
+    rows;
   let inserted =
     Insert.into Person.table
     |> Insert.set Person.id_column 4L
