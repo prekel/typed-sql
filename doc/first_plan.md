@@ -846,19 +846,19 @@ Query.select Cpe.projection
 и здесь:
 
 ```ocaml
-Insert.returning Cpe.projection
+Insert.(Cpe.insert () |> returning Cpe.projection)
 ```
 
 и:
 
 ```ocaml
-Update.returning Cpe.projection
+Update.(Cpe.update () |> returning Cpe.projection)
 ```
 
 и:
 
 ```ocaml
-Delete.returning Cpe.projection
+Delete.(Cpe.delete () |> returning Cpe.projection)
 ```
 
 PostgreSQL в `UPDATE ... RETURNING` использует output list той же природы, что и `SELECT` output list. ([PostgreSQL][8])
@@ -870,9 +870,10 @@ PostgreSQL в `UPDATE ... RETURNING` использует output list той ж�
 ### INSERT
 
 ```ocaml
-Cpe.insert ()
-|> Insert.set Cpe.name "router-1"
-|> Insert.set Cpe.typ `Router
+Insert.(
+  Cpe.insert ()
+  |> set Cpe.name "router-1"
+  |> set Cpe.typ `Router)
 ```
 
 до `RETURNING` это:
@@ -884,7 +885,7 @@ Cpe.row Insert.t
 После:
 
 ```ocaml
-|> Insert.returning Cpe.projection
+Insert.(Cpe.insert () |> returning Cpe.projection)
 ```
 
 получаем:
@@ -902,22 +903,21 @@ Db.fetch_one ~conn
 ### UPDATE
 
 ```ocaml
-Cpe.update ()
-|> Update.set Cpe.name "router-2"
-|> Update.where (fun c ->
-     Cpe.id c =: id)
-|> Update.returning Cpe.projection
+Update.(
+  Cpe.update ()
+  |> set Cpe.name "router-2"
+  |> where (fun c -> Cpe.id c =: id)
+  |> returning Cpe.projection)
 |> Db.fetch_one ~conn
 ```
 
 ### DELETE
 
 ```ocaml
-Cpe.delete ()
-|> Delete.where (fun c ->
-     Cpe.id c =: id)
-|> Delete.returning (fun c ->
-     Projection.expr (Cpe.id c))
+Delete.(
+  Cpe.delete ()
+  |> where (fun c -> Cpe.id c =: id)
+  |> returning (fun c -> Projection.expr (Cpe.id c)))
 |> Db.fetch
 ```
 
@@ -1755,7 +1755,7 @@ Cpe.id c =. Cpe.name c
 ```
 
 ```ocaml
-Update.set Cpe.id "hello"
+Update.(Cpe.update () |> set Cpe.id "hello")
 ```
 
 ```ocaml

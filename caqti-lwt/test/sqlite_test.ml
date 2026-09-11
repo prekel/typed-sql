@@ -70,6 +70,7 @@ module Department = struct
   let person_id_column = Column.v_exn table "person_id" Db_type.int64
   let name_column = Column.v_exn table "name" Db_type.text
   let person_id reference = Expr.column reference person_id_column
+  let name reference = Expr.column reference name_column
   let nullable_name reference = Expr.nullable_column reference name_column
 end
 
@@ -299,15 +300,16 @@ let run conn =
     }
   in
   let codec_insert =
-    Insert.into Codec_value.table
-    |> Insert.set Codec_value.boolean_column codec_value.boolean
-    |> Insert.set Codec_value.integer_column codec_value.integer
-    |> Insert.set Codec_value.integer_64_column codec_value.integer_64
-    |> Insert.set Codec_value.floating_column codec_value.floating
-    |> Insert.set Codec_value.text_column codec_value.text
-    |> Insert.set Codec_value.bytes_column codec_value.bytes
-    |> Insert.set Codec_value.nullable_text_column codec_value.nullable_text
-    |> Insert.returning Codec_value.projection
+    Insert.(
+      into Codec_value.table
+      |> set Codec_value.boolean_column codec_value.boolean
+      |> set Codec_value.integer_column codec_value.integer
+      |> set Codec_value.integer_64_column codec_value.integer_64
+      |> set Codec_value.floating_column codec_value.floating
+      |> set Codec_value.text_column codec_value.text
+      |> set Codec_value.bytes_column codec_value.bytes
+      |> set Codec_value.nullable_text_column codec_value.nullable_text
+      |> returning Codec_value.projection)
   in
   let* decoded_codec =
     Typed_sql_caqti_lwt.fetch_one ~conn codec_insert >>= adapter_or_fail
@@ -315,21 +317,23 @@ let run conn =
   if not (Poly.equal codec_value decoded_codec) then
     failwith "database type round-trip changed a value";
   let inserted =
-    Insert.into Person.table
-    |> Insert.set Person.id_column 4L
-    |> Insert.set Person.name_column "Edsger"
-    |> Insert.set Person.role_column `Guest
-    |> Insert.set Person.nickname_column None
-    |> Insert.returning Person.projection
+    Insert.(
+      into Person.table
+      |> set Person.id_column 4L
+      |> set Person.name_column "Edsger"
+      |> set Person.role_column `Guest
+      |> set Person.nickname_column None
+      |> returning Person.projection)
   in
   let* inserted = Typed_sql_caqti_lwt.fetch_one ~conn inserted >>= adapter_or_fail in
   if not (Int64.equal inserted.id 4L) then
     failwith "INSERT RETURNING returned the wrong row";
   let update =
-    Update.table Person.table
-    |> Update.set Person.name_column "Dijkstra"
-    |> Update.where (fun person -> Person.id person =$ 4L)
-    |> Update.command
+    Update.(
+      table Person.table
+      |> set Person.name_column "Dijkstra"
+      |> where (fun person -> Person.id person =$ 4L)
+      |> command)
   in
   let* affected = Typed_sql_caqti_lwt.execute ~conn update >>= adapter_or_fail in
   (match affected with
@@ -338,9 +342,7 @@ let run conn =
      failwith ("UPDATE affected " ^ Int.to_string count ^ " rows")
    | Affected_rows.Unknown -> ());
   let delete =
-    Delete.from Person.table
-    |> Delete.where (fun person -> Person.id person =$ 4L)
-    |> Delete.command
+    Delete.(from Person.table |> where (fun person -> Person.id person =$ 4L) |> command)
   in
   let* _ = Typed_sql_caqti_lwt.execute ~conn delete >>= adapter_or_fail in
   let deleted =
@@ -353,10 +355,11 @@ let run conn =
   if Option.is_some deleted then
     failwith "DELETE did not remove the row";
   let codec_encode_failure =
-    Insert.into Mapped_failure.table
-    |> Insert.set Mapped_failure.encode_column "bad"
-    |> Insert.set Mapped_failure.decode_column "ok"
-    |> Insert.command
+    Insert.(
+      into Mapped_failure.table
+      |> set Mapped_failure.encode_column "bad"
+      |> set Mapped_failure.decode_column "ok"
+      |> command)
   in
   let* encode_failure = Typed_sql_caqti_lwt.execute ~conn codec_encode_failure in
   assert_codec_error "encode rejected by test codec" encode_failure;
@@ -388,6 +391,69 @@ let run conn =
   in
   if not (String.equal name "Ada") then
     failwith "connection returned the wrong row after a codec error";
+  let multi_row_insert =
+    Insert.(
+      rows
+        Person.table
+        [ (fun row ->
+            row
+            |> set Person.id_column 5L
+            |> set Person.name_column "Barbara"
+            |> set Person.role_column `Admin
+            |> set Person.nickname_column (Some "Barb"))
+        ; (fun row ->
+            row
+            |> set Person.role_column `Guest
+            |> set Person.id_column 6L
+            |> set Person.nickname_column None
+            |> set Person.name_column "Margaret")
+        ]
+      |> returning Person.projection)
+  in
+  let* inserted = Typed_sql_caqti_lwt.fetch ~conn multi_row_insert >>= adapter_or_fail in
+  assert_equal
+    [ { Person.id = 5L; name = "Barbara"; role = `Admin; nickname = Some "Barb" }
+    ; { Person.id = 6L; name = "Margaret"; role = `Guest; nickname = None }
+    ]
+    inserted;
+  let conditional_update =
+    Update.(
+      table Person.table
+      |> set_opt Person.name_column None
+      |> set_opt Person.nickname_column (Some None)
+      |> where (fun person -> Person.id person =$ 5L)
+      |> command)
+  in
+  let* _ = Typed_sql_caqti_lwt.execute ~conn conditional_update >>= adapter_or_fail in
+  let updated_person =
+    Query.(
+      from Person.table
+      |> where (fun person -> Person.id person =$ 5L)
+      |> select Person.projection)
+  in
+  let* updated_person =
+    Typed_sql_caqti_lwt.fetch_one ~conn updated_person >>= adapter_or_fail
+  in
+  if
+    not
+      (String.equal updated_person.name "Barbara"
+       && Option.is_none updated_person.nickname)
+  then
+    failwith "conditional UPDATE changed an omitted value or failed to write NULL";
+  let update_from =
+    Update.(
+      table Person.table
+      |> from Department.table ~f:(fun person department update ->
+        update
+        |> set_expr Person.name_column (Department.name department)
+        |> where (fun _ -> Person.id person =. Department.person_id department))
+      |> returning Person.projection)
+  in
+  let* updated_from =
+    Typed_sql_caqti_lwt.fetch_one ~conn update_from >>= adapter_or_fail
+  in
+  if not (String.equal updated_from.name "Mathematics") then
+    failwith "UPDATE FROM did not use the joined row";
   Lwt.return_unit
 ;;
 

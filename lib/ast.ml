@@ -65,18 +65,27 @@ type select =
 type assignment =
   { source_id : int
   ; column : Identifier.t
-  ; value : expr
+  ; value : assignment_value
   }
+
+and assignment_value =
+  | Expression of expr
+  | Default
 
 type command_kind =
   | Insert
   | Update
   | Delete
 
+type conflict = Postgresql_do_nothing
+
 type command =
   { kind : command_kind
   ; source : source
   ; assignments : assignment list
+  ; rows : assignment list list
+  ; from : source list
+  ; conflict : conflict option
   ; where_ : condition option
   }
 

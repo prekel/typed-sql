@@ -20,6 +20,13 @@ module Command = Typed_sql_private.Command
 module Insert = Typed_sql_private.Insert
 module Update = Typed_sql_private.Update
 module Delete = Typed_sql_private.Delete
+
+module Postgresql = struct
+  module Insert = struct
+    let on_conflict_do_nothing = Insert.postgresql_on_conflict_do_nothing
+  end
+end
+
 module Dialect = Typed_sql_private.Dialect
 module Compile_error = Typed_sql_private.Compile_error
 module Compiled_query = Typed_sql_private.Compiled_query

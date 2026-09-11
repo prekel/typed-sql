@@ -375,13 +375,14 @@ module Query : sig
   val offset : int -> 'ctx t -> 'ctx t
 end
 
-(** Immutable single-row INSERT builders. *)
+(** Immutable INSERT builders. *)
 module Insert : sig
-  (** A single-row INSERT builder. The compiler rejects empty assignments and
-      duplicate target columns. Values passed to [set] are always bound. *)
+  (** An INSERT builder. The compiler rejects empty rows, duplicate target
+      columns, and different column sets across rows. Values passed to [set]
+      are always bound. *)
   type 'row t
 
-  (** Start a single-row INSERT into a table. *)
+  (** Start an INSERT containing one empty row. *)
   val into : 'row Table.t -> 'row t
 
   (** Assign a column from an OCaml value, which is always bound as a
@@ -391,6 +392,16 @@ module Insert : sig
   (** Assign a column from a typed expression. The compiler rejects an
       expression referring to a different source. *)
   val set_expr : ('row, 'base, 'value) Column.t -> 'value Expr.t -> 'row t -> 'row t
+
+  (** Assign SQL [DEFAULT] to a column without inventing an OCaml value. SQLite
+      rejects this operation explicitly because it does not support [DEFAULT]
+      inside a [VALUES] row. *)
+  val default : ('row, 'base, 'value) Column.t -> 'row t -> 'row t
+
+  (** Build a multi-row INSERT. Each function receives an empty row builder.
+      Rows may call [set], [set_expr], or [default] in any order, but every row
+      must assign the same set of columns. *)
+  val rows : 'row Table.t -> ('row t -> 'row t) list -> 'row t
 
   (** Finish an INSERT without returned rows. Compilation rejects an empty or
       duplicate assignment list. *)
@@ -432,6 +443,38 @@ module Update : sig
     -> 'value Expr.t
     -> ('row, 'scope) t
     -> ('row, 'scope) t
+
+  (** Assign SQL [DEFAULT] to a column. PostgreSQL supports this operation;
+      compilation for SQLite returns [Compile_error.Unsupported_operation]. *)
+  val default : ('row, 'base, 'value) Column.t -> ('row, 'scope) t -> ('row, 'scope) t
+
+  (** Conditionally bind and assign a value. [None] leaves the builder
+      unchanged. For a nullable column, [Some None] writes SQL [NULL]. *)
+  val set_opt
+    :  ('row, 'base, 'value) Column.t
+    -> 'value option
+    -> ('row, 'scope) t
+    -> ('row, 'scope) t
+
+  (** Conditionally assign an expression. [None] leaves the builder unchanged. *)
+  val set_expr_opt
+    :  ('row, 'base, 'value) Column.t
+    -> 'value Expr.t option
+    -> ('row, 'scope) t
+    -> ('row, 'scope) t
+
+  (** Add one table to [UPDATE ... FROM] and configure the update while its
+      reference is in lexical scope. The callback receives the target, the new
+      source, and the current immutable builder. Repeated calls append sources. *)
+  val from
+    :  'source Table.t
+    -> f:
+         ('row Table_ref.t
+          -> 'source Table_ref.t
+          -> ('row, 'scope) t
+          -> ('row, 'new_scope) t)
+    -> ('row, 'scope) t
+    -> ('row, 'new_scope) t
 
   (** Add a row predicate and mark the UPDATE as scoped. Repeated calls combine
       predicates with SQL [AND]. *)
@@ -482,6 +525,17 @@ module Delete : sig
     -> 'result Result_query.t
 end
 
+(** Explicit PostgreSQL extensions. Using one keeps the statement typed, but
+    compilation for another dialect returns an unsupported-operation error. *)
+module Postgresql : sig
+  module Insert : sig
+    (** Append PostgreSQL [ON CONFLICT DO NOTHING]. This is useful for
+        idempotent inserts when any applicable unique constraint may suppress
+        the row. *)
+    val on_conflict_do_nothing : 'row Insert.t -> 'row Insert.t
+  end
+end
+
 (** Supported SQL dialects. *)
 module Dialect : sig
   (** SQL rendering rules selected during pure compilation. *)
@@ -511,14 +565,30 @@ module Compile_error : sig
     | Negative_offset of int (** [Query.offset] received a negative value. *)
     | Empty_assignments of [ `Insert | `Update ]
     (** INSERT or UPDATE was finalized without assigning a column. *)
+    | Empty_insert_row of int
+    (** A one-based row in a multi-row INSERT has no assignments. *)
     | Duplicate_assignment of Identifier.t
     (** The same target column was assigned more than once. *)
+    | Mismatched_insert_columns of
+        { row : int (** One-based index of the mismatched row. *)
+        ; expected : Identifier.t list (** Columns established by the first row. *)
+        ; actual : Identifier.t list (** Columns assigned by this row. *)
+        }
+    (** A multi-row INSERT contains different column sets. Ordering may differ
+        and is normalized to the first row during rendering. *)
     | Invalid_assignment_source of
         { expected : int (** The source identity of the command target. *)
         ; actual : int (** The source identity stored in the malformed assignment. *)
         }
     (** A malformed internal assignment targets a different table occurrence.
           Public builders preserve this invariant by construction. *)
+    | Unsupported_operation of
+        { operation : string (** Stable operation name used in diagnostics. *)
+        ; dialect : Dialect.t (** Dialect selected for compilation. *)
+        }
+    (** The AST requests semantics unavailable in the selected dialect. The
+        compiler reports this during lowering and does not render substitute
+        SQL. *)
 
   (** Format a compilation error for a user. *)
   val pp : Formatter.t -> t -> unit

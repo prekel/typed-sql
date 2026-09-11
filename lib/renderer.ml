@@ -182,8 +182,14 @@ let render_select (select : Ast.select) =
   parts, state
 ;;
 
+let render_assignment_value ~aliases value state =
+  match value with
+  | Ast.Expression expression -> render_expr ~aliases expression state
+  | Ast.Default -> [ Template.Text "DEFAULT" ], state
+;;
+
 let render_assignment ~aliases assignment state =
-  let value, state = render_expr ~aliases assignment.Ast.value state in
+  let value, state = render_assignment_value ~aliases assignment.Ast.value state in
   [ Template.Text (quote_identifier assignment.column ^ " = ") ] @ value, state
 ;;
 
@@ -197,30 +203,98 @@ let rec render_assignments ~aliases assignments state =
     assignment @ [ Template.Text ", " ] @ rest, state
 ;;
 
+let render_insert_row ~aliases ~columns assignments state =
+  let values =
+    List.map columns ~f:(fun column ->
+      List.find_exn assignments ~f:(fun assignment ->
+        Identifier.equal column assignment.Ast.column)
+      |> fun assignment -> assignment.Ast.value)
+  in
+  let rec render_values values state =
+    match values with
+    | [] -> [], state
+    | [ value ] -> render_assignment_value ~aliases value state
+    | value :: rest ->
+      let value, state = render_assignment_value ~aliases value state in
+      let rest, state = render_values rest state in
+      value @ [ Template.Text ", " ] @ rest, state
+  in
+  let values, state = render_values values state in
+  [ Template.Text "(" ] @ values @ [ Template.Text ")" ], state
+;;
+
+let rec render_insert_rows ~aliases ~columns rows state =
+  match rows with
+  | [] -> [], state
+  | [ row ] -> render_insert_row ~aliases ~columns row state
+  | row :: rest ->
+    let row, state = render_insert_row ~aliases ~columns row state in
+    let rest, state = render_insert_rows ~aliases ~columns rest state in
+    row @ [ Template.Text ", " ] @ rest, state
+;;
+
+let aliases_for_command (command : Ast.command) =
+  match command.kind, command.from with
+  | Ast.Update, _ :: _ ->
+    let sources = command.source :: command.from in
+    List.mapi sources ~f:(fun index source ->
+      source.Ast.source_id, "t" ^ Int.to_string index)
+  | _ -> [ command.source.source_id, "" ]
+;;
+
+let render_from_sources ~aliases sources =
+  List.map sources ~f:(fun (source : Ast.source) ->
+    let alias = alias_for aliases source.Ast.source_id in
+    render_source source ^ " AS " ^ alias)
+  |> String.concat ~sep:", "
+;;
+
 let render_command_ast (command : Ast.command) state =
-  let aliases = [ command.Ast.source.source_id, "" ] in
+  let aliases = aliases_for_command command in
   match command.kind with
   | Ast.Insert ->
-    let columns =
-      List.map command.assignments ~f:(fun a -> quote_identifier a.Ast.column)
-      |> String.concat ~sep:", "
+    let first_row = List.hd_exn command.rows in
+    let columns = List.map first_row ~f:(fun assignment -> assignment.Ast.column) in
+    let rendered_columns =
+      List.map columns ~f:quote_identifier |> String.concat ~sep:", "
     in
-    let values, state =
-      render_expressions
-        ~aliases
-        ~separator:", "
-        (List.map command.assignments ~f:(fun a -> a.Ast.value))
-        state
-    in
-    ( [ Template.Text
-          ("INSERT INTO " ^ render_source command.source ^ " (" ^ columns ^ ") VALUES (")
+    let rows, state = render_insert_rows ~aliases ~columns command.rows state in
+    let parts =
+      [ Template.Text
+          ("INSERT INTO "
+           ^ render_source command.source
+           ^ " ("
+           ^ rendered_columns
+           ^ ") VALUES ")
       ]
-      @ values @ [ Template.Text ")" ]
-    , state )
+      @ rows
+    in
+    let parts =
+      match command.conflict with
+      | None -> parts
+      | Some Ast.Postgresql_do_nothing ->
+        parts @ [ Template.Text " ON CONFLICT DO NOTHING" ]
+    in
+    parts, state
   | Ast.Update ->
     let assignments, state = render_assignments ~aliases command.assignments state in
+    let target_alias = alias_for aliases command.source.source_id in
+    let target_alias =
+      if String.is_empty target_alias then
+        ""
+      else
+        " AS " ^ target_alias
+    in
     let parts =
-      [ Template.Text ("UPDATE " ^ render_source command.source ^ " SET ") ] @ assignments
+      [ Template.Text ("UPDATE " ^ render_source command.source ^ target_alias ^ " SET ")
+      ]
+      @ assignments
+    in
+    let parts =
+      match command.from with
+      | [] -> parts
+      | sources ->
+        parts @ [ Template.Text (" FROM " ^ render_from_sources ~aliases sources) ]
     in
     (match command.where_ with
      | None -> parts, state

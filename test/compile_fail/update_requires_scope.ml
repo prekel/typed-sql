@@ -7,4 +7,4 @@ module Item = struct
   let table : row Table.t = Table.v_exn "items"
 end
 
-let _ = Update.table Item.table |> Update.command
+let _ = Update.(table Item.table |> command)

@@ -3,7 +3,8 @@ open! Base
 type 'row t =
   { reference : 'row Table_ref.t
   ; source : Ast.source
-  ; assignments : Ast.assignment list
+  ; rows : Ast.assignment list list
+  ; conflict : Ast.conflict option
   }
 
 let into table =
@@ -14,7 +15,8 @@ let into table =
       ; schema = Table.schema table
       ; table = Table.name table
       }
-  ; assignments = []
+  ; rows = [ [] ]
+  ; conflict = None
   }
 ;;
 
@@ -22,20 +24,57 @@ let set_expr column expression insert =
   let assignment =
     { Ast.source_id = Table_ref.source_id insert.reference
     ; column = Column.name column
-    ; value = Expr.node expression
+    ; value = Ast.Expression (Expr.node expression)
     }
   in
-  { insert with assignments = insert.assignments @ [ assignment ] }
+  let rows =
+    match List.rev insert.rows with
+    | [] -> [ [ assignment ] ]
+    | row :: rest -> List.rev ((row @ [ assignment ]) :: rest)
+  in
+  { insert with rows }
 ;;
 
 let set column value insert =
   set_expr column (Expr.param (Column.db_type column) value) insert
 ;;
 
+let default column insert =
+  let assignment =
+    { Ast.source_id = Table_ref.source_id insert.reference
+    ; column = Column.name column
+    ; value = Ast.Default
+    }
+  in
+  let rows =
+    match List.rev insert.rows with
+    | [] -> [ [ assignment ] ]
+    | row :: rest -> List.rev ((row @ [ assignment ]) :: rest)
+  in
+  { insert with rows }
+;;
+
+let rows table builders =
+  let empty = into table in
+  let rows =
+    List.concat_map builders ~f:(fun build ->
+      let built = build empty in
+      built.rows)
+  in
+  { empty with rows }
+;;
+
+let postgresql_on_conflict_do_nothing insert =
+  { insert with conflict = Some Ast.Postgresql_do_nothing }
+;;
+
 let ast insert =
   { Ast.kind = Ast.Insert
   ; source = insert.source
-  ; assignments = insert.assignments
+  ; assignments = []
+  ; rows = insert.rows
+  ; from = []
+  ; conflict = insert.conflict
   ; where_ = None
   }
 ;;

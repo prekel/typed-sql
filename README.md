@@ -5,10 +5,10 @@
 только затем передаётся execution backend.
 
 Текущий срез поддерживает типизированные `SELECT` с `INNER JOIN` и `LEFT JOIN`,
-`WHERE`, `ORDER BY`, `LIMIT` и `OFFSET`, а также single-row `INSERT`, `UPDATE`,
-`DELETE` и `RETURNING`. Пакет `typed-sql-caqti-lwt` выполняет запросы через
-Caqti для PostgreSQL и SQLite; `typed-sql-pgocaml-lwt` — через PG'OCaml для
-PostgreSQL.
+`WHERE`, `ORDER BY`, `LIMIT` и `OFFSET`, а также multi-row `INSERT`, scoped
+`UPDATE`/`DELETE`, `DEFAULT`, `UPDATE FROM`, условные assignments и `RETURNING`.
+Пакет `typed-sql-caqti-lwt` выполняет запросы через Caqti для PostgreSQL и
+SQLite; `typed-sql-pgocaml-lwt` — через PG'OCaml для PostgreSQL.
 
 ```ocaml
 open Typed_sql
@@ -36,6 +36,30 @@ let query name =
 `Query.(...)` локально открывает только query-builder и сохраняет видимой
 границу DSL. `select` ставится последним: он задаёт projection и превращает
 builder в готовый `Result_query.t`.
+
+DML строится так же через локальное открытие соответствующего builder:
+
+```ocaml
+let insert =
+  Insert.(
+    rows
+      Person.table
+      [ (fun row -> row |> set Person.id_col 1L |> set Person.name_col "Ada")
+      ; (fun row -> row |> set Person.id_col 2L |> set Person.name_col "Grace")
+      ]
+    |> command)
+
+let rename =
+  Update.(
+    table Person.table
+    |> set Person.name_col "Ada Lovelace"
+    |> where (fun person -> Person.id person =$ 1L)
+    |> command)
+```
+
+PostgreSQL-specific операции находятся в явном namespace `Postgresql`.
+Компиляция такой операции для другого dialect возвращает
+`Compile_error.Unsupported_operation` до rendering.
 
 Query не содержит connection или `Lwt.t`. Materialization выполняется отдельно:
 

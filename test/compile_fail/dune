@@ -22,6 +22,8 @@
   run.sh
   select_is_required.ml
   update_requires_scope.ml
+  update_from_wrong_column.ml
+  update_set_opt_preserves_nullability.ml
   wrong_ordering.ml)
  (action
   (run bash %{dep:run.sh} %{bin:ocamlfind} %{lib:typed-sql:typed_sql.cmi})))

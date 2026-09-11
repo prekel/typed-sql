@@ -81,7 +81,7 @@ let duplicate_assignment assignments =
   loop [] assignments
 ;;
 
-let rec validate_assignments ~source_id = function
+let rec validate_assignments ~source_id ~visible = function
   | [] -> Ok ()
   | assignment :: rest ->
     if not (Int.equal assignment.Ast.source_id source_id) then
@@ -90,29 +90,77 @@ let rec validate_assignments ~source_id = function
            { expected = source_id; actual = assignment.source_id })
     else
       let open Result.Let_syntax in
-      let%bind () = validate_expr ~visible:[ source_id ] assignment.value in
-      validate_assignments ~source_id rest
+      let%bind () =
+        match assignment.value with
+        | Ast.Default -> Ok ()
+        | Ast.Expression expression -> validate_expr ~visible expression
+      in
+      validate_assignments ~source_id ~visible rest
+;;
+
+let columns assignments =
+  List.map assignments ~f:(fun assignment -> assignment.Ast.column)
+;;
+
+let same_columns left right =
+  List.length left = List.length right
+  && List.for_all left ~f:(fun column -> List.exists right ~f:(Identifier.equal column))
+;;
+
+let validate_insert_rows ~source_id rows =
+  match rows with
+  | [] | [ [] ] -> Error (Compile_error.Empty_assignments `Insert)
+  | first :: rest ->
+    let expected = columns first in
+    let validate_row index assignments =
+      if List.is_empty assignments then
+        Error (Compile_error.Empty_insert_row index)
+      else (
+        match
+          duplicate_assignment assignments
+        with
+        | Some column -> Error (Compile_error.Duplicate_assignment column)
+        | None ->
+          let actual = columns assignments in
+          if not (same_columns expected actual) then
+            Error
+              (Compile_error.Mismatched_insert_columns { row = index; expected; actual })
+          else
+            validate_assignments ~source_id ~visible:[ source_id ] assignments)
+    in
+    let open Result.Let_syntax in
+    let%bind () = validate_row 1 first in
+    List.foldi rest ~init:(Ok ()) ~f:(fun index result assignments ->
+      let%bind () = result in
+      validate_row (index + 2) assignments)
 ;;
 
 let validate_command (command : Ast.command) =
-  let empty_error =
-    match command.Ast.kind, command.assignments with
-    | Ast.Insert, [] -> Some (Compile_error.Empty_assignments `Insert)
-    | Ast.Update, [] -> Some (Compile_error.Empty_assignments `Update)
-    | Ast.Delete, _ | (Ast.Insert | Ast.Update), _ -> None
-  in
-  match empty_error with
-  | Some error -> Error error
-  | None ->
-    (match duplicate_assignment command.assignments with
-     | Some column -> Error (Compile_error.Duplicate_assignment column)
-     | None ->
-       let source_id = command.source.source_id in
-       let open Result.Let_syntax in
-       let%bind () = validate_assignments ~source_id command.assignments in
-       (match command.where_ with
-        | None -> Ok ()
-        | Some condition -> validate_condition ~visible:[ source_id ] condition))
+  match command.Ast.kind with
+  | Ast.Insert -> validate_insert_rows ~source_id:command.source.source_id command.rows
+  | Ast.Update ->
+    if List.is_empty command.assignments then
+      Error (Compile_error.Empty_assignments `Update)
+    else (
+      match
+        duplicate_assignment command.assignments
+      with
+      | Some column -> Error (Compile_error.Duplicate_assignment column)
+      | None ->
+        let source_id = command.source.source_id in
+        let visible =
+          source_id :: List.map command.from ~f:(fun source -> source.Ast.source_id)
+        in
+        let open Result.Let_syntax in
+        let%bind () = validate_assignments ~source_id ~visible command.assignments in
+        (match command.where_ with
+         | None -> Ok ()
+         | Some condition -> validate_condition ~visible condition))
+  | Ast.Delete ->
+    (match command.where_ with
+     | None -> Ok ()
+     | Some condition ->
+       validate_condition ~visible:[ command.source.source_id ] condition)
 ;;
 
 let result_query = function

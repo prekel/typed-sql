@@ -182,9 +182,9 @@ White-box tests остаются отдельным regression-набором и
 публичного API. `make coverage` проверяет порог 97% и сохраняет подробный HTML
 report в `_coverage/html/index.html`.
 
-Остаётся только уточнить capability errors одновременно с первой
-vendor-specific возможностью: пока все реализованные конструкции portable для
-PostgreSQL и SQLite.
+Capability errors реализованы вместе с первой vendor-specific возможностью.
+Lowering возвращает `Unsupported_operation` с именем операции и dialect до
+rendering; приблизительный SQL не генерируется.
 
 #### P1: portable SELECT — JOIN сделан, выражения остаются
 
@@ -204,15 +204,15 @@ Comparison и logical predicates теперь строятся через общ
    feature. PostgreSQL integration scenario добавлять только вместе с
    локальной test infrastructure, не требующей внешнего сервиса по умолчанию.
 
-#### P1: DML и execution API — базовый слой сделан
+#### P1: DML и execution API — сделано
 
-Single-row `INSERT`, scoped `UPDATE`/`DELETE`, assignments, `RETURNING` и
-`execute` реализованы. SQLite integration test проверяет `INSERT RETURNING`,
-UPDATE с known affected count и DELETE. Caqti errors и PG'OCaml codec errors
-имеют отдельные adapter-level варианты.
-
-Остаются multi-row insert, defaults, `ON CONFLICT`, `UPDATE ... FROM` и
-переносимость affected-row count между drivers.
+Multi-row `INSERT`, scoped `UPDATE`/`DELETE`, `DEFAULT`, PostgreSQL
+`ON CONFLICT DO NOTHING`, `UPDATE ... FROM`, условные assignments, `RETURNING`
+и `execute` реализованы. Multi-row builder проверяет одинаковый набор columns и
+нормализует их порядок по первой строке. `Update.set_opt` различает пропуск
+assignment и запись `NULL`. SQLite integration test проверяет multi-row
+`INSERT RETURNING`, conditional update и `UPDATE FROM`. PostgreSQL-only и
+неподдерживаемые SQLite операции отклоняются capability layer.
 
 Ошибочный путь mapped codec в Caqti adapter закрыт. Adapter выполняет
 `Db_type.map.encode/decode` вокруг базового Caqti row type, поэтому отказ
@@ -330,22 +330,22 @@ JWT, password hashing, HTTP routing, JSON validation и генерация slug 
   compile-fail проверки несовместимых типов;
 - сохранить покрытие публичного API не ниже 97%.
 
-### 3. Capability errors и граница dialect extensions
+### 3. Capability errors и граница dialect extensions — сделано
 
-- определить отдельную ошибку с названием операции и выбранным dialect;
-- провести capability check в lowering до rendering;
-- использовать этот механизм до добавления `ILIKE`, `DISTINCT ON`,
+- определена отдельная ошибка с названием операции и выбранным dialect;
+- capability check выполняется в lowering до rendering;
+- этот механизм используется для PostgreSQL conflict policy и SQL `DEFAULT` и
+  должен применяться до добавления `ILIKE`, `DISTINCT ON`,
   `ON CONFLICT`, JSON, arrays и других vendor-specific операций;
-- не генерировать приблизительный portable SQL с другой семантикой.
+- приблизительный portable SQL с другой семантикой не генерируется.
 
-### 4. Завершение DML
+### 4. Завершение DML — сделано
 
-- добавить multi-row `INSERT` с проверкой одинакового набора columns;
-- выразить SQL `DEFAULT` без подмены nullable значением;
-- выбрать portable conflict policy или отдельный PostgreSQL namespace для
-  upsert;
-- добавить `UPDATE ... FROM` вместе с source-scope validation;
-- добавить условные assignments, необходимые для PATCH-запросов RealWorld.
+- добавлен multi-row `INSERT` с проверкой одинакового набора columns;
+- SQL `DEFAULT` выражается без подмены nullable значением;
+- conflict policy размещена в отдельном PostgreSQL namespace;
+- добавлен `UPDATE ... FROM` вместе с source-scope validation;
+- добавлены условные assignments для PATCH-запросов RealWorld.
 
 ### 5. Запросы, необходимые RealWorld
 

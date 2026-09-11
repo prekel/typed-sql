@@ -29,12 +29,25 @@ let select : A.select =
 let assignment : A.assignment =
   { source_id = 0
   ; column = Identifier.of_string_exn "id"
-  ; value = A.Param (Db_type.Value (Db_type.int, 7))
+  ; value = A.Expression (A.Param (Db_type.Value (Db_type.int, 7)))
   }
 ;;
 
 let command kind assignments : A.command =
-  { kind; source = source 0; assignments; where_ = None }
+  let assignments, rows =
+    match kind with
+    | A.Insert -> [], [ assignments ]
+    | A.Update -> assignments, []
+    | A.Delete -> [], []
+  in
+  { kind
+  ; source = source 0
+  ; assignments
+  ; rows
+  ; from = []
+  ; conflict = None
+  ; where_ = None
+  }
 ;;
 
 let print_validation = function
@@ -130,7 +143,7 @@ let%expect_test "validator catches invalid DML assignments and RETURNING" =
   [%expect {| column id is assigned more than once |}];
   validate (command A.Update [ { assignment with source_id = 99 } ]);
   [%expect {| assignment belongs to source #99, but the command targets source #0 |}];
-  validate (command A.Update [ { assignment with value = column 99 } ]);
+  validate (command A.Update [ { assignment with value = A.Expression (column 99) } ]);
   [%expect {| expression references source #99, but the visible sources are 0 |}];
   validate { (command A.Delete []) with where_ = Some (A.Not (A.Is_null (column 99))) };
   [%expect {| expression references source #99, but the visible sources are 0 |}];

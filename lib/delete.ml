@@ -37,6 +37,9 @@ let ast delete =
   { Ast.kind = Ast.Delete
   ; source = delete.source
   ; assignments = []
+  ; rows = []
+  ; from = []
+  ; conflict = None
   ; where_ = delete.where_
   }
 ;;

@@ -175,28 +175,156 @@ let compile_command_exn dialect command =
 ;;
 
 let%expect_test "portable DML and RETURNING" =
-  Insert.into Person.table
-  |> Insert.set Person.id_column 42L
-  |> Insert.set Person.name_column "Ada"
-  |> Insert.returning (fun person -> Projection.expr (Person.id person))
+  Insert.(
+    into Person.table
+    |> set Person.id_column 42L
+    |> set Person.name_column "Ada"
+    |> returning (fun person -> Projection.expr (Person.id person)))
   |> compile_result_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
   [%expect
     {| INSERT INTO "public"."people" ("id", "name") VALUES ($1, $2) RETURNING "id" |}];
-  Update.table Person.table
-  |> Update.set Person.name_column "Grace"
-  |> Update.where (fun person -> Person.id person =$ 42L)
-  |> Update.command
+  Update.(
+    table Person.table
+    |> set Person.name_column "Grace"
+    |> where (fun person -> Person.id person =$ 42L)
+    |> command)
   |> compile_command_exn Dialect.Sqlite
   |> Compiled_command.sql
   |> Stdlib.print_endline;
   [%expect {| UPDATE "public"."people" SET "name" = ?1 WHERE ("id" = ?2) |}];
-  Delete.from Person.table
-  |> Delete.all_rows
-  |> Delete.command
+  Delete.(from Person.table |> all_rows |> command)
   |> compile_command_exn Dialect.Postgresql
   |> Compiled_command.sql
   |> Stdlib.print_endline;
   [%expect {| DELETE FROM "public"."people" |}]
+;;
+
+let%expect_test "multi-row INSERT, DEFAULT, conflict policy, and UPDATE FROM" =
+  let multi_row =
+    Insert.(
+      rows
+        Person.table
+        [ (fun row -> row |> set Person.id_column 1L |> set Person.name_column "Ada")
+        ; (fun row -> row |> set Person.name_column "Grace" |> set Person.id_column 2L)
+        ]
+      |> command)
+  in
+  multi_row
+  |> compile_command_exn Dialect.Postgresql
+  |> Compiled_command.sql
+  |> Stdlib.print_endline;
+  [%expect {| INSERT INTO "public"."people" ("id", "name") VALUES ($1, $2), ($3, $4) |}];
+  multi_row
+  |> compile_command_exn Dialect.Sqlite
+  |> Compiled_command.sql
+  |> Stdlib.print_endline;
+  [%expect {| INSERT INTO "public"."people" ("id", "name") VALUES (?1, ?2), (?3, ?4) |}];
+  Insert.(
+    into Person.table
+    |> default Person.id_column
+    |> set Person.name_column "Ada"
+    |> command)
+  |> compile_command_exn Dialect.Postgresql
+  |> Compiled_command.sql
+  |> Stdlib.print_endline;
+  [%expect {| INSERT INTO "public"."people" ("id", "name") VALUES (DEFAULT, $1) |}];
+  Insert.(
+    into Person.table
+    |> set Person.id_column 1L
+    |> Postgresql.Insert.on_conflict_do_nothing
+    |> command)
+  |> compile_command_exn Dialect.Postgresql
+  |> Compiled_command.sql
+  |> Stdlib.print_endline;
+  [%expect {| INSERT INTO "public"."people" ("id") VALUES ($1) ON CONFLICT DO NOTHING |}];
+  let update_from =
+    Update.(
+      table Person.table
+      |> from Department.table ~f:(fun person department update ->
+        update
+        |> set_expr Person.name_column (Department.name department)
+        |> where (fun _ -> Person.id person =. Department.person_id department))
+      |> command)
+  in
+  update_from
+  |> compile_command_exn Dialect.Postgresql
+  |> Compiled_command.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {| UPDATE "public"."people" AS t0 SET "name" = t1."name" FROM "public"."departments" AS t1 WHERE (t0."id" = t1."person_id") |}];
+  update_from
+  |> compile_command_exn Dialect.Sqlite
+  |> Compiled_command.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {| UPDATE "public"."people" AS t0 SET "name" = t1."name" FROM "public"."departments" AS t1 WHERE (t0."id" = t1."person_id") |}];
+  Update.(table Person.table |> default Person.name_column |> all_rows |> command)
+  |> compile_command_exn Dialect.Postgresql
+  |> Compiled_command.sql
+  |> Stdlib.print_endline;
+  [%expect {| UPDATE "public"."people" SET "name" = DEFAULT |}]
+;;
+
+let%expect_test "DML validation and capability diagnostics" =
+  let print_error result =
+    match result with
+    | Ok _ -> failwith "expected compilation error"
+    | Error error -> Stdlib.print_endline (Compile_error.to_string error)
+  in
+  Insert.(
+    rows
+      Person.table
+      [ (fun row -> row |> set Person.id_column 1L |> set Person.name_column "Ada")
+      ; (fun row -> row |> set Person.id_column 2L)
+      ]
+    |> command)
+  |> Compiler.compile_command ~dialect:Dialect.Sqlite
+  |> print_error;
+  [%expect {| INSERT row 2 assigns columns [id], expected [id, name] |}];
+  Insert.(rows Person.table [ Fn.id; Fn.id ] |> command)
+  |> Compiler.compile_command ~dialect:Dialect.Sqlite
+  |> print_error;
+  [%expect {| INSERT row 1 has no assignments |}];
+  Insert.(into Person.table |> default Person.id_column |> command)
+  |> Compiler.compile_command ~dialect:Dialect.Sqlite
+  |> print_error;
+  [%expect {| INSERT DEFAULT is not supported by the sqlite dialect |}];
+  Insert.(
+    into Person.table
+    |> default Person.id_column
+    |> returning (fun person -> Projection.expr (Person.id person)))
+  |> Compiler.compile ~dialect:Dialect.Sqlite
+  |> print_error;
+  [%expect {| INSERT DEFAULT is not supported by the sqlite dialect |}];
+  Update.(table Person.table |> default Person.name_column |> all_rows |> command)
+  |> Compiler.compile_command ~dialect:Dialect.Sqlite
+  |> print_error;
+  [%expect {| UPDATE SET DEFAULT is not supported by the sqlite dialect |}];
+  Insert.(
+    into Person.table
+    |> set Person.id_column 1L
+    |> Postgresql.Insert.on_conflict_do_nothing
+    |> command)
+  |> Compiler.compile_command ~dialect:Dialect.Sqlite
+  |> print_error;
+  [%expect
+    {| Postgresql.Insert.on_conflict_do_nothing is not supported by the sqlite dialect |}]
+;;
+
+let%expect_test "conditional UPDATE assignments distinguish omission from NULL" =
+  Update.(
+    table Person.table
+    |> set_opt Person.name_column None
+    |> set_opt Person.nickname_column (Some None)
+    |> set_expr_opt Person.id_column None
+    |> set_expr_opt Person.id_column (Some (Expr.param Db_type.int64 2L))
+    |> where (fun person -> Person.id person =$ 1L)
+    |> command)
+  |> compile_command_exn Dialect.Sqlite
+  |> Compiled_command.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {| UPDATE "public"."people" SET "nickname" = ?1, "id" = ?2 WHERE ("id" = ?3) |}]
 ;;
