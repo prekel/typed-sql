@@ -62,8 +62,8 @@ PG'OCaml API не предоставляет affected-row count.
 - `fetch`, `fetch_one`, `fetch_opt`, `execute`, mapped-типы и SQLite `:memory:`
   integration test;
 - compile-only PG'OCaml/Lwt adapter без сетевого PostgreSQL integration test;
-- expect snapshots, QCheck-проверки bind parameters и SQL injection, три
-  compile-fail fixture, измерение покрытия через публичный API и package/doc
+- expect snapshots, QCheck-проверки bind parameters и SQL injection, набор
+  compile-fail fixtures, измерение покрытия через публичный API и package/doc
   checks.
 
 ## Чем реализация отличается от `first_plan.md`
@@ -214,11 +214,13 @@ UPDATE с known affected count и DELETE. Caqti errors и PG'OCaml codec errors
 Остаются multi-row insert, defaults, `ON CONFLICT`, `UPDATE ... FROM` и
 переносимость affected-row count между drivers.
 
-Отдельно нужно уточнить ошибочный путь mapped codec в Caqti adapter. Сейчас
-отказ `Db_type.map.encode/decode` внутри `Caqti.Template.Row_type.custom` может
-выйти как исключение `Reject`, минуя публичный `Typed_sql_caqti_lwt.error`.
-Перед расширением codec API следует либо преобразовывать этот отказ в явный
-adapter error, либо точно документировать контракт Caqti.
+Первой следующей задачей нужно закрыть ошибочный путь mapped codec в Caqti
+adapter. Сейчас отказ `Db_type.map.encode/decode` внутри
+`Caqti.Template.Row_type.custom` может выйти как исключение `Reject`, минуя
+публичный `Typed_sql_caqti_lwt.error`. В adapter нужно добавить вариант
+`Codec of string`, перехватывать ошибки encode и decode и проверять оба
+направления через SQLite `:memory:`. Исключение реализации Caqti не должно
+пересекать публичную границу adapter.
 
 #### P1: второй backend — сделан без подключения
 
@@ -233,9 +235,62 @@ PostgreSQL. Prepared statement cache остаётся ответственнос
 2. Добавить aggregates, `GROUP BY`, `HAVING` и validator для допустимых
    non-aggregate expressions. Более строгий `Grouped_query` можно вводить
    после проверки практического API.
-3. Развести portable API и PostgreSQL extensions (`ILIKE`, `DISTINCT ON`,
+3. Добавить portable `DISTINCT` и `COUNT DISTINCT`: они нужны для запросов через
+   many-to-many связи без дублирования корневых строк.
+4. Развести portable API и PostgreSQL extensions (`ILIKE`, `DISTINCT ON`,
    `ON CONFLICT`, JSON, arrays и т. п.) через явные namespaces и capability
    errors. SQLite lowering не должен обещать эквивалентность, которой нет.
+
+#### Внешний проверочный сценарий: RealWorld / Conduit
+
+После малого среза выражений внешний backend по [официальному OpenAPI RealWorld
+2.0](https://raw.githubusercontent.com/realworld-apps/realworld/main/specs/api/openapi.yml)
+станет проверочным сценарием публичного API. Само приложение будет находиться в
+отдельном репозитории и использовать `typed-sql` вместе с соседним проектом
+`../typed-endpoint`. Его минимальная реляционная модель включает `users`,
+`articles`, `comments`, `tags`, `article_tags`, `follows` и `favorites`.
+Приложение должно зависеть только от публичного API `Typed_sql` и execution
+adapter; private и backend API не должны проникать в его код.
+
+Для полного контракта RealWorld потребуются следующие возможности:
+
+1. Реализовать `COUNT` и `COUNT DISTINCT` для `favoritesCount` и
+   `articlesCount`, включая отдельный count query с теми же фильтрами, но без
+   `LIMIT` и `OFFSET`.
+2. Реализовать `EXISTS` и scalar subquery. Они нужны для полей `following` и
+   `favorited`, пользовательского feed и фильтров статей по tag, author и
+   favorited без размножения строк результата.
+3. Поддержать эффективную загрузку коллекций. `tagList` и другие one-to-many
+   данные можно сначала собирать отдельным batch query через portable `IN`, а
+   затем группировать в OCaml. Это позволит не вводить dialect-specific JSON или
+   array aggregation в основной API и избежать N+1 запросов.
+4. Добавить переносимое представление timestamp и выражение текущего времени
+   либо ясно зафиксировать database defaults для `createdAt` и `updatedAt`.
+   Сортировка и сравнение timestamp должны сохранять тип выражения.
+5. Добавить условные assignments для частичных изменений, например
+   `Update.set_opt`. Для nullable column внешний `None` означает «не менять», а
+   `Some None` — записать SQL `NULL`. Пустой PATCH должен оставаться явной
+   ошибкой до выполнения.
+6. Определить транзакционную границу execution adapters. Создание или изменение
+   статьи вместе с `article_tags`, а также follow/favorite должны завершаться
+   атомарно. API может принимать уже транзакционный connection, но это нужно
+   показать одинаковым lifecycle и тестом rollback для поддерживаемых adapters.
+7. Поддержать идемпотентные записи в `tags`, `follows` и `favorites` через
+   portable conflict policy либо через явно именованные dialect extensions.
+   Уникальные пары и slug не должны проверяться только предварительным SELECT.
+8. Сформировать adapter-level contract для constraint violations: unique
+   username/email/slug должен преобразовываться в HTTP 409, нарушения внешних
+   ключей и отсутствующие ресурсы — в предсказуемые ошибки приложения. Если
+   единая классификация между drivers невозможна, различие должно быть явно
+   отражено в adapter API.
+9. Проверить ownership predicates для изменения и удаления articles/comments.
+   Авторизация должна выражаться одним scoped `UPDATE`/`DELETE` по идентификатору
+   ресурса и владельца, без разрыва между предварительной проверкой и mutation.
+
+JWT, password hashing, HTTP routing, JSON validation и генерация slug относятся
+к внешнему приложению и `typed-endpoint`, а не к SQL DSL. OpenAPI contract tests
+также остаются в репозитории приложения и служат внешним критерием совместимости
+для обоих библиотечных проектов.
 
 #### P2: schema и ergonomics
 
@@ -258,15 +313,87 @@ PostgreSQL. Prepared statement cache остаётся ответственнос
    lists), если benchmark покажет проблему.
 4. Добавить PPX только после стабилизации ручного API и schema generator.
 
+## Порядок следующих работ
+
+### 1. Ошибки mapped codec в Caqti
+
+- добавить `Typed_sql_caqti_lwt.Codec of string`;
+- преобразовать отказы `Db_type.map.encode` и `Db_type.map.decode` в этот
+  вариант без утечки `Reject`;
+- проверить encode и decode failures SQLite integration-тестами.
+
+### 2. Малый законченный срез portable выражений
+
+- добавить `IN`/`NOT IN`, `BETWEEN`, арифметику, `CASE` и базовые строковые
+  функции;
+- для каждой конструкции определить публичный typed API, semantic AST,
+  normalization, validation, lowering и rendering;
+- добавить одинаковые PostgreSQL/SQLite golden cases, SQLite execution и
+  compile-fail проверки несовместимых типов;
+- сохранить покрытие публичного API не ниже 97%.
+
+### 3. Capability errors и граница dialect extensions
+
+- определить отдельную ошибку с названием операции и выбранным dialect;
+- провести capability check в lowering до rendering;
+- использовать этот механизм до добавления `ILIKE`, `DISTINCT ON`,
+  `ON CONFLICT`, JSON, arrays и других vendor-specific операций;
+- не генерировать приблизительный portable SQL с другой семантикой.
+
+### 4. Завершение DML
+
+- добавить multi-row `INSERT` с проверкой одинакового набора columns;
+- выразить SQL `DEFAULT` без подмены nullable значением;
+- выбрать portable conflict policy или отдельный PostgreSQL namespace для
+  upsert;
+- добавить `UPDATE ... FROM` вместе с source-scope validation;
+- добавить условные assignments, необходимые для PATCH-запросов RealWorld.
+
+### 5. Запросы, необходимые RealWorld
+
+- добавить `EXISTS`, scalar subquery, `DISTINCT`, `COUNT`, `COUNT DISTINCT`,
+  `GROUP BY` и минимальный validator aggregates;
+- добавить typed timestamp/default current time;
+- зафиксировать batch-loading pattern через `IN` для tags и других коллекций;
+- проверить транзакции, idempotent follow/favorite и structured constraint
+  errors на SQLite без внешней базы.
+
+### 6. Schema codegen
+
+После стабилизации expression и DML API добавить dialect-neutral `Schema_ir`,
+introspection PostgreSQL/SQLite и генерацию table, column, nullable, projection
+и codec descriptors. Генератор также должен знать defaults, generated columns,
+PK, FK и unique constraints, используемые моделью RealWorld.
+
+### 7. Подготовка к внешней проверке через RealWorld
+
+- не добавлять RealWorld application, его HTTP endpoints и OpenAPI contract
+  tests в этот репозиторий;
+- держать `typed-sql` независимым от `typed-endpoint`: отдельное приложение
+  будет зависеть от обеих библиотек и при локальной разработке использовать
+  `../typed-endpoint`;
+- предоставить стабильные публичные API expression, DML, schema codegen и
+  execution adapters, необходимые внешнему приложению;
+- переносить обнаруженные при реализации RealWorld неудобства в regression
+  tests и изменения публичного API этого проекта;
+- считать OpenAPI 3.1, schema/migrations, users/auth, profiles/follows,
+  articles, comments, favorites, tags и их contract tests ответственностью
+  отдельного репозитория RealWorld.
+
 ## Definition of done для следующего релизного среза
 
-Следующим срезом должны стать portable scalar expressions и DML completion:
+Ближайший срез заканчивается после этапов 1–3:
 
-- typed `IN`, `BETWEEN`, arithmetic, `CASE` и базовые string/date functions;
-- capability policy для semantic differences PostgreSQL и SQLite;
-- multi-row insert, defaults и explicit portable/non-portable граница;
-- golden и compile-fail cases для каждого нового expression;
-- обновлённые public API docs и SQLite integration scenarios.
+- ошибки mapped codec всегда возвращаются как
+  `Typed_sql_caqti_lwt.Codec`;
+- готовы typed `IN`/`NOT IN`, `BETWEEN`, arithmetic, `CASE` и базовые string
+  functions;
+- unsupported dialect operation возвращает явный capability error;
+- PostgreSQL/SQLite golden, compile-fail и SQLite execution tests проходят;
+- `make coverage` показывает не менее 97%, а public `.mli` и odoc обновлены.
 
-PPX, schema codegen и vendor-specific SQL остаются после стабилизации этого
-ручного expression API.
+DML completion, RealWorld query primitives и schema codegen выполняются
+следующими срезами в указанном порядке. Само приложение RealWorld не входит в
+этот репозиторий: оно отдельно проверит интеграцию `typed-sql` с
+`../typed-endpoint`. PPX остаётся после стабилизации ручного API по результатам
+этой внешней проверки.
