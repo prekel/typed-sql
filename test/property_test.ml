@@ -17,26 +17,16 @@ let compile value =
   |> Compiler.compile ~dialect:Dialect.Sqlite
 ;;
 
-let parameter_count_matches =
+let placeholder_count_matches =
   QCheck.Test.make
-    ~name:"bind node count equals extracted parameter count"
+    ~name:"compiled SQL contains one placeholder for one bound value"
     ~count:500
     QCheck.string
     (fun value ->
        let value = "__bound_value_" ^ value ^ "__" in
        match compile value with
        | Error _ -> false
-       | Ok compiled ->
-         let bind_count =
-           Typed_sql_backend.Template.map
-             (Typed_sql_backend.Compiled_query.template compiled)
-             ~text:(Fn.const false)
-             ~param:(Fn.const true)
-           |> List.count ~f:Fn.id
-         in
-         Int.equal
-           bind_count
-           (List.length (Typed_sql_backend.Compiled_query.parameters compiled)))
+       | Ok compiled -> String.count (Compiled_query.sql compiled) ~f:(Char.equal '?') = 1)
 ;;
 
 let values_never_appear_in_sql =
@@ -53,5 +43,5 @@ let values_never_appear_in_sql =
 ;;
 
 let () =
-  QCheck_runner.run_tests_main [ parameter_count_matches; values_never_appear_in_sql ]
+  QCheck_runner.run_tests_main [ placeholder_count_matches; values_never_appear_in_sql ]
 ;;

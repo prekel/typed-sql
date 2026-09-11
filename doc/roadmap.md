@@ -1,6 +1,6 @@
 # Дорожная карта
 
-Состояние проекта на 10 сентября 2026 года. Этот документ сопоставляет
+Состояние проекта на 11 сентября 2026 года. Этот документ сопоставляет
 реализацию с планом в [first_plan.md](first_plan.md), фиксирует результаты
 аудита и задаёт порядок следующей работы.
 
@@ -62,7 +62,8 @@ PG'OCaml API не предоставляет affected-row count.
   integration test;
 - compile-only PG'OCaml/Lwt adapter без сетевого PostgreSQL integration test;
 - expect snapshots, QCheck-проверки bind parameters и SQL injection, три
-  compile-fail fixture и package/doc checks.
+  compile-fail fixture, измерение покрытия через публичный API и package/doc
+  checks.
 
 ## Чем реализация отличается от `first_plan.md`
 
@@ -127,6 +128,7 @@ API приложения не содержит codec views, packed values, ша�
 
 - `make build`;
 - `make test`;
+- `make coverage` — 97,72% (599 из 613 точек) по реализации `Typed_sql`;
 - `make check`, включая форматирование, сборку, tests, odoc, install smoke и
   `opam lint`.
 
@@ -134,6 +136,15 @@ API приложения не содержит codec views, packed values, ша�
 projection и negative limits, identifier quoting, bind parameter properties,
 compile-fail cases и SQLite execution. Подключения к PostgreSQL в репозитории
 нет, поэтому его driver/runtime compatibility этим набором не подтверждается.
+
+Покрытие считается без suppression и только через API приложения: public
+inline tests, QCheck и Caqti/SQLite `:memory:`. Coverage runner не запускает
+white-box и backend test libraries. Оставшиеся 14 точек относятся к закрытым
+query/expr constructors, shape accessors для адаптеров и защитным ветвям
+validator/renderer, которые корректный публичный DSL устраняет до rendering.
+Их покрытие потребовало бы тестировать private/backend API или расширить
+публичный контракт только ради тестов, поэтому текущие 97,72% являются честным
+пределом выбранного режима.
 
 ### Сильные стороны
 
@@ -166,8 +177,9 @@ JOIN, DML, public API boundary и SQLite execution.
 Отдельные тесты private API проверяют нормализацию и её идемпотентность,
 ошибочные assignments и projections, ссылку на ещё не видимый source в JOIN ON,
 а также порядок и значения bind parameters после lowering/rendering.
-Доступ к внутренним этапам подготовлен для дальнейшего расширения покрытия;
-процент покрытия пока не измеряется.
+White-box tests остаются отдельным regression-набором и не влияют на метрику
+публичного API. `make coverage` проверяет порог 97% и сохраняет подробный HTML
+report в `_coverage/html/index.html`.
 
 Остаётся только уточнить capability errors одновременно с первой
 vendor-specific возможностью: пока все реализованные конструкции portable для
@@ -200,6 +212,12 @@ UPDATE с known affected count и DELETE. Caqti errors и PG'OCaml codec errors
 
 Остаются multi-row insert, defaults, `ON CONFLICT`, `UPDATE ... FROM` и
 переносимость affected-row count между drivers.
+
+Отдельно нужно уточнить ошибочный путь mapped codec в Caqti adapter. Сейчас
+отказ `Db_type.map.encode/decode` внутри `Caqti.Template.Row_type.custom` может
+выйти как исключение `Reject`, минуя публичный `Typed_sql_caqti_lwt.error`.
+Перед расширением codec API следует либо преобразовывать этот отказ в явный
+adapter error, либо точно документировать контракт Caqti.
 
 #### P1: второй backend — сделан без подключения
 

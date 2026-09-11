@@ -10,7 +10,7 @@ let compile_exn dialect query =
   |> Result.ok_or_failwith
 ;;
 
-let%expect_test "query shape excludes values and generative source ids" =
+let%test_unit "query shape excludes values and generative source ids" =
   let table : unit Table.t = Table.v_exn "people" in
   let name = Column.v_exn table "name" Db_type.text in
   let make value =
@@ -20,17 +20,11 @@ let%expect_test "query shape excludes values and generative source ids" =
   in
   let first = make "Ada" in
   let second = make "Grace" in
-  Stdlib.print_endline
-    (Bool.to_string
-       (B.Shape.equal (B.Compiled_query.shape first) (B.Compiled_query.shape second)));
-  Stdlib.print_endline (Int.to_string (List.length (B.Compiled_query.parameters first)));
-  [%expect
-    {|
-    true
-    1 |}]
+  assert (B.Shape.equal (B.Compiled_query.shape first) (B.Compiled_query.shape second));
+  assert (Int.equal (List.length (B.Compiled_query.parameters first)) 1)
 ;;
 
-let%expect_test "mapped codecs with the same name have distinct shapes" =
+let%test "mapped codecs with the same name have distinct shapes" =
   let mapped () =
     Db_type.map
       ~name:"id"
@@ -45,7 +39,5 @@ let%expect_test "mapped codecs with the same name have distinct shapes" =
     |> compile_exn Dialect.Sqlite
     |> B.Compiled_query.shape
   in
-  Stdlib.print_endline
-    (Bool.to_string (B.Shape.equal (make (mapped ())) (make (mapped ()))));
-  [%expect {| false |}]
+  not (B.Shape.equal (make (mapped ())) (make (mapped ())))
 ;;

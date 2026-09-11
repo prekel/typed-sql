@@ -15,6 +15,7 @@ deps:
 
 .PHONY: deps_all
 deps_all:
+	opam pin add bisect_ppx https://github.com/aantron/bisect_ppx.git\#7061d643ff492b0045796357ee6917ded21fb1f0 -yn
 	opam exec -- dune build --root . typed-sql-pgocaml-lwt.opam
 	opam install --deps-only --with-test --with-doc --with-dev-setup $(PACKAGES) $(PGOCAML_PACKAGE) -y
 
@@ -48,6 +49,10 @@ smoke:
 
 .PHONY: check
 check: fmt build test doc package
+
+.PHONY: coverage
+coverage:
+	opam exec -- bash test/coverage.sh
 
 .PHONY: release-check
 release-check: check

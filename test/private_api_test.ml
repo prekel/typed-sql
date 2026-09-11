@@ -38,7 +38,7 @@ let command kind assignments : A.command =
 ;;
 
 let print_validation = function
-  | Ok () -> Stdlib.print_endline "valid"
+  | Ok () -> failwith "expected validation error"
   | Error error -> Stdlib.print_endline (Compile_error.to_string error)
 ;;
 
@@ -64,14 +64,14 @@ let%expect_test "private inspection preserves public query types and source iden
    | [ A.Column { source_id; _ } ] -> assert (Int.equal source_id ast.source.source_id)
    | _ -> failwith "unexpected projection");
   Stdlib.print_endline (Compiled_query.sql rebuilt);
+  [%expect {| SELECT t0."id" FROM "items" AS t0 WHERE (t0."id" = ?1) |}];
   let reference = Table_ref.create table in
   let nullable = Nullable_table_ref.of_table_ref reference in
   assert (
-    Int.equal (Table_ref.source_id reference) (Nullable_table_ref.source_id nullable));
-  [%expect {| SELECT t0."id" FROM "items" AS t0 WHERE (t0."id" = ?1) |}]
+    Int.equal (Table_ref.source_id reference) (Nullable_table_ref.source_id nullable))
 ;;
 
-let%expect_test "normalization identities and idempotence" =
+let%test_unit "normalization identities and idempotence" =
   let atom = A.Is_null (column 0) in
   let cases =
     [ A.And [], A.True
@@ -91,71 +91,64 @@ let%expect_test "normalization identities and idempotence" =
   List.iter cases ~f:(fun (input, expected) ->
     let normalized = Normalizer.normalize_condition input in
     assert (Poly.equal normalized expected);
-    assert (Poly.equal (Normalizer.normalize_condition normalized) normalized));
-  Stdlib.print_endline ("normalization cases: " ^ Int.to_string (List.length cases));
-  [%expect {| normalization cases: 12 |}]
+    assert (Poly.equal (Normalizer.normalize_condition normalized) normalized))
 ;;
 
 let%expect_test "validator catches invalid select and JOIN scopes" =
   let validate query = Validator.result_query (A.Select query) |> print_validation in
   validate { select with projection = [] };
+  [%expect {| SELECT projection must contain at least one expression |}];
   validate { select with limit = Some (-1) };
+  [%expect {| LIMIT must be non-negative, got -1 |}];
   validate { select with offset = Some (-2) };
+  [%expect {| OFFSET must be non-negative, got -2 |}];
   validate { select with projection = [ column 99 ] };
+  [%expect {| expression references source #99, but the visible sources are 0 |}];
   validate { select with order_by = [ { expr = column 99; direction = A.Desc } ] };
+  [%expect {| expression references source #99, but the visible sources are 0 |}];
   let first : A.join =
     { kind = A.Inner; source = source 1; on = A.Compare (A.Eq, column 0, column 1) }
   in
   let second : A.join =
     { kind = A.Left; source = source 2; on = A.Compare (A.Eq, column 1, column 2) }
   in
-  validate { select with joins = [ first; second ]; projection = [ column 2 ] };
+  Validator.result_query
+    (A.Select { select with joins = [ first; second ]; projection = [ column 2 ] })
+  |> ok_exn;
   validate
     { select with joins = [ { first with on = A.Is_not_null (column 2) }; second ] };
-  [%expect
-    {|
-    SELECT projection must contain at least one expression
-    LIMIT must be non-negative, got -1
-    OFFSET must be non-negative, got -2
-    expression references source #99, but the visible sources are 0
-    expression references source #99, but the visible sources are 0
-    valid
-    expression references source #2, but the visible sources are 0, 1 |}]
+  [%expect {| expression references source #2, but the visible sources are 0, 1 |}]
 ;;
 
 let%expect_test "validator catches invalid DML assignments and RETURNING" =
   let validate command = Validator.command command |> print_validation in
   validate (command A.Insert []);
+  [%expect {| INSERT must assign at least one column |}];
   validate (command A.Update []);
+  [%expect {| UPDATE must assign at least one column |}];
   validate (command A.Update [ assignment; assignment ]);
+  [%expect {| column id is assigned more than once |}];
   validate (command A.Update [ { assignment with source_id = 99 } ]);
+  [%expect {| assignment belongs to source #99, but the command targets source #0 |}];
   validate (command A.Update [ { assignment with value = column 99 } ]);
+  [%expect {| expression references source #99, but the visible sources are 0 |}];
   validate { (command A.Delete []) with where_ = Some (A.Not (A.Is_null (column 99))) };
+  [%expect {| expression references source #99, but the visible sources are 0 |}];
   let insert = command A.Insert [ assignment ] in
   Validator.result_query (A.Returning { command = insert; projection = [] })
   |> print_validation;
+  [%expect {| SELECT projection must contain at least one expression |}];
   Validator.result_query (A.Returning { command = insert; projection = [ column 99 ] })
   |> print_validation;
-  validate insert;
-  [%expect
-    {|
-    INSERT must assign at least one column
-    UPDATE must assign at least one column
-    column id is assigned more than once
-    assignment belongs to source #99, but the command targets source #0
-    expression references source #99, but the visible sources are 0
-    expression references source #99, but the visible sources are 0
-    SELECT projection must contain at least one expression
-    expression references source #99, but the visible sources are 0
-    valid |}]
+  [%expect {| expression references source #99, but the visible sources are 0 |}];
+  Validator.command insert |> ok_exn
 ;;
 
-let%expect_test "private commands reach compiler validation" =
+let%test "private commands reach compiler validation" =
   let invalid = command A.Update [] |> Command.create in
-  (match Compiler.compile_command ~dialect:Dialect.Sqlite invalid with
-   | Error (Compile_error.Empty_assignments `Update) -> Stdlib.print_endline "rejected"
-   | _ -> failwith "invalid command was not rejected");
-  [%expect {| rejected |}]
+  match Compiler.compile_command ~dialect:Dialect.Sqlite invalid with
+  | Error (Compile_error.Empty_assignments `Update) -> true
+  | _ -> false
 ;;
 
 let%expect_test "private constructors share opaque public types" =
@@ -175,8 +168,8 @@ let%expect_test "private constructors share opaque public types" =
   let compiled : int Compiled_query.t =
     Compiled_query.create ~dialect:Dialect.Sqlite ~template ~parameters ~projection ~shape
   in
-  Stdlib.print_endline (Compiled_query.sql compiled);
   assert (Shape.equal shape (Compiled_query.shape compiled));
+  Stdlib.print_endline (Compiled_query.sql compiled);
   [%expect {| SELECT ?1 |}]
 ;;
 
@@ -189,7 +182,7 @@ let%expect_test "lowering and rendering preserve bind values for both dialects" 
     |> Normalizer.result_query
   in
   Validator.result_query ast |> ok_exn;
-  List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
+  let render dialect =
     let lowered = Lower.result_query ~dialect ast |> ok_exn in
     let template, parameters = Renderer.result_query lowered in
     (match parameters with
@@ -200,9 +193,10 @@ let%expect_test "lowering and rendering preserve bind values for both dialects" 
           assert (String.equal second "returned")
         | _ -> failwith "parameter types changed")
      | _ -> failwith "parameter count changed");
-    Stdlib.print_endline (Template.to_sql ~dialect template));
-  [%expect
-    {|
-    INSERT INTO "items" ("id") VALUES ($1) RETURNING "id", $2
-    INSERT INTO "items" ("id") VALUES (?1) RETURNING "id", ?2 |}]
+    Template.to_sql ~dialect template
+  in
+  Stdlib.print_endline (render Dialect.Postgresql);
+  [%expect {| INSERT INTO "items" ("id") VALUES ($1) RETURNING "id", $2 |}];
+  Stdlib.print_endline (render Dialect.Sqlite);
+  [%expect {| INSERT INTO "items" ("id") VALUES (?1) RETURNING "id", ?2 |}]
 ;;

@@ -51,8 +51,18 @@
 ## Тесты и проверки
 
 - Основные команды: `make build`, `make test`, `make fmt`.
+- `make coverage` измеряет только реализацию `Typed_sql` через публичный API,
+  property tests и SQLite `:memory:`. Не используй `typed-sql.private`,
+  `typed-sql.backend`, раскрытие новых элементов API или coverage suppression
+  ради увеличения процента. Минимальный порог — 97% сырого покрытия.
 - Для печатаемого SQL и diagnostics используй небольшие отдельные
   `ppx_expect` snapshots.
+- В expect-тестах ставь `[%expect ...]` сразу после каждого вывода, в том
+  числе после вызова helper, который печатает. Не объединяй вывод нескольких
+  проверок в один snapshot.
+- Для булевых свойств используй `let%test`, для проверок с assertions и
+  последовательностью действий — `let%test_unit`. Не печатай `true`, `false`,
+  счётчики или маркеры вроде `valid`/`rejected` ради expect-snapshot.
 - Не продвигай snapshots и форматирование автоматически во время обычной
   проверки.
 - Изменение публичного контракта сопровождай regression или compile-fail test.

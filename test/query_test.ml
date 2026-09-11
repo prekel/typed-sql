@@ -58,11 +58,11 @@ let%expect_test "PostgreSQL and SQLite rendering" =
   let postgres = compile_exn Dialect.Postgresql query in
   let sqlite = compile_exn Dialect.Sqlite query in
   Stdlib.print_endline (Compiled_query.sql postgres);
+  [%expect
+    {| SELECT t0."id", t0."name", t0."nickname" FROM "public"."people" AS t0 WHERE ((t0."name" = $1) AND (t0."id" > $2)) ORDER BY t0."id" DESC LIMIT 20 OFFSET 5 |}];
   Stdlib.print_endline (Compiled_query.sql sqlite);
   [%expect
-    {|
-    SELECT t0."id", t0."name", t0."nickname" FROM "public"."people" AS t0 WHERE ((t0."name" = $1) AND (t0."id" > $2)) ORDER BY t0."id" DESC LIMIT 20 OFFSET 5
-    SELECT t0."id", t0."name", t0."nickname" FROM "public"."people" AS t0 WHERE ((t0."name" = ?1) AND (t0."id" > ?2)) ORDER BY t0."id" DESC LIMIT 20 OFFSET 5 |}]
+    {| SELECT t0."id", t0."name", t0."nickname" FROM "public"."people" AS t0 WHERE ((t0."name" = ?1) AND (t0."id" > ?2)) ORDER BY t0."id" DESC LIMIT 20 OFFSET 5 |}]
 ;;
 
 let%expect_test "infix comparison operators render in source order" =
@@ -82,7 +82,7 @@ let%expect_test "infix comparison operators render in source order" =
     {| SELECT t0."id", t0."name", t0."nickname" FROM "public"."people" AS t0 WHERE ((t0."id" < $1) AND (t0."id" <= $2) AND (t0."id" > $3) AND (t0."id" >= $4) AND (t0."id" <> $5) AND (t0."name" LIKE $6)) |}]
 ;;
 
-let%expect_test "escaped table reference is rejected" =
+let%test "escaped table reference is rejected" =
   let escaped = ref None in
   let _ =
     Query.from Person.table ~select:(fun person ->
@@ -94,26 +94,22 @@ let%expect_test "escaped table reference is rejected" =
     Query.from Person.table ~select:Person.projection
     |> Query.where (fun _ -> Person.name foreign =$ "Ada")
   in
-  (match Compiler.compile ~dialect:Dialect.Sqlite (Query.to_result query) with
-   | Ok _ -> Stdlib.print_endline "unexpected success"
-   | Error (Compile_error.Foreign_source _) -> Stdlib.print_endline "foreign source"
-   | Error error -> Stdlib.print_endline (Compile_error.to_string error));
-  [%expect {| foreign source |}]
+  match Compiler.compile ~dialect:Dialect.Sqlite (Query.to_result query) with
+  | Error (Compile_error.Foreign_source _) -> true
+  | _ -> false
 ;;
 
 let%expect_test "invalid limits and empty projections are validation errors" =
   let empty = Query.from Person.table ~select:(fun _ -> Projection.return ()) in
   let negative = Query.from Person.table ~select:Person.projection |> Query.limit (-1) in
   (match Compiler.compile ~dialect:Dialect.Sqlite (Query.to_result empty) with
-   | Ok _ -> Stdlib.print_endline "unexpected success"
+   | Ok _ -> failwith "unexpected success"
    | Error error -> Stdlib.print_endline (Compile_error.to_string error));
+  [%expect {| SELECT projection must contain at least one expression |}];
   (match Compiler.compile ~dialect:Dialect.Sqlite (Query.to_result negative) with
-   | Ok _ -> Stdlib.print_endline "unexpected success"
+   | Ok _ -> failwith "unexpected success"
    | Error error -> Stdlib.print_endline (Compile_error.to_string error));
-  [%expect
-    {|
-    SELECT projection must contain at least one expression
-    LIMIT must be non-negative, got -1 |}]
+  [%expect {| LIMIT must be non-negative, got -1 |}]
 ;;
 
 let%expect_test "identifiers are always quoted" =
@@ -149,11 +145,11 @@ let%expect_test "joins use deterministic aliases and LEFT JOIN makes its side nu
         (Projection.expr (Department.nullable_name department)))
   in
   inner |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
+  [%expect
+    {| SELECT t0."id", t1."name" FROM "public"."people" AS t0 INNER JOIN "public"."departments" AS t1 ON (t0."id" = t1."person_id") |}];
   left |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {|
-    SELECT t0."id", t1."name" FROM "public"."people" AS t0 INNER JOIN "public"."departments" AS t1 ON (t0."id" = t1."person_id")
-    SELECT t0."id", t1."name" FROM "public"."people" AS t0 LEFT JOIN "public"."departments" AS t1 ON (t0."id" = t1."person_id") |}]
+    {| SELECT t0."id", t1."name" FROM "public"."people" AS t0 LEFT JOIN "public"."departments" AS t1 ON (t0."id" = t1."person_id") |}]
 ;;
 
 let compile_result_exn dialect query =
@@ -176,6 +172,8 @@ let%expect_test "portable DML and RETURNING" =
   |> compile_result_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
+  [%expect
+    {| INSERT INTO "public"."people" ("id", "name") VALUES ($1, $2) RETURNING "id" |}];
   Update.table Person.table
   |> Update.set Person.name_column "Grace"
   |> Update.where (fun person -> Person.id person =$ 42L)
@@ -183,15 +181,12 @@ let%expect_test "portable DML and RETURNING" =
   |> compile_command_exn Dialect.Sqlite
   |> Compiled_command.sql
   |> Stdlib.print_endline;
+  [%expect {| UPDATE "public"."people" SET "name" = ?1 WHERE ("id" = ?2) |}];
   Delete.from Person.table
   |> Delete.all_rows
   |> Delete.command
   |> compile_command_exn Dialect.Postgresql
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect
-    {|
-    INSERT INTO "public"."people" ("id", "name") VALUES ($1, $2) RETURNING "id"
-    UPDATE "public"."people" SET "name" = ?1 WHERE ("id" = ?2)
-    DELETE FROM "public"."people" |}]
+  [%expect {| DELETE FROM "public"."people" |}]
 ;;

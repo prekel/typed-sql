@@ -1,6 +1,6 @@
 (library
  (name typed_sql_expect_tests)
- (modules query_test)
+ (modules query_test public_api_test)
  (libraries base typed-sql)
  (inline_tests)
  (preprocess
@@ -25,4 +25,4 @@
 (test
  (name property_test)
  (modules property_test)
- (libraries base qcheck typed-sql typed-sql.backend))
+ (libraries base qcheck typed-sql))

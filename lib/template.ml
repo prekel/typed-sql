@@ -6,8 +6,6 @@ type part =
 
 type t = part list
 
-let parts template = template
-
 let map template ~text ~param =
   List.map template ~f:(function
     | Text value -> text value

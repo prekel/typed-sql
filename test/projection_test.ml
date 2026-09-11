@@ -23,24 +23,23 @@ let%expect_test "applicative syntax preserves SELECT and bind order" =
     and empty = A.all [] in
     label, values, empty
   in
-  List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
+  let compile dialect =
     let compiled = compile_exn dialect projection in
-    Stdlib.print_endline (Compiled_query.sql compiled);
     let parameters =
       List.map
         (B.Compiled_query.parameters compiled)
         ~f:(fun (B.Db_type.Value (typ, value)) ->
           match B.Db_type.view typ with
-          | Int -> Int.to_string value
+          | Int -> (value : int)
           | _ -> failwith "unexpected parameter type")
     in
-    Stdlib.print_endline (String.concat ~sep:", " parameters));
-  [%expect
-    {|
-    SELECT $1, $2 FROM "items" AS t0
-    11, 22
-    SELECT ?1, ?2 FROM "items" AS t0
-    11, 22 |}]
+    assert (List.equal Int.equal parameters [ 11; 22 ]);
+    compiled
+  in
+  Stdlib.print_endline (Compiled_query.sql (compile Dialect.Postgresql));
+  [%expect {| SELECT $1, $2 FROM "items" AS t0 |}];
+  Stdlib.print_endline (Compiled_query.sql (compile Dialect.Sqlite));
+  [%expect {| SELECT ?1, ?2 FROM "items" AS t0 |}]
 ;;
 
 module Decoder = struct
@@ -72,7 +71,7 @@ end
 
 module Interpreter = B.Projection.Make (Decoder)
 
-let%expect_test "backend interpreter defers maps until decoding" =
+let%test_unit "backend interpreter defers maps until decoding" =
   let mapped = ref 0 in
   let projection =
     let open Projection.Let_syntax in
@@ -85,7 +84,6 @@ let%expect_test "backend interpreter defers maps until decoding" =
   let compiled = compile_exn Dialect.Sqlite projection in
   let decode = Interpreter.run (B.Compiled_query.projection compiled) in
   assert (Int.equal !mapped 0);
-  Stdlib.print_endline (decode ());
-  assert (Int.equal !mapped 1);
-  [%expect {| 7: Ada! |}]
+  assert (String.equal (decode ()) "7: Ada!");
+  assert (Int.equal !mapped 1)
 ;;

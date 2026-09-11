@@ -74,6 +74,41 @@ module Department = struct
   let nullable_name reference = Expr.nullable_column reference name_column
 end
 
+module Codec_value = struct
+  type row
+
+  type t =
+    { boolean : bool
+    ; integer : int
+    ; integer_64 : int64
+    ; floating : float
+    ; text : string
+    ; bytes : bytes
+    ; nullable_text : string option
+    }
+
+  let table : row Table.t = Table.v_exn "codec_values"
+  let boolean_column = Column.v_exn table "boolean" Db_type.bool
+  let integer_column = Column.v_exn table "integer_value" Db_type.int
+  let integer_64_column = Column.v_exn table "integer_64" Db_type.int64
+  let floating_column = Column.v_exn table "floating" Db_type.float
+  let text_column = Column.v_exn table "text_value" Db_type.text
+  let bytes_column = Column.v_exn table "bytes_value" Db_type.bytes
+  let nullable_text_column = Column.nullable_v_exn table "nullable_text" Db_type.text
+
+  let projection reference =
+    let open Projection.Let_syntax in
+    let%map boolean = Projection.expr (Expr.column reference boolean_column)
+    and integer = Projection.expr (Expr.column reference integer_column)
+    and integer_64 = Projection.expr (Expr.column reference integer_64_column)
+    and floating = Projection.expr (Expr.column reference floating_column)
+    and text = Projection.expr (Expr.column reference text_column)
+    and bytes = Projection.expr (Expr.column reference bytes_column)
+    and nullable_text = Projection.expr (Expr.column reference nullable_text_column) in
+    { boolean; integer; integer_64; floating; text; bytes; nullable_text }
+  ;;
+end
+
 let direct sql =
   T.Request.create
     T.Request.Direct
@@ -108,6 +143,13 @@ let run conn =
     Connection.exec
       (direct
          "CREATE TABLE departments (person_id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+      ()
+    |> caqti_or_fail
+  in
+  let* () =
+    Connection.exec
+      (direct
+         "CREATE TABLE codec_values (boolean INTEGER NOT NULL, integer_value INTEGER NOT NULL, integer_64 INTEGER NOT NULL, floating REAL NOT NULL, text_value TEXT NOT NULL, bytes_value BLOB NOT NULL, nullable_text TEXT NULL)")
       ()
     |> caqti_or_fail
   in
@@ -206,6 +248,32 @@ let run conn =
   assert_equal
     [ "Ada", [ 11; 23 ], []; "Grace", [ 11; 23 ], []; "Linus", [ 11; 23 ], [] ]
     rows;
+  let codec_value =
+    { Codec_value.boolean = true
+    ; integer = 7
+    ; integer_64 = 8L
+    ; floating = 1.25
+    ; text = "typed"
+    ; bytes = Bytes.of_string "\000\001\255"
+    ; nullable_text = None
+    }
+  in
+  let codec_insert =
+    Insert.into Codec_value.table
+    |> Insert.set Codec_value.boolean_column codec_value.boolean
+    |> Insert.set Codec_value.integer_column codec_value.integer
+    |> Insert.set Codec_value.integer_64_column codec_value.integer_64
+    |> Insert.set Codec_value.floating_column codec_value.floating
+    |> Insert.set Codec_value.text_column codec_value.text
+    |> Insert.set Codec_value.bytes_column codec_value.bytes
+    |> Insert.set Codec_value.nullable_text_column codec_value.nullable_text
+    |> Insert.returning Codec_value.projection
+  in
+  let* decoded_codec =
+    Typed_sql_caqti_lwt.fetch_one ~conn codec_insert >>= adapter_or_fail
+  in
+  if not (Poly.equal codec_value decoded_codec) then
+    failwith "database type round-trip changed a value";
   let inserted =
     Insert.into Person.table
     |> Insert.set Person.id_column 4L

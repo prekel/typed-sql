@@ -12,6 +12,8 @@
 # Dune output
 _build/
 *.install
+_coverage/
+*.coverage
 
 # Local opam switch
 _opam/

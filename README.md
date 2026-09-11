@@ -66,9 +66,17 @@ make create_switch
 make deps_all
 make check
 make release-check
+make coverage
 ```
 
 SQLite integration tests используют `sqlite3::memory:`. PostgreSQL compiler,
 Caqti dialect branch и PG'OCaml adapter собираются без подключения к внешнему
 PostgreSQL server.
 На Ubuntu для сборки SQLite driver нужен системный пакет `libsqlite3-dev`.
+
+`make coverage` измеряет реализацию `Typed_sql` через публичный API приложения:
+запускает public inline tests, QCheck properties и SQLite `:memory:` integration
+test. White-box tests и `typed-sql.backend` в этот прогон не входят. Команда
+требует не менее 97% сырого покрытия и создаёт HTML-отчёт в
+`_coverage/html/index.html`. Для OCaml 5.5.1 `make deps_all` временно закрепляет
+`bisect_ppx` на upstream commit с поддержкой актуального `ppxlib`.

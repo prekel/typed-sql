@@ -4,6 +4,14 @@
 
 ### Добавлено
 
+- Инструментирование `Typed_sql` через `bisect_ppx` и `make coverage` с
+  минимальным порогом 97%. Coverage-набор использует только API приложения,
+  QCheck и SQLite `:memory:`; текущий сырой результат — 97,72% (599/613).
+- Публичные regression tests для всех `Db_type`, infix-операторов, нормализации
+  условий, source validation, DML diagnostics и builder immutability. SQLite
+  integration test проверяет round-trip всех базовых codec.
+- Полная odoc-документация интерфейсов приложения, backend-контракта и
+  Caqti/PG'OCaml execution adapters, включая инварианты, ошибки и cardinality.
 - `Projection` реализует `Base.Applicative.S` и поддерживает `let%map` через
   `Let_syntax`. Вместо `pure` используется `return`; функции `map`, `map2`,
   `map3` принимают `~f`. Обёртка Lwt в PG'OCaml реализует `Base.Monad.S`.
@@ -34,3 +42,8 @@
 - Shape включает identity mapped codec и типы projection, но исключает значения
   параметров и generated source IDs.
 - Адаптер `typed-sql-pgocaml-lwt` без PPX и без тестового подключения к серверу.
+
+### Изменено
+
+- Удалены неиспользуемые внутренние helpers выражений, условий, типов и SQL
+  templates, не входившие ни в application, ни в backend API.

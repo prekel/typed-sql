@@ -83,14 +83,3 @@ let view : type a. a t -> a view = function
   | Option_type typ -> Option typ
   | Map_type { repr; encode; decode; name; _ } -> Map { repr; encode; decode; name }
 ;;
-
-module Ordering = struct
-  type 'a t = unit
-
-  let int = ()
-  let int64 = ()
-  let float = ()
-  let text = ()
-  let bytes = ()
-  let map _ = ()
-end

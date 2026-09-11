@@ -7,8 +7,6 @@ let false_ = Ast.False
 let and_ left right = Ast.And [ left; right ]
 let or_ left right = Ast.Or [ left; right ]
 let not_ condition = Ast.Not condition
-let all conditions = Ast.And conditions
-let any conditions = Ast.Or conditions
 
 module Infix = struct
   let ( &&. ) = and_

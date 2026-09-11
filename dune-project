@@ -24,6 +24,7 @@
   ppx_let
   (qcheck :with-test)
   (ppx_expect :with-test)
+  (bisect_ppx :with-dev-setup)
   (ocamlformat (and (= 0.29.0) :with-dev-setup))
   (ocaml-lsp-server :with-dev-setup))
  (tags

@@ -4,6 +4,8 @@
  (modules
   (:standard \ typed_sql))
  (libraries base)
+ (instrumentation
+  (backend bisect_ppx))
  (preprocess
   (pps ppx_let)))
 
@@ -11,4 +13,6 @@
  (name typed_sql)
  (public_name typed-sql)
  (modules typed_sql)
- (libraries typed_sql_private))
+ (libraries typed_sql_private)
+ (instrumentation
+  (backend bisect_ppx)))
