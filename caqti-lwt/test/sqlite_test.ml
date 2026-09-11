@@ -108,6 +108,31 @@ module Codec_value = struct
   ;;
 end
 
+module Mapped_failure = struct
+  type row
+
+  let encode_type =
+    Db_type.map
+      ~name:"rejecting_encode"
+      ~encode:(fun _ -> Error "encode rejected by test codec")
+      ~decode:Result.return
+      Db_type.text
+  ;;
+
+  let decode_type =
+    Db_type.map
+      ~name:"rejecting_decode"
+      ~encode:Result.return
+      ~decode:(fun _ -> Error "decode rejected by test codec")
+      Db_type.text
+  ;;
+
+  let table : row Table.t = Table.v_exn "mapped_failures"
+  let encode_column = Column.v_exn table "encoded" encode_type
+  let decode_column = Column.v_exn table "decoded" decode_type
+  let decoded reference = Expr.column reference decode_column
+end
+
 let direct sql =
   T.Request.create
     T.Request.Direct
@@ -127,6 +152,14 @@ let assert_equal expected actual =
        ^ Int.to_string (List.length expected)
        ^ " rows, got "
        ^ Int.to_string (List.length actual))
+;;
+
+let assert_codec_error expected = function
+  | Error (Typed_sql_caqti_lwt.Codec message) ->
+    if not (String.equal expected message) then
+      failwith ("unexpected codec error: " ^ message)
+  | Error error -> failwith (Typed_sql_caqti_lwt.error_to_string error)
+  | Ok _ -> failwith "expected a codec error"
 ;;
 
 let run conn =
@@ -149,6 +182,13 @@ let run conn =
     Connection.exec
       (direct
          "CREATE TABLE codec_values (boolean INTEGER NOT NULL, integer_value INTEGER NOT NULL, integer_64 INTEGER NOT NULL, floating REAL NOT NULL, text_value TEXT NOT NULL, bytes_value BLOB NOT NULL, nullable_text TEXT NULL)")
+      ()
+    |> caqti_or_fail
+  in
+  let* () =
+    Connection.exec
+      (direct
+         "CREATE TABLE mapped_failures (encoded TEXT NOT NULL, decoded TEXT NOT NULL)")
       ()
     |> caqti_or_fail
   in
@@ -312,6 +352,42 @@ let run conn =
   let* deleted = Typed_sql_caqti_lwt.fetch_opt ~conn deleted >>= adapter_or_fail in
   if Option.is_some deleted then
     failwith "DELETE did not remove the row";
+  let codec_encode_failure =
+    Insert.into Mapped_failure.table
+    |> Insert.set Mapped_failure.encode_column "bad"
+    |> Insert.set Mapped_failure.decode_column "ok"
+    |> Insert.command
+  in
+  let* encode_failure = Typed_sql_caqti_lwt.execute ~conn codec_encode_failure in
+  assert_codec_error "encode rejected by test codec" encode_failure;
+  let* () =
+    Connection.exec
+      (direct "INSERT INTO mapped_failures (encoded, decoded) VALUES ('ok', 'bad')")
+      ()
+    |> caqti_or_fail
+  in
+  let codec_decode_failure =
+    Query.(
+      from Mapped_failure.table
+      |> select (fun row -> Projection.expr (Mapped_failure.decoded row)))
+  in
+  let* decode_failure = Typed_sql_caqti_lwt.fetch ~conn codec_decode_failure in
+  assert_codec_error "decode rejected by test codec" decode_failure;
+  let* decode_failure = Typed_sql_caqti_lwt.fetch_one ~conn codec_decode_failure in
+  assert_codec_error "decode rejected by test codec" decode_failure;
+  let* decode_failure = Typed_sql_caqti_lwt.fetch_opt ~conn codec_decode_failure in
+  assert_codec_error "decode rejected by test codec" decode_failure;
+  let query_after_codec_failure =
+    Query.(
+      from Person.table
+      |> where (fun person -> Person.id person =$ 1L)
+      |> select (fun person -> Projection.expr (Person.name person)))
+  in
+  let* name =
+    Typed_sql_caqti_lwt.fetch_one ~conn query_after_codec_failure >>= adapter_or_fail
+  in
+  if not (String.equal name "Ada") then
+    failwith "connection returned the wrong row after a codec error";
   Lwt.return_unit
 ;;
 

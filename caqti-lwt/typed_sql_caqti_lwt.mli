@@ -10,6 +10,8 @@ type error =
   (** The typed query failed validation or compilation. *)
   | Unsupported_dialect of string
   (** The connected Caqti driver has no matching typed-sql dialect. *)
+  | Codec of string
+  (** A mapped [Typed_sql.Db_type] rejected parameter encoding or row decoding. *)
   | Caqti of Caqti.Error.t
   (** Caqti or its driver rejected the request or database operation. *)
 

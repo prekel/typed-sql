@@ -214,13 +214,11 @@ UPDATE с known affected count и DELETE. Caqti errors и PG'OCaml codec errors
 Остаются multi-row insert, defaults, `ON CONFLICT`, `UPDATE ... FROM` и
 переносимость affected-row count между drivers.
 
-Первой следующей задачей нужно закрыть ошибочный путь mapped codec в Caqti
-adapter. Сейчас отказ `Db_type.map.encode/decode` внутри
-`Caqti.Template.Row_type.custom` может выйти как исключение `Reject`, минуя
-публичный `Typed_sql_caqti_lwt.error`. В adapter нужно добавить вариант
-`Codec of string`, перехватывать ошибки encode и decode и проверять оба
-направления через SQLite `:memory:`. Исключение реализации Caqti не должно
-пересекать публичную границу adapter.
+Ошибочный путь mapped codec в Caqti adapter закрыт. Adapter выполняет
+`Db_type.map.encode/decode` вокруг базового Caqti row type, поэтому отказ
+возвращается как `Codec of string` и не пересекает Caqti в виде исключения.
+SQLite `:memory:` проверяет encode, все три fetch-варианта decode и пригодность
+соединения после отказа.
 
 #### P1: второй backend — сделан без подключения
 
@@ -315,12 +313,12 @@ JWT, password hashing, HTTP routing, JSON validation и генерация slug 
 
 ## Порядок следующих работ
 
-### 1. Ошибки mapped codec в Caqti
+### 1. Ошибки mapped codec в Caqti — сделано
 
-- добавить `Typed_sql_caqti_lwt.Codec of string`;
-- преобразовать отказы `Db_type.map.encode` и `Db_type.map.decode` в этот
+- добавлен `Typed_sql_caqti_lwt.Codec of string`;
+- отказы `Db_type.map.encode` и `Db_type.map.decode` преобразуются в этот
   вариант без утечки `Reject`;
-- проверить encode и decode failures SQLite integration-тестами.
+- encode и decode failures проверяются SQLite integration-тестами.
 
 ### 2. Малый законченный срез portable выражений
 
