@@ -20,6 +20,7 @@
   public_packed_type_is_hidden.ml
   public_template_constructor_is_hidden.ml
   run.sh
+  select_is_required.ml
   update_requires_scope.ml
   wrong_ordering.ml)
  (action

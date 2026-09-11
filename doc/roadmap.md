@@ -46,8 +46,9 @@ PG'OCaml API не предоставляет affected-row count.
   сравнениями, `LIKE`, проверками `NULL` и трёхзначной логикой условий;
 - `Projection<'a>` с полным `Base.Applicative.S`, `Let_syntax` и интерпретатором
   `Projection.Make` для декодеров адаптеров;
-- immutable deferred `SELECT` с `FROM`, `SELECT`, `WHERE`, `where_opt`,
-  `INNER JOIN`, `LEFT JOIN`, `ORDER BY`, `LIMIT` и `OFFSET`;
+- immutable deferred `SELECT` с `FROM`, `WHERE`, `where_opt`, `INNER JOIN`,
+  `LEFT JOIN`, `ORDER BY`, `LIMIT` и `OFFSET`; завершающий `select` задаёт
+  projection и возвращает `Result_query.t`;
 - `INSERT`, scoped `UPDATE`/`DELETE`, `RETURNING`, commands и результат
   affected rows;
 - проверка принадлежности колонок всем visible sources на этапе compiler;
@@ -128,7 +129,7 @@ API приложения не содержит codec views, packed values, ша�
 
 - `make build`;
 - `make test`;
-- `make coverage` — 97,72% (599 из 613 точек) по реализации `Typed_sql`;
+- `make coverage` — 97,88% (599 из 612 точек) по реализации `Typed_sql`;
 - `make check`, включая форматирование, сборку, tests, odoc, install smoke и
   `opam lint`.
 
@@ -139,11 +140,11 @@ compile-fail cases и SQLite execution. Подключения к PostgreSQL в 
 
 Покрытие считается без suppression и только через API приложения: public
 inline tests, QCheck и Caqti/SQLite `:memory:`. Coverage runner не запускает
-white-box и backend test libraries. Оставшиеся 14 точек относятся к закрытым
+white-box и backend test libraries. Оставшиеся 13 точек относятся к закрытым
 query/expr constructors, shape accessors для адаптеров и защитным ветвям
 validator/renderer, которые корректный публичный DSL устраняет до rendering.
 Их покрытие потребовало бы тестировать private/backend API или расширить
-публичный контракт только ради тестов, поэтому текущие 97,72% являются честным
+публичный контракт только ради тестов, поэтому текущие 97,88% являются честным
 пределом выбранного режима.
 
 ### Сильные стороны
@@ -190,8 +191,8 @@ PostgreSQL и SQLite.
 `INNER JOIN`, `LEFT JOIN`, arbitrary `ON`, повторные table occurrences и
 несколько visible sources реализованы. Aliases назначаются renderer'ом, а
 SQLite integration test проверяет nullable правую сторону outer join.
-Comparison и logical predicates теперь строятся через публичные infix
-operators; функциональные `and_`, `or_`, `all` и `any` скрыты из API.
+Comparison и logical predicates теперь строятся через общий публичный `Infix`;
+функциональные `and_`, `or_`, `all` и `any` скрыты из API.
 
 Следующие portable выражения:
 

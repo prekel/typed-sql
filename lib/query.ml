@@ -1,8 +1,7 @@
 open! Base
 
-type ('ctx, 'result) t =
+type 'ctx t =
   { context : 'ctx
-  ; projection : 'result Projection.t
   ; ast : Ast.select
   }
 
@@ -11,9 +10,8 @@ type direction =
   | `Desc
   ]
 
-let from table ~select =
+let from table =
   let reference = Table_ref.create table in
-  let projection = select reference in
   let source =
     { Ast.source_id = Table_ref.source_id reference
     ; schema = Table.schema table
@@ -21,11 +19,10 @@ let from table ~select =
     }
   in
   { context = reference
-  ; projection
   ; ast =
       { source
       ; joins = []
-      ; projection = Projection.expressions projection
+      ; projection = []
       ; where_ = None
       ; order_by = []
       ; limit = None
@@ -51,7 +48,6 @@ let inner_join table ~on query =
     }
   in
   { context = query.context, reference
-  ; projection = query.projection
   ; ast = { query.ast with joins = query.ast.joins @ [ join ] }
   }
 ;;
@@ -65,17 +61,14 @@ let left_join table ~on query =
     }
   in
   { context = query.context, Nullable_table_ref.of_table_ref reference
-  ; projection = query.projection
   ; ast = { query.ast with joins = query.ast.joins @ [ join ] }
   }
 ;;
 
 let select make_projection query =
   let projection = make_projection query.context in
-  { context = query.context
-  ; projection
-  ; ast = { query.ast with projection = Projection.expressions projection }
-  }
+  let ast = { query.ast with projection = Projection.expressions projection } in
+  Result_query.create (Ast.Select ast) projection
 ;;
 
 let where make_condition query =
@@ -107,6 +100,4 @@ let order_by make_expression direction query =
 
 let limit limit query = { query with ast = { query.ast with limit = Some limit } }
 let offset offset query = { query with ast = { query.ast with offset = Some offset } }
-let to_result query = Result_query.create (Ast.Select query.ast) query.projection
 let ast query = query.ast
-let projection query = query.projection

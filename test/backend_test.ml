@@ -1,11 +1,10 @@
 open! Base
 open Typed_sql
-open Expr.Infix
+open Infix
 module B = Typed_sql_backend
 
 let compile_exn dialect query =
-  Query.to_result query
-  |> Compiler.compile ~dialect
+  Compiler.compile ~dialect query
   |> Result.map_error ~f:Compile_error.to_string
   |> Result.ok_or_failwith
 ;;
@@ -14,8 +13,10 @@ let%test_unit "query shape excludes values and generative source ids" =
   let table : unit Table.t = Table.v_exn "people" in
   let name = Column.v_exn table "name" Db_type.text in
   let make value =
-    Query.from table ~select:(fun row -> Projection.expr (Expr.column row name))
-    |> Query.where (fun row -> Expr.column row name =$ value)
+    Query.(
+      from table
+      |> where (fun row -> Expr.column row name =$ value)
+      |> select (fun row -> Projection.expr (Expr.column row name)))
     |> compile_exn Dialect.Postgresql
   in
   let first = make "Ada" in
@@ -35,7 +36,7 @@ let%test "mapped codecs with the same name have distinct shapes" =
   let make db_type =
     let table : unit Table.t = Table.v_exn "ids" in
     let column = Column.v_exn table "id" db_type in
-    Query.from table ~select:(fun row -> Projection.expr (Expr.column row column))
+    Query.(from table |> select (fun row -> Projection.expr (Expr.column row column)))
     |> compile_exn Dialect.Sqlite
     |> B.Compiled_query.shape
   in

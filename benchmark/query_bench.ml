@@ -1,6 +1,6 @@
 open! Base
 open Typed_sql
-open Expr.Infix
+open Infix
 
 module Item = struct
   type row
@@ -20,10 +20,12 @@ module Item = struct
 end
 
 let query value =
-  Query.from Item.table ~select:Item.projection
-  |> Query.where (fun item -> Item.name item =$ value)
-  |> Query.order_by (fun item -> Item.id item) `Asc
-  |> Query.limit 100
+  Query.(
+    from Item.table
+    |> where (fun item -> Item.name item =$ value)
+    |> order_by (fun item -> Item.id item) `Asc
+    |> limit 100
+    |> select Item.projection)
 ;;
 
 let iterations = 100_000
@@ -32,7 +34,6 @@ let () =
   let started = Unix.gettimeofday () in
   for index = 1 to iterations do
     query (Int.to_string index)
-    |> Query.to_result
     |> Compiler.compile ~dialect:Dialect.Postgresql
     |> Stdlib.Sys.opaque_identity
     |> ignore

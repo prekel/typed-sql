@@ -253,6 +253,16 @@ module Expr : sig
   end
 end
 
+(** All expression-comparison and condition-composition operators. Opening this
+    module is the recommended way to use operators while building queries. *)
+module Infix : sig
+  (** Comparison operators inherited from [Expr.Infix]. *)
+  include module type of Expr.Infix
+
+  (** Boolean operators inherited from [Condition.Infix]. *)
+  include module type of Condition.Infix
+end
+
 (** Applicative result projections. *)
 module Projection : sig
   (** An applicative description of SELECT expressions and their result
@@ -267,6 +277,9 @@ module Projection : sig
 
   (** Add one typed SQL expression and decode its field unchanged. *)
   val expr : 'a Expr.t -> 'a t
+
+  (** Select two expressions from left to right and decode them as a pair. *)
+  val pair : 'a Expr.t -> 'b Expr.t -> ('a * 'b) t
 
   (** Syntax support for applicative [let%map] and parallel [and] bindings. *)
   module Let_syntax : sig
@@ -308,9 +321,10 @@ end
 
 (** Immutable SELECT builders. *)
 module Query : sig
-  (** An immutable deferred SELECT query. ['ctx] is the callback context of
-      visible table references and ['result] is the decoded row type. *)
-  type ('ctx, 'result) t
+  (** An immutable SELECT builder. ['ctx] is the callback context of visible
+      table references. [select] finishes the builder and determines the result
+      type. *)
+  type 'ctx t
 
   (** Direction for one [ORDER BY] key. *)
   type direction =
@@ -318,64 +332,47 @@ module Query : sig
     | `Desc (** Descending SQL order. *)
     ]
 
-  (** Start a SELECT from one table. [select] receives the only valid reference
-      to this occurrence and defines the initial result projection. *)
-  val from
-    :  'row Table.t
-    -> select:('row Table_ref.t -> 'result Projection.t)
-    -> ('row Table_ref.t, 'result) t
+  (** Start a SELECT builder from one table. Subsequent callbacks receive the
+      only valid reference to this occurrence. *)
+  val from : 'row Table.t -> 'row Table_ref.t t
 
-  (** Replace the result projection while preserving FROM, joins, filters,
-      ordering, and pagination. *)
-  val select
-    :  ('ctx -> 'result Projection.t)
-    -> ('ctx, 'old_result) t
-    -> ('ctx, 'result) t
+  (** Finish the builder with a result projection. Keeping [select] last avoids
+      a temporary projection while filters and joins are assembled. *)
+  val select : ('ctx -> 'result Projection.t) -> 'ctx t -> 'result Result_query.t
 
   (** Append an [INNER JOIN]. The [on] callback sees the existing context and a
       regular reference to the newly joined table. *)
   val inner_join
     :  'row Table.t
     -> on:('ctx -> 'row Table_ref.t -> Condition.t)
-    -> ('ctx, 'result) t
-    -> ('ctx * 'row Table_ref.t, 'result) t
+    -> 'ctx t
+    -> ('ctx * 'row Table_ref.t) t
 
   (** [on] sees the new table before null extension. Subsequent callbacks
       receive a nullable reference and must use [Expr.nullable_column]. *)
   val left_join
     :  'row Table.t
     -> on:('ctx -> 'row Table_ref.t -> Condition.t)
-    -> ('ctx, 'result) t
-    -> ('ctx * 'row Nullable_table_ref.t, 'result) t
+    -> 'ctx t
+    -> ('ctx * 'row Nullable_table_ref.t) t
 
   (** Repeated calls combine predicates with SQL AND. *)
-  val where : ('ctx -> Condition.t) -> ('ctx, 'result) t -> ('ctx, 'result) t
+  val where : ('ctx -> Condition.t) -> 'ctx t -> 'ctx t
 
   (** Add a predicate only when the optional value is [Some]. [None] returns
       the same immutable query unchanged. *)
-  val where_opt
-    :  'value option
-    -> f:('ctx -> 'value -> Condition.t)
-    -> ('ctx, 'result) t
-    -> ('ctx, 'result) t
+  val where_opt : 'value option -> f:('ctx -> 'value -> Condition.t) -> 'ctx t -> 'ctx t
 
   (** Append one ordering key. Repeated calls preserve call order. *)
-  val order_by
-    :  ('ctx -> 'value Expr.t)
-    -> direction
-    -> ('ctx, 'result) t
-    -> ('ctx, 'result) t
+  val order_by : ('ctx -> 'value Expr.t) -> direction -> 'ctx t -> 'ctx t
 
   (** Set the maximum number of returned rows. The compiler rejects negative
       values. A later call replaces the previous limit. *)
-  val limit : int -> ('ctx, 'result) t -> ('ctx, 'result) t
+  val limit : int -> 'ctx t -> 'ctx t
 
   (** Set the number of rows to skip. The compiler rejects negative values. A
       later call replaces the previous offset. *)
-  val offset : int -> ('ctx, 'result) t -> ('ctx, 'result) t
-
-  (** Finish the builder for compilation or execution without running SQL. *)
-  val to_result : ('ctx, 'result) t -> 'result Result_query.t
+  val offset : int -> 'ctx t -> 'ctx t
 end
 
 (** Immutable single-row INSERT builders. *)

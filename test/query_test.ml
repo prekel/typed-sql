@@ -1,7 +1,6 @@
 open! Base
 open Typed_sql
-open Expr.Infix
-open Condition.Infix
+open Infix
 
 module Person = struct
   type row
@@ -41,41 +40,45 @@ module Department = struct
 end
 
 let compile_exn dialect query =
-  match Compiler.compile ~dialect (Query.to_result query) with
+  match Compiler.compile ~dialect query with
   | Ok compiled -> compiled
   | Error error -> failwith (Compile_error.to_string error)
 ;;
 
 let%expect_test "PostgreSQL and SQLite rendering" =
   let query =
-    Query.from Person.table ~select:Person.projection
-    |> Query.where (fun person ->
-      Condition.true_ &&. (Person.name person =$ "Ada") &&. (Person.id person >$ 10L))
-    |> Query.order_by (fun person -> Person.id person) `Desc
-    |> Query.limit 20
-    |> Query.offset 5
+    Query.(
+      from Person.table
+      |> where (fun person ->
+        Condition.true_ &&. (Person.name person =$ "Ada") &&. (Person.id person >$ 10L))
+      |> order_by (fun person -> Person.id person) `Desc
+      |> limit 20
+      |> offset 5
+      |> select (fun person -> Projection.pair (Person.id person) (Person.name person)))
   in
   let postgres = compile_exn Dialect.Postgresql query in
   let sqlite = compile_exn Dialect.Sqlite query in
   Stdlib.print_endline (Compiled_query.sql postgres);
   [%expect
-    {| SELECT t0."id", t0."name", t0."nickname" FROM "public"."people" AS t0 WHERE ((t0."name" = $1) AND (t0."id" > $2)) ORDER BY t0."id" DESC LIMIT 20 OFFSET 5 |}];
+    {| SELECT t0."id", t0."name" FROM "public"."people" AS t0 WHERE ((t0."name" = $1) AND (t0."id" > $2)) ORDER BY t0."id" DESC LIMIT 20 OFFSET 5 |}];
   Stdlib.print_endline (Compiled_query.sql sqlite);
   [%expect
-    {| SELECT t0."id", t0."name", t0."nickname" FROM "public"."people" AS t0 WHERE ((t0."name" = ?1) AND (t0."id" > ?2)) ORDER BY t0."id" DESC LIMIT 20 OFFSET 5 |}]
+    {| SELECT t0."id", t0."name" FROM "public"."people" AS t0 WHERE ((t0."name" = ?1) AND (t0."id" > ?2)) ORDER BY t0."id" DESC LIMIT 20 OFFSET 5 |}]
 ;;
 
 let%expect_test "infix comparison operators render in source order" =
   let query =
-    Query.from Person.table ~select:Person.projection
-    |> Query.where (fun person ->
-      Person.id person
-      <$ 1L
-      &&. (Person.id person <=$ 2L)
-      &&. (Person.id person >$ 3L)
-      &&. (Person.id person >=$ 4L)
-      &&. (Person.id person <>$ 5L)
-      &&. (Person.name person =~$ "A%"))
+    Query.(
+      from Person.table
+      |> where (fun person ->
+        Person.id person
+        <$ 1L
+        &&. (Person.id person <=$ 2L)
+        &&. (Person.id person >$ 3L)
+        &&. (Person.id person >=$ 4L)
+        &&. (Person.id person <>$ 5L)
+        &&. (Person.name person =~$ "A%"))
+      |> select Person.projection)
   in
   query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
@@ -85,28 +88,32 @@ let%expect_test "infix comparison operators render in source order" =
 let%test "escaped table reference is rejected" =
   let escaped = ref None in
   let _ =
-    Query.from Person.table ~select:(fun person ->
-      escaped := Some person;
-      Person.projection person)
+    Query.(
+      from Person.table
+      |> select (fun person ->
+        escaped := Some person;
+        Person.projection person))
   in
   let foreign = Option.value_exn !escaped in
   let query =
-    Query.from Person.table ~select:Person.projection
-    |> Query.where (fun _ -> Person.name foreign =$ "Ada")
+    Query.(
+      from Person.table
+      |> where (fun _ -> Person.name foreign =$ "Ada")
+      |> select Person.projection)
   in
-  match Compiler.compile ~dialect:Dialect.Sqlite (Query.to_result query) with
+  match Compiler.compile ~dialect:Dialect.Sqlite query with
   | Error (Compile_error.Foreign_source _) -> true
   | _ -> false
 ;;
 
 let%expect_test "invalid limits and empty projections are validation errors" =
-  let empty = Query.from Person.table ~select:(fun _ -> Projection.return ()) in
-  let negative = Query.from Person.table ~select:Person.projection |> Query.limit (-1) in
-  (match Compiler.compile ~dialect:Dialect.Sqlite (Query.to_result empty) with
+  let empty = Query.(from Person.table |> select (fun _ -> Projection.return ())) in
+  let negative = Query.(from Person.table |> limit (-1) |> select Person.projection) in
+  (match Compiler.compile ~dialect:Dialect.Sqlite empty with
    | Ok _ -> failwith "unexpected success"
    | Error error -> Stdlib.print_endline (Compile_error.to_string error));
   [%expect {| SELECT projection must contain at least one expression |}];
-  (match Compiler.compile ~dialect:Dialect.Sqlite (Query.to_result negative) with
+  (match Compiler.compile ~dialect:Dialect.Sqlite negative with
    | Ok _ -> failwith "unexpected success"
    | Error error -> Stdlib.print_endline (Compile_error.to_string error));
   [%expect {| LIMIT must be non-negative, got -1 |}]
@@ -116,8 +123,9 @@ let%expect_test "identifiers are always quoted" =
   let table : unit Table.t = Table.v_exn "select" in
   let column = Column.v_exn table "quoted\"name" Db_type.text in
   let query =
-    Query.from table ~select:(fun reference ->
-      Projection.expr (Expr.column reference column))
+    Query.(
+      from table
+      |> select (fun reference -> Projection.expr (Expr.column reference column)))
   in
   query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect {| SELECT t0."quoted""name" FROM "select" AS t0 |}]
@@ -125,24 +133,26 @@ let%expect_test "identifiers are always quoted" =
 
 let%expect_test "joins use deterministic aliases and LEFT JOIN makes its side nullable" =
   let inner =
-    Query.from Person.table ~select:(fun person -> Projection.expr (Person.id person))
-    |> Query.inner_join Department.table ~on:(fun person department ->
-      Person.id person =. Department.person_id department)
-    |> Query.select (fun (person, department) ->
-      Projection.map2
-        ~f:(fun person_id department_name -> person_id, department_name)
-        (Projection.expr (Person.id person))
-        (Projection.expr (Department.name department)))
+    Query.(
+      from Person.table
+      |> inner_join Department.table ~on:(fun person department ->
+        Person.id person =. Department.person_id department)
+      |> select (fun (person, department) ->
+        Projection.map2
+          ~f:(fun person_id department_name -> person_id, department_name)
+          (Projection.expr (Person.id person))
+          (Projection.expr (Department.name department))))
   in
   let left =
-    Query.from Person.table ~select:(fun person -> Projection.expr (Person.id person))
-    |> Query.left_join Department.table ~on:(fun person department ->
-      Person.id person =. Department.person_id department)
-    |> Query.select (fun (person, department) ->
-      Projection.map2
-        ~f:(fun person_id department_name -> person_id, department_name)
-        (Projection.expr (Person.id person))
-        (Projection.expr (Department.nullable_name department)))
+    Query.(
+      from Person.table
+      |> left_join Department.table ~on:(fun person department ->
+        Person.id person =. Department.person_id department)
+      |> select (fun (person, department) ->
+        Projection.map2
+          ~f:(fun person_id department_name -> person_id, department_name)
+          (Projection.expr (Person.id person))
+          (Projection.expr (Department.nullable_name department))))
   in
   inner |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect

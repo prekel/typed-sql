@@ -7,6 +7,7 @@ type _ t =
   | Both_projection : 'a t * 'b t -> ('a * 'b) t
 
 let expr expression = Expr_projection expression
+let pair left right = Both_projection (expr left, expr right)
 
 include Applicative.Make_using_map2 (struct
     type nonrec 'a t = 'a t

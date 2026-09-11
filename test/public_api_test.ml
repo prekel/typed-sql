@@ -1,7 +1,6 @@
 open! Base
 open Typed_sql
-open Expr.Infix
-open Condition.Infix
+open Infix
 
 let ok_exn result =
   Result.map_error result ~f:Compile_error.to_string |> Result.ok_or_failwith
@@ -16,8 +15,8 @@ let table : unit Table.t = Table.v_exn "items"
 let id = Column.v_exn table "id" Db_type.int
 let name = Column.nullable_v_exn table "name" Db_type.text
 let projection row = Projection.expr (Expr.column row id)
-let query () = Query.from table ~select:projection
-let compile dialect query = Compiler.compile ~dialect (Query.to_result query)
+let query () = Query.(from table)
+let compile dialect query = Query.(select projection query) |> Compiler.compile ~dialect
 let sql dialect query = compile dialect query |> ok_exn |> Compiled_query.sql
 
 let%test_unit "identifier validation and descriptor accessors" =
@@ -60,9 +59,11 @@ let%test_unit "all public database types participate in query shapes" =
     let table : unit Table.t = Table.v_exn "typed_values" in
     let column = Column.v_exn table "value" db_type in
     List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
-      Query.from table ~select:(fun row -> Projection.expr (Expr.column row column))
-      |> Query.where (fun row -> Expr.column row column =$ value)
-      |> compile dialect
+      Query.(
+        from table
+        |> where (fun row -> Expr.column row column =$ value)
+        |> select (fun row -> Projection.expr (Expr.column row column)))
+      |> Compiler.compile ~dialect
       |> ok_exn
       |> ignore)
   in
@@ -117,7 +118,7 @@ let%test_unit "condition identities preserve compiled SQL for both dialects" =
   List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
     let atom = Expr.param Db_type.int 1 =$ 1 in
     let other = Expr.param Db_type.int 2 <>$ 3 in
-    let render predicate = sql dialect (query () |> Query.where (fun _ -> predicate)) in
+    let render predicate = sql dialect Query.(query () |> where (fun _ -> predicate)) in
     List.iter
       [ Condition.true_ &&. atom, atom
       ; atom &&. Condition.true_, atom
@@ -139,15 +140,16 @@ let%test_unit "condition identities preserve compiled SQL for both dialects" =
 
 let%expect_test "null checks, NOT, OR and multiple sort keys" =
   let query =
-    query ()
-    |> Query.where (fun row ->
-      Expr.is_null (Expr.column row name)
-      ||. Condition.not_ (Expr.is_not_null (Expr.to_nullable (Expr.column row id))))
-    |> Query.where_opt (Some 0) ~f:(fun row value -> Expr.column row id >$ value)
-    |> Query.order_by (fun row -> Expr.column row name) `Asc
-    |> Query.order_by (fun row -> Expr.column row id) `Desc
-    |> Query.limit 3
-    |> Query.offset 1
+    Query.(
+      query ()
+      |> where (fun row ->
+        Expr.is_null (Expr.column row name)
+        ||. Condition.not_ (Expr.is_not_null (Expr.to_nullable (Expr.column row id))))
+      |> where_opt (Some 0) ~f:(fun row value -> Expr.column row id >$ value)
+      |> order_by (fun row -> Expr.column row name) `Asc
+      |> order_by (fun row -> Expr.column row id) `Desc
+      |> limit 3
+      |> offset 1)
   in
   Stdlib.print_endline (sql Dialect.Postgresql query);
   [%expect
@@ -161,7 +163,7 @@ let%test_unit "expression operators agree with bound-value operators" =
   List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
     let left = Expr.param Db_type.int 1 in
     let right = Expr.param Db_type.int 2 in
-    let render condition = sql dialect (query () |> Query.where (fun _ -> condition)) in
+    let render condition = sql dialect Query.(query () |> where (fun _ -> condition)) in
     List.iter
       [ left =. right, left =$ 2
       ; left <>. right, left <>$ 2
@@ -178,9 +180,11 @@ let%test_unit "expression operators agree with bound-value operators" =
 let%test_unit "foreign sources are rejected in projection, sorting, JOIN and DML" =
   let escaped = ref None in
   let _ =
-    Query.from table ~select:(fun row ->
-      escaped := Some row;
-      projection row)
+    Query.(
+      from table
+      |> select (fun row ->
+        escaped := Some row;
+        projection row))
   in
   let foreign = Option.value_exn !escaped in
   let expression = Expr.column foreign id in
@@ -191,19 +195,23 @@ let%test_unit "foreign sources are rejected in projection, sorting, JOIN and DML
     | _ -> failwith "expected foreign source"
   in
   List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
+    check
+      (Query.(query () |> select (fun _ -> Projection.expr expression))
+       |> Compiler.compile ~dialect);
     List.iter
-      [ query () |> Query.select (fun _ -> Projection.expr expression)
-      ; query () |> Query.order_by (fun _ -> expression) `Asc
-      ; query () |> Query.where (fun row -> Expr.column row id =. expression)
-      ; query ()
-        |> Query.where (fun _ ->
-          Condition.not_ (Expr.is_null (Expr.to_nullable expression)))
+      [ Query.(query () |> order_by (fun _ -> expression) `Asc)
+      ; Query.(query () |> where (fun row -> Expr.column row id =. expression))
+      ; Query.(
+          query ()
+          |> where (fun _ -> Condition.not_ (Expr.is_null (Expr.to_nullable expression))))
       ]
       ~f:(fun query -> check (compile dialect query));
     check
-      (compile
-         dialect
-         (query () |> Query.inner_join table ~on:(fun _ _ -> expression =$ 0)));
+      (Query.(
+         query ()
+         |> inner_join table ~on:(fun _ _ -> expression =$ 0)
+         |> select (fun _ -> Projection.expr expression))
+       |> Compiler.compile ~dialect);
     check
       (Compiler.compile_command
          ~dialect
@@ -253,7 +261,7 @@ let%expect_test "invalid DML and pagination diagnostics" =
         |> Delete.all_rows
         |> Delete.returning (fun _ -> Projection.return ())));
   [%expect {| SELECT projection must contain at least one expression |}];
-  print_result (compile Dialect.Sqlite (query () |> Query.offset (-1)));
+  print_result (compile Dialect.Sqlite Query.(query () |> offset (-1)));
   [%expect {| OFFSET must be non-negative, got -1 |}]
 ;;
 
@@ -290,7 +298,7 @@ let%expect_test "multi-assignment UPDATE and DELETE RETURNING" =
 let%test_unit "builders are immutable and all_rows clears filters" =
   List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
     let base = query () in
-    let filtered = base |> Query.where (fun row -> Expr.column row id =$ 1) in
+    let filtered = Query.(base |> where (fun row -> Expr.column row id =$ 1)) in
     assert (not (String.equal (sql dialect base) (sql dialect filtered)));
     let compiled = compile dialect base |> ok_exn in
     assert (Poly.equal (Compiled_query.dialect compiled) dialect);

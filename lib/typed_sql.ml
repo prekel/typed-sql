@@ -7,6 +7,12 @@ module Table_ref = Typed_sql_private.Table_ref
 module Nullable_table_ref = Typed_sql_private.Nullable_table_ref
 module Condition = Typed_sql_private.Condition
 module Expr = Typed_sql_private.Expr
+
+module Infix = struct
+  include Expr.Infix
+  include Condition.Infix
+end
+
 module Projection = Typed_sql_private.Projection
 module Query = Typed_sql_private.Query
 module Result_query = Typed_sql_private.Result_query

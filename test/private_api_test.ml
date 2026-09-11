@@ -49,14 +49,14 @@ let ok_exn result =
 let%expect_test "private inspection preserves public query types and source identity" =
   let table : unit Table.t = Table.v_exn "items" in
   let id = Column.v_exn table "id" Db_type.int in
-  let query =
-    Query.from table ~select:(fun row -> Projection.expr (Expr.column row id))
-    |> Query.where (fun row -> Expr.column row id =$ 7)
+  let builder = Query.(from table |> where (fun row -> Expr.column row id =$ 7)) in
+  let ast = Query.(ast builder) in
+  let original =
+    Query.(builder |> select (fun row -> Projection.expr (Expr.column row id)))
   in
-  let ast = Query.ast query in
-  let projection = Query.projection query in
+  let projection = Result_query.projection original in
+  let ast = { ast with A.projection = Projection.expressions projection } in
   let rebuilt = Result_query.create (A.Select ast) projection in
-  let original = Query.to_result query in
   let compile query = Compiler.compile ~dialect:Dialect.Sqlite query |> ok_exn in
   let original, rebuilt = compile original, compile rebuilt in
   assert (Shape.equal (Compiled_query.shape original) (Compiled_query.shape rebuilt));

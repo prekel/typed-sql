@@ -4,7 +4,8 @@
 Generated/manual schema
           |
           v
-Typed DSL: Db_type -> Column -> Expr -> Condition -> Projection -> Query
+Typed DSL: Db_type -> Column -> Expr -> Condition -> Query builder
+                                                -> Projection -> Result_query
           |
           v
 Immutable semantic AST
@@ -32,9 +33,10 @@ column descriptor отражает schema nullability: [Column.v] даёт об�
 [Nullable_table_ref]; [Expr.nullable_column] возвращает один [option] даже для
 schema-nullable колонки.
 
-Основной surface для predicates — [Expr.Infix] и [Condition.Infix]. Операторы
-сохраняют тип левого expression при создании bind parameter, поэтому строка
-SQL по-прежнему не строится из пользовательского значения.
+Основной surface для predicates — общий [Infix], реэкспортирующий операторы
+[Expr.Infix] и [Condition.Infix]. Операторы сохраняют тип левого expression при
+создании bind parameter, поэтому строка SQL по-прежнему не строится из
+пользовательского значения.
 
 {1 API приложения, адаптеров и тестов}
 
@@ -51,7 +53,7 @@ SQL по-прежнему не строится из пользовательс�
 
 [Typed_sql] предоставляет схему, DSL, компиляцию, SQL и ошибки. Его
 сигнатура не раскрывает internal constructors и AST. Например, white-box тест
-может вызвать [Typed_sql_private.Query.ast query] или
+может вызвать [Typed_sql_private.Query.ast builder] или
 [Typed_sql_private.Command.create ast], чтобы проверить compiler на намеренно
 некорректном command.
 

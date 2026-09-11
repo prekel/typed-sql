@@ -1,7 +1,6 @@
 open! Base
 open Typed_sql
-open Expr.Infix
-open Condition.Infix
+open Infix
 module T = Caqti.Template
 
 let ( let* ) = Lwt.bind
@@ -167,47 +166,47 @@ let run conn =
     |> caqti_or_fail
   in
   let query =
-    Query.from Person.table ~select:Person.projection
-    |> Query.where (fun person ->
-      Person.id person
-      >$ 0L
-      &&. (Person.role person =$ `Admin)
-      &&. (Person.name person =~$ "%d%"))
-    |> Query.order_by (fun person -> Person.id person) `Asc
+    Query.(
+      from Person.table
+      |> where (fun person ->
+        Person.id person
+        >$ 0L
+        &&. (Person.role person =$ `Admin)
+        &&. (Person.name person =~$ "%d%"))
+      |> order_by (fun person -> Person.id person) `Asc
+      |> select Person.projection)
   in
-  let* rows =
-    Typed_sql_caqti_lwt.fetch ~conn (Query.to_result query) >>= adapter_or_fail
-  in
+  let* rows = Typed_sql_caqti_lwt.fetch ~conn query >>= adapter_or_fail in
   assert_equal [ { Person.id = 1L; name = "Ada"; role = `Admin; nickname = None } ] rows;
-  let* row =
-    Typed_sql_caqti_lwt.fetch_one ~conn (Query.to_result query) >>= adapter_or_fail
-  in
+  let* row = Typed_sql_caqti_lwt.fetch_one ~conn query >>= adapter_or_fail in
   if not (Int64.equal row.id 1L) then
     failwith "fetch_one returned the wrong row";
   let missing =
-    Query.from Person.table ~select:Person.projection
-    |> Query.where (fun person -> Person.name person =$ "missing")
+    Query.(
+      from Person.table
+      |> where (fun person -> Person.name person =$ "missing")
+      |> select Person.projection)
   in
-  let* missing =
-    Typed_sql_caqti_lwt.fetch_opt ~conn (Query.to_result missing) >>= adapter_or_fail
-  in
+  let* missing = Typed_sql_caqti_lwt.fetch_opt ~conn missing >>= adapter_or_fail in
   if Option.is_some missing then
     failwith "fetch_opt unexpectedly returned a row";
   let injection = "'; DROP TABLE people; --" in
   let injected =
-    Query.from Person.table ~select:Person.projection
-    |> Query.where (fun person -> Person.name person =$ injection)
+    Query.(
+      from Person.table
+      |> where (fun person -> Person.name person =$ injection)
+      |> select Person.projection)
   in
-  let* rows =
-    Typed_sql_caqti_lwt.fetch ~conn (Query.to_result injected) >>= adapter_or_fail
-  in
+  let* rows = Typed_sql_caqti_lwt.fetch ~conn injected >>= adapter_or_fail in
   assert_equal [] rows;
   let all =
-    Query.from Person.table ~select:Person.projection
-    |> Query.where_opt None ~f:(fun person name -> Person.name person =$ name)
-    |> Query.order_by (fun person -> Person.id person) `Asc
+    Query.(
+      from Person.table
+      |> where_opt None ~f:(fun person name -> Person.name person =$ name)
+      |> order_by (fun person -> Person.id person) `Asc
+      |> select Person.projection)
   in
-  let* rows = Typed_sql_caqti_lwt.fetch ~conn (Query.to_result all) >>= adapter_or_fail in
+  let* rows = Typed_sql_caqti_lwt.fetch ~conn all >>= adapter_or_fail in
   assert_equal
     [ { Person.id = 1L; name = "Ada"; role = `Admin; nickname = None }
     ; { Person.id = 2L; name = "Grace"; role = `Guest; nickname = Some "Amazing Grace" }
@@ -215,34 +214,35 @@ let run conn =
     ]
     rows;
   let departments =
-    Query.from Person.table ~select:(fun person -> Projection.expr (Person.name person))
-    |> Query.left_join Department.table ~on:(fun person department ->
-      Person.id person =. Department.person_id department)
-    |> Query.select (fun (person, department) ->
-      Projection.map2
-        ~f:(fun person_name department_name -> person_name, department_name)
-        (Projection.expr (Person.name person))
-        (Projection.expr (Department.nullable_name department)))
-    |> Query.order_by (fun (person, _) -> Person.id person) `Asc
-    |> Query.to_result
+    Query.(
+      from Person.table
+      |> left_join Department.table ~on:(fun person department ->
+        Person.id person =. Department.person_id department)
+      |> order_by (fun (person, _) -> Person.id person) `Asc
+      |> select (fun (person, department) ->
+        Projection.map2
+          ~f:(fun person_name department_name -> person_name, department_name)
+          (Projection.expr (Person.name person))
+          (Projection.expr (Department.nullable_name department))))
   in
   let* departments = Typed_sql_caqti_lwt.fetch ~conn departments >>= adapter_or_fail in
   assert_equal [ "Ada", Some "Mathematics"; "Grace", None; "Linus", None ] departments;
   let applicative =
-    Query.from Person.table ~select:(fun person ->
-      let open Projection.Let_syntax in
-      let%map name = Projection.expr (Person.name person)
-      and values =
-        Projection.all
-          [ Projection.expr (Expr.param Db_type.int 11)
-          ; Projection.apply
-              (Projection.return Int.succ)
-              (Projection.expr (Expr.param Db_type.int 22))
-          ]
-      and empty = Projection.all [] in
-      name, values, empty)
-    |> Query.order_by (fun person -> Person.id person) `Asc
-    |> Query.to_result
+    Query.(
+      from Person.table
+      |> order_by (fun person -> Person.id person) `Asc
+      |> select (fun person ->
+        let open Projection.Let_syntax in
+        let%map name = Projection.expr (Person.name person)
+        and values =
+          Projection.all
+            [ Projection.expr (Expr.param Db_type.int 11)
+            ; Projection.apply
+                (Projection.return Int.succ)
+                (Projection.expr (Expr.param Db_type.int 22))
+            ]
+        and empty = Projection.all [] in
+        name, values, empty))
   in
   let* rows = Typed_sql_caqti_lwt.fetch ~conn applicative >>= adapter_or_fail in
   assert_equal
@@ -304,9 +304,10 @@ let run conn =
   in
   let* _ = Typed_sql_caqti_lwt.execute ~conn delete >>= adapter_or_fail in
   let deleted =
-    Query.from Person.table ~select:Person.projection
-    |> Query.where (fun person -> Person.id person =$ 4L)
-    |> Query.to_result
+    Query.(
+      from Person.table
+      |> where (fun person -> Person.id person =$ 4L)
+      |> select Person.projection)
   in
   let* deleted = Typed_sql_caqti_lwt.fetch_opt ~conn deleted >>= adapter_or_fail in
   if Option.is_some deleted then

@@ -6,7 +6,7 @@
 
 - Инструментирование `Typed_sql` через `bisect_ppx` и `make coverage` с
   минимальным порогом 97%. Coverage-набор использует только API приложения,
-  QCheck и SQLite `:memory:`; текущий сырой результат — 97,72% (599/613).
+  QCheck и SQLite `:memory:`; текущий сырой результат — 97,88% (599/612).
 - Публичные regression tests для всех `Db_type`, infix-операторов, нормализации
   условий, source validation, DML diagnostics и builder immutability. SQLite
   integration test проверяет round-trip всех базовых codec.
@@ -45,5 +45,9 @@
 
 ### Изменено
 
+- `Query.from` теперь начинает builder без временной projection, а
+  завершающий `Query.select` сразу возвращает `Result_query.t`. Добавлены общий
+  `Typed_sql.Infix` и `Projection.pair`; рекомендуемая запись использует
+  локальное открытие `Query.(...)`.
 - Удалены неиспользуемые внутренние helpers выражений, условий, типов и SQL
   templates, не входившие ни в application, ни в backend API.

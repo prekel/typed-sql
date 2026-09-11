@@ -16,6 +16,7 @@ module Site = struct
 end
 
 let _ =
-  Query.from Person.table ~select:(fun person ->
-    Projection.expr (Expr.column person Site.id_column))
+  Query.(
+    from Person.table
+    |> select (fun person -> Projection.expr (Expr.column person Site.id_column)))
 ;;

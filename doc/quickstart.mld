@@ -4,7 +4,7 @@
 
 {[
 open Typed_sql
-open Expr.Infix
+open Infix
 
 module Person = struct
   type row
@@ -43,24 +43,26 @@ Query строится без connection и эффекта:
 
 {[
 let by_name name =
-  Query.from Person.table ~select:Person.projection
-  |> Query.where (fun person -> Person.name person =$ name)
-  |> Query.order_by (fun person -> Person.id person) `Asc
-  |> Query.limit 100
+  Query.(
+    from Person.table
+    |> where (fun person -> Person.name person =$ name)
+    |> order_by (fun person -> Person.id person) `Asc
+    |> limit 100
+    |> select Person.projection)
 ]}
 
-[Expr.Infix] — основной API для сравнений: операторы с точкой сравнивают два
+[Infix] — основной API для сравнений: операторы с точкой сравнивают два
 выражения ([=.], [<.], [<=.], [>.], [>=.], [<>.]), а варианты с [$] создают
 bind parameter из значения OCaml ([=$], [<$], [<=$], [>$], [>=$], [<>$]).
-Для строк есть [=~.] и [=~$] ([LIKE]). Условия комбинируются через
-[Condition.Infix]: [&&.] и [||.].
+Для строк есть [=~.] и [=~$] ([LIKE]). Условия комбинируются через [&&.] и
+[||.]. [Query.(...)] локально открывает query-builder, а завершающий [select]
+превращает его в готовый [Result_query.t].
 
 SQL можно проверить до выполнения:
 
 {[
 let sql =
   by_name "Ada"
-  |> Query.to_result
   |> Compiler.compile ~dialect:Dialect.Postgresql
   |> Result.map ~f:Compiled_query.sql
 ]}
@@ -68,7 +70,7 @@ let sql =
 На Caqti Lwt connection запрос выполняется отдельно:
 
 {[
-Typed_sql_caqti_lwt.fetch ~conn (by_name "Ada" |> Query.to_result)
+Typed_sql_caqti_lwt.fetch ~conn (by_name "Ada")
 ]}
 
 Приложение должно самостоятельно подключить нужный Caqti driver. Параметры

@@ -1,6 +1,6 @@
 open! Base
 open Typed_sql
-open Expr.Infix
+open Infix
 
 module Item = struct
   type row
@@ -10,9 +10,9 @@ module Item = struct
 end
 
 let _ =
-  Query.from Item.table ~select:(fun item ->
-    Projection.expr (Expr.column item Item.id_column))
-  |> Query.left_join Item.table ~on:(fun left right ->
-    Expr.column left Item.id_column =. Expr.column right Item.id_column)
-  |> Query.select (fun (_, right) -> Projection.expr (Expr.column right Item.id_column))
+  Query.(
+    from Item.table
+    |> left_join Item.table ~on:(fun left right ->
+      Expr.column left Item.id_column =. Expr.column right Item.id_column)
+    |> select (fun (_, right) -> Projection.expr (Expr.column right Item.id_column)))
 ;;

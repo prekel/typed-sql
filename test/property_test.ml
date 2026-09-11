@@ -1,6 +1,6 @@
 open! Base
 open Typed_sql
-open Expr.Infix
+open Infix
 
 module Item = struct
   type row
@@ -11,9 +11,10 @@ module Item = struct
 end
 
 let compile value =
-  Query.from Item.table ~select:(fun item -> Projection.expr (Item.name item))
-  |> Query.where (fun item -> Item.name item =$ value)
-  |> Query.to_result
+  Query.(
+    from Item.table
+    |> where (fun item -> Item.name item =$ value)
+    |> select (fun item -> Projection.expr (Item.name item)))
   |> Compiler.compile ~dialect:Dialect.Sqlite
 ;;
 

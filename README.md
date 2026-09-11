@@ -12,7 +12,7 @@ PostgreSQL.
 
 ```ocaml
 open Typed_sql
-open Expr.Infix
+open Infix
 
 module Person = struct
   type row
@@ -22,25 +22,25 @@ module Person = struct
   let name_col = Column.v_exn table "name" Db_type.text
   let id row = Expr.column row id_col
   let name row = Expr.column row name_col
-
-  let projection row =
-    Projection.map2
-      ~f:(fun id name -> id, name)
-      (Projection.expr (id row))
-      (Projection.expr (name row))
 end
 
 let query name =
-  Query.from Person.table ~select:Person.projection
-  |> Query.where (fun row -> Person.name row =$ name)
-  |> Query.order_by (fun row -> Person.id row) `Asc
-  |> Query.limit 100
+  Query.(
+    from Person.table
+    |> where (fun person -> Person.name person =$ name)
+    |> order_by (fun person -> Person.id person) `Asc
+    |> limit 100
+    |> select (fun person -> Projection.pair (Person.id person) (Person.name person)))
 ```
+
+`Query.(...)` локально открывает только query-builder и сохраняет видимой
+границу DSL. `select` ставится последним: он задаёт projection и превращает
+builder в готовый `Result_query.t`.
 
 Query не содержит connection или `Lwt.t`. Materialization выполняется отдельно:
 
 ```ocaml
-Typed_sql_caqti_lwt.fetch ~conn (query "Ada" |> Query.to_result)
+Typed_sql_caqti_lwt.fetch ~conn (query "Ada")
 ```
 
 Весь API приложения с документацией находится в

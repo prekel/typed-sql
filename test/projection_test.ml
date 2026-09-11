@@ -4,8 +4,7 @@ module B = Typed_sql_backend
 module A : Base.Applicative.S with type 'a t = 'a Projection.t = Projection
 
 let compile_exn dialect projection =
-  Query.from (Table.v_exn "items") ~select:(fun _ -> projection)
-  |> Query.to_result
+  Query.(from (Table.v_exn "items") |> select (fun _ -> projection))
   |> Compiler.compile ~dialect
   |> Result.map_error ~f:Compile_error.to_string
   |> Result.ok_or_failwith
