@@ -1,12 +1,15 @@
 open! Base
 module Identifier = Typed_sql_private.Identifier
 module Db_type = Typed_sql_private.Db_type
+module Schema_ir = Typed_sql_private.Schema_ir
+module Schema_codegen = Typed_sql_private.Schema_codegen
 module Table = Typed_sql_private.Table
 module Column = Typed_sql_private.Column
 module Table_ref = Typed_sql_private.Table_ref
 module Nullable_table_ref = Typed_sql_private.Nullable_table_ref
 module Condition = Typed_sql_private.Condition
 module Expr = Typed_sql_private.Expr
+module Scalar_query = Typed_sql_private.Scalar_query
 
 module Infix = struct
   include Expr.Infix
@@ -20,13 +23,6 @@ module Command = Typed_sql_private.Command
 module Insert = Typed_sql_private.Insert
 module Update = Typed_sql_private.Update
 module Delete = Typed_sql_private.Delete
-
-module Postgresql = struct
-  module Insert = struct
-    let on_conflict_do_nothing = Insert.postgresql_on_conflict_do_nothing
-  end
-end
-
 module Dialect = Typed_sql_private.Dialect
 module Compile_error = Typed_sql_private.Compile_error
 module Compiled_query = Typed_sql_private.Compiled_query

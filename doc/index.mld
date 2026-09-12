@@ -5,13 +5,17 @@
 ссылке другой таблицы. Query остаётся immutable значением до явного вызова
 execution adapter.
 
-Первый срез включает:
+Текущий срез включает:
 
 - типы БД, table/column descriptors и bind parameters;
 - отдельные scalar expressions и SQL conditions;
 - applicative projections произвольного OCaml-типа;
-- [SELECT], [INNER JOIN], [LEFT JOIN], [WHERE], [ORDER BY], [LIMIT] и [OFFSET];
-- single-row [INSERT], scoped [UPDATE]/[DELETE] и [RETURNING];
+- [SELECT], joins, filtering, ordering, pagination, grouping и aggregates;
+- portable lists, arithmetic, string functions, [CASE], timestamp и correlated
+  subqueries;
+- multi-row [INSERT], conflict ignore, scoped [UPDATE]/[DELETE], [UPDATE FROM]
+  и [RETURNING];
+- schema IR, PostgreSQL/SQLite introspection через Caqti и OCaml codegen;
 - PostgreSQL и SQLite compiler;
 - Lwt execution через [typed-sql-caqti-lwt] и PostgreSQL execution через
   [typed-sql-pgocaml-lwt].

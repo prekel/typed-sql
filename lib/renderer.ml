@@ -22,7 +22,43 @@ let render_source source =
 
 let alias_for aliases source_id = List.Assoc.find_exn aliases source_id ~equal:Int.equal
 
-let render_expr ~aliases expression state =
+let arithmetic_sql = function
+  | Ast.Add -> " + "
+  | Ast.Subtract -> " - "
+  | Ast.Multiply -> " * "
+  | Ast.Divide -> " / "
+;;
+
+let string_function_sql = function
+  | Ast.Lower -> "LOWER"
+  | Ast.Upper -> "UPPER"
+  | Ast.Length -> "CHAR_LENGTH"
+  | Ast.Sqlite_length -> "LENGTH"
+;;
+
+let comparison_sql = function
+  | Ast.Eq -> " = "
+  | Ast.Neq -> " <> "
+  | Ast.Lt -> " < "
+  | Ast.Lte -> " <= "
+  | Ast.Gt -> " > "
+  | Ast.Gte -> " >= "
+  | Ast.Like -> " LIKE "
+  | Ast.Is_distinct_from -> " IS DISTINCT FROM "
+  | Ast.Sqlite_is_not -> " IS NOT "
+;;
+
+let aliases_for_select ~parent_aliases (select : Ast.select) =
+  let sources =
+    select.Ast.source :: List.map select.joins ~f:(fun (join : Ast.join) -> join.source)
+  in
+  let first_index = List.length parent_aliases in
+  parent_aliases
+  @ List.mapi sources ~f:(fun index source ->
+    source.source_id, "t" ^ Int.to_string (first_index + index))
+;;
+
+let rec render_expr ~aliases expression state =
   match expression with
   | Ast.Column { source_id; name; _ } ->
     let alias = alias_for aliases source_id in
@@ -37,19 +73,54 @@ let render_expr ~aliases expression state =
     let index = state.next_parameter in
     ( [ Template.Param index ]
     , { next_parameter = index + 1; parameters_rev = value :: state.parameters_rev } )
-;;
+  | Ast.Arithmetic (operator, left, right) ->
+    let left, state = render_expr ~aliases left state in
+    let right, state = render_expr ~aliases right state in
+    ( [ Template.Text "(" ] @ left
+      @ [ Template.Text (arithmetic_sql operator) ]
+      @ right @ [ Template.Text ")" ]
+    , state )
+  | Ast.String_function (function_, expression) ->
+    let expression, state = render_expr ~aliases expression state in
+    ( [ Template.Text (string_function_sql function_ ^ "(") ]
+      @ expression @ [ Template.Text ")" ]
+    , state )
+  | Ast.Concat (left, right) ->
+    let left, state = render_expr ~aliases left state in
+    let right, state = render_expr ~aliases right state in
+    ( [ Template.Text "(" ] @ left @ [ Template.Text " || " ] @ right
+      @ [ Template.Text ")" ]
+    , state )
+  | Ast.Case (branches, else_) ->
+    let branches, state = render_case_branches ~aliases branches state in
+    let else_, state = render_expr ~aliases else_ state in
+    ( [ Template.Text "(CASE " ] @ branches @ [ Template.Text "ELSE " ] @ else_
+      @ [ Template.Text " END)" ]
+    , state )
+  | Ast.Aggregate Ast.Count_all -> [ Template.Text "COUNT(*)" ], state
+  | Ast.Aggregate (Ast.Count expression) ->
+    let expression, state = render_expr ~aliases expression state in
+    [ Template.Text "COUNT(" ] @ expression @ [ Template.Text ")" ], state
+  | Ast.Aggregate (Ast.Count_distinct expression) ->
+    let expression, state = render_expr ~aliases expression state in
+    [ Template.Text "COUNT(DISTINCT " ] @ expression @ [ Template.Text ")" ], state
+  | Ast.Scalar_subquery select ->
+    let select, state = render_select ~parent_aliases:aliases select state in
+    [ Template.Text "(" ] @ select @ [ Template.Text ")" ], state
+  | Ast.Current_timestamp -> [ Template.Text "CURRENT_TIMESTAMP" ], state
 
-let comparison_sql = function
-  | Ast.Eq -> " = "
-  | Ast.Neq -> " <> "
-  | Ast.Lt -> " < "
-  | Ast.Lte -> " <= "
-  | Ast.Gt -> " > "
-  | Ast.Gte -> " >= "
-  | Ast.Like -> " LIKE "
-;;
+and render_case_branches ~aliases branches state =
+  match branches with
+  | [] -> [], state
+  | (condition, expression) :: rest ->
+    let condition, state = render_condition ~aliases condition state in
+    let expression, state = render_expr ~aliases expression state in
+    let rest, state = render_case_branches ~aliases rest state in
+    ( [ Template.Text "WHEN " ] @ condition @ [ Template.Text " THEN " ] @ expression
+      @ [ Template.Text " " ] @ rest
+    , state )
 
-let rec render_condition ~aliases condition state =
+and render_condition ~aliases condition state =
   match condition with
   | Ast.True -> [ Template.Text "TRUE" ], state
   | Ast.False -> [ Template.Text "FALSE" ], state
@@ -66,6 +137,23 @@ let rec render_condition ~aliases condition state =
   | Ast.Is_not_null expression ->
     let expression, state = render_expr ~aliases expression state in
     [ Template.Text "(" ] @ expression @ [ Template.Text " IS NOT NULL)" ], state
+  | Ast.In (expression, values) ->
+    render_membership ~aliases ~operator:" IN " expression values state
+  | Ast.Not_in (expression, values) ->
+    render_membership ~aliases ~operator:" NOT IN " expression values state
+  | Ast.Between (expression, lower, upper) ->
+    let expression, state = render_expr ~aliases expression state in
+    let lower, state = render_expr ~aliases lower state in
+    let upper, state = render_expr ~aliases upper state in
+    ( [ Template.Text "(" ] @ expression @ [ Template.Text " BETWEEN " ] @ lower
+      @ [ Template.Text " AND " ] @ upper @ [ Template.Text ")" ]
+    , state )
+  | Ast.Exists select -> render_exists ~aliases ~operator:"EXISTS" select state
+  | Ast.Not_exists select -> render_exists ~aliases ~operator:"NOT EXISTS" select state
+  | Ast.In_subquery (expression, select) ->
+    render_subquery_membership ~aliases ~operator:" IN " expression select state
+  | Ast.Not_in_subquery (expression, select) ->
+    render_subquery_membership ~aliases ~operator:" NOT IN " expression select state
   | Ast.Not condition ->
     let condition, state = render_condition ~aliases condition state in
     [ Template.Text "(NOT " ] @ condition @ [ Template.Text ")" ], state
@@ -85,9 +173,28 @@ and render_conditions ~aliases ~separator conditions state =
     let condition, state = render_condition ~aliases condition state in
     let rest, state = render_conditions ~aliases ~separator rest state in
     condition @ [ Template.Text separator ] @ rest, state
-;;
 
-let rec render_expressions ~aliases ~separator expressions state =
+and render_membership ~aliases ~operator expression values state =
+  let expression, state = render_expr ~aliases expression state in
+  let values, state = render_expressions ~aliases ~separator:", " values state in
+  ( [ Template.Text "(" ] @ expression
+    @ [ Template.Text operator; Template.Text "(" ]
+    @ values @ [ Template.Text "))" ]
+  , state )
+
+and render_exists ~aliases ~operator select state =
+  let select, state = render_select ~parent_aliases:aliases select state in
+  [ Template.Text ("(" ^ operator ^ " (") ] @ select @ [ Template.Text "))" ], state
+
+and render_subquery_membership ~aliases ~operator expression select state =
+  let expression, state = render_expr ~aliases expression state in
+  let select, state = render_select ~parent_aliases:aliases select state in
+  ( [ Template.Text "(" ] @ expression
+    @ [ Template.Text operator; Template.Text "(" ]
+    @ select @ [ Template.Text "))" ]
+  , state )
+
+and render_expressions ~aliases ~separator expressions state =
   match expressions with
   | [] -> [], state
   | [ expression ] -> render_expr ~aliases expression state
@@ -95,16 +202,8 @@ let rec render_expressions ~aliases ~separator expressions state =
     let expression, state = render_expr ~aliases expression state in
     let rest, state = render_expressions ~aliases ~separator rest state in
     expression @ [ Template.Text separator ] @ rest, state
-;;
 
-let aliases_for_select (select : Ast.select) =
-  let sources =
-    select.Ast.source :: List.map select.joins ~f:(fun (join : Ast.join) -> join.source)
-  in
-  List.mapi sources ~f:(fun index source -> source.source_id, "t" ^ Int.to_string index)
-;;
-
-let render_join ~aliases (join : Ast.join) state =
+and render_join ~aliases (join : Ast.join) state =
   let kind =
     match join.Ast.kind with
     | Ast.Inner -> " INNER JOIN "
@@ -114,18 +213,16 @@ let render_join ~aliases (join : Ast.join) state =
   let on, state = render_condition ~aliases join.on state in
   ( [ Template.Text (kind ^ render_source join.source ^ " AS " ^ alias ^ " ON ") ] @ on
   , state )
-;;
 
-let rec render_joins ~aliases joins state =
+and render_joins ~aliases joins state =
   match joins with
   | [] -> [], state
   | join :: rest ->
     let join, state = render_join ~aliases join state in
     let rest, state = render_joins ~aliases rest state in
     join @ rest, state
-;;
 
-let rec render_order_by ~aliases orders state =
+and render_order_by ~aliases orders state =
   match orders with
   | [] -> [], state
   | order :: rest ->
@@ -141,17 +238,24 @@ let rec render_order_by ~aliases orders state =
      | _ ->
        let rest, state = render_order_by ~aliases rest state in
        current @ [ Template.Text ", " ] @ rest, state)
-;;
 
-let render_select (select : Ast.select) =
-  let aliases = aliases_for_select select in
+and render_select ~parent_aliases (select : Ast.select) state =
+  let aliases = aliases_for_select ~parent_aliases select in
   let projection, state =
-    render_expressions ~aliases ~separator:", " select.Ast.projection initial_state
+    match select.Ast.projection with
+    | [] -> [ Template.Text "1" ], state
+    | projection -> render_expressions ~aliases ~separator:", " projection state
   in
   let root_alias = alias_for aliases select.source.source_id in
   let joins, state = render_joins ~aliases select.joins state in
   let parts =
-    [ Template.Text "SELECT " ] @ projection
+    [ Template.Text
+        (if select.distinct then
+           "SELECT DISTINCT "
+         else
+           "SELECT ")
+    ]
+    @ projection
     @ [ Template.Text (" FROM " ^ render_source select.source ^ " AS " ^ root_alias) ]
     @ joins
   in
@@ -161,6 +265,22 @@ let render_select (select : Ast.select) =
     | Some condition ->
       let condition, state = render_condition ~aliases condition state in
       parts @ [ Template.Text " WHERE " ] @ condition, state
+  in
+  let parts, state =
+    match select.group_by with
+    | [] -> parts, state
+    | expressions ->
+      let expressions, state =
+        render_expressions ~aliases ~separator:", " expressions state
+      in
+      parts @ [ Template.Text " GROUP BY " ] @ expressions, state
+  in
+  let parts, state =
+    match select.having with
+    | None -> parts, state
+    | Some condition ->
+      let condition, state = render_condition ~aliases condition state in
+      parts @ [ Template.Text " HAVING " ] @ condition, state
   in
   let parts, state =
     match select.order_by with
@@ -272,8 +392,7 @@ let render_command_ast (command : Ast.command) state =
     let parts =
       match command.conflict with
       | None -> parts
-      | Some Ast.Postgresql_do_nothing ->
-        parts @ [ Template.Text " ON CONFLICT DO NOTHING" ]
+      | Some Ast.Do_nothing -> parts @ [ Template.Text " ON CONFLICT DO NOTHING" ]
     in
     parts, state
   | Ast.Update ->
@@ -314,7 +433,7 @@ let finish (parts, state) = Template.of_parts parts, List.rev state.parameters_r
 
 let result_query query =
   match Lower.result_query_ast query with
-  | Ast.Select select -> finish (render_select select)
+  | Ast.Select select -> finish (render_select ~parent_aliases:[] select initial_state)
   | Ast.Returning returning ->
     let parts, state = render_command_ast returning.command initial_state in
     let aliases = [ returning.command.source.source_id, "" ] in

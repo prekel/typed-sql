@@ -50,9 +50,12 @@ smoke:
 .PHONY: check
 check: fmt build test doc package
 
-.PHONY: coverage
+.PHONY: coverage coverage-all
 coverage:
-	opam exec -- bash test/coverage.sh
+	opam exec -- bash test/coverage.sh public
+
+coverage-all:
+	opam exec -- bash test/coverage.sh all
 
 .PHONY: release-check
 release-check: check

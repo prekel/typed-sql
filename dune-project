@@ -21,6 +21,7 @@
  (depends
   (ocaml (>= 5.5.1))
   base
+  ptime
   ppx_let
   (qcheck :with-test)
   (ppx_expect :with-test)
@@ -39,6 +40,7 @@
   (ocaml (>= 5.5.1))
   (typed-sql (= :version))
   base
+  ptime
   ppx_let
   (caqti (and (>= 3.0.0) (< 3.1.0~)))
   (caqti-lwt (and (>= 3.0.0) (< 3.1.0~)))
@@ -57,6 +59,7 @@
   (ocaml (>= 5.5.1))
   (typed-sql (= :version))
   base
+  ptime
   ppx_let
   lwt
   (pgocaml (>= 4.4.0)))

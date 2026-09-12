@@ -5,6 +5,17 @@ open! Base
     and projection decoding from [Typed_sql]. *)
 
 (** An error produced before or during execution. *)
+type constraint_kind =
+  | Unique
+  | Foreign_key
+  | Not_null
+  | Check
+  | Restrict
+  | Exclusion
+  | Other
+  (** A portable classification of integrity errors. Drivers may return [Other]
+    when the database does not expose a more specific cause. *)
+
 type error =
   | Compile of Typed_sql.Compile_error.t
   (** The typed query failed validation or compilation. *)
@@ -12,6 +23,14 @@ type error =
   (** The connected Caqti driver has no matching typed-sql dialect. *)
   | Codec of string
   (** A mapped [Typed_sql.Db_type] rejected parameter encoding or row decoding. *)
+  | Schema of string
+  (** Database metadata could not be converted to validated schema metadata. *)
+  | Constraint_violation of
+      { kind : constraint_kind
+      ; message : string
+      }
+  (** The database rejected a declared integrity constraint. [message] retains
+      the backend diagnostic for logging. *)
   | Caqti of Caqti.Error.t
   (** Caqti or its driver rejected the request or database operation. *)
 
@@ -48,3 +67,21 @@ val execute
   :  conn:Caqti_lwt.connection
   -> Typed_sql.Command.t
   -> (Typed_sql.Affected_rows.t, error) Result.t Lwt.t
+
+(** Run [f] inside one transaction on [conn]. [Ok] commits and [Error] rolls
+    back. An exception also rolls back and is re-raised after cleanup. *)
+val transaction
+  :  conn:Caqti_lwt.connection
+  -> f:(Caqti_lwt.connection -> ('a, error) Result.t Lwt.t)
+  -> ('a, error) Result.t Lwt.t
+
+(** Database schema discovery for descriptor generation. *)
+module Schema : sig
+  (** Read ordinary application tables, columns, defaults, generated columns,
+      primary keys, foreign keys and unique constraints. SQLite system tables
+      and PostgreSQL system schemas are excluded. Unknown database types are
+      preserved as [Typed_sql.Schema_ir.Unsupported] instead of being guessed. *)
+  val introspect
+    :  conn:Caqti_lwt.connection
+    -> (Typed_sql.Schema_ir.t, error) Result.t Lwt.t
+end

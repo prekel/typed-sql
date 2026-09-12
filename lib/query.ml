@@ -22,8 +22,11 @@ let from table =
   ; ast =
       { source
       ; joins = []
+      ; distinct = false
       ; projection = []
       ; where_ = None
+      ; group_by = []
+      ; having = None
       ; order_by = []
       ; limit = None
       ; offset = None
@@ -71,6 +74,30 @@ let select make_projection query =
   Result_query.create (Ast.Select ast) projection
 ;;
 
+let select_scalar make_expression query =
+  let expression = make_expression query.context in
+  let ast = { query.ast with projection = [ Expr.node expression ] } in
+  Scalar_query.create ast (Expr.db_type expression)
+;;
+
+let exists query =
+  let ast = { query.ast with projection = [] } in
+  Condition.create (Ast.Exists ast)
+;;
+
+let not_exists query =
+  let ast = { query.ast with projection = [] } in
+  Condition.create (Ast.Not_exists ast)
+;;
+
+let in_subquery expression query =
+  Condition.create (Ast.In_subquery (Expr.node expression, Scalar_query.ast query))
+;;
+
+let not_in_subquery expression query =
+  Condition.create (Ast.Not_in_subquery (Expr.node expression, Scalar_query.ast query))
+;;
+
 let where make_condition query =
   let condition = make_condition query.context |> Condition.node in
   let where_ =
@@ -85,6 +112,23 @@ let where_opt value ~f query =
   match value with
   | None -> query
   | Some value -> where (fun context -> f context value) query
+;;
+
+let distinct query = { query with ast = { query.ast with distinct = true } }
+
+let group_by make_expression query =
+  let expression = make_expression query.context |> Expr.node in
+  { query with ast = { query.ast with group_by = query.ast.group_by @ [ expression ] } }
+;;
+
+let having make_condition query =
+  let condition = make_condition query.context |> Condition.node in
+  let having =
+    match query.ast.having with
+    | None -> Some condition
+    | Some existing -> Some (Ast.And [ existing; condition ])
+  in
+  { query with ast = { query.ast with having } }
 ;;
 
 let order_by make_expression direction query =

@@ -3,7 +3,7 @@
  (public_name typed-sql.private)
  (modules
   (:standard \ typed_sql))
- (libraries base)
+ (libraries base ptime)
  (instrumentation
   (backend bisect_ppx))
  (preprocess

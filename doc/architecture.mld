@@ -22,6 +22,11 @@ Backend-neutral template + typed parameters + projection plan
 Caqti Lwt adapter / PG'OCaml Lwt adapter
 v}
 
+Для обратного направления Caqti adapter читает PostgreSQL/SQLite metadata в
+dialect-neutral [Schema_ir], после чего [Schema_codegen] выпускает обычный
+OCaml source с table/column descriptors и projection. Introspection и codegen
+не входят в query compiler и не добавляют зависимости ядра от connection.
+
 {1 Граница типов}
 
 [Expr] и [Projection] сохраняют OCaml-типы во время построения DSL. Compiler
@@ -112,3 +117,7 @@ parameters и projection, поэтому различает mapped codecs с о�
 он не включает значения параметров, connection, generative source IDs или
 generated aliases. PG'OCaml low-level API не сообщает affected rows, поэтому
 его [execute] возвращает [Affected_rows.Unknown].
+
+Transactions находятся в execution adapters. Callback получает то же
+connection value; [Ok] приводит к commit, [Error] — к rollback, исключение
+откатывается и затем пробрасывается дальше.

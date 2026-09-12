@@ -62,6 +62,9 @@ module Db_type : sig
   (** SQL binary data represented as mutable OCaml [bytes]. *)
   val bytes : bytes t
 
+  (** SQL timestamp with time zone represented as a UTC [Ptime.t]. *)
+  val timestamp : Ptime.t t
+
   (** Make a database representation nullable. *)
   val option : 'a t -> 'a option t
 
@@ -78,6 +81,141 @@ module Db_type : sig
 
   (** Return a diagnostic name. It does not establish codec identity. *)
   val name : 'a t -> string
+end
+
+(** Dialect-neutral metadata used by schema introspection and code generation. *)
+module Schema_ir : sig
+  (** Portable column representations known to the generator. [Unsupported]
+      preserves a database type name so introspection never guesses a codec. *)
+  type db_type =
+    | Bool
+    | Int
+    | Int64
+    | Float
+    | Text
+    | Bytes
+    | Timestamp
+    | Unsupported of string
+
+  type column
+  type foreign_key
+  type unique_constraint
+  type table
+  type t
+
+  (** Construct a schema from tables in dependency-independent declaration
+      order. *)
+  val v : table list -> t
+
+  (** Describe one column, including metadata that affects generated
+      descriptors and migrations. Default expressions remain opaque metadata
+      and are never inserted into query SQL. *)
+  val column
+    :  name:Identifier.t
+    -> db_type:db_type
+    -> nullable:bool
+    -> ?default:string
+    -> ?generated:bool
+    -> ?primary_key_position:int
+    -> unit
+    -> column
+
+  (** Describe a possibly composite foreign key. Column lists use declaration
+      order on both sides. *)
+  val foreign_key
+    :  columns:Identifier.t list
+    -> ?referenced_schema:Identifier.t
+    -> referenced_table:Identifier.t
+    -> referenced_columns:Identifier.t list
+    -> unit
+    -> foreign_key
+
+  (** Describe a possibly named unique column set. *)
+  val unique_constraint : ?name:Identifier.t -> Identifier.t list -> unique_constraint
+
+  (** Describe one table and its relational constraints. *)
+  val table
+    :  ?schema:Identifier.t
+    -> name:Identifier.t
+    -> columns:column list
+    -> ?foreign_keys:foreign_key list
+    -> ?unique_constraints:unique_constraint list
+    -> unit
+    -> table
+
+  (** Return tables in introspection or declaration order. *)
+  val tables : t -> table list
+
+  (** Return the unqualified table name. *)
+  val table_name : table -> Identifier.t
+
+  (** Return the schema qualifier when the database supplied one. *)
+  val table_schema : table -> Identifier.t option
+
+  (** Return columns in ordinal order. *)
+  val columns : table -> column list
+
+  (** Return declared foreign keys. *)
+  val foreign_keys : table -> foreign_key list
+
+  (** Return primary-key-independent unique constraints. *)
+  val unique_constraints : table -> unique_constraint list
+
+  (** Return the SQL column name. *)
+  val column_name : column -> Identifier.t
+
+  (** Return the portable or preserved unsupported database type. *)
+  val column_db_type : column -> db_type
+
+  (** Report whether reads use an option codec. *)
+  val column_nullable : column -> bool
+
+  (** Return the database default expression as opaque metadata. *)
+  val column_default : column -> string option
+
+  (** Report whether the database generates the column. *)
+  val column_generated : column -> bool
+
+  (** Return the one-based position inside a composite primary key. *)
+  val column_primary_key_position : column -> int option
+
+  (** Return referencing columns in key order. *)
+  val foreign_key_columns : foreign_key -> Identifier.t list
+
+  (** Return the referenced schema qualifier when the database supplied one. *)
+  val foreign_key_referenced_schema : foreign_key -> Identifier.t option
+
+  (** Return the unqualified referenced table. *)
+  val foreign_key_referenced_table : foreign_key -> Identifier.t
+
+  (** Return referenced columns in key order. *)
+  val foreign_key_referenced_columns : foreign_key -> Identifier.t list
+
+  (** Return the database constraint name when available. *)
+  val unique_constraint_name : unique_constraint -> Identifier.t option
+
+  (** Return unique columns in key order. *)
+  val unique_constraint_columns : unique_constraint -> Identifier.t list
+end
+
+(** Generate table, column, accessor and projection descriptors as OCaml source. *)
+module Schema_codegen : sig
+  type error =
+    | Empty_table of Identifier.t
+    | Unsupported_type of
+        { table : Identifier.t
+        ; column : Identifier.t
+        ; database_type : string
+        }
+
+  (** Explain why descriptor source could not be generated. *)
+  val error_to_string : error -> string
+
+  (** Generate modules in schema order. Names are normalized to valid OCaml
+      identifiers; SQL names remain unchanged in quoted string literals. Each
+      module retains column defaults, generated and primary-key flags, foreign
+      keys, and unique constraints as ordinary metadata values. *)
+  val generate : Schema_ir.t -> (string, error) Result.t
 end
 
 (** Typed table descriptors. *)
@@ -149,6 +287,13 @@ module Nullable_table_ref : sig
   type 'row t
 end
 
+(** A SELECT known to return exactly one typed SQL expression. Scalar queries
+    are embedded with [Expr.scalar_subquery] or membership predicates; execute a
+    top-level value through [Result_query] instead. *)
+module Scalar_query : sig
+  type 'a t
+end
+
 (** SQL predicates and boolean composition. *)
 module Condition : sig
   (** A predicate using SQL three-valued logic. *)
@@ -203,6 +348,119 @@ module Expr : sig
 
   (** Test a nullable expression with SQL [IS NOT NULL]. *)
   val is_not_null : 'a option t -> Condition.t
+
+  (** Test whether an expression equals one of the bound values. An empty list
+      is normalized to SQL [FALSE]. *)
+  val in_ : 'a t -> 'a list -> Condition.t
+
+  (** Test whether an expression differs from every bound value. An empty list
+      is normalized to SQL [TRUE]. As in SQL, a [NULL] in a non-empty list can
+      make the predicate unknown. *)
+  val not_in : 'a t -> 'a list -> Condition.t
+
+  (** Test membership against typed SQL expressions instead of OCaml values. *)
+  val in_exprs : 'a t -> 'a t list -> Condition.t
+
+  (** Test non-membership against typed SQL expressions. *)
+  val not_in_exprs : 'a t -> 'a t list -> Condition.t
+
+  (** Test whether an expression lies inside an inclusive range whose bounds
+      are bound parameters. *)
+  val between : 'a t -> lower:'a -> upper:'a -> Condition.t
+
+  (** Test an inclusive range using SQL expressions as both bounds. *)
+  val between_exprs : 'a t -> lower:'a t -> upper:'a t -> Condition.t
+
+  (** Compare values with null-safe SQL semantics. PostgreSQL uses [IS DISTINCT
+      FROM], while SQLite uses its equivalent [IS NOT] operator. *)
+  val is_distinct_from : 'a t -> 'a t -> Condition.t
+
+  (** Null-safe comparison with a bound OCaml value. *)
+  val is_distinct_from_value : 'a t -> 'a -> Condition.t
+
+  (** Build a searched SQL [CASE]. Conditions are tested in list order. An
+      empty branch list yields [else_] directly at execution. All branch
+      expressions have the same OCaml and database type. *)
+  val case : (Condition.t * 'a t) list -> else_:'a t -> 'a t
+
+  (** Convert text to lowercase using the database's portable scalar
+      function. *)
+  val lower : string t -> string t
+
+  (** Convert text to uppercase. *)
+  val upper : string t -> string t
+
+  (** Return the number of characters in text. Lowering uses [CHAR_LENGTH] on
+      PostgreSQL and [LENGTH] on SQLite. *)
+  val length : string t -> int t
+
+  (** Concatenate two text expressions with SQL [||]. *)
+  val concat : string t -> string t -> string t
+
+  (** Concatenate text with a bound OCaml string. *)
+  val concat_value : string t -> string -> string t
+
+  (** Count rows in the current aggregate group. *)
+  val count_all : int64 t
+
+  (** Count non-null values of an expression. *)
+  val count : 'a t -> int64 t
+
+  (** Count distinct non-null values of an expression. *)
+  val count_distinct : 'a t -> int64 t
+
+  (** Embed a one-column SELECT as a scalar expression. The database still
+      enforces that execution returns at most one row. *)
+  val scalar_subquery : 'a Scalar_query.t -> 'a t
+
+  (** The transaction's current timestamp. Both supported dialects render the
+      standard SQL [CURRENT_TIMESTAMP] expression. *)
+  val current_timestamp : Ptime.t t
+
+  (** Type-safe arithmetic over SQL integers represented as OCaml [int]. *)
+  module Int : sig
+    val add : int t -> int t -> int t
+    val subtract : int t -> int t -> int t
+    val multiply : int t -> int t -> int t
+    val divide : int t -> int t -> int t
+
+    module Infix : sig
+      val ( +. ) : int t -> int t -> int t
+      val ( -. ) : int t -> int t -> int t
+      val ( *. ) : int t -> int t -> int t
+      val ( /. ) : int t -> int t -> int t
+    end
+  end
+
+  (** Type-safe arithmetic over SQL integers represented as OCaml [int64]. *)
+  module Int64 : sig
+    val add : int64 t -> int64 t -> int64 t
+    val subtract : int64 t -> int64 t -> int64 t
+    val multiply : int64 t -> int64 t -> int64 t
+    val divide : int64 t -> int64 t -> int64 t
+
+    module Infix : sig
+      val ( +. ) : int64 t -> int64 t -> int64 t
+      val ( -. ) : int64 t -> int64 t -> int64 t
+      val ( *. ) : int64 t -> int64 t -> int64 t
+      val ( /. ) : int64 t -> int64 t -> int64 t
+    end
+  end
+
+  (** Type-safe arithmetic over SQL floating-point values. *)
+  module Float : sig
+    val add : float t -> float t -> float t
+    val subtract : float t -> float t -> float t
+    val multiply : float t -> float t -> float t
+    val divide : float t -> float t -> float t
+
+    module Infix : sig
+      val ( +. ) : float t -> float t -> float t
+      val ( -. ) : float t -> float t -> float t
+      val ( *. ) : float t -> float t -> float t
+      val ( /. ) : float t -> float t -> float t
+    end
+  end
 
   (** Operators are the primary API for constructing comparisons. Operators with
       a dot compare expressions; operators ending with [$] bind an OCaml value
@@ -340,6 +598,24 @@ module Query : sig
       a temporary projection while filters and joins are assembled. *)
   val select : ('ctx -> 'result Projection.t) -> 'ctx t -> 'result Result_query.t
 
+  (** Finish a builder as a one-expression query suitable for a scalar
+      subquery or [IN] predicate. *)
+  val select_scalar : ('ctx -> 'value Expr.t) -> 'ctx t -> 'value Scalar_query.t
+
+  (** Test whether an unfinished SELECT returns at least one row. Its
+      projection is intentionally omitted and rendered as [SELECT 1]. The
+      query may capture references from the enclosing callback. *)
+  val exists : 'inner_ctx t -> Condition.t
+
+  (** Negated [EXISTS]. *)
+  val not_exists : 'inner_ctx t -> Condition.t
+
+  (** Test membership in a typed one-column SELECT. *)
+  val in_subquery : 'a Expr.t -> 'a Scalar_query.t -> Condition.t
+
+  (** Test non-membership in a typed one-column SELECT. *)
+  val not_in_subquery : 'a Expr.t -> 'a Scalar_query.t -> Condition.t
+
   (** Append an [INNER JOIN]. The [on] callback sees the existing context and a
       regular reference to the newly joined table. *)
   val inner_join
@@ -362,6 +638,16 @@ module Query : sig
   (** Add a predicate only when the optional value is [Some]. [None] returns
       the same immutable query unchanged. *)
   val where_opt : 'value option -> f:('ctx -> 'value -> Condition.t) -> 'ctx t -> 'ctx t
+
+  (** Remove duplicate result rows with portable SQL [DISTINCT]. *)
+  val distinct : 'ctx t -> 'ctx t
+
+  (** Append one [GROUP BY] expression. Repeated calls preserve call order. *)
+  val group_by : ('ctx -> 'value Expr.t) -> 'ctx t -> 'ctx t
+
+  (** Add an aggregate-group predicate. Repeated calls combine predicates with
+      SQL [AND]. The compiler rejects ungrouped non-aggregate expressions. *)
+  val having : ('ctx -> Condition.t) -> 'ctx t -> 'ctx t
 
   (** Append one ordering key. Repeated calls preserve call order. *)
   val order_by : ('ctx -> 'value Expr.t) -> direction -> 'ctx t -> 'ctx t
@@ -402,6 +688,11 @@ module Insert : sig
       Rows may call [set], [set_expr], or [default] in any order, but every row
       must assign the same set of columns. *)
   val rows : 'row Table.t -> ('row t -> 'row t) list -> 'row t
+
+  (** Ignore rows rejected by a unique or exclusion conflict. PostgreSQL and
+      SQLite both render [ON CONFLICT DO NOTHING]; other integrity errors still
+      fail through the execution adapter. *)
+  val on_conflict_do_nothing : 'row t -> 'row t
 
   (** Finish an INSERT without returned rows. Compilation rejects an empty or
       duplicate assignment list. *)
@@ -525,17 +816,6 @@ module Delete : sig
     -> 'result Result_query.t
 end
 
-(** Explicit PostgreSQL extensions. Using one keeps the statement typed, but
-    compilation for another dialect returns an unsupported-operation error. *)
-module Postgresql : sig
-  module Insert : sig
-    (** Append PostgreSQL [ON CONFLICT DO NOTHING]. This is useful for
-        idempotent inserts when any applicable unique constraint may suppress
-        the row. *)
-    val on_conflict_do_nothing : 'row Insert.t -> 'row Insert.t
-  end
-end
-
 (** Supported SQL dialects. *)
 module Dialect : sig
   (** SQL rendering rules selected during pure compilation. *)
@@ -589,6 +869,13 @@ module Compile_error : sig
     (** The AST requests semantics unavailable in the selected dialect. The
         compiler reports this during lowering and does not render substitute
         SQL. *)
+    | Aggregate_not_allowed of string
+    (** An aggregate appears in [WHERE], [JOIN ON], or [GROUP BY]. The string
+        names the rejected SQL clause. *)
+    | Nested_aggregate (** One aggregate expression is used inside another aggregate. *)
+    | Ungrouped_expression
+    (** An aggregate query selects, orders, or filters by a non-aggregate
+        expression whose columns are absent from [GROUP BY]. *)
 
   (** Format a compilation error for a user. *)
   val pp : Formatter.t -> t -> unit

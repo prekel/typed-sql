@@ -22,7 +22,7 @@ let%test_unit "query shape excludes values and generative source ids" =
   let first = make "Ada" in
   let second = make "Grace" in
   assert (B.Shape.equal (B.Compiled_query.shape first) (B.Compiled_query.shape second));
-  assert (Int.equal (List.length (B.Compiled_query.parameters first)) 1)
+  assert (Int.(List.length (B.Compiled_query.parameters first) = 1))
 ;;
 
 let%test "mapped codecs with the same name have distinct shapes" =
@@ -41,4 +41,19 @@ let%test "mapped codecs with the same name have distinct shapes" =
     |> B.Compiled_query.shape
   in
   not (B.Shape.equal (make (mapped ())) (make (mapped ())))
+;;
+
+let%test_unit "command shapes expose their stable representation" =
+  let table : unit Table.t = Table.v_exn "items" in
+  let id = Column.v_exn table "id" Db_type.int64 in
+  let compiled =
+    Insert.(into table |> set id 1L |> command)
+    |> Compiler.compile_command ~dialect:Dialect.Sqlite
+    |> Result.map_error ~f:Compile_error.to_string
+    |> Result.ok_or_failwith
+  in
+  let shape = B.Compiled_command.shape compiled in
+  assert (
+    String.equal (B.Shape.to_string shape) (Stdlib.Format.asprintf "%a" B.Shape.pp shape));
+  assert (Int.(B.Shape.hash shape = B.Shape.hash shape))
 ;;

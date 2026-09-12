@@ -8,6 +8,15 @@ module Pgocaml : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t
 
 (** An error produced while compiling, encoding, executing, or decoding a
     query. *)
+type constraint_kind =
+  | Unique
+  | Foreign_key
+  | Not_null
+  | Check
+  | Restrict
+  | Exclusion
+  | Other (** A portable classification derived from PostgreSQL SQLSTATE. *)
+
 type error =
   | Compile of Typed_sql.Compile_error.t
   (** The typed query failed validation or compilation. *)
@@ -21,6 +30,10 @@ type error =
         (** A human-readable expected cardinality, such as [exactly one]. *)
       ; actual : int (** The number of rows returned by PostgreSQL. *)
       } (** A single-row operation received an unexpected number of rows. *)
+  | Constraint_violation of
+      { kind : constraint_kind
+      ; message : string
+      } (** PostgreSQL reported an integrity-constraint SQLSTATE. *)
   | Pgocaml of exn
   (** PG'OCaml raised an exception while communicating with PostgreSQL. *)
 
@@ -58,3 +71,10 @@ val execute
   :  conn:'connection Pgocaml.t
   -> Typed_sql.Command.t
   -> (Typed_sql.Affected_rows.t, error) Result.t Lwt.t
+
+(** Run [f] in a PostgreSQL transaction. [Ok] commits and [Error] rolls back.
+    Raised PostgreSQL errors are classified after rollback. *)
+val transaction
+  :  conn:'connection Pgocaml.t
+  -> f:('connection Pgocaml.t -> ('a, error) Result.t Lwt.t)
+  -> ('a, error) Result.t Lwt.t

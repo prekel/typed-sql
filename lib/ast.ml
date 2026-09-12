@@ -1,14 +1,38 @@
 open! Base
 
-type expr =
+type arithmetic =
+  | Add
+  | Subtract
+  | Multiply
+  | Divide
+
+type string_function =
+  | Lower
+  | Upper
+  | Length
+  | Sqlite_length
+
+type aggregate =
+  | Count_all
+  | Count of expr
+  | Count_distinct of expr
+
+and expr =
   | Column of
       { source_id : int
       ; name : Identifier.t
       ; db_type : Db_type.packed
       }
   | Param of Db_type.packed_value
+  | Arithmetic of arithmetic * expr * expr
+  | String_function of string_function * expr
+  | Concat of expr * expr
+  | Case of (condition * expr) list * expr
+  | Aggregate of aggregate
+  | Scalar_subquery of select
+  | Current_timestamp
 
-type comparison =
+and comparison =
   | Eq
   | Neq
   | Lt
@@ -16,47 +40,59 @@ type comparison =
   | Gt
   | Gte
   | Like
+  | Is_distinct_from
+  | Sqlite_is_not
 
-type condition =
+and condition =
   | True
   | False
   | Compare of comparison * expr * expr
   | Is_null of expr
   | Is_not_null of expr
+  | In of expr * expr list
+  | Not_in of expr * expr list
+  | Between of expr * expr * expr
+  | Exists of select
+  | Not_exists of select
+  | In_subquery of expr * select
+  | Not_in_subquery of expr * select
   | And of condition list
   | Or of condition list
   | Not of condition
 
-type direction =
+and direction =
   | Asc
   | Desc
 
-type order =
+and order =
   { expr : expr
   ; direction : direction
   }
 
-type source =
+and source =
   { source_id : int
   ; schema : Identifier.t option
   ; table : Identifier.t
   }
 
-type join_kind =
+and join_kind =
   | Inner
   | Left
 
-type join =
+and join =
   { kind : join_kind
   ; source : source
   ; on : condition
   }
 
-type select =
+and select =
   { source : source
   ; joins : join list
+  ; distinct : bool
   ; projection : expr list
   ; where_ : condition option
+  ; group_by : expr list
+  ; having : condition option
   ; order_by : order list
   ; limit : int option
   ; offset : int option
@@ -77,7 +113,7 @@ type command_kind =
   | Update
   | Delete
 
-type conflict = Postgresql_do_nothing
+type conflict = Do_nothing
 
 type command =
   { kind : command_kind

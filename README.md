@@ -4,11 +4,13 @@
 строится как immutable deferred value, компилируется в dialect-specific SQL и
 только затем передаётся execution backend.
 
-Текущий срез поддерживает типизированные `SELECT` с `INNER JOIN` и `LEFT JOIN`,
-`WHERE`, `ORDER BY`, `LIMIT` и `OFFSET`, а также multi-row `INSERT`, scoped
+Текущий срез поддерживает типизированные `SELECT` с joins, portable
+выражениями, aggregates, `GROUP BY`, correlated subqueries и timestamp. DML
+включает multi-row `INSERT`, portable `ON CONFLICT DO NOTHING`, scoped
 `UPDATE`/`DELETE`, `DEFAULT`, `UPDATE FROM`, условные assignments и `RETURNING`.
 Пакет `typed-sql-caqti-lwt` выполняет запросы через Caqti для PostgreSQL и
-SQLite; `typed-sql-pgocaml-lwt` — через PG'OCaml для PostgreSQL.
+SQLite и умеет читать их схему; `typed-sql-pgocaml-lwt` выполняет PostgreSQL
+запросы через PG'OCaml.
 
 ```ocaml
 open Typed_sql
@@ -57,8 +59,19 @@ let rename =
     |> command)
 ```
 
-PostgreSQL-specific операции находятся в явном namespace `Postgresql`.
-Компиляция такой операции для другого dialect возвращает
+Идемпотентная вставка для поддерживаемых dialect записывается в основном API:
+
+```ocaml
+let insert_once =
+  Insert.(
+    into Person.table
+    |> set Person.id_col 1L
+    |> set Person.name_col "Ada"
+    |> on_conflict_do_nothing
+    |> command)
+```
+
+Операции, семантика которых отсутствует в выбранном dialect, возвращают
 `Compile_error.Unsupported_operation` до rendering.
 
 Query не содержит connection или `Lwt.t`. Materialization выполняется отдельно:
@@ -66,6 +79,24 @@ Query не содержит connection или `Lwt.t`. Materialization выпо�
 ```ocaml
 Typed_sql_caqti_lwt.fetch ~conn (query "Ada")
 ```
+
+Транзакционная граница также принадлежит adapter:
+
+```ocaml
+Typed_sql_caqti_lwt.transaction ~conn ~f:(fun conn ->
+  Typed_sql_caqti_lwt.execute ~conn insert_once
+  |> Lwt.map (Result.map ~f:(fun _ -> ())))
+```
+
+Для codegen descriptors Caqti adapter строит dialect-neutral schema IR:
+
+```ocaml
+Typed_sql_caqti_lwt.Schema.introspect ~conn
+|> Lwt.map (Result.bind ~f:Schema_codegen.generate)
+```
+
+Неизвестные database types сохраняются как `Schema_ir.Unsupported`, и generator
+возвращает ошибку вместо выбора неточного codec.
 
 Весь API приложения с документацией находится в
 [`lib/typed_sql.mli`](lib/typed_sql.mli): схема, выражения, запросы, компиляция,
@@ -91,6 +122,7 @@ make deps_all
 make check
 make release-check
 make coverage
+make coverage-all
 ```
 
 SQLite integration tests используют `sqlite3::memory:`. PostgreSQL compiler,
@@ -100,7 +132,10 @@ PostgreSQL server.
 
 `make coverage` измеряет реализацию `Typed_sql` через публичный API приложения:
 запускает public inline tests, QCheck properties и SQLite `:memory:` integration
-test. White-box tests и `typed-sql.backend` в этот прогон не входят. Команда
-требует не менее 97% сырого покрытия и создаёт HTML-отчёт в
-`_coverage/html/index.html`. Для OCaml 5.5.1 `make deps_all` временно закрепляет
-`bisect_ppx` на upstream commit с поддержкой актуального `ppxlib`.
+test. White-box tests и `typed-sql.backend` в этот прогон не входят. Порог равен
+97%, HTML-отчёт создаётся в `_coverage/public/html/index.html`.
+
+`make coverage-all` добавляет backend и private suites, требует не менее 99% и
+пишет отчёт в `_coverage/all/html/index.html`. Для OCaml 5.5.1 `make deps_all`
+временно закрепляет `bisect_ppx` на upstream commit с поддержкой актуального
+`ppxlib`.

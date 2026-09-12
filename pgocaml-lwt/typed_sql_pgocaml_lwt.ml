@@ -30,6 +30,15 @@ end
 
 module Pgocaml = PGOCaml_generic.Make (Thread)
 
+type constraint_kind =
+  | Unique
+  | Foreign_key
+  | Not_null
+  | Check
+  | Restrict
+  | Exclusion
+  | Other
+
 type error =
   | Compile of Typed_sql.Compile_error.t
   | Encode of string
@@ -37,6 +46,10 @@ type error =
   | Cardinality of
       { expected : string
       ; actual : int
+      }
+  | Constraint_violation of
+      { kind : constraint_kind
+      ; message : string
       }
   | Pgocaml of exn
 
@@ -46,6 +59,18 @@ let error_to_string = function
   | Decode message -> "row decoding failed: " ^ message
   | Cardinality { expected; actual } ->
     "expected " ^ expected ^ " row(s), got " ^ Int.to_string actual
+  | Constraint_violation { kind; message } ->
+    let kind =
+      match kind with
+      | Unique -> "unique"
+      | Foreign_key -> "foreign key"
+      | Not_null -> "not null"
+      | Check -> "check"
+      | Restrict -> "restrict"
+      | Exclusion -> "exclusion"
+      | Other -> "integrity"
+    in
+    kind ^ " constraint violation: " ^ message
   | Pgocaml error -> Exn.to_string error
 ;;
 
@@ -56,6 +81,25 @@ let pp_error formatter error =
 let protect ~context f =
   try Ok (f ()) with
   | error -> Error (context ^ ": " ^ Exn.to_string error)
+;;
+
+let error_of_exn = function
+  | Pgocaml.PostgreSQL_Error (message, fields) as exn ->
+    let kind =
+      match List.Assoc.find fields 'C' ~equal:Char.equal with
+      | Some "23505" -> Some Unique
+      | Some "23503" -> Some Foreign_key
+      | Some "23502" -> Some Not_null
+      | Some "23514" -> Some Check
+      | Some "23001" -> Some Restrict
+      | Some "23P01" -> Some Exclusion
+      | Some code when String.is_prefix code ~prefix:"23" -> Some Other
+      | _ -> None
+    in
+    (match kind with
+     | Some kind -> Constraint_violation { kind; message }
+     | None -> Pgocaml exn)
+  | exn -> Pgocaml exn
 ;;
 
 let rec encode
@@ -69,6 +113,7 @@ let rec encode
   | Float -> Ok (Some (Pgocaml.string_of_float value))
   | Text -> Ok (Some (Pgocaml.string_of_string value))
   | Bytes -> Ok (Some (Pgocaml.string_of_bytea (Bytes.to_string value)))
+  | Timestamp -> Ok (Some (Ptime.to_rfc3339 value))
   | Option db_type ->
     (match value with
      | None -> Ok None
@@ -86,7 +131,7 @@ let rec decode
   match Typed_sql_backend.Db_type.view db_type, field with
   | Option _, None -> Ok None
   | Option db_type, Some value -> Result.map (decode db_type (Some value)) ~f:Option.some
-  | (Bool | Int | Int64 | Float | Text | Bytes | Map _), None ->
+  | (Bool | Int | Int64 | Float | Text | Bytes | Timestamp | Map _), None ->
     Error ("unexpected NULL for " ^ Typed_sql_backend.Db_type.name db_type)
   | Bool, Some value -> protect ~context:"bool" (fun () -> Pgocaml.bool_of_string value)
   | Int, Some value -> protect ~context:"int" (fun () -> Pgocaml.int_of_string value)
@@ -97,6 +142,10 @@ let rec decode
   | Text, Some value -> Ok value
   | Bytes, Some value ->
     protect ~context:"bytes" (fun () -> Pgocaml.bytea_of_string value |> Bytes.of_string)
+  | Timestamp, Some value ->
+    (match Ptime.of_rfc3339 value with
+     | Ok (value, _, _) -> Ok value
+     | Error _ -> Error ("timestamp: invalid RFC 3339 value " ^ value))
   | Map { repr; decode = map; _ }, Some value ->
     let open Result.Let_syntax in
     let%bind value = decode repr (Some value) in
@@ -113,6 +162,7 @@ let rec oid : type a. a Typed_sql_backend.Db_type.t -> Pgocaml.oid =
     | Int -> 23
     | Text -> 25
     | Float -> 701
+    | Timestamp -> 1184
     | Option db_type -> Int32.to_int_exn (oid db_type)
     | Map { repr; _ } -> Int32.to_int_exn (oid repr)
   in
@@ -183,7 +233,7 @@ let run ~conn ~sql ~parameters =
          in
          let* rows = Pgocaml.execute conn ~params () in
          Lwt.return (Ok rows))
-      (fun error -> Lwt.return (Error (Pgocaml error)))
+      (fun error -> Lwt.return (Error (error_of_exn error)))
 ;;
 
 let fetch ~conn query =
@@ -247,4 +297,25 @@ let execute ~conn command =
      | Ok [] -> Lwt.return (Ok Typed_sql.Affected_rows.Unknown)
      | Ok rows ->
        Lwt.return (Error (Cardinality { expected = "zero"; actual = List.length rows })))
+;;
+
+let transaction ~conn ~f =
+  let open Lwt.Syntax in
+  Lwt.catch
+    (fun () ->
+       let* () = Pgocaml.begin_work conn in
+       Lwt.catch
+         (fun () ->
+            let* result = f conn in
+            match result with
+            | Ok value ->
+              let* () = Pgocaml.commit conn in
+              Lwt.return (Ok value)
+            | Error error ->
+              let* () = Pgocaml.rollback conn in
+              Lwt.return (Error error))
+         (fun exn ->
+            let* () = Pgocaml.rollback conn in
+            Lwt.fail exn))
+    (fun exn -> Lwt.return (Error (error_of_exn exn)))
 ;;

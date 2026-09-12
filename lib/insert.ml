@@ -64,9 +64,7 @@ let rows table builders =
   { empty with rows }
 ;;
 
-let postgresql_on_conflict_do_nothing insert =
-  { insert with conflict = Some Ast.Postgresql_do_nothing }
-;;
+let on_conflict_do_nothing insert = { insert with conflict = Some Ast.Do_nothing }
 
 let ast insert =
   { Ast.kind = Ast.Insert

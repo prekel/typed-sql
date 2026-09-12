@@ -82,7 +82,7 @@ let%test_unit "backend interpreter defers maps until decoding" =
   in
   let compiled = compile_exn Dialect.Sqlite projection in
   let decode = Interpreter.run (B.Compiled_query.projection compiled) in
-  assert (Int.equal !mapped 0);
+  assert (Int.(!mapped = 0));
   assert (String.equal (decode ()) "7: Ada!");
-  assert (Int.equal !mapped 1)
+  assert (Int.(!mapped = 1))
 ;;

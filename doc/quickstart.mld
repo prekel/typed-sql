@@ -58,6 +58,20 @@ bind parameter из значения OCaml ([=$], [<$], [<=$], [>$], [>=$], [<>$
 [||.]. [Query.(...)] локально открывает query-builder, а завершающий [select]
 превращает его в готовый [Result_query.t].
 
+Для batch query значения передаются списком с тем же типом, что у expression:
+
+{[
+let by_ids ids =
+  Query.(
+    from Person.table
+    |> where (fun person -> Expr.in_values (Person.id person) ids)
+    |> select Person.projection)
+]}
+
+Пустой [IN] нормализуется в false, а пустой [NOT IN] — в true. Scalar query и
+[EXISTS] строятся тем же [Query.(...)] и могут захватывать table reference из
+внешнего callback.
+
 SQL можно проверить до выполнения:
 
 {[
@@ -75,3 +89,18 @@ Typed_sql_caqti_lwt.fetch ~conn (by_name "Ada")
 
 Приложение должно самостоятельно подключить нужный Caqti driver. Параметры
 остаются отдельными значениями и не вставляются в SQL string.
+
+DML использует такое же локальное открытие builder:
+
+{[
+let insert_once =
+  Insert.(
+    into Person.table
+    |> set Person.id_column 1L
+    |> set Person.name_column "Ada"
+    |> on_conflict_do_nothing
+    |> command)
+]}
+
+[Insert.on_conflict_do_nothing] переносим между PostgreSQL и SQLite. Для
+нескольких связанных команд adapter предоставляет transaction helper.

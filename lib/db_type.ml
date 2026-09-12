@@ -7,6 +7,7 @@ type _ t =
   | Float_type : float t
   | Text_type : string t
   | Bytes_type : bytes t
+  | Timestamp_type : Ptime.t t
   | Option_type : 'a t -> 'a option t
   | Map_type :
       { repr : 'a t
@@ -27,6 +28,7 @@ type _ view =
   | Float : float view
   | Text : string view
   | Bytes : bytes view
+  | Timestamp : Ptime.t view
   | Option : 'a t -> 'a option view
   | Map :
       { repr : 'a t
@@ -42,6 +44,7 @@ let int64 = Int64_type
 let float = Float_type
 let text = Text_type
 let bytes = Bytes_type
+let timestamp = Timestamp_type
 let option typ = Option_type typ
 let next_mapping_id = Atomic.make 0
 
@@ -52,6 +55,7 @@ let rec name : type a. a t -> string = function
   | Float_type -> "float"
   | Text_type -> "text"
   | Bytes_type -> "bytes"
+  | Timestamp_type -> "timestamp"
   | Option_type typ -> "option(" ^ name typ ^ ")"
   | Map_type mapping -> mapping.name
 ;;
@@ -69,6 +73,7 @@ let rec fingerprint : type a. a t -> string = function
   | Float_type -> "float"
   | Text_type -> "text"
   | Bytes_type -> "bytes"
+  | Timestamp_type -> "timestamp"
   | Option_type typ -> "option(" ^ fingerprint typ ^ ")"
   | Map_type { repr; id; _ } -> "map#" ^ Int.to_string id ^ "(" ^ fingerprint repr ^ ")"
 ;;
@@ -80,6 +85,7 @@ let view : type a. a t -> a view = function
   | Float_type -> Float
   | Text_type -> Text
   | Bytes_type -> Bytes
+  | Timestamp_type -> Timestamp
   | Option_type typ -> Option typ
   | Map_type { repr; encode; decode; name; _ } -> Map { repr; encode; decode; name }
 ;;

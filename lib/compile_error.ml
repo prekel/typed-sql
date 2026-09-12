@@ -24,6 +24,9 @@ type t =
       { operation : string
       ; dialect : Dialect.t
       }
+  | Aggregate_not_allowed of string
+  | Nested_aggregate
+  | Ungrouped_expression
 
 let to_string = function
   | Empty_projection -> "SELECT projection must contain at least one expression"
@@ -63,6 +66,9 @@ let to_string = function
       ]
   | Unsupported_operation { operation; dialect } ->
     operation ^ " is not supported by the " ^ Dialect.to_string dialect ^ " dialect"
+  | Aggregate_not_allowed clause -> "aggregate expressions are not allowed in " ^ clause
+  | Nested_aggregate -> "aggregate expressions cannot be nested"
+  | Ungrouped_expression -> "non-aggregate expression must be present in GROUP BY"
 ;;
 
 let pp formatter error = Stdlib.Format.pp_print_string formatter (to_string error)

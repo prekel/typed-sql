@@ -19,9 +19,19 @@ let query () = Query.(from items)
 let compile dialect query = Query.(select projection query) |> Compiler.compile ~dialect
 let sql dialect query = compile dialect query |> ok_exn |> Compiled_query.sql
 
+let equal_dialect left right =
+  match left, right with
+  | Dialect.Postgresql, Dialect.Postgresql | Dialect.Sqlite, Dialect.Sqlite -> true
+  | _ -> false
+;;
+
 let%test_unit "identifier validation and descriptor accessors" =
-  assert (Poly.equal (Identifier.of_string "") (Error `Empty));
-  assert (Poly.equal (Identifier.of_string "bad\000name") (Error `Contains_nul));
+  (match Identifier.of_string "" with
+   | Error `Empty -> ()
+   | _ -> failwith "empty identifier returned the wrong result");
+  (match Identifier.of_string "bad\000name" with
+   | Error `Contains_nul -> ()
+   | _ -> failwith "identifier containing NUL returned the wrong result");
   List.iter [ ""; "bad\000name" ] ~f:(fun value ->
     match Identifier.of_string_exn value with
     | exception Stdlib.Invalid_argument message -> assert (not (String.is_empty message))
@@ -295,10 +305,10 @@ let%test_unit "builders are immutable and all_rows clears filters" =
     let filtered = Query.(base |> where (fun row -> Expr.column row id =$ 1)) in
     assert (not (String.equal (sql dialect base) (sql dialect filtered)));
     let compiled = compile dialect base |> ok_exn in
-    assert (Poly.equal (Compiled_query.dialect compiled) dialect);
+    assert (equal_dialect (Compiled_query.dialect compiled) dialect);
     let render command =
       let compiled = Compiler.compile_command ~dialect command |> ok_exn in
-      assert (Poly.equal (Compiled_command.dialect compiled) dialect);
+      assert (equal_dialect (Compiled_command.dialect compiled) dialect);
       Compiled_command.sql compiled
     in
     let update = Update.(table items |> set id 1) in
@@ -312,4 +322,129 @@ let%test_unit "builders are immutable and all_rows clears filters" =
         (render
            Delete.(from items |> where (fun _ -> Condition.false_) |> all_rows |> command))
         (render Delete.(from items |> all_rows |> command))))
+;;
+
+let%test_unit "schema IR preserves metadata and generates public descriptors" =
+  let identifier = Identifier.of_string_exn in
+  let columns =
+    [ Schema_ir.column
+        ~name:(identifier "id")
+        ~db_type:Int64
+        ~nullable:false
+        ~primary_key_position:1
+        ()
+    ; Schema_ir.column
+        ~name:(identifier "display-name")
+        ~db_type:Text
+        ~nullable:true
+        ~default:"'anonymous'"
+        ()
+    ; Schema_ir.column
+        ~name:(identifier "created_at")
+        ~db_type:Timestamp
+        ~nullable:false
+        ~generated:true
+        ()
+    ]
+  in
+  let foreign_key =
+    Schema_ir.foreign_key
+      ~columns:[ identifier "id" ]
+      ~referenced_schema:(identifier "auth")
+      ~referenced_table:(identifier "accounts")
+      ~referenced_columns:[ identifier "id" ]
+      ()
+  in
+  let unique =
+    Schema_ir.unique_constraint
+      ~name:(identifier "users_display_name_key")
+      [ identifier "display-name" ]
+  in
+  let table =
+    Schema_ir.table
+      ~schema:(identifier "public")
+      ~name:(identifier "users")
+      ~columns
+      ~foreign_keys:[ foreign_key ]
+      ~unique_constraints:[ unique ]
+      ()
+  in
+  let schema = Schema_ir.v [ table ] in
+  assert (List.length (Schema_ir.tables schema) = 1);
+  assert (Identifier.equal (Schema_ir.table_name table) (identifier "users"));
+  assert (Option.is_some (Schema_ir.table_schema table));
+  assert (List.length (Schema_ir.columns table) = 3);
+  assert (List.length (Schema_ir.foreign_keys table) = 1);
+  assert (List.length (Schema_ir.unique_constraints table) = 1);
+  let display_name = List.nth_exn columns 1 in
+  assert (
+    Identifier.equal (Schema_ir.column_name display_name) (identifier "display-name"));
+  (match Schema_ir.column_db_type display_name with
+   | Text -> ()
+   | _ -> failwith "schema column returned the wrong database type");
+  assert (Schema_ir.column_nullable display_name);
+  assert (Option.is_some (Schema_ir.column_default display_name));
+  assert (not (Schema_ir.column_generated display_name));
+  assert (Option.is_none (Schema_ir.column_primary_key_position display_name));
+  assert (List.length (Schema_ir.foreign_key_columns foreign_key) = 1);
+  assert (Option.is_some (Schema_ir.foreign_key_referenced_schema foreign_key));
+  assert (
+    Identifier.equal
+      (Schema_ir.foreign_key_referenced_table foreign_key)
+      (identifier "accounts"));
+  assert (List.length (Schema_ir.foreign_key_referenced_columns foreign_key) = 1);
+  assert (Option.is_some (Schema_ir.unique_constraint_name unique));
+  assert (List.length (Schema_ir.unique_constraint_columns unique) = 1);
+  let all_types =
+    Schema_ir.table
+      ~name:(identifier "123-order")
+      ~columns:
+        [ Schema_ir.column ~name:(identifier "type") ~db_type:Bool ~nullable:false ()
+        ; Schema_ir.column ~name:(identifier "count") ~db_type:Int ~nullable:false ()
+        ; Schema_ir.column ~name:(identifier "ratio") ~db_type:Float ~nullable:false ()
+        ; Schema_ir.column ~name:(identifier "payload") ~db_type:Bytes ~nullable:false ()
+        ]
+      ()
+  in
+  let generated =
+    Schema_codegen.generate (Schema_ir.v [ table; all_types ])
+    |> Result.map_error ~f:Schema_codegen.error_to_string
+    |> Result.ok_or_failwith
+  in
+  assert (String.is_substring generated ~substring:"module Users = struct");
+  assert (String.is_substring generated ~substring:"display_name_column");
+  assert (String.is_substring generated ~substring:"Db_type.timestamp");
+  assert (String.is_substring generated ~substring:"display_name_default");
+  assert (String.is_substring generated ~substring:"id_primary_key_position = Some 1");
+  assert (String.is_substring generated ~substring:"let foreign_keys");
+  assert (String.is_substring generated ~substring:"Some \"auth\"");
+  assert (String.is_substring generated ~substring:"let unique_constraints");
+  assert (String.is_substring generated ~substring:"module Generated_123_order = struct");
+  assert (String.is_substring generated ~substring:"type__column");
+  Parse.implementation (Lexing.from_string generated) |> ignore;
+  let empty_table = Schema_ir.table ~name:(identifier "empty") ~columns:[] () in
+  (match Schema_codegen.generate (Schema_ir.v [ empty_table ]) with
+   | Error error ->
+     assert (
+       String.equal (Schema_codegen.error_to_string error) "table empty has no columns")
+   | Ok _ -> failwith "empty schema table was generated");
+  let unsupported =
+    Schema_ir.table
+      ~name:(identifier "custom")
+      ~columns:
+        [ Schema_ir.column
+            ~name:(identifier "value")
+            ~db_type:(Unsupported "jsonb")
+            ~nullable:false
+            ()
+        ]
+      ()
+  in
+  match Schema_codegen.generate (Schema_ir.v [ unsupported ]) with
+  | Error error ->
+    assert (
+      String.equal
+        (Schema_codegen.error_to_string error)
+        "unsupported type jsonb for custom.value")
+  | Ok _ -> failwith "unsupported schema type was generated"
 ;;

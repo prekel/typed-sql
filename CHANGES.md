@@ -4,50 +4,43 @@
 
 ### Добавлено
 
-- Инструментирование `Typed_sql` через `bisect_ppx` и `make coverage` с
-  минимальным порогом 97%. Coverage-набор использует только API приложения,
-  QCheck и SQLite `:memory:`; текущий сырой результат — 97,88% (599/612).
-- Публичные regression tests для всех `Db_type`, infix-операторов, нормализации
-  условий, source validation, DML diagnostics и builder immutability. SQLite
-  integration test проверяет round-trip всех базовых codec.
+- Portable expressions: `IN`/`NOT IN`, `BETWEEN`, `IS DISTINCT FROM`,
+  арифметика, `CASE`, string functions и concatenation.
+- `DISTINCT`, `COUNT`, `COUNT DISTINCT`, `GROUP BY`, `HAVING` и
+  aggregate validation.
+- Correlated `EXISTS`, scalar subqueries и `IN (subquery)`.
+- Timestamp with time zone через `Ptime.t` и `CURRENT_TIMESTAMP`.
+- Multi-row `INSERT`, SQL `DEFAULT`, `UPDATE ... FROM`, условные assignments
+  и portable `Insert.on_conflict_do_nothing` для PostgreSQL/SQLite.
+- Transaction helpers и portable constraint classification в Caqti и PG'OCaml
+  adapters.
+- Явная ошибка `Codec of string` для отказов mapped codec на encode и decode.
+- Dialect-neutral `Schema_ir`, PostgreSQL/SQLite introspection через Caqti и
+  generator OCaml table/column/projection descriptors с relational metadata.
+- Отдельные `make coverage` для публичного API и `make coverage-all` для
+  полного набора ядра. Текущие результаты — 98,25% и 100,00% соответственно.
+- PostgreSQL/SQLite golden tests, compile-fail fixtures и расширенный SQLite
+  `:memory:` integration test для новых SQL-возможностей.
 - Полная odoc-документация интерфейсов приложения, backend-контракта и
-  Caqti/PG'OCaml execution adapters, включая инварианты, ошибки и cardinality.
-- `Projection` реализует `Base.Applicative.S` и поддерживает `let%map` через
-  `Let_syntax`. Вместо `pure` используется `return`; функции `map`, `map2`,
-  `map3` принимают `~f`. Обёртка Lwt в PG'OCaml реализует `Base.Monad.S`.
-- Отдельный `typed-sql.backend` для авторов адаптеров: codec views, packed
-  values, `Projection.Make`, `Template.map` и shape. Codec views и packed values
-  доступны только для чтения. Адаптеры принимают compiled values приложения
-  без преобразований; `Typed_sql` содержит только пользовательский DSL,
-  компиляцию, SQL и ошибки.
-
-- Полный интерфейс приложения и документация в `typed_sql.mli`.
-  Внутренняя библиотека `typed_sql_private` содержит реализации без локальных
-  `.mli`; facade `typed-sql` реэкспортирует только публичные модули.
-
-- Внутренняя библиотека для white-box тестов даёт доступ к AST, внутренним
-  constructors/accessors и отдельным этапам compiler; regression tests
-  проверяют нормализацию, validation и сохранение bind parameters.
-
-- Backend-independent typed expression, projection и deferred SELECT DSL.
-- Детерминированная компиляция PostgreSQL и SQLite с bind parameters.
-- Lwt execution adapter для Caqti и SQLite integration tests.
-- Типизированные `INNER JOIN`/`LEFT JOIN`; правая сторона `LEFT JOIN` получает
-  отдельный nullable table reference.
-- Schema-nullable columns через `Column.nullable_v`; nullability outer join
-  корректно flatten'ится в один `option`.
-- Single-row `INSERT`, scoped `UPDATE`/`DELETE`, portable `RETURNING`,
-  `Command.t`, `Result_query.t` и `Affected_rows`.
-- Разделённые normalize, validation, lowering и rendering этапы compiler.
-- Shape включает identity mapped codec и типы projection, но исключает значения
-  параметров и generated source IDs.
-- Адаптер `typed-sql-pgocaml-lwt` без PPX и без тестового подключения к серверу.
+  Caqti/PG'OCaml execution adapters.
+- Адаптер `typed-sql-pgocaml-lwt`, собираемый без подключения к PostgreSQL.
 
 ### Изменено
 
-- `Query.from` теперь начинает builder без временной projection, а
-  завершающий `Query.select` сразу возвращает `Result_query.t`. Добавлены общий
-  `Typed_sql.Infix` и `Projection.pair`; рекомендуемая запись использует
-  локальное открытие `Query.(...)`.
-- Удалены неиспользуемые внутренние helpers выражений, условий, типов и SQL
-  templates, не входившие ни в application, ни в backend API.
+- Полный интерфейс приложения и документация находятся в одном
+  `lib/typed_sql.mli`. Реализации ядра собраны без отдельных `.mli`, а facade
+  реэкспортирует только пользовательский контракт.
+- `typed-sql.backend` предоставляет авторам adapters codec views, packed
+  parameters, projection decoder, templates и shape. Конструкторы доступны
+  только для pattern matching.
+- `typed-sql.private` используется отдельными white-box тестами и не влияет на
+  метрику покрытия публичного API.
+- `Projection` реализует `Base.Applicative.S` и `Let_syntax`; Lwt-обёртка
+  PG'OCaml реализует `Base.Monad.S`.
+- `Query.from` начинает builder, а `Query.select` завершает его. В README,
+  документации и тестах SELECT/DML используют локальные `Query.(...)`,
+  `Insert.(...)`, `Update.(...)` и `Delete.(...)`.
+- Compiler разделён на normalization, validation, dialect lowering и rendering.
+  Unsupported operations завершаются capability error до генерации SQL.
+- Shape учитывает identity mapped codec и projection layout, но не parameter
+  values, generated source IDs, aliases или connections.

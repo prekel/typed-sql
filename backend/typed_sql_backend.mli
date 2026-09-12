@@ -25,6 +25,7 @@ module Db_type : sig
     | Float : float view (** SQL floating-point value. *)
     | Text : string view (** SQL text. *)
     | Bytes : bytes view (** SQL binary data. *)
+    | Timestamp : Ptime.t view (** SQL timestamp with time zone, normalized to UTC. *)
     | Option : 'a t -> 'a option view
     (** A nullable value whose non-null representation uses the nested codec. *)
     | Map :

@@ -2,6 +2,10 @@
  (alias runtest)
  (deps
   delete_requires_scope.ml
+  count_result_is_int64.ml
+  expression_arithmetic_type_mismatch.ml
+  expression_case_type_mismatch.ml
+  expression_in_type_mismatch.ml
   foreign_column.ml
   left_join_requires_nullable_column.ml
   mismatched_expression.ml
@@ -21,6 +25,8 @@
   public_template_constructor_is_hidden.ml
   run.sh
   select_is_required.ml
+  subquery_type_mismatch.ml
+  timestamp_type_mismatch.ml
   update_requires_scope.ml
   update_from_wrong_column.ml
   update_set_opt_preserves_nullability.ml

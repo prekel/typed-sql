@@ -1,16 +1,36 @@
 set -eu
 
 cd "$(dirname "$0")/.."
-coverage_dir="$PWD/_coverage"
+mode="${1:-public}"
+case "$mode" in
+  public | all) ;;
+  *)
+    printf 'usage: %s [public|all]\n' "$0" >&2
+    exit 2
+    ;;
+esac
+
+coverage_dir="$PWD/_coverage/$mode"
 coverage_data="$coverage_dir/data"
 rm -rf "$coverage_data" "$coverage_dir/html"
 mkdir -p "$coverage_data"
 export BISECT_FILE="$coverage_data/bisect"
 
-dune build --instrument-with bisect_ppx \
-  test/.typed_sql_expect_tests.inline-tests/inline-test-runner.exe \
-  test/property_test.exe \
-  caqti-lwt/test/sqlite_test.exe
+targets="
+test/.typed_sql_expect_tests.inline-tests/inline-test-runner.exe
+test/property_test.exe
+caqti-lwt/test/sqlite_test.exe
+"
+if [ "$mode" = all ]; then
+  targets="$targets
+test/.typed_sql_backend_expect_tests.inline-tests/inline-test-runner.exe
+test/.typed_sql_private_expect_tests.inline-tests/inline-test-runner.exe
+"
+fi
+
+# Intentional word splitting: every line above is one dune target.
+# shellcheck disable=SC2086
+dune build --instrument-with bisect_ppx $targets
 (
   cd test
   ../_build/default/test/.typed_sql_expect_tests.inline-tests/inline-test-runner.exe \
@@ -19,8 +39,23 @@ dune build --instrument-with bisect_ppx \
 _build/default/test/property_test.exe
 _build/default/caqti-lwt/test/sqlite_test.exe
 
+if [ "$mode" = all ]; then
+  (
+    cd test
+    ../_build/default/test/.typed_sql_backend_expect_tests.inline-tests/inline-test-runner.exe \
+      inline-test-runner typed_sql_backend_expect_tests -strict -source-tree-root ..
+    ../_build/default/test/.typed_sql_private_expect_tests.inline-tests/inline-test-runner.exe \
+      inline-test-runner typed_sql_private_expect_tests -strict -source-tree-root ..
+  )
+fi
+
 summary="$(bisect-ppx-report summary --per-file --expect lib/ --coverage-path "$coverage_data")"
 printf '%s\n' "$summary"
 coverage="$(printf '%s\n' "$summary" | awk '/Project coverage/ { print $1 }')"
-awk -v coverage="$coverage" 'BEGIN { if (coverage + 0 < 97.0) exit 1 }'
 bisect-ppx-report html --expect lib/ --coverage-path "$coverage_data" -o "$coverage_dir/html"
+case "$mode" in
+  public) threshold=97.0 ;;
+  all) threshold=99.0 ;;
+esac
+awk -v coverage="$coverage" -v threshold="$threshold" \
+  'BEGIN { if (coverage + 0 < threshold) exit 1 }'
