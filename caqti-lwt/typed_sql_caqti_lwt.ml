@@ -368,7 +368,14 @@ let transaction ~conn ~f =
          match result with
          | Ok value ->
            let* committed = map_transaction_error (Connection.commit ()) in
-           Lwt.return (Result.map committed ~f:(fun () -> value))
+           (match committed with
+            | Ok () -> Lwt.return (Ok value)
+            | Error error ->
+              let* rolled_back = map_transaction_error (Connection.rollback ()) in
+              Lwt.return
+                (match rolled_back with
+                 | Ok () -> Error error
+                 | Error rollback_error -> Error rollback_error))
          | Error error ->
            let* rolled_back = map_transaction_error (Connection.rollback ()) in
            (match rolled_back with
@@ -390,7 +397,7 @@ module Schema = struct
     string option
     * string
     * string option
-    * (int * string * string option * (string * string))
+    * (int * string * string option * (string * string option))
 
   type raw_unique = string option * string * string option * (int * string)
 
@@ -415,7 +422,7 @@ module Schema = struct
          T.Row_type.int
          T.Row_type.string
          (T.Row_type.option T.Row_type.string)
-         (T.Row_type.t2 T.Row_type.string T.Row_type.string))
+         (T.Row_type.t2 T.Row_type.string (T.Row_type.option T.Row_type.string)))
   ;;
 
   let unique_row_type : raw_unique T.Row_type.t =
@@ -439,7 +446,11 @@ SELECT NULL,
        m.name,
        x.name,
        x.type,
-       x."notnull" = 0,
+       x."notnull" = 0
+         AND NOT
+           (x.pk = 1
+            AND upper(x.type) = 'INTEGER'
+            AND (SELECT COUNT(*) FROM pragma_index_list(m.name) WHERE origin = 'pk') = 0),
        x.dflt_value,
        x.hidden IN (2, 3),
        CASE WHEN x.pk = 0 THEN NULL ELSE x.pk END
@@ -633,10 +644,27 @@ ORDER BY tc.table_schema, tc.table_name, tc.constraint_name, kcu.ordinal_positio
     List.group rows ~break:(fun left right -> not (same_key (key left) (key right)))
   ;;
 
-  let make_foreign_keys rows =
+  let primary_key_columns columns ~schema ~table =
+    List.filter_map
+      columns
+      ~f:(fun (column_schema, column_table, column, (_, _, _, (_, pk))) ->
+        if
+          Option.equal String.equal schema column_schema
+          && String.equal table column_table
+        then
+          Option.map pk ~f:(fun position -> position, column)
+        else
+          None)
+    |> List.sort ~compare:(fun (left, _) (right, _) -> Int.compare left right)
+    |> List.map ~f:snd
+  ;;
+
+  let make_foreign_keys ~primary_key_columns rows =
     group_adjacent rows ~key:(fun (schema, table, name, _) -> schema, table, name)
     |> List.map ~f:(fun group ->
-      let _, _, _, (_, _, referenced_schema, (referenced_table, _)) = List.hd_exn group in
+      let _, _, _, (_, _, referenced_schema_name, (referenced_table_name, _)) =
+        List.hd_exn group
+      in
       let open Result.Let_syntax in
       let%bind columns =
         Result.all
@@ -644,22 +672,47 @@ ORDER BY tc.table_schema, tc.table_name, tc.constraint_name, kcu.ordinal_positio
              identifier ~context:"foreign-key column" column))
       in
       let%bind referenced_schema =
-        optional_identifier ~context:"referenced schema" referenced_schema
+        optional_identifier ~context:"referenced schema" referenced_schema_name
       in
       let%bind referenced_table =
-        identifier ~context:"referenced table" referenced_table
+        identifier ~context:"referenced table" referenced_table_name
       in
-      let%map referenced_columns =
-        Result.all
-          (List.map group ~f:(fun (_, _, _, (_, _, _, (_, column))) ->
-             identifier ~context:"referenced column" column))
+      let referenced_columns =
+        List.map group ~f:(fun (_, _, _, (_, _, _, (_, column))) -> column)
       in
-      Typed_sql.Schema_ir.foreign_key
-        ~columns
-        ?referenced_schema
-        ~referenced_table
-        ~referenced_columns
-        ())
+      let%bind referenced_columns =
+        match List.for_all referenced_columns ~f:Option.is_some with
+        | true ->
+          Result.all
+            (List.map referenced_columns ~f:(fun column ->
+               identifier ~context:"referenced column" (Option.value_exn column)))
+        | false when List.for_all referenced_columns ~f:Option.is_none ->
+          (match
+             primary_key_columns
+               ~schema:referenced_schema_name
+               ~table:referenced_table_name
+           with
+           | [] ->
+             Error
+               (Schema
+                  ("referenced table " ^ referenced_table_name
+                 ^ " has no primary key for an implicit foreign key target"))
+           | columns ->
+             Result.all
+               (List.map columns ~f:(identifier ~context:"referenced primary-key column")))
+        | false ->
+          Error
+            (Schema
+               ("foreign key to " ^ referenced_table_name
+              ^ " mixes explicit and implicit referenced columns"))
+      in
+      Ok
+        (Typed_sql.Schema_ir.foreign_key
+           ~columns
+           ?referenced_schema
+           ~referenced_table
+           ~referenced_columns
+           ()))
     |> Result.all
   ;;
 
@@ -684,6 +737,7 @@ ORDER BY tc.table_schema, tc.table_name, tc.constraint_name, kcu.ordinal_positio
 
   let make_schema ~db_type columns foreign_keys uniques =
     let open Result.Let_syntax in
+    let primary_keys = primary_key_columns columns in
     let column_groups =
       List.group
         columns
@@ -735,7 +789,9 @@ ORDER BY tc.table_schema, tc.table_name, tc.constraint_name, kcu.ordinal_positio
                  ~schema:(Option.map schema ~f:Typed_sql.Identifier.to_string)
                  ~table)
         in
-        let%bind foreign_keys = make_foreign_keys raw_foreign_keys in
+        let%bind foreign_keys =
+          make_foreign_keys ~primary_key_columns:primary_keys raw_foreign_keys
+        in
         let%map unique_constraints = make_uniques raw_uniques in
         Typed_sql.Schema_ir.table
           ?schema

@@ -30,14 +30,25 @@ constructors, codec views, packed parameters, renderer helpers и decoder IR.
 - `BETWEEN`, `IS DISTINCT FROM`, арифметика для `int`, `int64` и `float`;
 - `CASE`, `LOWER`, `UPPER`, `LENGTH` и string concatenation;
 - `COUNT(*)`, `COUNT`, `COUNT DISTINCT`, `GROUP BY` и `HAVING`;
-- correlated `EXISTS`/`NOT EXISTS`, scalar query и `IN (subquery)`;
+- correlated `EXISTS`/`NOT EXISTS`, nullable scalar query и `IN (subquery)`;
 - `Ptime.t` как timestamp with time zone, отдельный `Date.t` для SQL `DATE` и
   `CURRENT_TIMESTAMP`.
 
 Aggregate validator запрещает aggregates в `WHERE`, `JOIN ON` и `GROUP BY`,
-nested aggregates и non-grouped expressions. Точное составное выражение из
+nested aggregates и non-grouped expressions. Наличие `HAVING` создаёт
+aggregate context; SQLite отклоняет `HAVING` без `GROUP BY` и aggregate в
+projection через capability error. Точное составное выражение из
 columns, arithmetic и portable string functions можно повторить в projection и
 `ORDER BY` после `GROUP BY`.
+
+Scalar subquery возвращает `option`: отсутствие строки не может быть decoded
+как значение non-null column. Встраивание требует `LIMIT 0`/`LIMIT 1` либо
+local aggregate без `GROUP BY`; иначе compiler возвращает
+`Scalar_subquery_may_return_many_rows`. Для nullable expression отдельный
+`scalar_subquery_nullable` не создаёт вложенный `option`.
+
+Пустой `CASE` нормализуется в `else_`, поэтому не попадает в renderer как
+некорректный `CASE ELSE ... END`.
 
 ### DML
 
@@ -62,8 +73,8 @@ DEFAULT`, поэтому compiler возвращает `Unsupported_operation`, 
 
 - преобразуют mapped codec failures в `Codec of string`;
 - классифицируют constraint violations;
-- предоставляют transaction helper с commit, rollback и rollback при
-  исключении.
+- предоставляют transaction helper с commit, rollback, rollback при ошибке
+  commit и rollback при исключении.
 
 SQLite `:memory:` integration suite проверяет все codec, DML, expressions,
 aggregates, correlated subqueries, conflict ignore и транзакции. PostgreSQL
@@ -87,7 +98,9 @@ SQLite `DATE` больше не отображается на неточный t
 - PostgreSQL metadata через `information_schema` с исключением system schemas и
   views.
 
-SQLite introspection проверена исполнением. PostgreSQL introspection реализована
+SQLite introspection различает rowid alias `INTEGER PRIMARY KEY` и primary key,
+который всё ещё допускает `NULL`; implicit FK без списка referenced columns
+восстанавливает ordered primary key родительской таблицы. PostgreSQL introspection реализована
 и проходит сборку, но не запускалась против сервера по текущему ограничению.
 
 `Schema_codegen.generate` создаёт OCaml modules с row record, table и column
@@ -96,7 +109,9 @@ generated columns, PK, FK и UNIQUE. Выход parser-check'ится тесто
 таблицы и неизвестные database types возвращаются явными ошибками. Отдельный
 downstream test генерирует `.ml`, компилирует его и строит запросы через
 полученные descriptors. Совпавшие после нормализации имена получают стабильные
-суффиксы `_2`, `_3` с учётом служебных bindings generator.
+суффиксы `_2`, `_3` с учётом служебных bindings generator. Generator экранирует
+OCaml keywords и одиночный `_`, а ссылки на библиотечные модули использует через
+свой alias, поэтому table и column names не могут их перекрыть.
 
 `Schema_snapshot` сохраняет весь schema IR в JSON версии 1 с сохранением
 порядка и metadata. CLI `typed-sql-codegen schema.json` или
@@ -115,7 +130,7 @@ downstream test генерирует `.ml`, компилирует его и с�
   suites; порог равен 99%, отчёт находится в
   `_coverage/all/html/index.html`.
 
-Последний полный прогон перед обновлением этого документа дал 98,52% через
+Последний полный прогон перед обновлением этого документа дал 98,03% через
 публичный API и 100,00% всеми тестами ядра. Точные цифры следует обновлять после
 изменения instrumented implementation.
 

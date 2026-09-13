@@ -40,6 +40,23 @@ let query name =
 границу DSL. `select` ставится последним: он задаёт projection и превращает
 builder в готовый `Result_query.t`.
 
+Scalar subquery выражает возможное отсутствие строки через `option` и требует
+явного доказательства cardinality: `LIMIT 0`/`LIMIT 1` либо aggregate без
+`GROUP BY`. Например:
+
+```ocaml
+let department_name person =
+  Expr.scalar_subquery
+    Query.(
+      from Department.table
+      |> where (fun department -> Department.person_id department =. Person.id person)
+      |> limit 1
+      |> select_scalar Department.name)
+```
+
+Для уже nullable expression есть `Expr.scalar_subquery_nullable`: SQL не
+различает отсутствие строки и строку с `NULL`, поэтому оба случая дают `None`.
+
 DML строится так же через локальное открытие соответствующего builder:
 
 ```ocaml

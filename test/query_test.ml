@@ -625,6 +625,149 @@ let%expect_test "correlated EXISTS, scalar subquery, and IN subquery" =
     {| SELECT t0."name", (SELECT t1."name" FROM "public"."departments" AS t1 WHERE (t1."person_id" = t0."id") LIMIT 1) FROM "public"."people" AS t0 WHERE ((EXISTS (SELECT 1 FROM "public"."departments" AS t1 WHERE (t1."person_id" = t0."id"))) AND (t0."id" IN (SELECT t1."person_id" FROM "public"."departments" AS t1))) |}]
 ;;
 
+let%expect_test "scalar subqueries are nullable and require a cardinality proof" =
+  let scalar = Query.(from Department.table |> select_scalar Department.name) in
+  let query =
+    Query.(
+      from Person.table |> select (fun _ -> Projection.expr (Expr.scalar_subquery scalar)))
+  in
+  (match Compiler.compile ~dialect:Dialect.Sqlite query with
+   | Ok _ -> failwith "unbounded scalar subquery unexpectedly compiled"
+   | Error error -> Stdlib.print_endline (Compile_error.to_string error));
+  [%expect {| scalar subquery requires LIMIT 0/1 or a local aggregate without GROUP BY |}];
+  let query =
+    Query.(
+      from Person.table
+      |> select (fun _ ->
+        Projection.expr
+          (Expr.scalar_subquery
+             Query.(from Department.table |> limit 0 |> select_scalar Department.name))))
+  in
+  query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
+  [%expect
+    {| SELECT (SELECT t1."name" FROM "public"."departments" AS t1 LIMIT 0) FROM "public"."people" AS t0 |}];
+  let query =
+    Query.(
+      from Person.table
+      |> select (fun _ ->
+        Projection.expr
+          (Expr.scalar_subquery
+             Query.(from Department.table |> select_scalar (fun _ -> Expr.count_all)))))
+  in
+  query |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
+  [%expect
+    {| SELECT (SELECT COUNT(*) FROM "public"."departments" AS t1) FROM "public"."people" AS t0 |}];
+  let query =
+    Query.(
+      from Person.table
+      |> select (fun _ ->
+        Projection.expr
+          (Expr.scalar_subquery_nullable
+             Query.(
+               from Department.table
+               |> limit 1
+               |> select_scalar (fun department ->
+                 Expr.to_nullable (Department.name department))))))
+  in
+  query |> compile_exn Dialect.Sqlite |> ignore
+;;
+
+let%expect_test "empty CASE normalizes to its else expression" =
+  Query.(
+    from Person.table
+    |> select (fun person -> Projection.expr (Expr.case [] ~else_:(Person.name person))))
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect {| SELECT t0."name" FROM "public"."people" AS t0 |}]
+;;
+
+let%expect_test "HAVING establishes aggregate context" =
+  let query =
+    Query.(
+      from Person.table
+      |> having (fun _ -> Condition.true_)
+      |> select (fun _ -> Projection.expr (Expr.param Db_type.int 1)))
+  in
+  query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
+  [%expect {| SELECT $1 FROM "public"."people" AS t0 HAVING TRUE |}];
+  (match Compiler.compile ~dialect:Dialect.Sqlite query with
+   | Error (Compile_error.Unsupported_operation { operation; dialect = Dialect.Sqlite })
+     -> Stdlib.print_endline operation
+   | Error error -> failwith (Compile_error.to_string error)
+   | Ok _ -> failwith "SQLite accepted HAVING without aggregation");
+  [%expect {| HAVING without GROUP BY or an aggregate projection |}];
+  let query =
+    Query.(
+      from Person.table
+      |> having (fun person -> Person.id person >$ 0L)
+      |> select (fun _ -> Projection.expr Expr.count_all))
+  in
+  match Compiler.compile ~dialect:Dialect.Postgresql query with
+  | Error Compile_error.Ungrouped_expression -> ()
+  | Error error -> failwith (Compile_error.to_string error)
+  | Ok _ -> failwith "ungrouped HAVING column unexpectedly compiled"
+;;
+
+let%test_unit
+    "scalar aggregate proofs and nested SQLite capability checks use public builders"
+  =
+  let compile query =
+    match Compiler.compile ~dialect:Dialect.Sqlite query with
+    | Ok _ -> ()
+    | Error error -> failwith (Compile_error.to_string error)
+  in
+  let counted =
+    Query.(
+      from Department.table
+      |> select_scalar (fun department -> Expr.count (Department.name department)))
+  in
+  compile
+    Query.(
+      from Person.table
+      |> select (fun _ -> Projection.expr (Expr.scalar_subquery counted)));
+  let counted_distinct =
+    Query.(
+      from Department.table
+      |> inner_join Person.table ~on:(fun _ _ -> Condition.true_)
+      |> select_scalar (fun (_, person) -> Expr.count_distinct (Person.id person)))
+  in
+  compile
+    Query.(
+      from Person.table
+      |> select (fun _ -> Projection.expr (Expr.scalar_subquery counted_distinct)));
+  let unsupported_scalar =
+    Expr.scalar_subquery
+      Query.(
+        from Department.table
+        |> having (fun _ -> Condition.true_)
+        |> limit 1
+        |> select_scalar (fun _ -> Expr.param Db_type.text "fallback"))
+  in
+  let command =
+    Update.(
+      table Person.table
+      |> set_expr Person.nickname_column unsupported_scalar
+      |> all_rows
+      |> command)
+  in
+  (match Compiler.compile_command ~dialect:Dialect.Sqlite command with
+   | Error (Compile_error.Unsupported_operation { dialect = Dialect.Sqlite; _ }) -> ()
+   | Error error -> failwith (Compile_error.to_string error)
+   | Ok _ -> failwith "SQLite command accepted nested unsupported HAVING");
+  let returning =
+    Update.(
+      table Person.table
+      |> set Person.name_column "Ada"
+      |> all_rows
+      |> returning (fun _ -> Projection.expr unsupported_scalar))
+  in
+  match Compiler.compile ~dialect:Dialect.Sqlite returning with
+  | Error (Compile_error.Unsupported_operation { dialect = Dialect.Sqlite; _ }) -> ()
+  | Error error -> failwith (Compile_error.to_string error)
+  | Ok _ -> failwith "SQLite RETURNING accepted nested unsupported HAVING"
+;;
+
 let%expect_test "negated subqueries render explicitly" =
   Query.(
     from Person.table

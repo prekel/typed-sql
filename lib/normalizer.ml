@@ -8,6 +8,7 @@ let rec normalize_expr = function
   | Ast.String_function (function_, expression) ->
     Ast.String_function (function_, normalize_expr expression)
   | Ast.Concat (left, right) -> Ast.Concat (normalize_expr left, normalize_expr right)
+  | Ast.Case ([], else_) -> normalize_expr else_
   | Ast.Case (branches, else_) ->
     Ast.Case
       ( List.map branches ~f:(fun (condition, expression) ->
@@ -110,7 +111,7 @@ and normalize_select (select : Ast.select) =
     Ast.projection = List.map select.projection ~f:normalize_expr
   ; where_ = optional select.where_
   ; group_by = List.map select.group_by ~f:normalize_expr
-  ; having = optional select.having
+  ; having = Option.map select.having ~f:normalize_condition
   ; order_by =
       List.map select.order_by ~f:(fun order ->
         { order with Ast.expr = normalize_expr order.expr })

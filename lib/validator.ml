@@ -26,7 +26,12 @@ let rec validate_expr ~validate_subquery ~visible = function
   | Ast.Aggregate (Ast.Count expression | Ast.Count_distinct expression) ->
     validate_expr ~validate_subquery ~visible expression
   | Ast.Scalar_subquery select ->
-    validate_subquery ~outer_visible:visible ~allow_empty:false select
+    let open Result.Let_syntax in
+    let%bind () = validate_subquery ~outer_visible:visible ~allow_empty:false select in
+    if Aggregate_scope.at_most_one select then
+      Ok ()
+    else
+      Error Compile_error.Scalar_subquery_may_return_many_rows
   | Ast.Current_timestamp -> Ok ()
 
 and validate_condition ~validate_subquery ~visible = function
@@ -274,6 +279,7 @@ let rec validate_select ~outer_visible ~allow_empty (select : Ast.select) =
     else (
       let aggregate_query =
         (not (List.is_empty select.group_by))
+        || Option.is_some select.having
         || List.exists analyses ~f:(fun analysis -> analysis.has_aggregate)
       in
       if aggregate_query && List.exists analyses ~f:(fun analysis -> not analysis.grouped)

@@ -490,9 +490,16 @@ module Expr : sig
   (** Count distinct non-null values of an expression. *)
   val count_distinct : 'a t -> int64 t
 
-  (** Embed a one-column SELECT as a scalar expression. The database still
-      enforces that execution returns at most one row. *)
-  val scalar_subquery : 'a Scalar_query.t -> 'a t
+  (** Embed a one-column SELECT, returning [None] when it returns no row.
+      Compilation requires [LIMIT 0/1] or an aggregate belonging to this SELECT
+      without [GROUP BY]. No limit is added implicitly. For an already nullable
+      expression prefer [scalar_subquery_nullable] to avoid nested options. *)
+  val scalar_subquery : 'a Scalar_query.t -> 'a option t
+
+  (** Embed a nullable one-column SELECT without adding another option layer.
+      An absent row and a row containing SQL [NULL] both decode as [None].
+      The cardinality requirements are the same as [scalar_subquery]. *)
+  val scalar_subquery_nullable : 'a option Scalar_query.t -> 'a option t
 
   (** The transaction's current timestamp. Both supported dialects render the
       standard SQL [CURRENT_TIMESTAMP] expression. *)
@@ -957,6 +964,10 @@ module Compile_error : sig
     | Ungrouped_expression
     (** An aggregate query selects, orders, or filters by a non-aggregate
         expression whose columns are absent from [GROUP BY]. *)
+    | Scalar_subquery_may_return_many_rows
+    (** Scalar embedding requires an explicit [LIMIT 0/1] or an aggregate of
+        the current SELECT without [GROUP BY]. Membership and existence
+        subqueries are not subject to this restriction. *)
 
   (** Format a compilation error for a user. *)
   val pp : Formatter.t -> t -> unit

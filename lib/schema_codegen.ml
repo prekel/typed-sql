@@ -71,18 +71,36 @@ let keywords =
   ; "when"
   ; "while"
   ; "with"
+  ; "asr"
+  ; "land"
+  ; "lor"
+  ; "lsl"
+  ; "lsr"
+  ; "lxor"
+  ; "mod"
+  ; "effect"
+  ; "continue"
+  ; "perform"
+  ; "public"
   ]
 ;;
 
 let identifier value =
   let value =
     String.map value ~f:(fun character ->
-      if Char.is_alphanum character || Char.equal character '_' then
+      if Char.is_alpha character || Char.is_digit character || Char.equal character '_'
+      then
         character
       else
         '_')
   in
   let value = String.lowercase value in
+  let value =
+    if String.for_all value ~f:(Char.equal '_') then
+      "field"
+    else
+      value
+  in
   let value =
     match value.[0] with
     | '0' .. '9' -> "_" ^ value
@@ -130,7 +148,19 @@ let column_bindings name =
 ;;
 
 let allocate_column_names (columns : Schema_ir.column list) =
-  let reserved = [ "table"; "projection"; "foreign_keys"; "unique_constraints" ] in
+  let reserved =
+    [ "table"
+    ; "projection"
+    ; "foreign_keys"
+    ; "unique_constraints"
+    ; "table_ref"
+    ; "return"
+    ; "map"
+    ; "both"
+    ; "apply"
+    ; "all"
+    ]
+  in
   let rec loop used allocated = function
     | [] -> List.rev allocated
     | (column : Schema_ir.column) :: rest ->
@@ -157,19 +187,20 @@ let allocate_module_names (tables : Schema_ir.table list) =
       in
       loop used ((table, name) :: allocated) rest
   in
-  loop [] [] tables
+  loop [ "Typed_sql_codegen"; "Typed_sql_codegen_ptime" ] [] tables
 ;;
 
 let type_source = function
-  | Schema_ir.Bool -> Ok ("bool", "Db_type.bool")
-  | Schema_ir.Int -> Ok ("int", "Db_type.int")
-  | Schema_ir.Int64 -> Ok ("int64", "Db_type.int64")
-  | Schema_ir.Float -> Ok ("float", "Db_type.float")
-  | Schema_ir.Text -> Ok ("string", "Db_type.text")
-  | Schema_ir.Bytes -> Ok ("bytes", "Db_type.bytes")
-  | Schema_ir.Date -> Ok ("Date.t", "Db_type.date")
-  | Schema_ir.Timestamp -> Ok ("Ptime.t", "Db_type.timestamp")
-  | Schema_ir.Uuid -> Ok ("Uuid.t", "Db_type.uuid")
+  | Schema_ir.Bool -> Ok ("bool", "Typed_sql_codegen.Db_type.bool")
+  | Schema_ir.Int -> Ok ("int", "Typed_sql_codegen.Db_type.int")
+  | Schema_ir.Int64 -> Ok ("int64", "Typed_sql_codegen.Db_type.int64")
+  | Schema_ir.Float -> Ok ("float", "Typed_sql_codegen.Db_type.float")
+  | Schema_ir.Text -> Ok ("string", "Typed_sql_codegen.Db_type.text")
+  | Schema_ir.Bytes -> Ok ("bytes", "Typed_sql_codegen.Db_type.bytes")
+  | Schema_ir.Date -> Ok ("Typed_sql_codegen.Date.t", "Typed_sql_codegen.Db_type.date")
+  | Schema_ir.Timestamp ->
+    Ok ("Typed_sql_codegen_ptime.t", "Typed_sql_codegen.Db_type.timestamp")
+  | Schema_ir.Uuid -> Ok ("Typed_sql_codegen.Uuid.t", "Typed_sql_codegen.Db_type.uuid")
   | Schema_ir.Unsupported name -> Error name
 ;;
 
@@ -203,8 +234,9 @@ let generate_table ~module_name (table : Schema_ir.table) =
     in
     let table_expression =
       match table.schema with
-      | None -> "Table.v_exn " ^ quoted table.name
-      | Some schema -> "Table.v_exn ~schema:" ^ quoted schema ^ " " ^ quoted table.name
+      | None -> "Typed_sql_codegen.Table.v_exn " ^ quoted table.name
+      | Some schema ->
+        "Typed_sql_codegen.Table.v_exn ~schema:" ^ quoted schema ^ " " ^ quoted table.name
     in
     let fields =
       List.map columns ~f:(fun (column, name, ocaml_type, _) ->
@@ -221,9 +253,9 @@ let generate_table ~module_name (table : Schema_ir.table) =
       List.map columns ~f:(fun (column, name, _, descriptor) ->
         let constructor =
           if column.nullable then
-            "Column.nullable_v_exn"
+            "Typed_sql_codegen.Column.nullable_v_exn"
           else
-            "Column.v_exn"
+            "Typed_sql_codegen.Column.v_exn"
         in
         String.concat
           [ "  let "
@@ -236,7 +268,7 @@ let generate_table ~module_name (table : Schema_ir.table) =
           ; descriptor
           ; "\n  let "
           ; name
-          ; " reference = Expr.column reference "
+          ; " table_ref = Typed_sql_codegen.Expr.column table_ref "
           ; name
           ; "_column"
           ; "\n  let "
@@ -293,7 +325,8 @@ let generate_table ~module_name (table : Schema_ir.table) =
     in
     let bindings =
       List.map columns ~f:(fun (_, name, _, _) ->
-        "    and " ^ name ^ " = Projection.expr (" ^ name ^ " reference)")
+        "    and " ^ name ^ " = Typed_sql_codegen.Projection.expr (" ^ name
+        ^ " table_ref)")
       |> String.concat ~sep:"\n"
     in
     let record =
@@ -308,7 +341,7 @@ let generate_table ~module_name (table : Schema_ir.table) =
          ; "  type row\n\n  type t =\n    { "
          ; String.chop_prefix_exn fields ~prefix:"    ; "
          ; "\n    }\n\n"
-         ; "  let table : row Table.t = "
+         ; "  let table : row Typed_sql_codegen.Table.t = "
          ; table_expression
          ; "\n"
          ; descriptors
@@ -316,8 +349,8 @@ let generate_table ~module_name (table : Schema_ir.table) =
          ; metadata "foreign_keys" foreign_keys
          ; metadata "unique_constraints" unique_constraints
          ; "\n"
-         ; "  let projection reference =\n"
-         ; "    let open Projection.Let_syntax in\n"
+         ; "  let projection table_ref =\n"
+         ; "    let open Typed_sql_codegen.Projection.Let_syntax in\n"
          ; bindings
          ; " in\n    { "
          ; record
@@ -332,5 +365,6 @@ let generate schema =
        (allocate_module_names (Schema_ir.tables schema))
        ~f:(fun (table, module_name) -> generate_table ~module_name table))
   |> Result.map ~f:(fun modules ->
-    "open! Base\nopen Typed_sql\n\n" ^ String.concat modules ~sep:"\n")
+    "open! Base\nmodule Typed_sql_codegen = Typed_sql\nmodule Typed_sql_codegen_ptime = Ptime\n\n"
+    ^ String.concat modules ~sep:"\n")
 ;;

@@ -27,6 +27,7 @@ type t =
   | Aggregate_not_allowed of string
   | Nested_aggregate
   | Ungrouped_expression
+  | Scalar_subquery_may_return_many_rows
 
 let to_string = function
   | Empty_projection -> "SELECT projection must contain at least one expression"
@@ -69,6 +70,8 @@ let to_string = function
   | Aggregate_not_allowed clause -> "aggregate expressions are not allowed in " ^ clause
   | Nested_aggregate -> "aggregate expressions cannot be nested"
   | Ungrouped_expression -> "non-aggregate expression must be present in GROUP BY"
+  | Scalar_subquery_may_return_many_rows ->
+    "scalar subquery requires LIMIT 0/1 or a local aggregate without GROUP BY"
 ;;
 
 let pp formatter error = Stdlib.Format.pp_print_string formatter (to_string error)

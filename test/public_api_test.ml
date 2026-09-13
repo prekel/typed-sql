@@ -484,7 +484,11 @@ let%test_unit "schema IR preserves metadata and generates public descriptors" =
   assert (String.is_substring generated ~substring:"let unique_constraints");
   assert (String.is_substring generated ~substring:"module Generated_123_order = struct");
   assert (String.is_substring generated ~substring:"type__column");
-  assert (String.is_prefix generated ~prefix:"open! Base\nopen Typed_sql\n");
+  assert (
+    String.is_prefix
+      generated
+      ~prefix:
+        "open! Base\nmodule Typed_sql_codegen = Typed_sql\nmodule Typed_sql_codegen_ptime = Ptime\n");
   assert (String.is_substring generated ~substring:"module User_profile = struct");
   assert (String.is_substring generated ~substring:"module User_profile_2 = struct");
   assert (String.is_substring generated ~substring:"module User_profile_3 = struct");
@@ -492,6 +496,19 @@ let%test_unit "schema IR preserves metadata and generates public descriptors" =
   assert (String.is_substring generated ~substring:"display_name_2_column");
   assert (String.is_substring generated ~substring:"display_name_3_column");
   assert (String.is_substring generated ~substring:"table_2_column");
+  let underscore =
+    Schema_ir.table
+      ~name:(identifier "items")
+      ~columns:
+        [ Schema_ir.column ~name:(identifier "_") ~db_type:Text ~nullable:false () ]
+      ()
+  in
+  let generated_underscore =
+    Schema_codegen.generate (Schema_ir.v [ underscore ])
+    |> Result.map_error ~f:Schema_codegen.error_to_string
+    |> Result.ok_or_failwith
+  in
+  assert (String.is_substring generated_underscore ~substring:"field_column");
   Parse.implementation (Lexing.from_string generated) |> ignore;
   let empty_table = Schema_ir.table ~name:(identifier "empty") ~columns:[] () in
   (match Schema_codegen.generate (Schema_ir.v [ empty_table ]) with

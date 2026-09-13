@@ -21,6 +21,11 @@ let schema =
           ; column "published-on" Schema_ir.Date
           ; column "created-at" Schema_ir.Timestamp
           ; column "external-id" Schema_ir.Uuid
+          ; column "reference" Schema_ir.Text
+          ; column "return" Schema_ir.Text
+          ; column "land" Schema_ir.Text
+          ; column "_" Schema_ir.Text
+          ; column "map" Schema_ir.Text
           ]
         ()
     ; Schema_ir.table
@@ -29,6 +34,14 @@ let schema =
         ()
     ; Schema_ir.table
         ~name:(identifier "USER PROFILE")
+        ~columns:[ column "id" Schema_ir.Int64 ]
+        ()
+    ; Schema_ir.table
+        ~name:(identifier "table")
+        ~columns:[ column "id" Schema_ir.Int64 ]
+        ()
+    ; Schema_ir.table
+        ~name:(identifier "typed_sql_codegen")
         ~columns:[ column "id" Schema_ir.Int64 ]
         ()
     ]

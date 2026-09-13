@@ -165,6 +165,12 @@ let count_distinct expression =
 
 let scalar_subquery query =
   { node = Ast.Scalar_subquery (Scalar_query.ast query)
+  ; db_type = Db_type.option (Scalar_query.db_type query)
+  }
+;;
+
+let scalar_subquery_nullable query =
+  { node = Ast.Scalar_subquery (Scalar_query.ast query)
   ; db_type = Scalar_query.db_type query
   }
 ;;

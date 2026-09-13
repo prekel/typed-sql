@@ -69,7 +69,8 @@ val execute
   -> (Typed_sql.Affected_rows.t, error) Result.t Lwt.t
 
 (** Run [f] inside one transaction on [conn]. [Ok] commits and [Error] rolls
-    back. An exception also rolls back and is re-raised after cleanup. *)
+    back. A failed commit is also followed by rollback before its error is
+    returned. An exception rolls back and is re-raised after cleanup. *)
 val transaction
   :  conn:Caqti_lwt.connection
   -> f:(Caqti_lwt.connection -> ('a, error) Result.t Lwt.t)

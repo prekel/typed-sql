@@ -285,3 +285,163 @@ let%test_unit "internal helper boundary cases remain total" =
   | Error (Compile_error.Empty_assignments `Insert) -> ()
   | _ -> failwith "empty private INSERT was accepted"
 ;;
+
+let%test_unit
+    "lowering capability traversal and scalar aggregate proof cover private cases"
+  =
+  let parameter = A.Param (Db_type.Value (Db_type.int, 1)) in
+  let local_aggregate = A.Aggregate (A.Count (column 0)) in
+  let nested_select = { select with having = Some A.True } in
+  let expression =
+    A.Case
+      ( [ ( A.Compare (A.Eq, column 0, parameter)
+          , A.Arithmetic (A.Add, A.String_function (A.Length, column 0), parameter) )
+        ]
+      , A.Concat (A.Aggregate (A.Count_distinct (column 0)), A.Scalar_subquery select) )
+  in
+  let condition =
+    A.And
+      [ A.Is_null expression
+      ; A.Is_not_null expression
+      ; A.In (expression, [ parameter ])
+      ; A.Not_in (expression, [ parameter ])
+      ; A.Between (expression, parameter, column 0)
+      ; A.Exists select
+      ; A.Not_exists select
+      ; A.In_subquery (expression, select)
+      ; A.Not_in_subquery (expression, select)
+      ; A.Or [ A.False ]
+      ; A.Not A.False
+      ]
+  in
+  let join = { A.kind = A.Inner; source = source 1; on = condition } in
+  let complete =
+    { select with
+      joins = [ join ]
+    ; projection = [ expression ]
+    ; where_ = Some condition
+    ; group_by = [ expression ]
+    ; having = Some condition
+    ; order_by = [ { A.expr = expression; direction = A.Asc } ]
+    }
+  in
+  assert (not (Lower.select_has_unsupported_having ~dialect:Dialect.Sqlite complete));
+  assert (
+    Lower.expression_has_unsupported_having
+      ~dialect:Dialect.Sqlite
+      (A.Scalar_subquery nested_select));
+  let bad_expression = A.Scalar_subquery nested_select in
+  assert (
+    Lower.expression_has_unsupported_having
+      ~dialect:Dialect.Sqlite
+      (A.Arithmetic (A.Add, bad_expression, column 0)));
+  assert (
+    Lower.expression_has_unsupported_having
+      ~dialect:Dialect.Sqlite
+      (A.Case ([ A.True, column 0 ], bad_expression)));
+  assert (
+    Lower.expression_has_unsupported_having
+      ~dialect:Dialect.Sqlite
+      (A.Case ([ A.Exists nested_select, column 0 ], column 0)));
+  assert (
+    Lower.condition_has_unsupported_having
+      ~dialect:Dialect.Sqlite
+      (A.Exists nested_select));
+  assert (
+    Lower.condition_has_unsupported_having
+      ~dialect:Dialect.Sqlite
+      (A.Compare (A.Eq, bad_expression, column 0)));
+  assert (
+    Lower.condition_has_unsupported_having
+      ~dialect:Dialect.Sqlite
+      (A.In (bad_expression, [ column 0 ])));
+  assert (
+    Lower.condition_has_unsupported_having
+      ~dialect:Dialect.Sqlite
+      (A.In_subquery (parameter, nested_select)));
+  assert (
+    Lower.condition_has_unsupported_having
+      ~dialect:Dialect.Sqlite
+      (A.In_subquery (bad_expression, select)));
+  assert (
+    Lower.select_has_unsupported_having
+      ~dialect:Dialect.Sqlite
+      { select with projection = [ bad_expression ]; group_by = [ column 0 ] });
+  assert (
+    Lower.select_has_unsupported_having
+      ~dialect:Dialect.Sqlite
+      { select with
+        joins = [ { A.kind = A.Inner; source = source 1; on = A.Exists nested_select } ]
+      ; projection = []
+      });
+  assert (
+    Lower.select_has_unsupported_having
+      ~dialect:Dialect.Sqlite
+      { select with projection = []; where_ = Some (A.Exists nested_select) });
+  assert (
+    Lower.select_has_unsupported_having
+      ~dialect:Dialect.Sqlite
+      { select with projection = []; group_by = [ bad_expression ] });
+  assert (
+    Lower.select_has_unsupported_having
+      ~dialect:Dialect.Sqlite
+      { select with
+        projection = []
+      ; group_by = [ column 0 ]
+      ; having = Some (A.Exists nested_select)
+      });
+  let bad_assignment = { assignment with A.value = A.Expression bad_expression } in
+  assert (Lower.assignment_has_unsupported_having ~dialect:Dialect.Sqlite bad_assignment);
+  assert (
+    not
+      (Lower.assignment_has_unsupported_having
+         ~dialect:Dialect.Sqlite
+         { assignment with A.value = A.Default }));
+  assert (
+    Lower.command_has_unsupported_having
+      ~dialect:Dialect.Sqlite
+      (command A.Insert [ bad_assignment ]));
+  assert (
+    Lower.command_has_unsupported_having
+      ~dialect:Dialect.Sqlite
+      (command A.Update [ bad_assignment ]));
+  assert (
+    Lower.command_has_unsupported_having
+      ~dialect:Dialect.Sqlite
+      { (command A.Update [ assignment ]) with where_ = Some (A.Exists nested_select) });
+  (match Lower.command ~dialect:Dialect.Sqlite (command A.Update [ bad_assignment ]) with
+   | Error (Compile_error.Unsupported_operation { dialect = Dialect.Sqlite; _ }) -> ()
+   | _ -> failwith "UPDATE did not reject a nested unsupported HAVING");
+  (match
+     Lower.result_query
+       ~dialect:Dialect.Sqlite
+       (A.Returning
+          { command = command A.Insert [ assignment ]; projection = [ bad_expression ] })
+   with
+   | Error (Compile_error.Unsupported_operation { dialect = Dialect.Sqlite; _ }) -> ()
+   | _ -> failwith "RETURNING did not reject a nested unsupported HAVING");
+  assert (
+    not (Lower.select_has_unsupported_having ~dialect:Dialect.Postgresql nested_select));
+  assert (Aggregate_scope.at_most_one { select with limit = Some 0 });
+  assert (Aggregate_scope.at_most_one { select with limit = Some 1 });
+  assert (not (Aggregate_scope.at_most_one { select with limit = Some 2 }));
+  assert (
+    Aggregate_scope.at_most_one { select with projection = [ A.Aggregate A.Count_all ] });
+  assert (Aggregate_scope.at_most_one { select with projection = [ local_aggregate ] });
+  assert (
+    Aggregate_scope.at_most_one
+      { select with
+        joins = [ { A.kind = A.Inner; source = source 1; on = A.True } ]
+      ; projection = [ A.Aggregate (A.Count_distinct (column 1)) ]
+      });
+  assert (
+    not
+      (Aggregate_scope.at_most_one
+         { select with projection = [ A.Aggregate (A.Count (column 1)) ] }));
+  assert (
+    Aggregate_scope.at_most_one
+      { select with projection = [ A.Aggregate (A.Count parameter) ] });
+  assert (
+    Aggregate_scope.at_most_one
+      { select with projection = [ A.Aggregate (A.Count_distinct parameter) ] })
+;;

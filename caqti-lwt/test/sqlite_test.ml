@@ -97,6 +97,14 @@ module Event = struct
   let occurred_at reference = Expr.column reference occurred_at_column
 end
 
+module Deferred_child = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "deferred_children"
+  let id_column = Column.v_exn table "id" Db_type.int64
+  let id reference = Expr.column reference id_column
+end
+
 module Calendar_day = struct
   type row
 
@@ -293,6 +301,35 @@ let run conn =
       ()
     |> caqti_or_fail
   in
+  let* () = Connection.exec (direct "PRAGMA foreign_keys = ON") () |> caqti_or_fail in
+  let* () =
+    Connection.exec (direct "CREATE TABLE deferred_parents (id INTEGER PRIMARY KEY)") ()
+    |> caqti_or_fail
+  in
+  let* () =
+    Connection.exec
+      (direct
+         "CREATE TABLE deferred_children (id INTEGER REFERENCES deferred_parents (id) DEFERRABLE INITIALLY DEFERRED)")
+      ()
+    |> caqti_or_fail
+  in
+  let* () =
+    Connection.exec
+      (direct "CREATE TABLE schema_implicit_parent (id INTEGER PRIMARY KEY)")
+      ()
+    |> caqti_or_fail
+  in
+  let* () =
+    Connection.exec
+      (direct
+         "CREATE TABLE schema_implicit_child (parent_id INTEGER REFERENCES schema_implicit_parent)")
+      ()
+    |> caqti_or_fail
+  in
+  let* () =
+    Connection.exec (direct "CREATE TABLE schema_nullable_pk (id INT PRIMARY KEY)") ()
+    |> caqti_or_fail
+  in
   let* () =
     Connection.exec
       (direct "INSERT INTO departments (person_id, name) VALUES (1, 'Mathematics')")
@@ -334,6 +371,48 @@ let run conn =
   let* missing = Typed_sql_caqti_lwt.fetch_opt ~conn missing >>= adapter_or_fail in
   if Option.is_some missing then
     failwith "fetch_opt unexpectedly returned a row";
+  let empty_scalar =
+    Query.(
+      from Person.table
+      |> select (fun _ ->
+        Projection.expr
+          (Expr.scalar_subquery
+             Query.(
+               from Department.table
+               |> where (fun department -> Department.person_id department =$ 99L)
+               |> limit 1
+               |> select_scalar Department.name))))
+  in
+  let* empty_scalar = Typed_sql_caqti_lwt.fetch ~conn empty_scalar >>= adapter_or_fail in
+  if not (List.for_all empty_scalar ~f:Option.is_none) then
+    failwith "an empty scalar subquery did not decode as None";
+  let nullable_scalar =
+    Query.(
+      from Person.table
+      |> limit 1
+      |> select (fun _ ->
+        Projection.expr
+          (Expr.scalar_subquery_nullable
+             Query.(
+               from Department.table
+               |> limit 1
+               |> select_scalar (fun department ->
+                 Expr.to_nullable (Department.name department))))))
+  in
+  let* nullable_scalar =
+    Typed_sql_caqti_lwt.fetch_one ~conn nullable_scalar >>= adapter_or_fail
+  in
+  if not (Option.equal String.equal nullable_scalar (Some "Mathematics")) then
+    failwith "nullable scalar subquery decoded the wrong value";
+  let empty_case =
+    Query.(
+      from Person.table
+      |> where (fun person -> Person.id person =$ 1L)
+      |> select (fun person -> Projection.expr (Expr.case [] ~else_:(Person.name person))))
+  in
+  let* empty_case = Typed_sql_caqti_lwt.fetch_one ~conn empty_case >>= adapter_or_fail in
+  if not (String.equal empty_case "Ada") then
+    failwith "empty CASE did not evaluate its else expression";
   let injection = "'; DROP TABLE people; --" in
   let injected =
     Query.(
@@ -644,6 +723,7 @@ let run conn =
             from Department.table
             |> where (fun department ->
               Department.person_id department =. Person.id person)
+            |> limit 1
             |> select_scalar Department.name)
           |> Expr.scalar_subquery
         in
@@ -655,9 +735,9 @@ let run conn =
   if
     not
       (List.equal
-         (equal_pair String.equal String.equal)
+         (equal_pair String.equal (Option.equal String.equal))
          people_with_departments
-         [ "Mathematics", "Mathematics" ])
+         [ "Mathematics", Some "Mathematics" ])
   then
     failwith "correlated subqueries returned unexpected values";
   let duplicate =
@@ -742,6 +822,24 @@ let run conn =
   in
   if not (Option.value_map present ~default:false ~f:(Int64.equal 98L)) then
     failwith "successful transaction did not commit";
+  let deferred_insert =
+    Insert.(into Deferred_child.table |> set Deferred_child.id_column 999L |> command)
+  in
+  let* deferred_commit =
+    Typed_sql_caqti_lwt.transaction ~conn ~f:(fun transaction_conn ->
+      Typed_sql_caqti_lwt.execute ~conn:transaction_conn deferred_insert
+      |> Lwt.map (Result.map ~f:(fun _ -> ())))
+  in
+  (match deferred_commit with
+   | Error (Typed_sql_caqti_lwt.Constraint_violation { kind = Foreign_key; _ }) -> ()
+   | Error error -> failwith (Typed_sql_caqti_lwt.error_to_string error)
+   | Ok () -> failwith "deferred foreign key unexpectedly committed");
+  let* reusable_after_failed_commit =
+    Typed_sql_caqti_lwt.transaction ~conn ~f:(fun _ -> Lwt.return (Ok ()))
+  in
+  (match reusable_after_failed_commit with
+   | Ok () -> ()
+   | Error error -> failwith (Typed_sql_caqti_lwt.error_to_string error));
   let timestamp =
     match Ptime.of_rfc3339 "2024-01-02T03:04:05Z" with
     | Ok (value, _, _) -> value
@@ -814,6 +912,8 @@ let run conn =
   in
   let child = find_table "schema_children" in
   let calendar_days = find_table "calendar_days" in
+  let rowid_primary_key = find_table "schema_implicit_parent" in
+  let nullable_primary_key = find_table "schema_nullable_pk" in
   (match Schema_ir.columns calendar_days with
    | [ _; calendar_date ] ->
      (match Schema_ir.column_db_type calendar_date with
@@ -842,6 +942,7 @@ let run conn =
         | Schema_ir.Int64 -> true
         | _ -> false)
        && Option.equal Int.equal (Schema_ir.column_primary_key_position id) (Some 1)
+       && (not (Schema_ir.column_nullable id))
        && Schema_ir.column_nullable nickname
        && Option.equal String.equal (Schema_ir.column_default nickname) (Some "'unknown'")
        && Schema_ir.column_generated display_name)
@@ -867,6 +968,25 @@ let run conn =
      then
        failwith "SQLite foreign-key introspection returned the wrong columns"
    | _ -> failwith "SQLite foreign-key introspection returned the wrong key count");
+  let implicit_child = find_table "schema_implicit_child" in
+  (match Schema_ir.foreign_keys implicit_child with
+   | [ foreign_key ] ->
+     if
+       not
+         (List.equal
+            String.equal
+            (List.map
+               (Schema_ir.foreign_key_referenced_columns foreign_key)
+               ~f:Identifier.to_string)
+            [ "id" ])
+     then
+       failwith "SQLite implicit foreign key did not resolve the parent primary key"
+   | _ -> failwith "SQLite implicit foreign key was not introspected");
+  (match Schema_ir.columns rowid_primary_key, Schema_ir.columns nullable_primary_key with
+   | [ id ], [ nullable_id ] ->
+     if Schema_ir.column_nullable id || not (Schema_ir.column_nullable nullable_id) then
+       failwith "SQLite primary-key nullability was inferred incorrectly"
+   | _ -> failwith "SQLite primary-key test tables returned unexpected columns");
   (match Schema_ir.unique_constraints child with
    | [ constraint_ ] ->
      if
@@ -884,6 +1004,19 @@ let run conn =
    | Ok source when not (String.is_empty source) -> ()
    | Ok _ -> failwith "schema generator returned empty source"
    | Error error -> failwith (Schema_codegen.error_to_string error));
+  let* () =
+    Connection.exec
+      (direct
+         "CREATE TABLE schema_broken_child (parent_id INTEGER REFERENCES schema_missing_parent)")
+      ()
+    |> caqti_or_fail
+  in
+  let* broken_schema = Typed_sql_caqti_lwt.Schema.introspect ~conn in
+  (match broken_schema with
+   | Error (Typed_sql_caqti_lwt.Schema message)
+     when String.is_substring message ~substring:"schema_missing_parent" -> ()
+   | Error error -> failwith (Typed_sql_caqti_lwt.error_to_string error)
+   | Ok _ -> failwith "schema with an unresolved implicit foreign key was accepted");
   Lwt.return_unit
 ;;
 
