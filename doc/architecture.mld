@@ -26,6 +26,9 @@ v}
 dialect-neutral [Schema_ir], после чего [Schema_codegen] выпускает обычный
 OCaml source с table/column descriptors и projection. Introspection и codegen
 не входят в query compiler и не добавляют зависимости ядра от connection.
+Discovery запускается отдельно, а сохранённый generated module компилируется
+при обычной сборке без обращения к базе. Коллизии нормализованных имён
+разрешаются детерминированными числовыми суффиксами.
 
 {1 Граница типов}
 

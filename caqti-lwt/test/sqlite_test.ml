@@ -97,6 +97,24 @@ module Event = struct
   let occurred_at reference = Expr.column reference occurred_at_column
 end
 
+module Calendar_day = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "calendar_days"
+  let id_column = Column.v_exn table "id" Db_type.int64
+  let date_column = Column.v_exn table "calendar_date" Db_type.date
+  let date reference = Expr.column reference date_column
+end
+
+module Resource = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "resources"
+  let id_column = Column.v_exn table "id" Db_type.int64
+  let external_id_column = Column.v_exn table "external_id" Db_type.uuid
+  let external_id reference = Expr.column reference external_id_column
+end
+
 module Codec_value = struct
   type row
 
@@ -222,6 +240,13 @@ let run conn =
   let* () =
     Connection.exec
       (direct
+         "CREATE TABLE resources (id INTEGER PRIMARY KEY, external_id UUID NOT NULL)")
+      ()
+    |> caqti_or_fail
+  in
+  let* () =
+    Connection.exec
+      (direct
          "CREATE TABLE departments (person_id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
       ()
     |> caqti_or_fail
@@ -244,6 +269,13 @@ let run conn =
     Connection.exec
       (direct
          "CREATE TABLE events (id INTEGER PRIMARY KEY, occurred_at TIMESTAMP NOT NULL)")
+      ()
+    |> caqti_or_fail
+  in
+  let* () =
+    Connection.exec
+      (direct
+         "CREATE TABLE calendar_days (id INTEGER PRIMARY KEY, calendar_date DATE NOT NULL)")
       ()
     |> caqti_or_fail
   in
@@ -749,12 +781,52 @@ let run conn =
   in
   if not (List.equal Int64.equal timestamp_ids [ 1L; 2L ]) then
     failwith "CURRENT_TIMESTAMP comparison returned unexpected rows";
+  let calendar_date = Date.of_ymd_exn ~year:2026 ~month:9 ~day:12 in
+  let date_insert =
+    Insert.(
+      into Calendar_day.table
+      |> set Calendar_day.id_column 1L
+      |> set Calendar_day.date_column calendar_date
+      |> returning (fun day -> Projection.expr (Calendar_day.date day)))
+  in
+  let* decoded_date =
+    Typed_sql_caqti_lwt.fetch_one ~conn date_insert >>= adapter_or_fail
+  in
+  if not (Date.equal calendar_date decoded_date) then
+    failwith "date codec changed a bound value";
+  let uuid = Uuid.of_string_exn "550e8400-e29b-41d4-a716-446655440000" in
+  let uuid_insert =
+    Insert.(
+      into Resource.table
+      |> set Resource.id_column 1L
+      |> set Resource.external_id_column uuid
+      |> returning (fun resource -> Projection.expr (Resource.external_id resource)))
+  in
+  let* decoded_uuid =
+    Typed_sql_caqti_lwt.fetch_one ~conn uuid_insert >>= adapter_or_fail
+  in
+  if not (Uuid.equal uuid decoded_uuid) then
+    failwith "UUID codec changed a bound value";
   let* schema = Typed_sql_caqti_lwt.Schema.introspect ~conn >>= adapter_or_fail in
   let find_table name =
     List.find_exn (Schema_ir.tables schema) ~f:(fun table ->
       String.equal (Identifier.to_string (Schema_ir.table_name table)) name)
   in
   let child = find_table "schema_children" in
+  let calendar_days = find_table "calendar_days" in
+  (match Schema_ir.columns calendar_days with
+   | [ _; calendar_date ] ->
+     (match Schema_ir.column_db_type calendar_date with
+      | Date -> ()
+      | _ -> failwith "SQLite DATE introspection returned the wrong type")
+   | _ -> failwith "SQLite DATE introspection returned the wrong columns");
+  let resources = find_table "resources" in
+  (match Schema_ir.columns resources with
+   | [ _; external_id ] ->
+     (match Schema_ir.column_db_type external_id with
+      | Uuid -> ()
+      | _ -> failwith "SQLite UUID introspection returned the wrong type")
+   | _ -> failwith "SQLite UUID introspection returned the wrong columns");
   if Option.is_some (Schema_ir.table_schema child) then
     failwith "SQLite introspection returned a schema qualifier";
   let find_column name =

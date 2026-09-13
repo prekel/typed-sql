@@ -59,6 +59,8 @@ let%test_unit "identifier validation and descriptor accessors" =
     ; Db_type.name Db_type.int64, "int64"
     ; Db_type.name Db_type.float, "float"
     ; Db_type.name Db_type.bytes, "bytes"
+    ; Db_type.name Db_type.date, "date"
+    ; Db_type.name Db_type.uuid, "uuid"
     ]
     ~f:(fun (actual, expected) -> assert (String.equal actual expected))
 ;;
@@ -83,6 +85,31 @@ let%test_unit "all public database types participate in query shapes" =
   check Db_type.float 1.5;
   check Db_type.text "value";
   check Db_type.bytes (Bytes.of_string "value");
+  let date = Date.of_ymd_exn ~year:2026 ~month:9 ~day:12 in
+  assert (Date.equal date (Date.of_ptime (Date.to_ptime date)));
+  assert (String.equal (Date.to_string date) "2026-09-12");
+  assert (Option.equal Date.equal (Date.of_string "2026-09-12") (Some date));
+  assert (Option.is_none (Date.of_string "2026-02-29"));
+  assert (Option.is_none (Date.of_string "12-09-2026"));
+  (match Date.of_ymd_exn ~year:2026 ~month:2 ~day:29 with
+   | exception Stdlib.Invalid_argument _ -> ()
+   | _ -> failwith "invalid calendar date accepted");
+  let year, month, day = Date.to_ymd date in
+  assert (Int.(year = 2026 && month = 9 && day = 12));
+  check Db_type.date date;
+  let uuid = Uuid.of_string_exn "550E8400-E29B-41D4-A716-446655440000" in
+  assert (String.equal (Uuid.to_string uuid) "550e8400-e29b-41d4-a716-446655440000");
+  assert (
+    Option.equal
+      Uuid.equal
+      (Uuid.of_string "550e8400-e29b-41d4-a716-446655440000")
+      (Some uuid));
+  assert (Option.is_none (Uuid.of_string "not-a-uuid"));
+  assert (Option.is_none (Uuid.of_string "550g8400-e29b-41d4-a716-446655440000"));
+  (match Uuid.of_string_exn "not-a-uuid" with
+   | exception Stdlib.Invalid_argument _ -> ()
+   | _ -> failwith "invalid UUID accepted");
+  check Db_type.uuid uuid;
   check (Db_type.option Db_type.text) None;
   check
     (Db_type.map
@@ -403,11 +430,47 @@ let%test_unit "schema IR preserves metadata and generates public descriptors" =
         ; Schema_ir.column ~name:(identifier "count") ~db_type:Int ~nullable:false ()
         ; Schema_ir.column ~name:(identifier "ratio") ~db_type:Float ~nullable:false ()
         ; Schema_ir.column ~name:(identifier "payload") ~db_type:Bytes ~nullable:false ()
+        ; Schema_ir.column
+            ~name:(identifier "published_on")
+            ~db_type:Date
+            ~nullable:false
+            ()
+        ; Schema_ir.column ~name:(identifier "uuid") ~db_type:Uuid ~nullable:false ()
         ]
       ()
   in
+  let collision_column name =
+    Schema_ir.column ~name:(identifier name) ~db_type:Text ~nullable:false ()
+  in
+  let colliding_table =
+    Schema_ir.table
+      ~name:(identifier "user-profile")
+      ~columns:
+        [ collision_column "id"
+        ; collision_column "id-column"
+        ; collision_column "display-name"
+        ; collision_column "display_name"
+        ; collision_column "display.name"
+        ; collision_column "table"
+        ]
+      ()
+  in
+  let colliding_module =
+    Schema_ir.table
+      ~name:(identifier "user_profile")
+      ~columns:[ collision_column "id" ]
+      ()
+  in
+  let third_colliding_module =
+    Schema_ir.table
+      ~name:(identifier "USER PROFILE")
+      ~columns:[ collision_column "id" ]
+      ()
+  in
   let generated =
-    Schema_codegen.generate (Schema_ir.v [ table; all_types ])
+    Schema_codegen.generate
+      (Schema_ir.v
+         [ table; all_types; colliding_table; colliding_module; third_colliding_module ])
     |> Result.map_error ~f:Schema_codegen.error_to_string
     |> Result.ok_or_failwith
   in
@@ -421,6 +484,14 @@ let%test_unit "schema IR preserves metadata and generates public descriptors" =
   assert (String.is_substring generated ~substring:"let unique_constraints");
   assert (String.is_substring generated ~substring:"module Generated_123_order = struct");
   assert (String.is_substring generated ~substring:"type__column");
+  assert (String.is_prefix generated ~prefix:"open! Base\nopen Typed_sql\n");
+  assert (String.is_substring generated ~substring:"module User_profile = struct");
+  assert (String.is_substring generated ~substring:"module User_profile_2 = struct");
+  assert (String.is_substring generated ~substring:"module User_profile_3 = struct");
+  assert (String.is_substring generated ~substring:"id_column_2_column");
+  assert (String.is_substring generated ~substring:"display_name_2_column");
+  assert (String.is_substring generated ~substring:"display_name_3_column");
+  assert (String.is_substring generated ~substring:"table_2_column");
   Parse.implementation (Lexing.from_string generated) |> ignore;
   let empty_table = Schema_ir.table ~name:(identifier "empty") ~columns:[] () in
   (match Schema_codegen.generate (Schema_ir.v [ empty_table ]) with

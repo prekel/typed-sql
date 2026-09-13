@@ -10,6 +10,10 @@
   aggregate validation.
 - Correlated `EXISTS`, scalar subqueries и `IN (subquery)`.
 - Timestamp with time zone через `Ptime.t` и `CURRENT_TIMESTAMP`.
+- Отдельный SQL `DATE` через абстрактный `Date.t`, включая Caqti/PG'OCaml
+  codecs, schema introspection и codegen.
+- Валидируемый `Uuid.t` и нативный UUID codec для core, Caqti, PG'OCaml,
+  introspection и codegen.
 - Multi-row `INSERT`, SQL `DEFAULT`, `UPDATE ... FROM`, условные assignments
   и portable `Insert.on_conflict_do_nothing` для PostgreSQL/SQLite.
 - Transaction helpers и portable constraint classification в Caqti и PG'OCaml
@@ -17,10 +21,14 @@
 - Явная ошибка `Codec of string` для отказов mapped codec на encode и decode.
 - Dialect-neutral `Schema_ir`, PostgreSQL/SQLite introspection через Caqti и
   generator OCaml table/column/projection descriptors с relational metadata.
+- Сгенерированный schema source теперь компилируется downstream-тестом;
+  коллизии нормализованных имён разрешаются стабильными числовыми суффиксами.
 - Отдельные `make coverage` для публичного API и `make coverage-all` для
-  полного набора ядра. Текущие результаты — 98,25% и 100,00% соответственно.
+  полного набора ядра. Текущие результаты — 98,35% и 100,00% соответственно.
 - PostgreSQL/SQLite golden tests, compile-fail fixtures и расширенный SQLite
   `:memory:` integration test для новых SQL-возможностей.
+- Compiler benchmark теперь отдельно измеряет маленькие запросы и shapes с
+  20/100 условиями `WHERE` или выражениями `ORDER BY`.
 - Полная odoc-документация интерфейсов приложения, backend-контракта и
   Caqti/PG'OCaml execution adapters.
 - Адаптер `typed-sql-pgocaml-lwt`, собираемый без подключения к PostgreSQL.

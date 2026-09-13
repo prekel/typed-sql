@@ -83,6 +83,11 @@ let protect ~context f =
   | error -> Error (context ^ ": " ^ Exn.to_string error)
 ;;
 
+let date_to_string value =
+  let year, month, day = Ptime.to_date value in
+  Stdlib.Printf.sprintf "%04d-%02d-%02d" year month day
+;;
+
 let error_of_exn = function
   | Pgocaml.PostgreSQL_Error (message, fields) as exn ->
     let kind =
@@ -113,7 +118,9 @@ let rec encode
   | Float -> Ok (Some (Pgocaml.string_of_float value))
   | Text -> Ok (Some (Pgocaml.string_of_string value))
   | Bytes -> Ok (Some (Pgocaml.string_of_bytea (Bytes.to_string value)))
+  | Date -> Ok (Some (date_to_string value))
   | Timestamp -> Ok (Some (Ptime.to_rfc3339 value))
+  | Uuid -> Ok (Some (Pgocaml.string_of_uuid value))
   | Option db_type ->
     (match value with
      | None -> Ok None
@@ -131,7 +138,7 @@ let rec decode
   match Typed_sql_backend.Db_type.view db_type, field with
   | Option _, None -> Ok None
   | Option db_type, Some value -> Result.map (decode db_type (Some value)) ~f:Option.some
-  | (Bool | Int | Int64 | Float | Text | Bytes | Timestamp | Map _), None ->
+  | (Bool | Int | Int64 | Float | Text | Bytes | Date | Timestamp | Uuid | Map _), None ->
     Error ("unexpected NULL for " ^ Typed_sql_backend.Db_type.name db_type)
   | Bool, Some value -> protect ~context:"bool" (fun () -> Pgocaml.bool_of_string value)
   | Int, Some value -> protect ~context:"int" (fun () -> Pgocaml.int_of_string value)
@@ -142,10 +149,18 @@ let rec decode
   | Text, Some value -> Ok value
   | Bytes, Some value ->
     protect ~context:"bytes" (fun () -> Pgocaml.bytea_of_string value |> Bytes.of_string)
+  | Date, Some value ->
+    (match Typed_sql.Date.of_string value with
+     | Some value -> Ok (Typed_sql.Date.to_ptime value)
+     | None -> Error ("date: invalid ISO 8601 value " ^ value))
   | Timestamp, Some value ->
     (match Ptime.of_rfc3339 value with
      | Ok (value, _, _) -> Ok value
      | Error _ -> Error ("timestamp: invalid RFC 3339 value " ^ value))
+  | Uuid, Some value ->
+    (match Typed_sql.Uuid.of_string (Pgocaml.uuid_of_string value) with
+     | Some uuid -> Ok (Typed_sql.Uuid.to_string uuid)
+     | None -> Error ("uuid: invalid value " ^ value))
   | Map { repr; decode = map; _ }, Some value ->
     let open Result.Let_syntax in
     let%bind value = decode repr (Some value) in
@@ -162,7 +177,9 @@ let rec oid : type a. a Typed_sql_backend.Db_type.t -> Pgocaml.oid =
     | Int -> 23
     | Text -> 25
     | Float -> 701
+    | Date -> 1082
     | Timestamp -> 1184
+    | Uuid -> 2950
     | Option db_type -> Int32.to_int_exn (oid db_type)
     | Map { repr; _ } -> Int32.to_int_exn (oid repr)
   in

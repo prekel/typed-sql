@@ -31,7 +31,8 @@ constructors, codec views, packed parameters, renderer helpers и decoder IR.
 - `CASE`, `LOWER`, `UPPER`, `LENGTH` и string concatenation;
 - `COUNT(*)`, `COUNT`, `COUNT DISTINCT`, `GROUP BY` и `HAVING`;
 - correlated `EXISTS`/`NOT EXISTS`, scalar query и `IN (subquery)`;
-- `Ptime.t` как timestamp with time zone и `CURRENT_TIMESTAMP`.
+- `Ptime.t` как timestamp with time zone, отдельный `Date.t` для SQL `DATE` и
+  `CURRENT_TIMESTAMP`.
 
 Aggregate validator запрещает aggregates в `WHERE`, `JOIN ON` и `GROUP BY`,
 nested aggregates и non-grouped expressions. Точное составное выражение из
@@ -75,6 +76,10 @@ flags, позиции composite PK, FK с referenced schema и ordered columns, 
 named UNIQUE constraints. Неизвестный тип сохраняется как `Unsupported`, чтобы
 generator не угадывал потенциально неверный codec.
 
+SQL `DATE` отделён от timestamp на уровне типов, adapters и introspection;
+SQLite `DATE` больше не отображается на неточный timestamp codec. UUID также
+имеет отдельный валидируемый тип, native adapter codec и codegen mapping.
+
 `Typed_sql_caqti_lwt.Schema.introspect` читает:
 
 - SQLite metadata через `sqlite_schema`, `pragma_table_xinfo`,
@@ -88,7 +93,10 @@ SQLite introspection проверена исполнением. PostgreSQL intro
 `Schema_codegen.generate` создаёт OCaml modules с row record, table и column
 descriptors, accessors, applicative projection и metadata для defaults,
 generated columns, PK, FK и UNIQUE. Выход parser-check'ится тестом; пустые
-таблицы и неизвестные database types возвращаются явными ошибками.
+таблицы и неизвестные database types возвращаются явными ошибками. Отдельный
+downstream test генерирует `.ml`, компилирует его и строит запросы через
+полученные descriptors. Совпавшие после нормализации имена получают стабильные
+суффиксы `_2`, `_3` с учётом служебных bindings generator.
 
 ### Проверки и покрытие
 
@@ -101,9 +109,15 @@ generated columns, PK, FK и UNIQUE. Выход parser-check'ится тесто
   suites; порог равен 99%, отчёт находится в
   `_coverage/all/html/index.html`.
 
-Последний полный прогон перед обновлением этого документа дал 98,25% через
+Последний полный прогон перед обновлением этого документа дал 98,35% через
 публичный API и 100,00% всеми тестами ядра. Точные цифры следует обновлять после
 изменения instrumented implementation.
+
+`benchmark/query_bench.ml` измеряет построение и компиляцию маленького запроса,
+а также shapes с 20/100 условиями `WHERE` и выражениями `ORDER BY`. На текущем
+локальном прогоне маленький запрос компилировался примерно 0,001 мс, а shape со
+100 условиями — примерно 0,12 мс. Эти числа не оправдывают добавление общего
+LRU cache на данном этапе.
 
 ## Отличия от `first_plan.md`
 
@@ -173,14 +187,12 @@ idempotent inserts, count queries, correlated flags и batch loading tags чер
 
 ### 3. Расширять schema tooling по результатам реальных схем
 
-- type-check generated source как отдельный downstream module, а не только
-  parser-check;
-- определить deterministic policy для совпадающих нормализованных OCaml names;
-- добавить codecs для востребованных типов (`uuid`, decimal, date, enums), не
+- добавить codecs для востребованных типов (decimal и enums), не
   отображая их молча на неточный базовый тип;
 - решить, нужны ли typed FK descriptors и `join_fk` поверх уже доступного
   arbitrary join;
-- отделить schema discovery/codegen от будущих migrations и schema diff.
+- определить формат schema snapshot для offline codegen из миграций; discovery,
+  codegen, migrations и schema diff должны оставаться отдельными слоями.
 
 ### 4. Добавлять сложные запросы по прикладной необходимости
 
@@ -192,7 +204,8 @@ functions. PostgreSQL extensions (`ILIKE`, `DISTINCT ON`, conflict targets и
 
 ### 5. Производительность и escape hatch
 
-- измерить compile и execution overhead на больших query shapes;
+- измерить execution overhead на SQLite и PostgreSQL отдельно от уже
+  измеренного compiler overhead;
 - добавить compilation cache по normalized shape только при подтверждённом
   выигрыше, не смешивая его с prepared-statement cache adapter;
 - определить отдельный `Unsafe`/`Raw_sql` API с typed bind fragments, когда

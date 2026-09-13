@@ -38,6 +38,54 @@ module Identifier : sig
   val error_to_string : error -> string
 end
 
+(** Calendar dates without a time of day or time zone. *)
+module Date : sig
+  type t
+
+  (** Construct a valid proleptic Gregorian date. *)
+  val of_ymd : year:int -> month:int -> day:int -> t option
+
+  (** Construct a date or raise [Invalid_argument] when its components are not
+      a valid calendar date. *)
+  val of_ymd_exn : year:int -> month:int -> day:int -> t
+
+  (** Return [(year, month, day)]. *)
+  val to_ymd : t -> int * int * int
+
+  (** Parse the exact ISO 8601 form [YYYY-MM-DD]. *)
+  val of_string : string -> t option
+
+  (** Format the exact ISO 8601 form [YYYY-MM-DD]. *)
+  val to_string : t -> string
+
+  (** Convert an instant to its UTC calendar date. *)
+  val of_ptime : Ptime.t -> t
+
+  (** Convert a date to midnight UTC. *)
+  val to_ptime : t -> Ptime.t
+
+  (** Compare two calendar dates. *)
+  val equal : t -> t -> bool
+end
+
+(** Universally unique identifiers in canonical hexadecimal form. *)
+module Uuid : sig
+  type t
+
+  (** Parse a UUID written as 8-4-4-4-12 hexadecimal digits. Uppercase digits
+      are accepted and normalized to lowercase. *)
+  val of_string : string -> t option
+
+  (** Parse a UUID or raise [Invalid_argument] when the input is malformed. *)
+  val of_string_exn : string -> t
+
+  (** Return the lowercase canonical representation. *)
+  val to_string : t -> string
+
+  (** Compare two UUID values. *)
+  val equal : t -> t -> bool
+end
+
 (** Database representations and application-level codecs. *)
 module Db_type : sig
   (** A database representation for an OCaml value. It is independent from any
@@ -62,8 +110,14 @@ module Db_type : sig
   (** SQL binary data represented as mutable OCaml [bytes]. *)
   val bytes : bytes t
 
+  (** SQL date represented without a time of day or time zone. *)
+  val date : Date.t t
+
   (** SQL timestamp with time zone represented as a UTC [Ptime.t]. *)
   val timestamp : Ptime.t t
+
+  (** SQL UUID represented as a validated [Uuid.t]. *)
+  val uuid : Uuid.t t
 
   (** Make a database representation nullable. *)
   val option : 'a t -> 'a option t
@@ -94,7 +148,9 @@ module Schema_ir : sig
     | Float
     | Text
     | Bytes
+    | Date
     | Timestamp
+    | Uuid
     | Unsupported of string
 
   type column
@@ -212,9 +268,13 @@ module Schema_codegen : sig
   val error_to_string : error -> string
 
   (** Generate modules in schema order. Names are normalized to valid OCaml
-      identifiers; SQL names remain unchanged in quoted string literals. Each
-      module retains column defaults, generated and primary-key flags, foreign
-      keys, and unique constraints as ordinary metadata values. *)
+      identifiers; SQL names remain unchanged in quoted string literals.
+      Normalized names that collide with another generated binding or a
+      generator-owned binding receive deterministic [_2], [_3], ... suffixes
+      in schema order. The returned source opens [Base] and [Typed_sql] and can
+      be compiled directly as a module with [ppx_let]. Each table module
+      retains column defaults, generated and primary-key flags, foreign keys,
+      and unique constraints as ordinary metadata values. *)
   val generate : Schema_ir.t -> (string, error) Result.t
 end
 

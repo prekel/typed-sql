@@ -25,7 +25,10 @@ module Db_type : sig
     | Float : float view (** SQL floating-point value. *)
     | Text : string view (** SQL text. *)
     | Bytes : bytes view (** SQL binary data. *)
+    | Date : Ptime.t view
+    (** SQL date represented internally as a UTC midnight instant. *)
     | Timestamp : Ptime.t view (** SQL timestamp with time zone, normalized to UTC. *)
+    | Uuid : string view (** Validated SQL UUID in canonical lowercase form. *)
     | Option : 'a t -> 'a option view
     (** A nullable value whose non-null representation uses the nested codec. *)
     | Map :

@@ -26,3 +26,22 @@
  (name property_test)
  (modules property_test)
  (libraries base qcheck typed-sql))
+
+(executable
+ (name schema_codegen_fixture_generator)
+ (modules schema_codegen_fixture_generator)
+ (libraries base typed-sql))
+
+(rule
+ (target generated_schema.ml)
+ (action
+  (with-stdout-to
+   %{target}
+   (run %{exe:schema_codegen_fixture_generator.exe}))))
+
+(test
+ (name generated_schema_downstream_test)
+ (modules generated_schema generated_schema_downstream_test)
+ (libraries base typed-sql)
+ (preprocess
+  (pps ppx_let)))

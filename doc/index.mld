@@ -11,7 +11,7 @@ execution adapter.
 - отдельные scalar expressions и SQL conditions;
 - applicative projections произвольного OCaml-типа;
 - [SELECT], joins, filtering, ordering, pagination, grouping и aggregates;
-- portable lists, arithmetic, string functions, [CASE], timestamp и correlated
+- portable lists, arithmetic, string functions, [CASE], date, UUID, timestamp и correlated
   subqueries;
 - multi-row [INSERT], conflict ignore, scoped [UPDATE]/[DELETE], [UPDATE FROM]
   и [RETURNING];

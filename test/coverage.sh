@@ -20,6 +20,7 @@ targets="
 test/.typed_sql_expect_tests.inline-tests/inline-test-runner.exe
 test/property_test.exe
 caqti-lwt/test/sqlite_test.exe
+test/generated_schema_downstream_test.exe
 "
 if [ "$mode" = all ]; then
   targets="$targets
@@ -38,6 +39,7 @@ dune build --instrument-with bisect_ppx $targets
 )
 _build/default/test/property_test.exe
 _build/default/caqti-lwt/test/sqlite_test.exe
+_build/default/test/generated_schema_downstream_test.exe
 
 if [ "$mode" = all ]; then
   (

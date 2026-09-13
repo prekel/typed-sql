@@ -1,35 +1,7 @@
 (rule
  (alias runtest)
  (deps
-  delete_requires_scope.ml
-  count_result_is_int64.ml
-  expression_arithmetic_type_mismatch.ml
-  expression_case_type_mismatch.ml
-  expression_in_type_mismatch.ml
-  foreign_column.ml
-  left_join_requires_nullable_column.ml
-  mismatched_expression.ml
-  phantom_table_rows_are_distinct.ml
-  private_ast_is_not_public.ml
-  public_codec_view_is_hidden.ml
-  public_parameter_constructor_is_hidden.ml
-  public_parameters_are_hidden.ml
-  public_command_parameters_are_hidden.ml
-  public_decoder_is_hidden.ml
-  public_shape_is_hidden.ml
-  public_compiled_record_is_hidden.ml
-  public_expr_constructor_is_hidden.ml
-  public_identifier_is_abstract.ml
-  public_projection_view_is_hidden.ml
-  public_packed_type_is_hidden.ml
-  public_template_constructor_is_hidden.ml
-  run.sh
-  select_is_required.ml
-  subquery_type_mismatch.ml
-  timestamp_type_mismatch.ml
-  update_requires_scope.ml
-  update_from_wrong_column.ml
-  update_set_opt_preserves_nullability.ml
-  wrong_ordering.ml)
+  (glob_files *.ml)
+  run.sh)
  (action
   (run bash %{dep:run.sh} %{bin:ocamlfind} %{lib:typed-sql:typed_sql.cmi})))

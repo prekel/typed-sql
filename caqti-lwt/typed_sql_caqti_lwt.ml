@@ -85,9 +85,25 @@ let rec caqti_codec : type a. a Typed_sql_backend.Db_type.t -> a caqti_codec =
       ; encode = (fun value -> Ok (Stdlib.Bytes.to_string value))
       ; decode = (fun value -> Ok (Stdlib.Bytes.of_string value))
       }
+  | Date ->
+    Caqti_codec
+      { row_type = T.Row_type.pdate; encode = Result.return; decode = Result.return }
   | Timestamp ->
     Caqti_codec
       { row_type = T.Row_type.ptime; encode = Result.return; decode = Result.return }
+  | Uuid ->
+    Caqti_codec
+      { row_type =
+          T.Row_type.enum
+            ~encode:Fn.id
+            ~decode:(fun value ->
+              match Typed_sql.Uuid.of_string value with
+              | Some uuid -> Ok (Typed_sql.Uuid.to_string uuid)
+              | None -> Error ("invalid UUID: " ^ value))
+            "uuid"
+      ; encode = Result.return
+      ; decode = Result.return
+      }
   | Option db_type ->
     (match caqti_codec db_type with
      | Caqti_codec codec ->
@@ -571,8 +587,12 @@ ORDER BY tc.table_schema, tc.table_name, tc.constraint_name, kcu.ordinal_positio
       Bytes
     else if contains type_name "BOOL" then
       Bool
-    else if contains type_name "DATE" || contains type_name "TIME" then
+    else if contains type_name "TIME" then
       Timestamp
+    else if contains type_name "DATE" then
+      Date
+    else if contains type_name "UUID" then
+      Uuid
     else if contains type_name "INT" then
       Int64
     else if
@@ -596,7 +616,9 @@ ORDER BY tc.table_schema, tc.table_name, tc.constraint_name, kcu.ordinal_positio
     | "real" | "double precision" -> Float
     | "text" | "character" | "character varying" -> Text
     | "bytea" -> Bytes
+    | "date" -> Date
     | "timestamp with time zone" -> Timestamp
+    | "uuid" -> Uuid
     | unsupported -> Unsupported unsupported
   ;;
 

@@ -94,12 +94,70 @@ let identifier value =
     value
 ;;
 
-let module_name value =
+let normalized_module_name value =
   let value = identifier value in
   if Char.is_alpha value.[0] then
     String.capitalize value
   else
     "Generated" ^ value
+;;
+
+let fresh_name ~used ~bindings base =
+  let rec find suffix =
+    let candidate =
+      if Int.(suffix = 1) then
+        base
+      else
+        base ^ "_" ^ Int.to_string suffix
+    in
+    let names = bindings candidate in
+    if List.exists names ~f:(fun name -> List.mem used name ~equal:String.equal) then
+      find (suffix + 1)
+    else
+      candidate, names @ used
+  in
+  find 1
+;;
+
+let column_bindings name =
+  [ name
+  ; name ^ "_column"
+  ; name ^ "_has_default"
+  ; name ^ "_default"
+  ; name ^ "_is_generated"
+  ; name ^ "_primary_key_position"
+  ]
+;;
+
+let allocate_column_names (columns : Schema_ir.column list) =
+  let reserved = [ "table"; "projection"; "foreign_keys"; "unique_constraints" ] in
+  let rec loop used allocated = function
+    | [] -> List.rev allocated
+    | (column : Schema_ir.column) :: rest ->
+      let name, used =
+        fresh_name
+          ~used
+          ~bindings:column_bindings
+          (identifier (Identifier.to_string column.Schema_ir.name))
+      in
+      loop used ((column, name) :: allocated) rest
+  in
+  loop reserved [] columns
+;;
+
+let allocate_module_names (tables : Schema_ir.table list) =
+  let rec loop used allocated = function
+    | [] -> List.rev allocated
+    | (table : Schema_ir.table) :: rest ->
+      let name, used =
+        fresh_name
+          ~used
+          ~bindings:(fun name -> [ name ])
+          (normalized_module_name (Identifier.to_string table.Schema_ir.name))
+      in
+      loop used ((table, name) :: allocated) rest
+  in
+  loop [] [] tables
 ;;
 
 let type_source = function
@@ -109,7 +167,9 @@ let type_source = function
   | Schema_ir.Float -> Ok ("float", "Db_type.float")
   | Schema_ir.Text -> Ok ("string", "Db_type.text")
   | Schema_ir.Bytes -> Ok ("bytes", "Db_type.bytes")
+  | Schema_ir.Date -> Ok ("Date.t", "Db_type.date")
   | Schema_ir.Timestamp -> Ok ("Ptime.t", "Db_type.timestamp")
+  | Schema_ir.Uuid -> Ok ("Uuid.t", "Db_type.uuid")
   | Schema_ir.Unsupported name -> Error name
 ;;
 
@@ -126,40 +186,39 @@ let identifier_list identifiers =
   "[ " ^ String.concat ~sep:"; " (List.map identifiers ~f:quoted) ^ " ]"
 ;;
 
-let generate_table (table : Schema_ir.table) =
+let generate_table ~module_name (table : Schema_ir.table) =
   if List.is_empty table.columns then
     Error (Empty_table table.name)
   else
     let open Result.Let_syntax in
+    let named_columns = allocate_column_names table.columns in
     let%bind columns =
       Result.all
-        (List.map table.columns ~f:(fun column ->
+        (List.map named_columns ~f:(fun (column, name) ->
            type_source column.db_type
            |> Result.map_error ~f:(fun database_type ->
              Unsupported_type { table = table.name; column = column.name; database_type })
            |> Result.map ~f:(fun (ocaml_type, descriptor) ->
-             column, ocaml_type, descriptor)))
+             column, name, ocaml_type, descriptor)))
     in
-    let module_name = module_name (Identifier.to_string table.name) in
     let table_expression =
       match table.schema with
       | None -> "Table.v_exn " ^ quoted table.name
       | Some schema -> "Table.v_exn ~schema:" ^ quoted schema ^ " " ^ quoted table.name
     in
     let fields =
-      List.map columns ~f:(fun (column, ocaml_type, _) ->
+      List.map columns ~f:(fun (column, name, ocaml_type, _) ->
         let ocaml_type =
           if column.nullable then
             ocaml_type ^ " option"
           else
             ocaml_type
         in
-        "    ; " ^ identifier (Identifier.to_string column.name) ^ " : " ^ ocaml_type)
+        "    ; " ^ name ^ " : " ^ ocaml_type)
       |> String.concat ~sep:"\n"
     in
     let descriptors =
-      List.map columns ~f:(fun (column, _, descriptor) ->
-        let name = identifier (Identifier.to_string column.name) in
+      List.map columns ~f:(fun (column, name, _, descriptor) ->
         let constructor =
           if column.nullable then
             "Column.nullable_v_exn"
@@ -233,15 +292,12 @@ let generate_table (table : Schema_ir.table) =
         "  let " ^ name ^ " =\n    [ " ^ contents ^ "\n    ]\n"
     in
     let bindings =
-      List.map columns ~f:(fun (column, _, _) ->
-        let name = identifier (Identifier.to_string column.name) in
+      List.map columns ~f:(fun (_, name, _, _) ->
         "    and " ^ name ^ " = Projection.expr (" ^ name ^ " reference)")
       |> String.concat ~sep:"\n"
     in
     let record =
-      List.map columns ~f:(fun (column, _, _) ->
-        identifier (Identifier.to_string column.name))
-      |> String.concat ~sep:"; "
+      List.map columns ~f:(fun (_, name, _, _) -> name) |> String.concat ~sep:"; "
     in
     let bindings = "    let%map " ^ String.chop_prefix_exn bindings ~prefix:"    and " in
     Ok
@@ -271,6 +327,10 @@ let generate_table (table : Schema_ir.table) =
 ;;
 
 let generate schema =
-  Result.all (List.map (Schema_ir.tables schema) ~f:generate_table)
-  |> Result.map ~f:(String.concat ~sep:"\n")
+  Result.all
+    (List.map
+       (allocate_module_names (Schema_ir.tables schema))
+       ~f:(fun (table, module_name) -> generate_table ~module_name table))
+  |> Result.map ~f:(fun modules ->
+    "open! Base\nopen Typed_sql\n\n" ^ String.concat modules ~sep:"\n")
 ;;

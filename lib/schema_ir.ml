@@ -7,7 +7,9 @@ type db_type =
   | Float
   | Text
   | Bytes
+  | Date
   | Timestamp
+  | Uuid
   | Unsupported of string
 
 type column =

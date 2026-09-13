@@ -47,6 +47,22 @@ module Event = struct
   let occurred_at reference = Expr.column reference occurred_at_column
 end
 
+module Calendar_day = struct
+  type row
+
+  let table : row Table.t = Table.v_exn ~schema:"public" "calendar_days"
+  let date_column = Column.v_exn table "calendar_date" Db_type.date
+  let date reference = Expr.column reference date_column
+end
+
+module Resource = struct
+  type row
+
+  let table : row Table.t = Table.v_exn ~schema:"public" "resources"
+  let external_id_column = Column.v_exn table "external_id" Db_type.uuid
+  let external_id reference = Expr.column reference external_id_column
+end
+
 let compile_exn dialect query =
   match Compiler.compile ~dialect query with
   | Ok compiled -> compiled
@@ -646,6 +662,38 @@ let%expect_test "typed current timestamp is portable" =
   |> Compiled_command.sql
   |> Stdlib.print_endline;
   [%expect {| INSERT INTO "public"."events" ("occurred_at") VALUES (CURRENT_TIMESTAMP) |}]
+;;
+
+let%expect_test "typed calendar date is portable" =
+  let date = Date.of_ymd_exn ~year:2026 ~month:9 ~day:12 in
+  let query =
+    Query.(
+      from Calendar_day.table
+      |> where (fun day -> Calendar_day.date day =$ date)
+      |> select (fun day -> Projection.expr (Calendar_day.date day)))
+  in
+  query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
+  [%expect
+    {| SELECT t0."calendar_date" FROM "public"."calendar_days" AS t0 WHERE (t0."calendar_date" = $1) |}];
+  query |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
+  [%expect
+    {| SELECT t0."calendar_date" FROM "public"."calendar_days" AS t0 WHERE (t0."calendar_date" = ?1) |}]
+;;
+
+let%expect_test "typed UUID is portable" =
+  let uuid = Uuid.of_string_exn "550e8400-e29b-41d4-a716-446655440000" in
+  let query =
+    Query.(
+      from Resource.table
+      |> where (fun resource -> Resource.external_id resource =$ uuid)
+      |> select (fun resource -> Projection.expr (Resource.external_id resource)))
+  in
+  query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
+  [%expect
+    {| SELECT t0."external_id" FROM "public"."resources" AS t0 WHERE (t0."external_id" = $1) |}];
+  query |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
+  [%expect
+    {| SELECT t0."external_id" FROM "public"."resources" AS t0 WHERE (t0."external_id" = ?1) |}]
 ;;
 
 let%test_unit "public edge paths preserve normalized semantics" =

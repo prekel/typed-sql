@@ -1,5 +1,7 @@
 open! Base
 module Identifier = Typed_sql_private.Identifier
+module Date = Typed_sql_private.Date
+module Uuid = Typed_sql_private.Uuid
 module Db_type = Typed_sql_private.Db_type
 module Schema_ir = Typed_sql_private.Schema_ir
 module Schema_codegen = Typed_sql_private.Schema_codegen

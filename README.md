@@ -5,7 +5,8 @@
 только затем передаётся execution backend.
 
 Текущий срез поддерживает типизированные `SELECT` с joins, portable
-выражениями, aggregates, `GROUP BY`, correlated subqueries и timestamp. DML
+выражениями, aggregates, `GROUP BY`, correlated subqueries, calendar date,
+timestamp и UUID. DML
 включает multi-row `INSERT`, portable `ON CONFLICT DO NOTHING`, scoped
 `UPDATE`/`DELETE`, `DEFAULT`, `UPDATE FROM`, условные assignments и `RETURNING`.
 Пакет `typed-sql-caqti-lwt` выполняет запросы через Caqti для PostgreSQL и
@@ -95,6 +96,12 @@ Typed_sql_caqti_lwt.Schema.introspect ~conn
 |> Lwt.map (Result.bind ~f:Schema_codegen.generate)
 ```
 
+Introspection запускается отдельной командой при изменении миграций или схемы,
+а полученный `.ml` рекомендуется хранить в репозитории. Обычная сборка затем
+компилирует этот файл и не подключается к базе. Generator добавляет необходимые
+`open`, а совпавшие после нормализации OCaml-имена получают стабильные суффиксы
+`_2`, `_3` в порядке schema IR.
+
 Неизвестные database types сохраняются как `Schema_ir.Unsupported`, и generator
 возвращает ошибку вместо выбора неточного codec.
 
@@ -123,6 +130,13 @@ make check
 make release-check
 make coverage
 make coverage-all
+```
+
+Benchmark compiler для маленького запроса и shapes с 20/100 условиями или
+сортировками запускается отдельно:
+
+```sh
+opam exec -- dune exec benchmark/query_bench.exe
 ```
 
 SQLite integration tests используют `sqlite3::memory:`. PostgreSQL compiler,
