@@ -89,18 +89,45 @@ Typed_sql_caqti_lwt.transaction ~conn ~f:(fun conn ->
   |> Lwt.map (Result.map ~f:(fun _ -> ())))
 ```
 
-Для codegen descriptors Caqti adapter строит dialect-neutral schema IR:
+При изменении схемы Caqti adapter получает metadata, которую можно сохранить
+как JSON snapshot:
 
 ```ocaml
 Typed_sql_caqti_lwt.Schema.introspect ~conn
-|> Lwt.map (Result.bind ~f:Schema_codegen.generate)
+|> Lwt.map
+     (Result.map ~f:(fun schema ->
+        Stdlib.Out_channel.with_open_bin "schema.json" (fun channel ->
+          Stdlib.output_string channel (Schema_snapshot.to_string schema))))
 ```
 
-Introspection запускается отдельной командой при изменении миграций или схемы,
-а полученный `.ml` рекомендуется хранить в репозитории. Обычная сборка затем
-компилирует этот файл и не подключается к базе. Generator добавляет необходимые
+Snapshot хранится в репозитории. Установленный вместе с `typed-sql` CLI читает
+его без подключения к базе и выводит OCaml source:
+
+```sh
+typed-sql-codegen schema.json > schema.ml
+typed-sql-codegen - < schema.json > schema.ml
+```
+
+В Dune можно генерировать модуль при изменении snapshot:
+
+```lisp
+(rule
+ (target schema.ml)
+ (deps schema.json)
+ (action
+  (with-stdout-to %{target}
+   (run %{bin:typed-sql-codegen} %{dep:schema.json}))))
+```
+
+Библиотека, компилирующая `schema.ml`, должна зависеть от `base` и `typed-sql`
+и использовать `(preprocess (pps ppx_let))`. Можно также хранить готовый `.ml`
+в репозитории. Generator добавляет необходимые
 `open`, а совпавшие после нормализации OCaml-имена получают стабильные суффиксы
 `_2`, `_3` в порядке schema IR.
+
+Формат JSON и обработка ошибок описаны в
+[doc/schema_snapshot.md](doc/schema_snapshot.md). Получение схемы и применение
+миграций запускаются отдельно от обычной сборки.
 
 Неизвестные database types сохраняются как `Schema_ir.Unsupported`, и generator
 возвращает ошибку вместо выбора неточного codec.

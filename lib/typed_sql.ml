@@ -4,6 +4,7 @@ module Date = Typed_sql_private.Date
 module Uuid = Typed_sql_private.Uuid
 module Db_type = Typed_sql_private.Db_type
 module Schema_ir = Typed_sql_private.Schema_ir
+module Schema_snapshot = Typed_sql_private.Schema_snapshot
 module Schema_codegen = Typed_sql_private.Schema_codegen
 module Table = Typed_sql_private.Table
 module Column = Typed_sql_private.Column

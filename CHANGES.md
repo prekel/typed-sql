@@ -23,8 +23,10 @@
   generator OCaml table/column/projection descriptors с relational metadata.
 - Сгенерированный schema source теперь компилируется downstream-тестом;
   коллизии нормализованных имён разрешаются стабильными числовыми суффиксами.
+- `Schema_snapshot` сохраняет schema IR в JSON версии 1; `typed-sql-codegen`
+  генерирует OCaml из snapshot без БД. Добавлена зависимость от Yojson.
 - Отдельные `make coverage` для публичного API и `make coverage-all` для
-  полного набора ядра. Текущие результаты — 98,35% и 100,00% соответственно.
+  полного набора ядра. Текущие результаты — 98,52% и 100,00% соответственно.
 - PostgreSQL/SQLite golden tests, compile-fail fixtures и расширенный SQLite
   `:memory:` integration test для новых SQL-возможностей.
 - Compiler benchmark теперь отдельно измеряет маленькие запросы и shapes с

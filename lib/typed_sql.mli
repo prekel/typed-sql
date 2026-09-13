@@ -254,6 +254,27 @@ module Schema_ir : sig
   val unique_constraint_columns : unique_constraint -> Identifier.t list
 end
 
+(** Persist schema metadata for offline descriptor generation. *)
+module Schema_snapshot : sig
+  (** A malformed document or unsupported snapshot version. *)
+  type error
+
+  (** Encode version 1 JSON with a fixed field order, indentation and a final
+      newline. All schema list orders and opaque default/type strings are
+      preserved. Optional metadata is written as JSON [null]. No database or
+      filesystem access is performed. *)
+  val to_string : Schema_ir.t -> string
+
+  (** Decode one JSON document. All fields are required; duplicate and unknown
+      fields, invalid identifiers, incorrect JSON types and unsupported versions
+      are rejected. This validates the snapshot structure, not database
+      constraints or whether the generator supports its SQL types. *)
+  val of_string : string -> (Schema_ir.t, error) Result.t
+
+  (** Explain the error with a JSON field path, or [$] for a syntax error. *)
+  val error_to_string : error -> string
+end
+
 (** Generate table, column, accessor and projection descriptors as OCaml source. *)
 module Schema_codegen : sig
   type error =

@@ -98,6 +98,12 @@ downstream test генерирует `.ml`, компилирует его и с�
 полученные descriptors. Совпавшие после нормализации имена получают стабильные
 суффиксы `_2`, `_3` с учётом служебных bindings generator.
 
+`Schema_snapshot` сохраняет весь schema IR в JSON версии 1 с сохранением
+порядка и metadata. CLI `typed-sql-codegen schema.json` или
+`typed-sql-codegen -` генерирует OCaml без БД. Downstream-тест проходит весь
+путь IR → JSON → CLI → компиляция и использование generated descriptors.
+Формат описан в [schema_snapshot.md](schema_snapshot.md).
+
 ### Проверки и покрытие
 
 Тесты разделены по назначению:
@@ -109,7 +115,7 @@ downstream test генерирует `.ml`, компилирует его и с�
   suites; порог равен 99%, отчёт находится в
   `_coverage/all/html/index.html`.
 
-Последний полный прогон перед обновлением этого документа дал 98,35% через
+Последний полный прогон перед обновлением этого документа дал 98,52% через
 публичный API и 100,00% всеми тестами ядра. Точные цифры следует обновлять после
 изменения instrumented implementation.
 
@@ -191,8 +197,9 @@ idempotent inserts, count queries, correlated flags и batch loading tags чер
   отображая их молча на неточный базовый тип;
 - решить, нужны ли typed FK descriptors и `join_fk` поверх уже доступного
   arbitrary join;
-- определить формат schema snapshot для offline codegen из миграций; discovery,
-  codegen, migrations и schema diff должны оставаться отдельными слоями.
+- при появлении прикладной потребности добавить получение snapshot из
+  миграций; discovery, codegen, migrations и schema diff остаются отдельными
+  слоями. Формат snapshot и offline CLI уже реализованы.
 
 ### 4. Добавлять сложные запросы по прикладной необходимости
 

@@ -1,7 +1,7 @@
 (library
  (name typed_sql_expect_tests)
- (modules query_test public_api_test)
- (libraries base compiler-libs.common typed-sql)
+ (modules query_test public_api_test schema_snapshot_test)
+ (libraries base compiler-libs.common typed-sql yojson)
  (inline_tests)
  (preprocess
   (pps ppx_expect ppx_let)))
@@ -33,11 +33,28 @@
  (libraries base typed-sql))
 
 (rule
- (target generated_schema.ml)
+ (target schema_fixture.json)
  (action
   (with-stdout-to
    %{target}
    (run %{exe:schema_codegen_fixture_generator.exe}))))
+
+(rule
+ (target generated_schema.ml)
+ (deps schema_fixture.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run %{exe:../bin/typed_sql_codegen.exe} %{dep:schema_fixture.json}))))
+
+(rule
+ (alias runtest)
+ (deps schema_codegen_cli_test.sh schema_fixture.json generated_schema.ml)
+ (action
+  (run
+   bash
+   %{dep:schema_codegen_cli_test.sh}
+   %{exe:../bin/typed_sql_codegen.exe})))
 
 (test
  (name generated_schema_downstream_test)

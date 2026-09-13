@@ -22,6 +22,7 @@
   (ocaml (>= 5.5.1))
   base
   ptime
+  yojson
   ppx_let
   (qcheck :with-test)
   (ppx_expect :with-test)

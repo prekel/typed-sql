@@ -34,9 +34,4 @@ let schema =
     ]
 ;;
 
-let () =
-  Schema_codegen.generate schema
-  |> Result.map_error ~f:Schema_codegen.error_to_string
-  |> Result.ok_or_failwith
-  |> Stdlib.print_string
-;;
+let () = Schema_snapshot.to_string schema |> Stdlib.print_string
