@@ -984,9 +984,13 @@ module Compiled_query : sig
   (** Return the dialect used to compile the query. *)
   val dialect : 'result t -> Dialect.t
 
-  (** Render SQL with dialect-specific placeholders. Bound values remain
-      available only to execution adapters. *)
+  (** Render canonical, deterministically indented SQL with dialect-specific
+      placeholders. Execution adapters send this same representation to the
+      database. Bound values remain separate. *)
   val sql : 'result t -> string
+
+  (** Print exactly the canonical representation returned by [sql]. *)
+  val pp : Formatter.t -> 'result t -> unit
 end
 
 (** Validated and rendered statements without returned rows. *)
@@ -997,9 +1001,13 @@ module Compiled_command : sig
   (** Return the dialect used to compile the command. *)
   val dialect : t -> Dialect.t
 
-  (** Render SQL with dialect-specific placeholders. Bound values remain
-      available only to execution adapters. *)
+  (** Render canonical, deterministically indented SQL with dialect-specific
+      placeholders. Execution adapters send this same representation to the
+      database. Bound values remain separate. *)
   val sql : t -> string
+
+  (** Print exactly the canonical representation returned by [sql]. *)
+  val pp : Formatter.t -> t -> unit
 end
 
 (** Backend-independent affected-row results. *)

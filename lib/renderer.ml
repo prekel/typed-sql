@@ -6,18 +6,23 @@ type state =
   }
 
 let initial_state = { next_parameter = 0; parameters_rev = [] }
+let text value = Template.Text value
+let break flat = Template.Break flat
+let concat templates = Template.concat templates
+let nest template = Template.Nest template
+let separate templates ~by = List.intersperse templates ~sep:by |> concat
 
 let quote_identifier identifier =
   let value = Identifier.to_string identifier in
   let escaped = String.substr_replace_all value ~pattern:"\"" ~with_:"\"\"" in
-  "\"" ^ escaped ^ "\""
+  concat [ text "\""; text escaped; text "\"" ]
 ;;
 
 let render_source source =
   let table = quote_identifier source.Ast.table in
   match source.schema with
   | None -> table
-  | Some schema -> quote_identifier schema ^ "." ^ table
+  | Some schema -> concat [ quote_identifier schema; text "."; table ]
 ;;
 
 let alias_for aliases source_id = List.Assoc.find_exn aliases source_id ~equal:Int.equal
@@ -53,90 +58,87 @@ let aliases_for_select ~parent_aliases (select : Ast.select) =
     select.Ast.source :: List.map select.joins ~f:(fun (join : Ast.join) -> join.source)
   in
   let first_index = List.length parent_aliases in
-  parent_aliases
-  @ List.mapi sources ~f:(fun index source ->
-    source.source_id, "t" ^ Int.to_string (first_index + index))
+  List.append
+    parent_aliases
+    (List.mapi sources ~f:(fun index source ->
+       source.source_id, Stdlib.Format.asprintf "t%d" (first_index + index)))
 ;;
 
 let rec render_expr ~aliases expression state =
   match expression with
   | Ast.Column { source_id; name; _ } ->
     let alias = alias_for aliases source_id in
-    let prefix =
-      if String.is_empty alias then
-        ""
-      else
-        alias ^ "."
-    in
-    [ Template.Text (prefix ^ quote_identifier name) ], state
+    let column = quote_identifier name in
+    ( (if String.is_empty alias then
+         column
+       else
+         concat [ text alias; text "."; column ])
+    , state )
   | Ast.Param value ->
     let index = state.next_parameter in
-    ( [ Template.Param index ]
+    ( Template.Param index
     , { next_parameter = index + 1; parameters_rev = value :: state.parameters_rev } )
   | Ast.Arithmetic (operator, left, right) ->
     let left, state = render_expr ~aliases left state in
     let right, state = render_expr ~aliases right state in
-    ( [ Template.Text "(" ] @ left
-      @ [ Template.Text (arithmetic_sql operator) ]
-      @ right @ [ Template.Text ")" ]
-    , state )
+    concat [ text "("; left; text (arithmetic_sql operator); right; text ")" ], state
   | Ast.String_function (function_, expression) ->
     let expression, state = render_expr ~aliases expression state in
-    ( [ Template.Text (string_function_sql function_ ^ "(") ]
-      @ expression @ [ Template.Text ")" ]
-    , state )
+    concat [ text (string_function_sql function_); text "("; expression; text ")" ], state
   | Ast.Concat (left, right) ->
     let left, state = render_expr ~aliases left state in
     let right, state = render_expr ~aliases right state in
-    ( [ Template.Text "(" ] @ left @ [ Template.Text " || " ] @ right
-      @ [ Template.Text ")" ]
-    , state )
+    concat [ text "("; left; text " || "; right; text ")" ], state
   | Ast.Case (branches, else_) ->
     let branches, state = render_case_branches ~aliases branches state in
     let else_, state = render_expr ~aliases else_ state in
-    ( [ Template.Text "(CASE " ] @ branches @ [ Template.Text "ELSE " ] @ else_
-      @ [ Template.Text " END)" ]
+    ( concat
+        [ text "(CASE"
+        ; nest (concat [ break " "; branches; break " "; text "ELSE "; else_ ])
+        ; break " "
+        ; text "END)"
+        ]
     , state )
-  | Ast.Aggregate Ast.Count_all -> [ Template.Text "COUNT(*)" ], state
+  | Ast.Aggregate Ast.Count_all -> text "COUNT(*)", state
   | Ast.Aggregate (Ast.Count expression) ->
     let expression, state = render_expr ~aliases expression state in
-    [ Template.Text "COUNT(" ] @ expression @ [ Template.Text ")" ], state
+    concat [ text "COUNT("; expression; text ")" ], state
   | Ast.Aggregate (Ast.Count_distinct expression) ->
     let expression, state = render_expr ~aliases expression state in
-    [ Template.Text "COUNT(DISTINCT " ] @ expression @ [ Template.Text ")" ], state
+    concat [ text "COUNT(DISTINCT "; expression; text ")" ], state
   | Ast.Scalar_subquery select ->
     let select, state = render_select ~parent_aliases:aliases select state in
-    [ Template.Text "(" ] @ select @ [ Template.Text ")" ], state
-  | Ast.Current_timestamp -> [ Template.Text "CURRENT_TIMESTAMP" ], state
+    concat [ text "("; nest (concat [ break ""; select ]); break ""; text ")" ], state
+  | Ast.Current_timestamp -> text "CURRENT_TIMESTAMP", state
 
 and render_case_branches ~aliases branches state =
   match branches with
-  | [] -> [], state
+  | [] -> Template.Empty, state
   | (condition, expression) :: rest ->
     let condition, state = render_condition ~aliases condition state in
     let expression, state = render_expr ~aliases expression state in
-    let rest, state = render_case_branches ~aliases rest state in
-    ( [ Template.Text "WHEN " ] @ condition @ [ Template.Text " THEN " ] @ expression
-      @ [ Template.Text " " ] @ rest
-    , state )
+    let rendered_rest, state = render_case_branches ~aliases rest state in
+    let rendered_rest =
+      match rest with
+      | [] -> Template.Empty
+      | _ -> concat [ break " "; rendered_rest ]
+    in
+    concat [ text "WHEN "; condition; text " THEN "; expression; rendered_rest ], state
 
 and render_condition ~aliases condition state =
   match condition with
-  | Ast.True -> [ Template.Text "TRUE" ], state
-  | Ast.False -> [ Template.Text "FALSE" ], state
+  | Ast.True -> text "TRUE", state
+  | Ast.False -> text "FALSE", state
   | Ast.Compare (comparison, left, right) ->
     let left, state = render_expr ~aliases left state in
     let right, state = render_expr ~aliases right state in
-    ( [ Template.Text "(" ] @ left
-      @ [ Template.Text (comparison_sql comparison) ]
-      @ right @ [ Template.Text ")" ]
-    , state )
+    concat [ text "("; left; text (comparison_sql comparison); right; text ")" ], state
   | Ast.Is_null expression ->
     let expression, state = render_expr ~aliases expression state in
-    [ Template.Text "(" ] @ expression @ [ Template.Text " IS NULL)" ], state
+    concat [ text "("; expression; text " IS NULL)" ], state
   | Ast.Is_not_null expression ->
     let expression, state = render_expr ~aliases expression state in
-    [ Template.Text "(" ] @ expression @ [ Template.Text " IS NOT NULL)" ], state
+    concat [ text "("; expression; text " IS NOT NULL)" ], state
   | Ast.In (expression, values) ->
     render_membership ~aliases ~operator:" IN " expression values state
   | Ast.Not_in (expression, values) ->
@@ -145,8 +147,8 @@ and render_condition ~aliases condition state =
     let expression, state = render_expr ~aliases expression state in
     let lower, state = render_expr ~aliases lower state in
     let upper, state = render_expr ~aliases upper state in
-    ( [ Template.Text "(" ] @ expression @ [ Template.Text " BETWEEN " ] @ lower
-      @ [ Template.Text " AND " ] @ upper @ [ Template.Text ")" ]
+    ( concat
+        [ text "("; expression; text " BETWEEN "; lower; text " AND "; upper; text ")" ]
     , state )
   | Ast.Exists select -> render_exists ~aliases ~operator:"EXISTS" select state
   | Ast.Not_exists select -> render_exists ~aliases ~operator:"NOT EXISTS" select state
@@ -156,148 +158,201 @@ and render_condition ~aliases condition state =
     render_subquery_membership ~aliases ~operator:" NOT IN " expression select state
   | Ast.Not condition ->
     let condition, state = render_condition ~aliases condition state in
-    [ Template.Text "(NOT " ] @ condition @ [ Template.Text ")" ], state
-  | Ast.And conditions ->
-    render_condition_list ~aliases ~separator:" AND " conditions state
-  | Ast.Or conditions -> render_condition_list ~aliases ~separator:" OR " conditions state
+    concat [ text "(NOT "; condition; text ")" ], state
+  | Ast.And conditions -> render_condition_list ~aliases ~operator:"AND" conditions state
+  | Ast.Or conditions -> render_condition_list ~aliases ~operator:"OR" conditions state
 
-and render_condition_list ~aliases ~separator conditions state =
-  let parts, state = render_conditions ~aliases ~separator conditions state in
-  [ Template.Text "(" ] @ parts @ [ Template.Text ")" ], state
-
-and render_conditions ~aliases ~separator conditions state =
+and render_condition_list ~aliases ~operator conditions state =
   match conditions with
-  | [] -> [], state
+  | [] -> text "()", state
+  | [ condition ] ->
+    let condition, state = render_condition ~aliases condition state in
+    concat [ text "("; condition; text ")" ], state
+  | conditions ->
+    let conditions, state = render_conditions ~aliases ~operator conditions state in
+    concat [ text "("; nest (concat [ break ""; conditions ]); break ""; text ")" ], state
+
+and render_conditions ~aliases ~operator conditions state =
+  match conditions with
+  | [] -> Template.Empty, state
   | [ condition ] -> render_condition ~aliases condition state
   | condition :: rest ->
     let condition, state = render_condition ~aliases condition state in
-    let rest, state = render_conditions ~aliases ~separator rest state in
-    condition @ [ Template.Text separator ] @ rest, state
+    let rest, state = render_conditions ~aliases ~operator rest state in
+    concat [ condition; break " "; text operator; text " "; rest ], state
 
 and render_membership ~aliases ~operator expression values state =
+  let multiline = List.length values > 1 in
   let expression, state = render_expr ~aliases expression state in
-  let values, state = render_expressions ~aliases ~separator:", " values state in
-  ( [ Template.Text "(" ] @ expression
-    @ [ Template.Text operator; Template.Text "(" ]
-    @ values @ [ Template.Text "))" ]
-  , state )
+  let values, state =
+    render_expressions ~aliases ~separator:(concat [ text ","; break " " ]) values state
+  in
+  let values =
+    if multiline then
+      concat [ nest (concat [ break ""; values ]); break "" ]
+    else
+      values
+  in
+  concat [ text "("; expression; text operator; text "("; values; text "))" ], state
 
 and render_exists ~aliases ~operator select state =
   let select, state = render_select ~parent_aliases:aliases select state in
-  [ Template.Text ("(" ^ operator ^ " (") ] @ select @ [ Template.Text "))" ], state
+  ( concat
+      [ text "("
+      ; text operator
+      ; text " ("
+      ; nest (concat [ break ""; select ])
+      ; break ""
+      ; text "))"
+      ]
+  , state )
 
 and render_subquery_membership ~aliases ~operator expression select state =
   let expression, state = render_expr ~aliases expression state in
   let select, state = render_select ~parent_aliases:aliases select state in
-  ( [ Template.Text "(" ] @ expression
-    @ [ Template.Text operator; Template.Text "(" ]
-    @ select @ [ Template.Text "))" ]
+  ( concat
+      [ text "("
+      ; expression
+      ; text operator
+      ; text "("
+      ; nest (concat [ break ""; select ])
+      ; break ""
+      ; text "))"
+      ]
   , state )
 
 and render_expressions ~aliases ~separator expressions state =
   match expressions with
-  | [] -> [], state
+  | [] -> Template.Empty, state
   | [ expression ] -> render_expr ~aliases expression state
   | expression :: rest ->
     let expression, state = render_expr ~aliases expression state in
     let rest, state = render_expressions ~aliases ~separator rest state in
-    expression @ [ Template.Text separator ] @ rest, state
+    concat [ expression; separator; rest ], state
 
 and render_join ~aliases (join : Ast.join) state =
   let kind =
     match join.Ast.kind with
-    | Ast.Inner -> " INNER JOIN "
-    | Ast.Left -> " LEFT JOIN "
+    | Ast.Inner -> text "INNER JOIN "
+    | Ast.Left -> text "LEFT JOIN "
   in
   let alias = alias_for aliases join.source.source_id in
   let on, state = render_condition ~aliases join.on state in
-  ( [ Template.Text (kind ^ render_source join.source ^ " AS " ^ alias ^ " ON ") ] @ on
+  ( concat
+      [ break " "
+      ; kind
+      ; render_source join.source
+      ; text " AS "
+      ; text alias
+      ; nest (concat [ break " "; text "ON "; on ])
+      ]
   , state )
 
 and render_joins ~aliases joins state =
   match joins with
-  | [] -> [], state
+  | [] -> Template.Empty, state
   | join :: rest ->
     let join, state = render_join ~aliases join state in
     let rest, state = render_joins ~aliases rest state in
-    join @ rest, state
+    concat [ join; rest ], state
 
 and render_order_by ~aliases orders state =
   match orders with
-  | [] -> [], state
+  | [] -> Template.Empty, state
   | order :: rest ->
     let expression, state = render_expr ~aliases order.Ast.expr state in
     let direction =
       match order.direction with
-      | Ast.Asc -> " ASC"
-      | Ast.Desc -> " DESC"
+      | Ast.Asc -> text " ASC"
+      | Ast.Desc -> text " DESC"
     in
-    let current = expression @ [ Template.Text direction ] in
+    let current = concat [ expression; direction ] in
     (match rest with
      | [] -> current, state
      | _ ->
        let rest, state = render_order_by ~aliases rest state in
-       current @ [ Template.Text ", " ] @ rest, state)
+       concat [ current; text ","; break " "; rest ], state)
 
 and render_select ~parent_aliases (select : Ast.select) state =
   let aliases = aliases_for_select ~parent_aliases select in
   let projection, state =
     match select.Ast.projection with
-    | [] -> [ Template.Text "1" ], state
-    | projection -> render_expressions ~aliases ~separator:", " projection state
+    | [] -> text "1", state
+    | projection ->
+      render_expressions
+        ~aliases
+        ~separator:(concat [ text ","; break " " ])
+        projection
+        state
   in
   let root_alias = alias_for aliases select.source.source_id in
   let joins, state = render_joins ~aliases select.joins state in
+  let select_keyword =
+    if select.distinct then
+      text "SELECT DISTINCT"
+    else
+      text "SELECT"
+  in
   let parts =
-    [ Template.Text
-        (if select.distinct then
-           "SELECT DISTINCT "
-         else
-           "SELECT ")
-    ]
-    @ projection
-    @ [ Template.Text (" FROM " ^ render_source select.source ^ " AS " ^ root_alias) ]
-    @ joins
+    concat
+      [ select_keyword
+      ; nest (concat [ break " "; projection ])
+      ; break " "
+      ; text "FROM "
+      ; render_source select.source
+      ; text " AS "
+      ; text root_alias
+      ; joins
+      ]
   in
   let parts, state =
     match select.where_ with
     | None -> parts, state
     | Some condition ->
       let condition, state = render_condition ~aliases condition state in
-      parts @ [ Template.Text " WHERE " ] @ condition, state
+      ( concat [ parts; break " "; text "WHERE"; nest (concat [ break " "; condition ]) ]
+      , state )
   in
   let parts, state =
     match select.group_by with
     | [] -> parts, state
     | expressions ->
       let expressions, state =
-        render_expressions ~aliases ~separator:", " expressions state
+        render_expressions
+          ~aliases
+          ~separator:(concat [ text ","; break " " ])
+          expressions
+          state
       in
-      parts @ [ Template.Text " GROUP BY " ] @ expressions, state
+      ( concat
+          [ parts; break " "; text "GROUP BY"; nest (concat [ break " "; expressions ]) ]
+      , state )
   in
   let parts, state =
     match select.having with
     | None -> parts, state
     | Some condition ->
       let condition, state = render_condition ~aliases condition state in
-      parts @ [ Template.Text " HAVING " ] @ condition, state
+      ( concat [ parts; break " "; text "HAVING"; nest (concat [ break " "; condition ]) ]
+      , state )
   in
   let parts, state =
     match select.order_by with
     | [] -> parts, state
     | orders ->
       let orders, state = render_order_by ~aliases orders state in
-      parts @ [ Template.Text " ORDER BY " ] @ orders, state
+      ( concat [ parts; break " "; text "ORDER BY"; nest (concat [ break " "; orders ]) ]
+      , state )
   in
   let parts =
     match select.limit with
     | None -> parts
-    | Some n -> parts @ [ Template.Text (" LIMIT " ^ Int.to_string n) ]
+    | Some n -> concat [ parts; break " "; text "LIMIT "; text (Int.to_string n) ]
   in
   let parts =
     match select.offset with
     | None -> parts
-    | Some n -> parts @ [ Template.Text (" OFFSET " ^ Int.to_string n) ]
+    | Some n -> concat [ parts; break " "; text "OFFSET "; text (Int.to_string n) ]
   in
   parts, state
 ;;
@@ -305,22 +360,22 @@ and render_select ~parent_aliases (select : Ast.select) state =
 let render_assignment_value ~aliases value state =
   match value with
   | Ast.Expression expression -> render_expr ~aliases expression state
-  | Ast.Default -> [ Template.Text "DEFAULT" ], state
+  | Ast.Default -> text "DEFAULT", state
 ;;
 
 let render_assignment ~aliases assignment state =
   let value, state = render_assignment_value ~aliases assignment.Ast.value state in
-  [ Template.Text (quote_identifier assignment.column ^ " = ") ] @ value, state
+  concat [ quote_identifier assignment.column; text " = "; value ], state
 ;;
 
 let rec render_assignments ~aliases assignments state =
   match assignments with
-  | [] -> [], state
+  | [] -> Template.Empty, state
   | [ assignment ] -> render_assignment ~aliases assignment state
   | assignment :: rest ->
     let assignment, state = render_assignment ~aliases assignment state in
     let rest, state = render_assignments ~aliases rest state in
-    assignment @ [ Template.Text ", " ] @ rest, state
+    concat [ assignment; text ","; break " "; rest ], state
 ;;
 
 let render_insert_row ~aliases ~columns assignments state =
@@ -332,25 +387,25 @@ let render_insert_row ~aliases ~columns assignments state =
   in
   let rec render_values values state =
     match values with
-    | [] -> [], state
+    | [] -> Template.Empty, state
     | [ value ] -> render_assignment_value ~aliases value state
     | value :: rest ->
       let value, state = render_assignment_value ~aliases value state in
       let rest, state = render_values rest state in
-      value @ [ Template.Text ", " ] @ rest, state
+      concat [ value; text ", "; rest ], state
   in
   let values, state = render_values values state in
-  [ Template.Text "(" ] @ values @ [ Template.Text ")" ], state
+  concat [ text "("; values; text ")" ], state
 ;;
 
 let rec render_insert_rows ~aliases ~columns rows state =
   match rows with
-  | [] -> [], state
+  | [] -> Template.Empty, state
   | [ row ] -> render_insert_row ~aliases ~columns row state
   | row :: rest ->
     let row, state = render_insert_row ~aliases ~columns row state in
     let rest, state = render_insert_rows ~aliases ~columns rest state in
-    row @ [ Template.Text ", " ] @ rest, state
+    concat [ row; text ","; break " "; rest ], state
 ;;
 
 let aliases_for_command (command : Ast.command) =
@@ -358,15 +413,24 @@ let aliases_for_command (command : Ast.command) =
   | Ast.Update, _ :: _ ->
     let sources = command.source :: command.from in
     List.mapi sources ~f:(fun index source ->
-      source.Ast.source_id, "t" ^ Int.to_string index)
+      source.Ast.source_id, Stdlib.Format.asprintf "t%d" index)
   | _ -> [ command.source.source_id, "" ]
 ;;
 
 let render_from_sources ~aliases sources =
   List.map sources ~f:(fun (source : Ast.source) ->
     let alias = alias_for aliases source.Ast.source_id in
-    render_source source ^ " AS " ^ alias)
-  |> String.concat ~sep:", "
+    concat [ render_source source; text " AS "; text alias ])
+  |> separate ~by:(concat [ text ","; break " " ])
+;;
+
+let where_clause ~aliases where_ parts state =
+  match where_ with
+  | None -> parts, state
+  | Some condition ->
+    let condition, state = render_condition ~aliases condition state in
+    ( concat [ parts; break " "; text "WHERE"; nest (concat [ break " "; condition ]) ]
+    , state )
 ;;
 
 let render_command_ast (command : Ast.command) state =
@@ -376,23 +440,27 @@ let render_command_ast (command : Ast.command) state =
     let first_row = List.hd_exn command.rows in
     let columns = List.map first_row ~f:(fun assignment -> assignment.Ast.column) in
     let rendered_columns =
-      List.map columns ~f:quote_identifier |> String.concat ~sep:", "
+      List.map columns ~f:quote_identifier
+      |> separate ~by:(concat [ text ","; break " " ])
     in
     let rows, state = render_insert_rows ~aliases ~columns command.rows state in
     let parts =
-      [ Template.Text
-          ("INSERT INTO "
-           ^ render_source command.source
-           ^ " ("
-           ^ rendered_columns
-           ^ ") VALUES ")
-      ]
-      @ rows
+      concat
+        [ text "INSERT INTO "
+        ; render_source command.source
+        ; text " ("
+        ; nest (concat [ break ""; rendered_columns ])
+        ; break ""
+        ; text ")"
+        ; break " "
+        ; text "VALUES"
+        ; nest (concat [ break " "; rows ])
+        ]
     in
     let parts =
       match command.conflict with
       | None -> parts
-      | Some Ast.Do_nothing -> parts @ [ Template.Text " ON CONFLICT DO NOTHING" ]
+      | Some Ast.Do_nothing -> concat [ parts; break " "; text "ON CONFLICT DO NOTHING" ]
     in
     parts, state
   | Ast.Update ->
@@ -400,36 +468,34 @@ let render_command_ast (command : Ast.command) state =
     let target_alias = alias_for aliases command.source.source_id in
     let target_alias =
       if String.is_empty target_alias then
-        ""
+        Template.Empty
       else
-        " AS " ^ target_alias
+        concat [ text " AS "; text target_alias ]
     in
     let parts =
-      [ Template.Text ("UPDATE " ^ render_source command.source ^ target_alias ^ " SET ")
-      ]
-      @ assignments
+      concat
+        [ text "UPDATE "
+        ; render_source command.source
+        ; target_alias
+        ; break " "
+        ; text "SET"
+        ; nest (concat [ break " "; assignments ])
+        ]
     in
     let parts =
       match command.from with
       | [] -> parts
       | sources ->
-        parts @ [ Template.Text (" FROM " ^ render_from_sources ~aliases sources) ]
+        concat
+          [ parts; break " "; text "FROM "; nest (render_from_sources ~aliases sources) ]
     in
-    (match command.where_ with
-     | None -> parts, state
-     | Some condition ->
-       let condition, state = render_condition ~aliases condition state in
-       parts @ [ Template.Text " WHERE " ] @ condition, state)
+    where_clause ~aliases command.where_ parts state
   | Ast.Delete ->
-    let parts = [ Template.Text ("DELETE FROM " ^ render_source command.source) ] in
-    (match command.where_ with
-     | None -> parts, state
-     | Some condition ->
-       let condition, state = render_condition ~aliases condition state in
-       parts @ [ Template.Text " WHERE " ] @ condition, state)
+    let parts = concat [ text "DELETE FROM "; render_source command.source ] in
+    where_clause ~aliases command.where_ parts state
 ;;
 
-let finish (parts, state) = Template.of_parts parts, List.rev state.parameters_rev
+let finish (template, state) = template, List.rev state.parameters_rev
 
 let result_query query =
   match Lower.result_query_ast query with
@@ -438,9 +504,16 @@ let result_query query =
     let parts, state = render_command_ast returning.command initial_state in
     let aliases = [ returning.command.source.source_id, "" ] in
     let projection, state =
-      render_expressions ~aliases ~separator:", " returning.projection state
+      render_expressions
+        ~aliases
+        ~separator:(concat [ text ","; break " " ])
+        returning.projection
+        state
     in
-    finish (parts @ [ Template.Text " RETURNING " ] @ projection, state)
+    ( concat
+        [ parts; break " "; text "RETURNING"; nest (concat [ break " "; projection ]) ]
+    , state )
+    |> finish
 ;;
 
 let command command =

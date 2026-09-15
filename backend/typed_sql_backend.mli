@@ -55,8 +55,11 @@ module Template : sig
   (** A sequence of compiler-generated SQL fragments and parameter slots. *)
   type t
 
-  (** Visit fragments in SQL order. [text] receives compiler-generated SQL;
-      [param] receives zero-based bind slots. Values must remain bound. *)
+  (** Visit canonical, deterministically indented fragments in SQL order.
+      [text] receives compiler-generated SQL and layout whitespace; [param]
+      receives zero-based bind slots. Concatenating mapped fragments must
+      produce the same text as the public compiled statement's [sql]. Values
+      must remain bound. *)
   val map : t -> text:(string -> 'a) -> param:(int -> 'a) -> 'a list
 end
 

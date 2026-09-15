@@ -25,6 +25,33 @@ let%test_unit "query shape excludes values and generative source ids" =
   assert (Int.(List.length (B.Compiled_query.parameters first) = 1))
 ;;
 
+let%test_unit "backend template layout matches public canonical SQL" =
+  let table : unit Table.t = Table.v_exn "people" in
+  let name = Column.v_exn table "name" Db_type.text in
+  List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
+    let compiled =
+      Query.(
+        from table
+        |> where (fun row -> Expr.column row name =$ "Ada")
+        |> select (fun row -> Projection.expr (Expr.column row name)))
+      |> compile_exn dialect
+    in
+    let parameter index =
+      match dialect with
+      | Dialect.Postgresql -> Stdlib.Format.asprintf "$%d" (index + 1)
+      | Dialect.Sqlite -> Stdlib.Format.asprintf "?%d" (index + 1)
+    in
+    let backend_sql =
+      B.Template.map (B.Compiled_query.template compiled) ~text:Fn.id ~param:parameter
+      |> Stdlib.Format.asprintf
+           "%a"
+           (Stdlib.Format.pp_print_list
+              ~pp_sep:(fun _formatter () -> ())
+              Stdlib.Format.pp_print_string)
+    in
+    assert (String.equal backend_sql (Compiled_query.sql compiled)))
+;;
+
 let%test "mapped codecs with the same name have distinct shapes" =
   let mapped () =
     Db_type.map

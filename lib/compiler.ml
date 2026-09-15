@@ -1,37 +1,44 @@
 open! Base
 
-let parameter_fingerprints parameters =
-  List.map parameters ~f:(fun (Db_type.Value (db_type, _)) -> Db_type.fingerprint db_type)
-  |> String.concat ~sep:","
+let pp_parameter_fingerprints formatter parameters =
+  Stdlib.Format.pp_print_list
+    ~pp_sep:(fun formatter () -> Stdlib.Format.pp_print_char formatter ',')
+    (fun formatter (Db_type.Value (db_type, _)) ->
+       Stdlib.Format.pp_print_string formatter (Db_type.fingerprint db_type))
+    formatter
+    parameters
 ;;
 
-let projection_fingerprints projection =
+let pp_projection_fingerprints formatter projection =
   Projection.types projection
-  |> List.map ~f:(fun (Db_type.Pack db_type) -> Db_type.fingerprint db_type)
-  |> String.concat ~sep:","
+  |> Stdlib.Format.pp_print_list
+       ~pp_sep:(fun formatter () -> Stdlib.Format.pp_print_char formatter ',')
+       (fun formatter (Db_type.Pack db_type) ->
+          Stdlib.Format.pp_print_string formatter (Db_type.fingerprint db_type))
+       formatter
 ;;
 
 let shape ~dialect ~template ~parameters ~projection =
-  String.concat
-    [ Dialect.to_string dialect
-    ; ":"
-    ; Template.shape_string template
-    ; "|params:"
-    ; parameter_fingerprints parameters
-    ; "|result:"
-    ; projection_fingerprints projection
-    ]
+  Stdlib.Format.asprintf
+    "%s:%a|params:%a|result:%a"
+    (Dialect.to_string dialect)
+    Template.pp_shape
+    template
+    pp_parameter_fingerprints
+    parameters
+    pp_projection_fingerprints
+    projection
   |> Shape.create
 ;;
 
 let command_shape ~dialect ~template ~parameters =
-  String.concat
-    [ Dialect.to_string dialect
-    ; ":"
-    ; Template.shape_string template
-    ; "|params:"
-    ; parameter_fingerprints parameters
-    ]
+  Stdlib.Format.asprintf
+    "%s:%a|params:%a"
+    (Dialect.to_string dialect)
+    Template.pp_shape
+    template
+    pp_parameter_fingerprints
+    parameters
   |> Shape.create
 ;;
 

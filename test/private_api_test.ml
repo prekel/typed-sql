@@ -90,7 +90,14 @@ let%expect_test "private inspection preserves public query types and source iden
    | [ A.Column { source_id; _ } ] -> assert (Int.(source_id = ast.source.source_id))
    | _ -> failwith "unexpected projection");
   Stdlib.print_endline (Compiled_query.sql rebuilt);
-  [%expect {| SELECT t0."id" FROM "items" AS t0 WHERE (t0."id" = ?1) |}];
+  [%expect
+    {|
+    SELECT
+      t0."id"
+    FROM "items" AS t0
+    WHERE
+      (t0."id" = ?1)
+    |}];
   let reference = Table_ref.create table in
   let nullable = Nullable_table_ref.of_table_ref reference in
   assert (Int.(Table_ref.source_id reference = Nullable_table_ref.source_id nullable))
@@ -198,6 +205,22 @@ let%expect_test "private constructors share opaque public types" =
   [%expect {| SELECT ?1 |}]
 ;;
 
+let%test_unit "template layout does not affect shape identity" =
+  let compact = Template.of_parts [ Template.Text "SELECT "; Template.Param 0 ] in
+  let formatted =
+    Template.of_parts
+      [ Template.Text "SELECT"
+      ; Template.Nest (Template.of_parts [ Template.Break " "; Template.Param 0 ])
+      ]
+  in
+  assert (String.equal (Template.shape_string compact) (Template.shape_string formatted));
+  assert (
+    not
+      (String.equal
+         (Template.to_sql ~dialect:Dialect.Sqlite compact)
+         (Template.to_sql ~dialect:Dialect.Sqlite formatted)))
+;;
+
 let%expect_test "lowering and rendering preserve bind values for both dialects" =
   let ast =
     A.Returning
@@ -221,9 +244,29 @@ let%expect_test "lowering and rendering preserve bind values for both dialects" 
     Template.to_sql ~dialect template
   in
   Stdlib.print_endline (render Dialect.Postgresql);
-  [%expect {| INSERT INTO "items" ("id") VALUES ($1) RETURNING "id", $2 |}];
+  [%expect
+    {|
+    INSERT INTO "items" (
+      "id"
+    )
+    VALUES
+      ($1)
+    RETURNING
+      "id",
+      $2
+    |}];
   Stdlib.print_endline (render Dialect.Sqlite);
-  [%expect {| INSERT INTO "items" ("id") VALUES (?1) RETURNING "id", ?2 |}]
+  [%expect
+    {|
+    INSERT INTO "items" (
+      "id"
+    )
+    VALUES
+      (?1)
+    RETURNING
+      "id",
+      ?2
+    |}]
 ;;
 
 let%test_unit "renderer totality covers malformed private AST diagnostics" =
@@ -234,11 +277,11 @@ let%test_unit "renderer totality covers malformed private AST diagnostics" =
   assert (
     String.equal
       (render (A.Select { select with where_ = Some A.True }))
-      "SELECT t0.\"id\" FROM \"items\" AS t0 WHERE TRUE");
+      "SELECT\n  t0.\"id\"\nFROM \"items\" AS t0\nWHERE\n  TRUE");
   assert (
     String.equal
       (render (A.Select { select with where_ = Some (A.And []) }))
-      "SELECT t0.\"id\" FROM \"items\" AS t0 WHERE ()");
+      "SELECT\n  t0.\"id\"\nFROM \"items\" AS t0\nWHERE\n  ()");
   ignore
     (render (A.Returning { command = command A.Insert [ assignment ]; projection = [] }));
   ignore (Renderer.command (command A.Update []));
@@ -253,6 +296,33 @@ let%test_unit "internal helper boundary cases remain total" =
    | _ -> failwith "lowering changed a true condition");
   assert (Option.is_none (Normalizer.optional_condition (Some A.True)));
   ignore (Renderer.render_order_by ~aliases:[ 0, "t0" ] [] Renderer.initial_state);
+  let single, _ =
+    Renderer.render_condition_list
+      ~aliases:[ 0, "t0" ]
+      ~operator:"AND"
+      [ A.True ]
+      Renderer.initial_state
+  in
+  assert (String.equal (Template.to_sql ~dialect:Dialect.Sqlite single) "(TRUE)");
+  let empty_conditions, _ =
+    Renderer.render_conditions
+      ~aliases:[ 0, "t0" ]
+      ~operator:"AND"
+      []
+      Renderer.initial_state
+  in
+  assert (String.is_empty (Template.to_sql ~dialect:Dialect.Sqlite empty_conditions));
+  assert (
+    String.is_empty
+      (Renderer.render_from_sources ~aliases:[] []
+       |> Template.to_sql ~dialect:Dialect.Sqlite));
+  let rendered_sources =
+    let sources =
+      Renderer.render_from_sources ~aliases:[ 0, "t0"; 1, "t1" ] [ source 0; source 1 ]
+    in
+    Template.of_parts [ Template.Nest sources ] |> Template.to_sql ~dialect:Dialect.Sqlite
+  in
+  assert (String.equal rendered_sources "\"items\" AS t0,\n  \"items\" AS t1");
   assert (
     not (Validator.same_column (column 0) (A.Param (Db_type.Value (Db_type.int, 0)))));
   let arithmetic = A.Arithmetic (A.Add, column 0, column 0) in

@@ -84,10 +84,38 @@ let%expect_test "PostgreSQL and SQLite rendering" =
   let sqlite = compile_exn Dialect.Sqlite query in
   Stdlib.print_endline (Compiled_query.sql postgres);
   [%expect
-    {| SELECT t0."id", t0."name" FROM "public"."people" AS t0 WHERE ((t0."name" = $1) AND (t0."id" > $2)) ORDER BY t0."id" DESC LIMIT 20 OFFSET 5 |}];
+    {|
+    SELECT
+      t0."id",
+      t0."name"
+    FROM "public"."people" AS t0
+    WHERE
+      (
+        (t0."name" = $1)
+        AND (t0."id" > $2)
+      )
+    ORDER BY
+      t0."id" DESC
+    LIMIT 20
+    OFFSET 5
+    |}];
   Stdlib.print_endline (Compiled_query.sql sqlite);
   [%expect
-    {| SELECT t0."id", t0."name" FROM "public"."people" AS t0 WHERE ((t0."name" = ?1) AND (t0."id" > ?2)) ORDER BY t0."id" DESC LIMIT 20 OFFSET 5 |}]
+    {|
+    SELECT
+      t0."id",
+      t0."name"
+    FROM "public"."people" AS t0
+    WHERE
+      (
+        (t0."name" = ?1)
+        AND (t0."id" > ?2)
+      )
+    ORDER BY
+      t0."id" DESC
+    LIMIT 20
+    OFFSET 5
+    |}]
 ;;
 
 let%expect_test "infix comparison operators render in source order" =
@@ -106,7 +134,22 @@ let%expect_test "infix comparison operators render in source order" =
   in
   query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT t0."id", t0."name", t0."nickname" FROM "public"."people" AS t0 WHERE ((t0."id" < $1) AND (t0."id" <= $2) AND (t0."id" > $3) AND (t0."id" >= $4) AND (t0."id" <> $5) AND (t0."name" LIKE $6)) |}]
+    {|
+    SELECT
+      t0."id",
+      t0."name",
+      t0."nickname"
+    FROM "public"."people" AS t0
+    WHERE
+      (
+        (t0."id" < $1)
+        AND (t0."id" <= $2)
+        AND (t0."id" > $3)
+        AND (t0."id" >= $4)
+        AND (t0."id" <> $5)
+        AND (t0."name" LIKE $6)
+      )
+    |}]
 ;;
 
 let%test "escaped table reference is rejected" =
@@ -152,7 +195,12 @@ let%expect_test "identifiers are always quoted" =
       |> select (fun reference -> Projection.expr (Expr.column reference column)))
   in
   query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
-  [%expect {| SELECT t0."quoted""name" FROM "select" AS t0 |}]
+  [%expect
+    {|
+    SELECT
+      t0."quoted""name"
+    FROM "select" AS t0
+    |}]
 ;;
 
 let%expect_test "joins use deterministic aliases and LEFT JOIN makes its side nullable" =
@@ -180,10 +228,24 @@ let%expect_test "joins use deterministic aliases and LEFT JOIN makes its side nu
   in
   inner |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT t0."id", t1."name" FROM "public"."people" AS t0 INNER JOIN "public"."departments" AS t1 ON (t0."id" = t1."person_id") |}];
+    {|
+    SELECT
+      t0."id",
+      t1."name"
+    FROM "public"."people" AS t0
+    INNER JOIN "public"."departments" AS t1
+      ON (t0."id" = t1."person_id")
+    |}];
   left |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT t0."id", t1."name" FROM "public"."people" AS t0 LEFT JOIN "public"."departments" AS t1 ON (t0."id" = t1."person_id") |}]
+    {|
+    SELECT
+      t0."id",
+      t1."name"
+    FROM "public"."people" AS t0
+    LEFT JOIN "public"."departments" AS t1
+      ON (t0."id" = t1."person_id")
+    |}]
 ;;
 
 let compile_result_exn dialect query =
@@ -208,7 +270,16 @@ let%expect_test "portable DML and RETURNING" =
   |> Compiled_query.sql
   |> Stdlib.print_endline;
   [%expect
-    {| INSERT INTO "public"."people" ("id", "name") VALUES ($1, $2) RETURNING "id" |}];
+    {|
+    INSERT INTO "public"."people" (
+      "id",
+      "name"
+    )
+    VALUES
+      ($1, $2)
+    RETURNING
+      "id"
+    |}];
   Update.(
     table Person.table
     |> set Person.name_column "Grace"
@@ -217,7 +288,14 @@ let%expect_test "portable DML and RETURNING" =
   |> compile_command_exn Dialect.Sqlite
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {| UPDATE "public"."people" SET "name" = ?1 WHERE ("id" = ?2) |}];
+  [%expect
+    {|
+    UPDATE "public"."people"
+    SET
+      "name" = ?1
+    WHERE
+      ("id" = ?2)
+    |}];
   Delete.(from Person.table |> all_rows |> command)
   |> compile_command_exn Dialect.Postgresql
   |> Compiled_command.sql
@@ -239,12 +317,30 @@ let%expect_test "multi-row INSERT, DEFAULT, conflict policy, and UPDATE FROM" =
   |> compile_command_exn Dialect.Postgresql
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {| INSERT INTO "public"."people" ("id", "name") VALUES ($1, $2), ($3, $4) |}];
+  [%expect
+    {|
+    INSERT INTO "public"."people" (
+      "id",
+      "name"
+    )
+    VALUES
+      ($1, $2),
+      ($3, $4)
+    |}];
   multi_row
   |> compile_command_exn Dialect.Sqlite
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {| INSERT INTO "public"."people" ("id", "name") VALUES (?1, ?2), (?3, ?4) |}];
+  [%expect
+    {|
+    INSERT INTO "public"."people" (
+      "id",
+      "name"
+    )
+    VALUES
+      (?1, ?2),
+      (?3, ?4)
+    |}];
   Insert.(
     into Person.table
     |> default Person.id_column
@@ -253,19 +349,43 @@ let%expect_test "multi-row INSERT, DEFAULT, conflict policy, and UPDATE FROM" =
   |> compile_command_exn Dialect.Postgresql
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {| INSERT INTO "public"."people" ("id", "name") VALUES (DEFAULT, $1) |}];
+  [%expect
+    {|
+    INSERT INTO "public"."people" (
+      "id",
+      "name"
+    )
+    VALUES
+      (DEFAULT, $1)
+    |}];
   Insert.(
     into Person.table |> set Person.id_column 1L |> on_conflict_do_nothing |> command)
   |> compile_command_exn Dialect.Postgresql
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {| INSERT INTO "public"."people" ("id") VALUES ($1) ON CONFLICT DO NOTHING |}];
+  [%expect
+    {|
+    INSERT INTO "public"."people" (
+      "id"
+    )
+    VALUES
+      ($1)
+    ON CONFLICT DO NOTHING
+    |}];
   Insert.(
     into Person.table |> set Person.id_column 1L |> on_conflict_do_nothing |> command)
   |> compile_command_exn Dialect.Sqlite
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {| INSERT INTO "public"."people" ("id") VALUES (?1) ON CONFLICT DO NOTHING |}];
+  [%expect
+    {|
+    INSERT INTO "public"."people" (
+      "id"
+    )
+    VALUES
+      (?1)
+    ON CONFLICT DO NOTHING
+    |}];
   let update_from =
     Update.(
       table Person.table
@@ -280,18 +400,37 @@ let%expect_test "multi-row INSERT, DEFAULT, conflict policy, and UPDATE FROM" =
   |> Compiled_command.sql
   |> Stdlib.print_endline;
   [%expect
-    {| UPDATE "public"."people" AS t0 SET "name" = t1."name" FROM "public"."departments" AS t1 WHERE (t0."id" = t1."person_id") |}];
+    {|
+    UPDATE "public"."people" AS t0
+    SET
+      "name" = t1."name"
+    FROM "public"."departments" AS t1
+    WHERE
+      (t0."id" = t1."person_id")
+    |}];
   update_from
   |> compile_command_exn Dialect.Sqlite
   |> Compiled_command.sql
   |> Stdlib.print_endline;
   [%expect
-    {| UPDATE "public"."people" AS t0 SET "name" = t1."name" FROM "public"."departments" AS t1 WHERE (t0."id" = t1."person_id") |}];
+    {|
+    UPDATE "public"."people" AS t0
+    SET
+      "name" = t1."name"
+    FROM "public"."departments" AS t1
+    WHERE
+      (t0."id" = t1."person_id")
+    |}];
   Update.(table Person.table |> default Person.name_column |> all_rows |> command)
   |> compile_command_exn Dialect.Postgresql
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {| UPDATE "public"."people" SET "name" = DEFAULT |}]
+  [%expect
+    {|
+    UPDATE "public"."people"
+    SET
+      "name" = DEFAULT
+    |}]
 ;;
 
 let%expect_test "DML validation and capability diagnostics" =
@@ -344,7 +483,14 @@ let%expect_test "conditional UPDATE assignments distinguish omission from NULL" 
   |> Compiled_command.sql
   |> Stdlib.print_endline;
   [%expect
-    {| UPDATE "public"."people" SET "nickname" = ?1, "id" = ?2 WHERE ("id" = ?3) |}]
+    {|
+    UPDATE "public"."people"
+    SET
+      "nickname" = ?1,
+      "id" = ?2
+    WHERE
+      ("id" = ?3)
+    |}]
 ;;
 
 let%expect_test "portable predicates, CASE, and string expressions" =
@@ -367,10 +513,48 @@ let%expect_test "portable predicates, CASE, and string expressions" =
   in
   query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT (CASE WHEN (t0."name" = $1) THEN UPPER(t0."name") WHEN (t0."name" = $2) THEN LOWER(t0."name") ELSE (t0."name" || $3) END), CHAR_LENGTH(t0."name") FROM "public"."people" AS t0 WHERE ((t0."id" IN ($4, $5)) AND (t0."name" NOT IN ($6)) AND (t0."id" BETWEEN $7 AND $8) AND (t0."nickname" IS DISTINCT FROM $9)) |}];
+    {|
+    SELECT
+      (CASE
+        WHEN (t0."name" = $1) THEN UPPER(t0."name")
+        WHEN (t0."name" = $2) THEN LOWER(t0."name")
+        ELSE (t0."name" || $3)
+      END),
+      CHAR_LENGTH(t0."name")
+    FROM "public"."people" AS t0
+    WHERE
+      (
+        (t0."id" IN (
+          $4,
+          $5
+        ))
+        AND (t0."name" NOT IN ($6))
+        AND (t0."id" BETWEEN $7 AND $8)
+        AND (t0."nickname" IS DISTINCT FROM $9)
+      )
+    |}];
   query |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT (CASE WHEN (t0."name" = ?1) THEN UPPER(t0."name") WHEN (t0."name" = ?2) THEN LOWER(t0."name") ELSE (t0."name" || ?3) END), LENGTH(t0."name") FROM "public"."people" AS t0 WHERE ((t0."id" IN (?4, ?5)) AND (t0."name" NOT IN (?6)) AND (t0."id" BETWEEN ?7 AND ?8) AND (t0."nickname" IS NOT ?9)) |}]
+    {|
+    SELECT
+      (CASE
+        WHEN (t0."name" = ?1) THEN UPPER(t0."name")
+        WHEN (t0."name" = ?2) THEN LOWER(t0."name")
+        ELSE (t0."name" || ?3)
+      END),
+      LENGTH(t0."name")
+    FROM "public"."people" AS t0
+    WHERE
+      (
+        (t0."id" IN (
+          ?4,
+          ?5
+        ))
+        AND (t0."name" NOT IN (?6))
+        AND (t0."id" BETWEEN ?7 AND ?8)
+        AND (t0."nickname" IS NOT ?9)
+      )
+    |}]
 ;;
 
 let%expect_test "typed arithmetic renders for every numeric representation" =
@@ -411,10 +595,40 @@ let%expect_test "typed arithmetic renders for every numeric representation" =
   in
   query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT (t0."id" + $1), (t0."id" - $2), (t0."id" * $3), (t0."id" / $4), ($5 + $6), ($7 - $8), ($9 * $10), ($11 / $12), ($13 + $14), ($15 - $16), ($17 * $18), ($19 / $20) FROM "public"."people" AS t0 |}];
+    {|
+    SELECT
+      (t0."id" + $1),
+      (t0."id" - $2),
+      (t0."id" * $3),
+      (t0."id" / $4),
+      ($5 + $6),
+      ($7 - $8),
+      ($9 * $10),
+      ($11 / $12),
+      ($13 + $14),
+      ($15 - $16),
+      ($17 * $18),
+      ($19 / $20)
+    FROM "public"."people" AS t0
+    |}];
   query |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT (t0."id" + ?1), (t0."id" - ?2), (t0."id" * ?3), (t0."id" / ?4), (?5 + ?6), (?7 - ?8), (?9 * ?10), (?11 / ?12), (?13 + ?14), (?15 - ?16), (?17 * ?18), (?19 / ?20) FROM "public"."people" AS t0 |}]
+    {|
+    SELECT
+      (t0."id" + ?1),
+      (t0."id" - ?2),
+      (t0."id" * ?3),
+      (t0."id" / ?4),
+      (?5 + ?6),
+      (?7 - ?8),
+      (?9 * ?10),
+      (?11 / ?12),
+      (?13 + ?14),
+      (?15 - ?16),
+      (?17 * ?18),
+      (?19 / ?20)
+    FROM "public"."people" AS t0
+    |}]
 ;;
 
 let%expect_test "empty membership lists normalize without invalid SQL" =
@@ -426,7 +640,15 @@ let%expect_test "empty membership lists normalize without invalid SQL" =
   |> Compiled_query.sql
   |> Stdlib.print_endline;
   [%expect
-    {| SELECT t0."id", t0."name", t0."nickname" FROM "public"."people" AS t0 WHERE FALSE |}];
+    {|
+    SELECT
+      t0."id",
+      t0."name",
+      t0."nickname"
+    FROM "public"."people" AS t0
+    WHERE
+      FALSE
+    |}];
   Query.(
     from Person.table
     |> where (fun person -> Expr.not_in (Person.id person) [])
@@ -434,7 +656,14 @@ let%expect_test "empty membership lists normalize without invalid SQL" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {| SELECT t0."id", t0."name", t0."nickname" FROM "public"."people" AS t0 |}]
+  [%expect
+    {|
+    SELECT
+      t0."id",
+      t0."name",
+      t0."nickname"
+    FROM "public"."people" AS t0
+    |}]
 ;;
 
 let%expect_test "DISTINCT and aggregate queries are portable" =
@@ -448,12 +677,22 @@ let%expect_test "DISTINCT and aggregate queries are portable" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {| SELECT DISTINCT t0."name" FROM "public"."people" AS t0 |}];
+  [%expect
+    {|
+    SELECT DISTINCT
+      t0."name"
+    FROM "public"."people" AS t0
+    |}];
   distinct_query
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {| SELECT DISTINCT t0."name" FROM "public"."people" AS t0 |}];
+  [%expect
+    {|
+    SELECT DISTINCT
+      t0."name"
+    FROM "public"."people" AS t0
+    |}];
   let grouped =
     Query.(
       from Person.table
@@ -469,10 +708,34 @@ let%expect_test "DISTINCT and aggregate queries are portable" =
   in
   grouped |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT t0."name", COUNT(t0."id"), COUNT(DISTINCT t0."nickname") FROM "public"."people" AS t0 GROUP BY t0."name" HAVING (COUNT(*) > $1) ORDER BY t0."name" ASC |}];
+    {|
+    SELECT
+      t0."name",
+      COUNT(t0."id"),
+      COUNT(DISTINCT t0."nickname")
+    FROM "public"."people" AS t0
+    GROUP BY
+      t0."name"
+    HAVING
+      (COUNT(*) > $1)
+    ORDER BY
+      t0."name" ASC
+    |}];
   grouped |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT t0."name", COUNT(t0."id"), COUNT(DISTINCT t0."nickname") FROM "public"."people" AS t0 GROUP BY t0."name" HAVING (COUNT(*) > ?1) ORDER BY t0."name" ASC |}]
+    {|
+    SELECT
+      t0."name",
+      COUNT(t0."id"),
+      COUNT(DISTINCT t0."nickname")
+    FROM "public"."people" AS t0
+    GROUP BY
+      t0."name"
+    HAVING
+      (COUNT(*) > ?1)
+    ORDER BY
+      t0."name" ASC
+    |}]
 ;;
 
 let%expect_test "GROUP BY accepts the same portable expression in projection" =
@@ -486,10 +749,28 @@ let%expect_test "GROUP BY accepts the same portable expression in projection" =
   in
   query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT LOWER(t0."name"), COUNT(*) FROM "public"."people" AS t0 GROUP BY LOWER(t0."name") ORDER BY LOWER(t0."name") ASC |}];
+    {|
+    SELECT
+      LOWER(t0."name"),
+      COUNT(*)
+    FROM "public"."people" AS t0
+    GROUP BY
+      LOWER(t0."name")
+    ORDER BY
+      LOWER(t0."name") ASC
+    |}];
   query |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT LOWER(t0."name"), COUNT(*) FROM "public"."people" AS t0 GROUP BY LOWER(t0."name") ORDER BY LOWER(t0."name") ASC |}];
+    {|
+    SELECT
+      LOWER(t0."name"),
+      COUNT(*)
+    FROM "public"."people" AS t0
+    GROUP BY
+      LOWER(t0."name")
+    ORDER BY
+      LOWER(t0."name") ASC
+    |}];
   let arithmetic =
     Query.(
       from Person.table
@@ -504,10 +785,24 @@ let%expect_test "GROUP BY accepts the same portable expression in projection" =
   |> Compiled_query.sql
   |> Stdlib.print_endline;
   [%expect
-    {| SELECT (t0."id" + t0."id"), COUNT(*) FROM "public"."people" AS t0 GROUP BY (t0."id" + t0."id") |}];
+    {|
+    SELECT
+      (t0."id" + t0."id"),
+      COUNT(*)
+    FROM "public"."people" AS t0
+    GROUP BY
+      (t0."id" + t0."id")
+    |}];
   arithmetic |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT (t0."id" + t0."id"), COUNT(*) FROM "public"."people" AS t0 GROUP BY (t0."id" + t0."id") |}];
+    {|
+    SELECT
+      (t0."id" + t0."id"),
+      COUNT(*)
+    FROM "public"."people" AS t0
+    GROUP BY
+      (t0."id" + t0."id")
+    |}];
   let concatenated =
     Query.(
       from Person.table
@@ -522,10 +817,24 @@ let%expect_test "GROUP BY accepts the same portable expression in projection" =
   |> Compiled_query.sql
   |> Stdlib.print_endline;
   [%expect
-    {| SELECT (t0."name" || t0."name"), COUNT(*) FROM "public"."people" AS t0 GROUP BY (t0."name" || t0."name") |}];
+    {|
+    SELECT
+      (t0."name" || t0."name"),
+      COUNT(*)
+    FROM "public"."people" AS t0
+    GROUP BY
+      (t0."name" || t0."name")
+    |}];
   concatenated |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT (t0."name" || t0."name"), COUNT(*) FROM "public"."people" AS t0 GROUP BY (t0."name" || t0."name") |}]
+    {|
+    SELECT
+      (t0."name" || t0."name"),
+      COUNT(*)
+    FROM "public"."people" AS t0
+    GROUP BY
+      (t0."name" || t0."name")
+    |}]
 ;;
 
 let%test_unit "GROUP BY compares every public arithmetic and string function" =
@@ -619,10 +928,64 @@ let%expect_test "correlated EXISTS, scalar subquery, and IN subquery" =
   in
   query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT t0."name", (SELECT t1."name" FROM "public"."departments" AS t1 WHERE (t1."person_id" = t0."id") LIMIT 1) FROM "public"."people" AS t0 WHERE ((EXISTS (SELECT 1 FROM "public"."departments" AS t1 WHERE (t1."person_id" = t0."id"))) AND (t0."id" IN (SELECT t1."person_id" FROM "public"."departments" AS t1))) |}];
+    {|
+    SELECT
+      t0."name",
+      (
+        SELECT
+          t1."name"
+        FROM "public"."departments" AS t1
+        WHERE
+          (t1."person_id" = t0."id")
+        LIMIT 1
+      )
+    FROM "public"."people" AS t0
+    WHERE
+      (
+        (EXISTS (
+          SELECT
+            1
+          FROM "public"."departments" AS t1
+          WHERE
+            (t1."person_id" = t0."id")
+        ))
+        AND (t0."id" IN (
+          SELECT
+            t1."person_id"
+          FROM "public"."departments" AS t1
+        ))
+      )
+    |}];
   query |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT t0."name", (SELECT t1."name" FROM "public"."departments" AS t1 WHERE (t1."person_id" = t0."id") LIMIT 1) FROM "public"."people" AS t0 WHERE ((EXISTS (SELECT 1 FROM "public"."departments" AS t1 WHERE (t1."person_id" = t0."id"))) AND (t0."id" IN (SELECT t1."person_id" FROM "public"."departments" AS t1))) |}]
+    {|
+    SELECT
+      t0."name",
+      (
+        SELECT
+          t1."name"
+        FROM "public"."departments" AS t1
+        WHERE
+          (t1."person_id" = t0."id")
+        LIMIT 1
+      )
+    FROM "public"."people" AS t0
+    WHERE
+      (
+        (EXISTS (
+          SELECT
+            1
+          FROM "public"."departments" AS t1
+          WHERE
+            (t1."person_id" = t0."id")
+        ))
+        AND (t0."id" IN (
+          SELECT
+            t1."person_id"
+          FROM "public"."departments" AS t1
+        ))
+      )
+    |}]
 ;;
 
 let%expect_test "scalar subqueries are nullable and require a cardinality proof" =
@@ -645,7 +1008,16 @@ let%expect_test "scalar subqueries are nullable and require a cardinality proof"
   in
   query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT (SELECT t1."name" FROM "public"."departments" AS t1 LIMIT 0) FROM "public"."people" AS t0 |}];
+    {|
+    SELECT
+      (
+        SELECT
+          t1."name"
+        FROM "public"."departments" AS t1
+        LIMIT 0
+      )
+    FROM "public"."people" AS t0
+    |}];
   let query =
     Query.(
       from Person.table
@@ -656,7 +1028,15 @@ let%expect_test "scalar subqueries are nullable and require a cardinality proof"
   in
   query |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT (SELECT COUNT(*) FROM "public"."departments" AS t1) FROM "public"."people" AS t0 |}];
+    {|
+    SELECT
+      (
+        SELECT
+          COUNT(*)
+        FROM "public"."departments" AS t1
+      )
+    FROM "public"."people" AS t0
+    |}];
   let query =
     Query.(
       from Person.table
@@ -679,7 +1059,12 @@ let%expect_test "empty CASE normalizes to its else expression" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {| SELECT t0."name" FROM "public"."people" AS t0 |}]
+  [%expect
+    {|
+    SELECT
+      t0."name"
+    FROM "public"."people" AS t0
+    |}]
 ;;
 
 let%expect_test "HAVING establishes aggregate context" =
@@ -690,7 +1075,14 @@ let%expect_test "HAVING establishes aggregate context" =
       |> select (fun _ -> Projection.expr (Expr.param Db_type.int 1)))
   in
   query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
-  [%expect {| SELECT $1 FROM "public"."people" AS t0 HAVING TRUE |}];
+  [%expect
+    {|
+    SELECT
+      $1
+    FROM "public"."people" AS t0
+    HAVING
+      TRUE
+    |}];
   (match Compiler.compile ~dialect:Dialect.Sqlite query with
    | Error (Compile_error.Unsupported_operation { operation; dialect = Dialect.Sqlite })
      -> Stdlib.print_endline operation
@@ -781,7 +1173,26 @@ let%expect_test "negated subqueries render explicitly" =
   |> Compiled_query.sql
   |> Stdlib.print_endline;
   [%expect
-    {| SELECT t0."id", t0."name", t0."nickname" FROM "public"."people" AS t0 WHERE ((NOT EXISTS (SELECT 1 FROM "public"."departments" AS t1)) AND (t0."id" NOT IN (SELECT t1."person_id" FROM "public"."departments" AS t1))) |}]
+    {|
+    SELECT
+      t0."id",
+      t0."name",
+      t0."nickname"
+    FROM "public"."people" AS t0
+    WHERE
+      (
+        (NOT EXISTS (
+          SELECT
+            1
+          FROM "public"."departments" AS t1
+        ))
+        AND (t0."id" NOT IN (
+          SELECT
+            t1."person_id"
+          FROM "public"."departments" AS t1
+        ))
+      )
+    |}]
 ;;
 
 let%expect_test "typed current timestamp is portable" =
@@ -793,10 +1204,22 @@ let%expect_test "typed current timestamp is portable" =
   in
   query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT t0."occurred_at" FROM "public"."events" AS t0 WHERE (t0."occurred_at" <= CURRENT_TIMESTAMP) |}];
+    {|
+    SELECT
+      t0."occurred_at"
+    FROM "public"."events" AS t0
+    WHERE
+      (t0."occurred_at" <= CURRENT_TIMESTAMP)
+    |}];
   query |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT t0."occurred_at" FROM "public"."events" AS t0 WHERE (t0."occurred_at" <= CURRENT_TIMESTAMP) |}];
+    {|
+    SELECT
+      t0."occurred_at"
+    FROM "public"."events" AS t0
+    WHERE
+      (t0."occurred_at" <= CURRENT_TIMESTAMP)
+    |}];
   Insert.(
     into Event.table
     |> set_expr Event.occurred_at_column Expr.current_timestamp
@@ -804,7 +1227,14 @@ let%expect_test "typed current timestamp is portable" =
   |> compile_command_exn Dialect.Postgresql
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {| INSERT INTO "public"."events" ("occurred_at") VALUES (CURRENT_TIMESTAMP) |}]
+  [%expect
+    {|
+    INSERT INTO "public"."events" (
+      "occurred_at"
+    )
+    VALUES
+      (CURRENT_TIMESTAMP)
+    |}]
 ;;
 
 let%expect_test "typed calendar date is portable" =
@@ -817,10 +1247,22 @@ let%expect_test "typed calendar date is portable" =
   in
   query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT t0."calendar_date" FROM "public"."calendar_days" AS t0 WHERE (t0."calendar_date" = $1) |}];
+    {|
+    SELECT
+      t0."calendar_date"
+    FROM "public"."calendar_days" AS t0
+    WHERE
+      (t0."calendar_date" = $1)
+    |}];
   query |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT t0."calendar_date" FROM "public"."calendar_days" AS t0 WHERE (t0."calendar_date" = ?1) |}]
+    {|
+    SELECT
+      t0."calendar_date"
+    FROM "public"."calendar_days" AS t0
+    WHERE
+      (t0."calendar_date" = ?1)
+    |}]
 ;;
 
 let%expect_test "typed UUID is portable" =
@@ -833,10 +1275,22 @@ let%expect_test "typed UUID is portable" =
   in
   query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT t0."external_id" FROM "public"."resources" AS t0 WHERE (t0."external_id" = $1) |}];
+    {|
+    SELECT
+      t0."external_id"
+    FROM "public"."resources" AS t0
+    WHERE
+      (t0."external_id" = $1)
+    |}];
   query |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
-    {| SELECT t0."external_id" FROM "public"."resources" AS t0 WHERE (t0."external_id" = ?1) |}]
+    {|
+    SELECT
+      t0."external_id"
+    FROM "public"."resources" AS t0
+    WHERE
+      (t0."external_id" = ?1)
+    |}]
 ;;
 
 let%test_unit "public edge paths preserve normalized semantics" =
@@ -846,10 +1300,10 @@ let%test_unit "public edge paths preserve normalized semantics" =
       from Person.table |> where (fun _ -> Condition.true_) |> select Person.projection)
     |> compile_exn Dialect.Sqlite
   in
-  assert (
-    String.equal
-      (Compiled_query.sql always)
-      "SELECT t0.\"id\", t0.\"name\", t0.\"nickname\" FROM \"public\".\"people\" AS t0");
+  let without_condition =
+    Query.(from Person.table |> select Person.projection) |> compile_exn Dialect.Sqlite
+  in
+  assert (String.equal (Compiled_query.sql always) (Compiled_query.sql without_condition));
   let distinct_expression =
     Query.(
       from Person.table
@@ -870,7 +1324,7 @@ let%test_unit "public edge paths preserve normalized semantics" =
       |> select (fun _ -> Projection.expr Expr.count_all))
     |> compile_exn Dialect.Sqlite
   in
-  assert (String.is_substring (Compiled_query.sql repeated_having) ~substring:" AND ");
+  assert (String.is_substring (Compiled_query.sql repeated_having) ~substring:"AND ");
   Insert.(rows Person.table [] |> set Person.id_column 7L |> command)
   |> compile_command_exn Dialect.Sqlite
   |> ignore;

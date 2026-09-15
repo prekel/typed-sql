@@ -40,6 +40,26 @@ let query name =
 границу DSL. `select` ставится последним: он задаёт projection и превращает
 builder в готовый `Result_query.t`.
 
+`Compiled_query.sql` возвращает тот же канонический многострочный SQL, который
+execution adapter отправляет в базу. Значения не интерполируются и остаются
+bind parameters:
+
+```sql
+SELECT
+  t0."id",
+  t0."name"
+FROM "people" AS t0
+WHERE
+  (t0."name" = $1)
+ORDER BY
+  t0."id" ASC
+LIMIT 100
+```
+
+Для вывода в formatter доступен `Compiled_query.pp`; он печатает в точности
+результат `Compiled_query.sql`. Для DML такое же соглашение действует у
+`Compiled_command.sql` и `Compiled_command.pp`.
+
 Scalar subquery выражает возможное отсутствие строки через `option` и требует
 явного доказательства cardinality: `LIMIT 0`/`LIMIT 1` либо aggregate без
 `GROUP BY`. Например:
@@ -151,8 +171,8 @@ typed-sql-codegen - < schema.json > schema.ml
 
 Весь API приложения с документацией находится в
 [`lib/typed_sql.mli`](lib/typed_sql.mli): схема, выражения, запросы, компиляция,
-SQL и ошибки. Для приложения достаточно библиотеки `typed-sql` и выбранного
-execution adapter.
+канонический SQL, printers и ошибки. Для приложения достаточно библиотеки
+`typed-sql` и выбранного execution adapter.
 
 Авторы адаптеров используют отдельную библиотеку `typed-sql.backend` и
 [`backend/typed_sql_backend.mli`](backend/typed_sql_backend.mli): параметры,

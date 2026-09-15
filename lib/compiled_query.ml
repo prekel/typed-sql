@@ -16,6 +16,7 @@ struct
   let projection query = query.projection
   let shape query = query.shape
   let sql query = Template.to_sql ~dialect:query.dialect query.template
+  let pp formatter query = Template.pp ~dialect:query.dialect formatter query.template
 
   let create ~dialect ~template ~parameters ~projection ~shape =
     { dialect; template; parameters; projection; shape }
@@ -30,6 +31,7 @@ sig
   val projection : 'result t -> 'result Projection.t
   val shape : 'result t -> Shape.t
   val sql : 'result t -> string
+  val pp : Formatter.t -> 'result t -> unit
 
   val create
     :  dialect:Dialect.t

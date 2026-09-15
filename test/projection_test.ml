@@ -36,9 +36,21 @@ let%expect_test "applicative syntax preserves SELECT and bind order" =
     compiled
   in
   Stdlib.print_endline (Compiled_query.sql (compile Dialect.Postgresql));
-  [%expect {| SELECT $1, $2 FROM "items" AS t0 |}];
+  [%expect
+    {|
+    SELECT
+      $1,
+      $2
+    FROM "items" AS t0
+    |}];
   Stdlib.print_endline (Compiled_query.sql (compile Dialect.Sqlite));
-  [%expect {| SELECT ?1, ?2 FROM "items" AS t0 |}]
+  [%expect
+    {|
+    SELECT
+      ?1,
+      ?2
+    FROM "items" AS t0
+    |}]
 ;;
 
 module Decoder = struct

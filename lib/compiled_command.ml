@@ -15,6 +15,10 @@ struct
   let shape command = command.shape
   let sql command = Template.to_sql ~dialect:command.dialect command.template
 
+  let pp formatter command =
+    Template.pp ~dialect:command.dialect formatter command.template
+  ;;
+
   let create ~dialect ~template ~parameters ~shape =
     { dialect; template; parameters; shape }
   ;;
@@ -27,6 +31,7 @@ sig
   val parameters : t -> Db_type.packed_value list
   val shape : t -> Shape.t
   val sql : t -> string
+  val pp : Formatter.t -> t -> unit
 
   val create
     :  dialect:Dialect.t

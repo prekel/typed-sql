@@ -1,6 +1,6 @@
 # История изменений
 
-## Не выпущено
+## 0.1.0 — 15 сентября 2026
 
 ### Добавлено
 
@@ -26,7 +26,7 @@
 - `Schema_snapshot` сохраняет schema IR в JSON версии 1; `typed-sql-codegen`
   генерирует OCaml из snapshot без БД. Добавлена зависимость от Yojson.
 - Отдельные `make coverage` для публичного API и `make coverage-all` для
-  полного набора ядра. Текущие результаты — 98,52% и 100,00% соответственно.
+  полного набора ядра. Релизные результаты — 97,85% и 100,00% соответственно.
 - PostgreSQL/SQLite golden tests, compile-fail fixtures и расширенный SQLite
   `:memory:` integration test для новых SQL-возможностей.
 - Compiler benchmark теперь отдельно измеряет маленькие запросы и shapes с
@@ -52,5 +52,8 @@
   `Insert.(...)`, `Update.(...)` и `Delete.(...)`.
 - Compiler разделён на normalization, validation, dialect lowering и rendering.
   Unsupported operations завершаются capability error до генерации SQL.
+- Renderer строит канонический многострочный SQL как документ с отдельными
+  текстовыми фрагментами, bind slots, переносами и отступами. `sql`, `pp` и
+  execution adapters используют один formatter-based путь.
 - Shape учитывает identity mapped codec и projection layout, но не parameter
   values, generated source IDs, aliases или connections.

@@ -151,6 +151,23 @@ let%expect_test "public diagnostic printers" =
   [%expect {| expression references source #3, but the visible sources are 1, 2 |}]
 ;;
 
+let%test_unit "compiled SQL printers return the canonical execution text" =
+  let query = query () |> compile Dialect.Postgresql |> ok_exn in
+  let command =
+    Insert.(into items |> set id 1 |> command)
+    |> Compiler.compile_command ~dialect:Dialect.Sqlite
+    |> ok_exn
+  in
+  assert (
+    String.equal
+      (Compiled_query.sql query)
+      (Stdlib.Format.asprintf "%a" Compiled_query.pp query));
+  assert (
+    String.equal
+      (Compiled_command.sql command)
+      (Stdlib.Format.asprintf "%a" Compiled_command.pp command))
+;;
+
 let%test_unit "condition identities preserve compiled SQL for both dialects" =
   List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
     let atom = Expr.param Db_type.int 1 =$ 1 in
@@ -190,10 +207,44 @@ let%expect_test "null checks, NOT, OR and multiple sort keys" =
   in
   Stdlib.print_endline (sql Dialect.Postgresql query);
   [%expect
-    {| SELECT t0."id" FROM "items" AS t0 WHERE (((t0."name" IS NULL) OR (NOT (t0."id" IS NOT NULL))) AND (t0."id" > $1)) ORDER BY t0."name" ASC, t0."id" DESC LIMIT 3 OFFSET 1 |}];
+    {|
+    SELECT
+      t0."id"
+    FROM "items" AS t0
+    WHERE
+      (
+        (
+          (t0."name" IS NULL)
+          OR (NOT (t0."id" IS NOT NULL))
+        )
+        AND (t0."id" > $1)
+      )
+    ORDER BY
+      t0."name" ASC,
+      t0."id" DESC
+    LIMIT 3
+    OFFSET 1
+    |}];
   Stdlib.print_endline (sql Dialect.Sqlite query);
   [%expect
-    {| SELECT t0."id" FROM "items" AS t0 WHERE (((t0."name" IS NULL) OR (NOT (t0."id" IS NOT NULL))) AND (t0."id" > ?1)) ORDER BY t0."name" ASC, t0."id" DESC LIMIT 3 OFFSET 1 |}]
+    {|
+    SELECT
+      t0."id"
+    FROM "items" AS t0
+    WHERE
+      (
+        (
+          (t0."name" IS NULL)
+          OR (NOT (t0."id" IS NOT NULL))
+        )
+        AND (t0."id" > ?1)
+      )
+    ORDER BY
+      t0."name" ASC,
+      t0."id" DESC
+    LIMIT 3
+    OFFSET 1
+    |}]
 ;;
 
 let%test_unit "expression operators agree with bound-value operators" =
@@ -316,14 +367,58 @@ let%expect_test "multi-assignment UPDATE and DELETE RETURNING" =
   in
   Stdlib.print_endline (render Dialect.Postgresql updated);
   [%expect
-    {| UPDATE "items" SET "id" = $1, "name" = $2 WHERE (("id" > $3) AND ("id" < $4)) RETURNING "id" |}];
+    {|
+    UPDATE "items"
+    SET
+      "id" = $1,
+      "name" = $2
+    WHERE
+      (
+        ("id" > $3)
+        AND ("id" < $4)
+      )
+    RETURNING
+      "id"
+    |}];
   Stdlib.print_endline (render Dialect.Sqlite updated);
   [%expect
-    {| UPDATE "items" SET "id" = ?1, "name" = ?2 WHERE (("id" > ?3) AND ("id" < ?4)) RETURNING "id" |}];
+    {|
+    UPDATE "items"
+    SET
+      "id" = ?1,
+      "name" = ?2
+    WHERE
+      (
+        ("id" > ?3)
+        AND ("id" < ?4)
+      )
+    RETURNING
+      "id"
+    |}];
   Stdlib.print_endline (render Dialect.Postgresql deleted);
-  [%expect {| DELETE FROM "items" WHERE (("id" >= $1) AND ("id" <= $2)) RETURNING "id" |}];
+  [%expect
+    {|
+    DELETE FROM "items"
+    WHERE
+      (
+        ("id" >= $1)
+        AND ("id" <= $2)
+      )
+    RETURNING
+      "id"
+    |}];
   Stdlib.print_endline (render Dialect.Sqlite deleted);
-  [%expect {| DELETE FROM "items" WHERE (("id" >= ?1) AND ("id" <= ?2)) RETURNING "id" |}]
+  [%expect
+    {|
+    DELETE FROM "items"
+    WHERE
+      (
+        ("id" >= ?1)
+        AND ("id" <= ?2)
+      )
+    RETURNING
+      "id"
+    |}]
 ;;
 
 let%test_unit "builders are immutable and all_rows clears filters" =

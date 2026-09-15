@@ -1,6 +1,6 @@
 # Дорожная карта
 
-Состояние проекта на 12 сентября 2026 года. Документ сопоставляет текущую
+Состояние проекта на 15 сентября 2026 года. Документ сопоставляет текущую
 реализацию с исходным [first_plan.md](first_plan.md), фиксирует завершённый
 релизный срез и перечисляет следующую работу. Приложение RealWorld будет жить в
 отдельном репозитории и использовать `typed-sql` вместе с `../typed-endpoint`.
@@ -12,6 +12,12 @@
 rendering. Значения остаются bind parameters, identifiers создаются только
 через проверенные descriptors, aliases и номера параметров назначаются
 детерминированно compiler.
+
+Renderer строит один канонический многострочный SQL template с фиксированными
+двухпробельными отступами. `Compiled_query.sql`/`Compiled_command.sql`, их
+`pp`-printers и execution adapters используют одно представление; отдельного
+compact SQL нет. Layout не входит в `Shape.t`, поэтому форматирование не меняет
+идентичность плана или порядок bind parameters.
 
 Пользовательский контракт с документацией целиком находится в
 `lib/typed_sql.mli`. Реализация ядра собрана как библиотека из `.ml` без
@@ -130,7 +136,7 @@ OCaml keywords и одиночный `_`, а ссылки на библиоте�
   suites; порог равен 99%, отчёт находится в
   `_coverage/all/html/index.html`.
 
-Последний полный прогон перед обновлением этого документа дал 98,03% через
+Последний полный прогон перед обновлением этого документа дал 97,71% через
 публичный API и 100,00% всеми тестами ядра. Точные цифры следует обновлять после
 изменения instrumented implementation.
 
@@ -194,6 +200,75 @@ idempotent inserts, count queries, correlated flags и batch loading tags чер
 `IN`. Найденные неудобства следует переносить сюда как regression tests до
 стабилизации generator и выпуска PPX.
 
+#### Приоритеты по результатам разбора `typed-realworld`
+
+Ниже — потребности из прикладного разбора RealWorld в порядке приоритета.
+Это будущие расширения, а не уже доступный API. Scoped mutations, transactions,
+`ON CONFLICT DO NOTHING`, отдельные count queries, correlated flags и batch
+loading через `IN` уже есть в DSL; их неиспользование приложением само по себе
+не означает пробел в `typed-sql`.
+
+1. **Полноценный UPSERT.** Добавить conflict target, `DO UPDATE`, типизированный
+   `excluded` и совместимость с `RETURNING` для PostgreSQL и SQLite. В
+   предоставленном разборе `article_repository_sqlite.ml` создание тега через
+   `SELECT → INSERT` отмечено как race condition при конкурентной вставке
+   одного имени. Нужен атомарный запрос создания или получения тега:
+
+   ```sql
+   INSERT INTO tags (name) VALUES (?)
+   ON CONFLICT (name) DO UPDATE SET name = excluded.name
+   RETURNING id, name
+   ```
+
+   Предварительное направление API: `Insert.on_conflict [ Tags.name_column ]`
+   и `Insert.do_update (fun excluded row -> ...)`; точные сигнатуры ещё нужно
+   спроектировать. Существующий `DO NOTHING` обеспечивает идемпотентную вставку,
+   но сам по себе не возвращает конфликтующую строку через `RETURNING`.
+
+2. **Derived tables и CTE.** Добавить `FROM (SELECT ...) AS page` и
+   `WITH page AS (...)`. Для read model статьи сначала выбирать страницу с
+   фильтрами, сортировкой и `LIMIT/OFFSET`, затем присоединять authors, tags и
+   favorites. Так размножение строк после JOIN не меняет границы страницы.
+
+3. **Агрегация коллекций.** Добавить aggregates вроде `array_agg`, `json_agg`
+   и `json_group_array` с типизированным декодированием коллекций. Сейчас
+   вложенный read model можно собирать несколькими batch-запросами; другой
+   portable вариант — плоский JOIN и группировка строк в OCaml с сохранением
+   корректной пагинации. JSON aggregation для PostgreSQL и SQLite должна
+   иметь отдельные dialect namespaces.
+
+4. **Типизированные связи из схемы.** Генерировать FK descriptors и удобные
+   отношения вроде `Articles.author`, `Comments.article`, `Favorites.user`,
+   пригодные для будущего `join_fk`. FK metadata уже сохраняется, arbitrary
+   JOIN уже доступен; не хватает типизированного сокращения ручных сравнений
+   колонок, включая составные ключи.
+
+5. **Prepared queries.** Рассмотреть `('params, 'result) Prepared_query.t`
+   для отделения заранее скомпилированного плана от значений конкретного
+   выполнения. Для RealWorld это пока оптимизация низкого приоритета;
+   реализация требует измерений. Подробности и граница с prepared statement
+   cache adapter приведены в разделе «Параметры и возможный `Prepared_query`».
+
+6. **Дополнительные SQL-конструкции.** Добавлять по прикладной необходимости
+   `UNION`, `INTERSECT`, `EXCEPT`, window functions, `DISTINCT ON`, `LATERAL`,
+   `ILIKE` и `NULLS FIRST/LAST`. `COUNT(*) OVER ()` может вернуть страницу и
+   общее количество одним запросом; для пустой страницы потребуется отдельное
+   получение количества. PostgreSQL JSON и arrays требуют dialect API.
+
+7. **Больше типов.** Добавить корректные codecs и codegen mappings для
+   decimal/numeric, enums, JSON, arrays и пользовательских PostgreSQL types.
+   Неизвестные типы сейчас намеренно останавливают codegen; молчаливое
+   преобразование в неточный базовый тип недопустимо.
+
+8. **Более полный schema snapshot.** Расширить IR, introspection и snapshot
+   обычными, expression и partial indexes, CHECK constraints и triggers.
+   Текущий snapshot сохраняет columns, PK, FK и UNIQUE, но этого недостаточно
+   для полного обнаружения drift производственных индексов и ограничений.
+
+Первые два расширения закрывают прикладные задачи атомарности и построения
+read models. Миграциями `typed-realworld` продолжает управлять dbmate:
+выполнение миграций остаётся отдельным слоем, вне query DSL.
+
 ### 2. Добавить PostgreSQL runtime infrastructure, когда подключение разрешат
 
 - выполнить общую integration suite через Caqti PostgreSQL;
@@ -208,21 +283,21 @@ idempotent inserts, count queries, correlated flags и batch loading tags чер
 
 ### 3. Расширять schema tooling по результатам реальных схем
 
-- добавить codecs для востребованных типов (decimal и enums), не
-  отображая их молча на неточный базовый тип;
-- решить, нужны ли typed FK descriptors и `join_fk` поверх уже доступного
-  arbitrary join;
+- реализовать типы, typed FK descriptors и расширенный snapshot из списка
+  приоритетов RealWorld выше;
 - при появлении прикладной потребности добавить получение snapshot из
   миграций; discovery, codegen, migrations и schema diff остаются отдельными
   слоями. Формат snapshot и offline CLI уже реализованы.
 
 ### 4. Добавлять сложные запросы по прикладной необходимости
 
-Следующий возможный portable слой: derived tables, CTE, `UNION` и window
-functions. PostgreSQL extensions (`ILIKE`, `DISTINCT ON`, conflict targets и
-`DO UPDATE`, JSON, arrays) должны находиться в явно именованных namespaces и
-проходить capability check до rendering. Portable approximation с другой
-семантикой не допускается.
+Начать с UPSERT для PostgreSQL/SQLite, затем derived tables и CTE согласно
+приоритетам RealWorld выше. Остальные конструкции вводить по прикладной
+необходимости. PostgreSQL extensions (`ILIKE`, `DISTINCT ON`, JSON, arrays)
+должны находиться в явно именованных namespaces. Все расширения должны
+проходить capability check до rendering; conflict targets и `DO UPDATE`
+не являются исключительно PostgreSQL-возможностями. Portable approximation
+с другой семантикой не допускается.
 
 ### 5. Производительность и escape hatch
 
@@ -234,6 +309,73 @@ functions. PostgreSQL extensions (`ILIKE`, `DISTINCT ON`, conflict targets и
   появится запрос, который нельзя выразить descriptors;
 - оптимизировать построение больших condition/order lists только по benchmark;
 - проектировать PPX после проверки ручного API внешним RealWorld-приложением.
+
+#### Параметры и возможный `Prepared_query`
+
+Сейчас bind values входят в immutable query AST, но не интерполируются в SQL.
+Каждый вызов execution adapter заново выполняет normalization, validation,
+dialect lowering и rendering, после чего передаёт значения отдельно от SQL с
+placeholders. `Shape.t` уже не содержит сами значения: он определяется
+dialect, SQL template, типами параметров и типами результата. Поэтому запросы
+с одинаковой структурой и разными значениями получают одинаковый shape.
+
+Нельзя кэшировать целый `Compiled_query`: вместе с reusable SQL plan он хранит
+значения конкретного вызова и текущий projection decoder, включая функции из
+`Projection.map`. Безопасный compilation cache должен разделять данные так:
+
+```text
+cached plan:
+  SQL template + parameter layout + codec layout + result column layout
+
+per execution:
+  current parameter values + current projection decoder
+```
+
+Прозрачный cache по shape сохраняет существующий DSL, но для cache lookup всё
+равно требует построить и обойти AST, чтобы определить форму и собрать новые
+значения. Он может пропустить validation, lowering и rendering, однако не
+устраняет всю работу по построению запроса.
+
+Если benchmark покажет необходимость компилировать горячий запрос ровно один
+раз, предпочтителен явный `Prepared_query`. Все его входные параметры должны
+образовывать один OCaml-тип; для прикладного кода это должна быть именованная
+record, а не публичный heterogeneous list или вложенные tuples. Отдельный
+аппликативный descriptor вида `('input, 'slots) Parameters.t` сможет связать
+поля record с `Db_type` и передать callback типизированные parameter
+expressions:
+
+```ocaml
+type find_people =
+  { name : string
+  ; min_id : int64
+  }
+
+let parameters =
+  Parameters.(
+    let+ name = field Db_type.text ~get:(fun input -> input.name)
+    and+ min_id = field Db_type.int64 ~get:(fun input -> input.min_id) in
+    name, min_id)
+
+let find_people =
+  Prepared_query.create parameters ~query:(fun (name, min_id) ->
+    Query.(
+      from Person.table
+      |> where (fun person ->
+        Person.name person =. name &&. Person.id person >=. min_id)
+      |> select Person.projection))
+```
+
+Execution такого значения принимает `find_people` record, извлекает текущие
+значения через getters и связывает их с заранее назначенными slots. Если вход
+меняет структуру SQL, например условно добавляет `WHERE`, это другая форма и
+отдельный prepared plan. Для полноценного API также понадобятся typed
+parameters в `LIMIT`/`OFFSET` и аналогичный `Prepared_command` для DML.
+
+Compilation cache остаётся частью backend-independent ядра. Prepared statement
+cache принадлежит adapter и connection: Caqti и PG'OCaml должны независимо
+управлять собственными backend handles. Реализовывать любой из этих cache
+следует после измерений на RealWorld, поскольку текущая стоимость компиляции
+маленького запроса значительно ниже обычного database round trip.
 
 ## Definition of done текущего релизного среза
 
