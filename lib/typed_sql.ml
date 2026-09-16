@@ -27,6 +27,13 @@ module Insert = Typed_sql_private.Insert
 module Update = Typed_sql_private.Update
 module Delete = Typed_sql_private.Delete
 module Dialect = Typed_sql_private.Dialect
+
+module Postgresql = struct
+  module Query = struct
+    let having = Typed_sql_private.Query.having
+  end
+end
+
 module Compile_error = Typed_sql_private.Compile_error
 module Compiled_query = Typed_sql_private.Compiled_query
 module Compiled_command = Typed_sql_private.Compiled_command

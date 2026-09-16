@@ -60,7 +60,7 @@ let ordered_query ~orders =
 ;;
 
 let compile query =
-  Compiler.compile ~dialect:Dialect.Postgresql query
+  Compiler.compile ~dialect:Dialect.postgresql query
   |> Result.map_error ~f:Compile_error.to_string
   |> Result.ok_or_failwith
   |> Stdlib.Sys.opaque_identity

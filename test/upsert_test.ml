@@ -14,7 +14,7 @@ let ok result =
   result |> Result.map_error ~f:Compile_error.to_string |> Result.ok_or_failwith
 ;;
 
-let compile dialect command = Compiler.compile_command ~dialect command
+let compile dialect command = Compiler.compile_portable_command ~dialect command
 let insert () = Insert.(into table |> set id 1L |> set name "Ada")
 let update f = Insert.(insert () |> on_conflict target |> do_update f)
 
@@ -37,7 +37,7 @@ let%expect_test "conditional composite multi-row UPSERT and RETURNING" =
       |> returning (fun row ->
         Projection.pair (Expr.column row name) (Expr.param Db_type.int 9)))
   in
-  Compiler.compile ~dialect:Dialect.Postgresql query
+  Compiler.compile ~dialect:Dialect.postgresql query
   |> ok
   |> Compiled_query.sql
   |> Stdlib.print_endline;
@@ -67,7 +67,7 @@ let%expect_test "conditional composite multi-row UPSERT and RETURNING" =
       "name",
       $7
     |}];
-  Compiler.compile ~dialect:Dialect.Sqlite query
+  Compiler.compile ~dialect:Dialect.sqlite query
   |> ok
   |> Compiled_query.sql
   |> Stdlib.print_endline;
@@ -231,7 +231,7 @@ let%test_unit "escaped references cannot reach VALUES, RETURNING or other action
       original
       |> returning (fun _ ->
         Projection.expr (Expr.column (Option.value_exn !excluded) id)))
-    |> Compiler.compile ~dialect
+    |> Compiler.compile_portable ~dialect
     |> function
     | Error (Compile_error.Foreign_source _) -> ()
     | _ -> failwith "excluded escaped into RETURNING")
@@ -287,7 +287,7 @@ let%test_unit "capability traversal includes conflict assignments and WHERE" =
   let unsupported =
     Query.(
       from table
-      |> having (fun _ -> Expr.count_all >$ 0L)
+      |> Postgresql.Query.having (fun _ -> Expr.count_all >$ 0L)
       |> limit 1
       |> select_scalar (fun _ -> Expr.param Db_type.int64 1L))
     |> Expr.scalar_subquery
@@ -305,10 +305,7 @@ let%test_unit "capability traversal includes conflict assignments and WHERE" =
         Insert.Conflict_update.(empty |> set name "x" |> where (Expr.is_null unsupported)))
     ]
     ~f:(fun command ->
-      ignore (compile Dialect.Postgresql command |> ok);
-      match compile Dialect.Sqlite command with
-      | Error (Compile_error.Unsupported_operation { dialect = Dialect.Sqlite; _ }) -> ()
-      | _ -> failwith "conflict clause bypassed capability validation")
+      ignore (Compiler.compile_command ~dialect:Dialect.postgresql command |> ok))
 ;;
 
 let%expect_test "dialect lowering applies to the conflict predicate" =

@@ -1,6 +1,9 @@
 open! Base
 
-type 'ctx t =
+type ungrouped
+type grouped
+
+type ('ctx, 'grouping, +'requirements) t =
   { context : 'ctx
   ; ast : Ast.select
   }

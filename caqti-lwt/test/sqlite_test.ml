@@ -436,7 +436,7 @@ let run conn =
     [ { Person.id = 1L; name = "Ada"; role = `Admin; nickname = None } ]
     rows;
   let compiled =
-    match Compiler.compile ~dialect:Dialect.Sqlite query with
+    match Compiler.compile ~dialect:Dialect.sqlite query with
     | Ok compiled -> compiled
     | Error error -> failwith (Compile_error.to_string error)
   in
@@ -484,7 +484,7 @@ let run conn =
   if Option.is_none compiled_row then
     failwith "fetch_opt_compiled returned no row";
   let postgresql =
-    match Compiler.compile ~dialect:Dialect.Postgresql query with
+    match Compiler.compile ~dialect:Dialect.postgresql query with
     | Ok compiled -> compiled
     | Error error -> failwith (Compile_error.to_string error)
   in
@@ -492,14 +492,32 @@ let run conn =
   (match mismatch with
    | Error
        (Typed_sql_caqti_lwt.Dialect_mismatch
-          { compiled = Dialect.Postgresql; connection = Dialect.Sqlite }) -> ()
+          { expected = Dialect.Postgresql; connection = Dialect.Sqlite }) -> ()
    | Error error -> failwith (Typed_sql_caqti_lwt.error_to_string error)
    | Ok _ -> failwith "a PostgreSQL compiled query ran on SQLite");
+  let postgresql_only =
+    Query.(
+      from Person.table
+      |> Postgresql.Query.having (fun _ -> Condition.true_)
+      |> select Person.projection)
+  in
+  let* specific_mismatch =
+    Typed_sql_caqti_lwt.Dialect_specific.fetch
+      ~dialect:Dialect.postgresql
+      ~conn
+      postgresql_only
+  in
+  (match specific_mismatch with
+   | Error
+       (Typed_sql_caqti_lwt.Dialect_mismatch
+          { expected = Dialect.Postgresql; connection = Dialect.Sqlite }) -> ()
+   | Error error -> failwith (Typed_sql_caqti_lwt.error_to_string error)
+   | Ok _ -> failwith "a PostgreSQL-specific query ran on SQLite");
   let no_op_delete =
     Delete.(from Person.table |> where (fun person -> Person.id person =$ -1L) |> command)
   in
   let compiled_delete =
-    match Compiler.compile_command ~dialect:Dialect.Sqlite no_op_delete with
+    match Compiler.compile_command ~dialect:Dialect.sqlite no_op_delete with
     | Ok compiled -> compiled
     | Error error -> failwith (Compile_error.to_string error)
   in

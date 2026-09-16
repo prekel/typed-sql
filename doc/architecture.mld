@@ -38,7 +38,13 @@ Discovery запускается отдельно, а сохранённый gen
 
 {1 Граница типов}
 
-[Expr] и [Projection] сохраняют OCaml-типы во время построения DSL. Compiler
+[Expr] и [Projection] сохраняют OCaml-типы во время построения DSL. Второй
+phantom-параметр выражений, условий, projections и statements накапливает
+requirements dialect: пустой row variant означает portable SQL, а
+[`Postgresql] — требование PostgreSQL. [Compiler.compile] принимает typed
+[Dialect.witness], поэтому PostgreSQL-only statement нельзя передать witness
+SQLite. [Compiler.compile_portable] оставлен для runtime выбора dialect и
+принимает только portable statement. Compiler
 получает type-erased semantic nodes только после того, как публичные функции
 проверили совместимость выражений. Source identity остаётся в AST для проверки
 принадлежности колонок, а SQL aliases назначаются только renderer. Обычная
@@ -111,6 +117,8 @@ Compile-fail tests подтверждают недоступность [Typed_sq
 nullable refs и обязательный scope DML. Дополнительные compile-fail tests
 запрещают доступ приложения к codec views, параметрам, декодерам и shape,
 изменение compiled record и создание private значений через backend API.
+Они также фиксируют, что SQLite witness не принимает [DEFAULT], ungrouped
+PostgreSQL [HAVING] и PostgreSQL requirement внутри subquery.
 
 {1 Граница backend}
 
@@ -127,9 +135,10 @@ parameters и projection, поэтому различает mapped codecs с о�
 generated aliases. PG'OCaml low-level API не сообщает affected rows, поэтому
 его [execute] возвращает [Affected_rows.Unknown].
 
-Caqti adapter может выполнять как deferred DSL values, так и заранее созданные
-[Compiled_query]/[Compiled_command]. Перед compiled-вызовом он проверяет
-dialect соединения. Его opt-in observer измеряет compilation, подготовку Caqti
+Caqti adapter может выполнять portable deferred DSL values и заранее созданные
+[Compiled_query]/[Compiled_command]. Для dialect-specific deferred DSL есть
+[Dialect_specific] с typed witness; перед compilation и перед compiled-вызовом
+adapter проверяет dialect соединения. Его opt-in observer измеряет compilation, подготовку Caqti
 request, database round trip и projection decoding; bind values в событие не
 попадают. Встроенный bounded profiler группирует события по имени, операции,
 режиму выполнения и fingerprint [Shape], не добавляя состояние или эффекты в

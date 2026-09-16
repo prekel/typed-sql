@@ -22,9 +22,9 @@ type error =
   | Unsupported_dialect of string
   (** The connected Caqti driver has no matching typed-sql dialect. *)
   | Dialect_mismatch of
-      { compiled : Typed_sql.Dialect.t
+      { expected : Typed_sql.Dialect.t
       ; connection : Typed_sql.Dialect.t
-      } (** A compiled statement was rendered for a different connection dialect. *)
+      } (** A statement requires a different connection dialect. *)
   | Codec of string
   (** A mapped [Typed_sql.Db_type] rejected parameter encoding or row decoding. *)
   | Schema of string
@@ -156,7 +156,7 @@ val fetch
   :  ?observer:Profile.observer
   -> ?name:string
   -> conn:Caqti_lwt.connection
-  -> 'result Typed_sql.Result_query.t
+  -> ('result, Typed_sql.Dialect.portable) Typed_sql.Result_query.t
   -> ('result list, error) Result.t Lwt.t
 
 (** Execute an already compiled query. Compilation time is absent from the
@@ -174,7 +174,7 @@ val fetch_one
   :  ?observer:Profile.observer
   -> ?name:string
   -> conn:Caqti_lwt.connection
-  -> 'result Typed_sql.Result_query.t
+  -> ('result, Typed_sql.Dialect.portable) Typed_sql.Result_query.t
   -> ('result, error) Result.t Lwt.t
 
 val fetch_one_compiled
@@ -190,7 +190,7 @@ val fetch_opt
   :  ?observer:Profile.observer
   -> ?name:string
   -> conn:Caqti_lwt.connection
-  -> 'result Typed_sql.Result_query.t
+  -> ('result, Typed_sql.Dialect.portable) Typed_sql.Result_query.t
   -> ('result option, error) Result.t Lwt.t
 
 val fetch_opt_compiled
@@ -206,7 +206,7 @@ val execute
   :  ?observer:Profile.observer
   -> ?name:string
   -> conn:Caqti_lwt.connection
-  -> Typed_sql.Command.t
+  -> Typed_sql.Dialect.portable Typed_sql.Command.t
   -> (Typed_sql.Affected_rows.t, error) Result.t Lwt.t
 
 val execute_compiled
@@ -215,6 +215,42 @@ val execute_compiled
   -> conn:Caqti_lwt.connection
   -> Typed_sql.Compiled_command.t
   -> (Typed_sql.Affected_rows.t, error) Result.t Lwt.t
+
+(** Execute a statement whose dialect is selected explicitly. The adapter
+    checks that [conn] uses the selected dialect before compiling it. *)
+module Dialect_specific : sig
+  val fetch
+    :  dialect:'requirements Typed_sql.Dialect.witness
+    -> ?observer:Profile.observer
+    -> ?name:string
+    -> conn:Caqti_lwt.connection
+    -> ('result, 'requirements) Typed_sql.Result_query.t
+    -> ('result list, error) Result.t Lwt.t
+
+  val fetch_one
+    :  dialect:'requirements Typed_sql.Dialect.witness
+    -> ?observer:Profile.observer
+    -> ?name:string
+    -> conn:Caqti_lwt.connection
+    -> ('result, 'requirements) Typed_sql.Result_query.t
+    -> ('result, error) Result.t Lwt.t
+
+  val fetch_opt
+    :  dialect:'requirements Typed_sql.Dialect.witness
+    -> ?observer:Profile.observer
+    -> ?name:string
+    -> conn:Caqti_lwt.connection
+    -> ('result, 'requirements) Typed_sql.Result_query.t
+    -> ('result option, error) Result.t Lwt.t
+
+  val execute
+    :  dialect:'requirements Typed_sql.Dialect.witness
+    -> ?observer:Profile.observer
+    -> ?name:string
+    -> conn:Caqti_lwt.connection
+    -> 'requirements Typed_sql.Command.t
+    -> (Typed_sql.Affected_rows.t, error) Result.t Lwt.t
+end
 
 (** Run [f] inside one transaction on [conn]. [Ok] commits and [Error] rolls
     back. A failed commit is also followed by rollback before its error is

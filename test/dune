@@ -1,6 +1,11 @@
 (library
  (name typed_sql_expect_tests)
- (modules query_test public_api_test schema_snapshot_test upsert_test)
+ (modules
+  capability_test
+  query_test
+  public_api_test
+  schema_snapshot_test
+  upsert_test)
  (libraries base compiler-libs.common typed-sql yojson)
  (inline_tests)
  (preprocess

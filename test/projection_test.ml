@@ -1,11 +1,14 @@
 open! Base
 open Typed_sql
 module B = Typed_sql_backend
-module A : Base.Applicative.S with type 'a t = 'a Projection.t = Projection
+
+module A :
+  Base.Applicative.S2 with type ('a, 'requirements) t = ('a, 'requirements) Projection.t =
+  Projection
 
 let compile_exn dialect projection =
   Query.(from (Table.v_exn "items") |> select (fun _ -> projection))
-  |> Compiler.compile ~dialect
+  |> Compiler.compile_portable ~dialect
   |> Result.map_error ~f:Compile_error.to_string
   |> Result.ok_or_failwith
 ;;

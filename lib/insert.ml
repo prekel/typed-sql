@@ -1,6 +1,6 @@
 open! Base
 
-type 'row t =
+type ('row, +'requirements) t =
   { reference : 'row Table_ref.t
   ; source : Ast.source
   ; rows : Ast.assignment list list
@@ -22,8 +22,8 @@ module Conflict_target = struct
   ;;
 end
 
-type 'row conflict =
-  { insert : 'row t
+type ('row, +'requirements) conflict =
+  { insert : ('row, 'requirements) t
   ; target : 'row Conflict_target.t
   }
 
@@ -33,7 +33,7 @@ module Conflict_update = struct
         ('row, 'base, 'value) Column.t * Ast.assignment_value
         -> 'row assignment
 
-  type 'row t =
+  type ('row, +'requirements) t =
     { assignments : 'row assignment list
     ; where_ : Ast.condition option
     }

@@ -14,7 +14,7 @@ type error =
   | Compile of Typed_sql.Compile_error.t
   | Unsupported_dialect of string
   | Dialect_mismatch of
-      { compiled : Typed_sql.Dialect.t
+      { expected : Typed_sql.Dialect.t
       ; connection : Typed_sql.Dialect.t
       }
   | Codec of string
@@ -28,9 +28,9 @@ type error =
 let error_to_string = function
   | Compile error -> Typed_sql.Compile_error.to_string error
   | Unsupported_dialect dialect -> "unsupported Caqti dialect: " ^ dialect
-  | Dialect_mismatch { compiled; connection } ->
-    "compiled statement uses "
-    ^ Typed_sql.Dialect.to_string compiled
+  | Dialect_mismatch { expected; connection } ->
+    "statement requires "
+    ^ Typed_sql.Dialect.to_string expected
     ^ " but the connection uses "
     ^ Typed_sql.Dialect.to_string connection
   | Codec message -> "codec failed: " ^ message
@@ -710,17 +710,17 @@ let describe_command trace compiled =
     <- Some (List.length (Typed_sql_backend.Compiled_command.parameters compiled)))
 ;;
 
-let compile dialect query =
+let compile_portable dialect query =
   let open Result.Let_syntax in
   let%bind dialect = dialect_of_caqti dialect in
-  Typed_sql.Compiler.compile ~dialect query
+  Typed_sql.Compiler.compile_portable ~dialect query
   |> Result.map_error ~f:(fun error -> Compile error)
 ;;
 
-let compile_command dialect command =
+let compile_portable_command dialect command =
   let open Result.Let_syntax in
   let%bind dialect = dialect_of_caqti dialect in
-  Typed_sql.Compiler.compile_command ~dialect command
+  Typed_sql.Compiler.compile_portable_command ~dialect command
   |> Result.map_error ~f:(fun error -> Compile error)
 ;;
 
@@ -915,7 +915,7 @@ let check_query_dialect trace connection compiled =
     if same_dialect compiled connection then
       Ok ()
     else
-      Error (Dialect_mismatch { compiled; connection })
+      Error (Dialect_mismatch { expected = compiled; connection })
 ;;
 
 let check_command_dialect trace connection compiled =
@@ -927,7 +927,31 @@ let check_command_dialect trace connection compiled =
     if same_dialect compiled connection then
       Ok ()
     else
-      Error (Dialect_mismatch { compiled; connection })
+      Error (Dialect_mismatch { expected = compiled; connection })
+;;
+
+let compile_specific trace ~dialect connection query =
+  match connection_dialect trace connection with
+  | Error error -> Error error
+  | Ok connection ->
+    let expected = Typed_sql.Dialect.kind dialect in
+    if same_dialect expected connection then
+      Typed_sql.Compiler.compile ~dialect query
+      |> Result.map_error ~f:(fun error -> Compile error)
+    else
+      Error (Dialect_mismatch { expected; connection })
+;;
+
+let compile_specific_command trace ~dialect connection command =
+  match connection_dialect trace connection with
+  | Error error -> Error error
+  | Ok connection ->
+    let expected = Typed_sql.Dialect.kind dialect in
+    if same_dialect expected connection then
+      Typed_sql.Compiler.compile_command ~dialect command
+      |> Result.map_error ~f:(fun error -> Compile error)
+    else
+      Error (Dialect_mismatch { expected; connection })
 ;;
 
 let compilation_failure = function
@@ -976,7 +1000,8 @@ let fetch ?observer ?name ~conn query =
     let module Connection = (val conn : Caqti_lwt.CONNECTION) in
     describe_connection_dialect trace Connection.dialect;
     match
-      time_sync trace ~set:set_compile (fun () -> compile Connection.dialect query)
+      time_sync trace ~set:set_compile (fun () ->
+        compile_portable Connection.dialect query)
     with
     | Error error ->
       complete
@@ -992,7 +1017,8 @@ let fetch_one ?observer ?name ~conn query =
     let module Connection = (val conn : Caqti_lwt.CONNECTION) in
     describe_connection_dialect trace Connection.dialect;
     match
-      time_sync trace ~set:set_compile (fun () -> compile Connection.dialect query)
+      time_sync trace ~set:set_compile (fun () ->
+        compile_portable Connection.dialect query)
     with
     | Error error ->
       complete
@@ -1008,7 +1034,8 @@ let fetch_opt ?observer ?name ~conn query =
     let module Connection = (val conn : Caqti_lwt.CONNECTION) in
     describe_connection_dialect trace Connection.dialect;
     match
-      time_sync trace ~set:set_compile (fun () -> compile Connection.dialect query)
+      time_sync trace ~set:set_compile (fun () ->
+        compile_portable Connection.dialect query)
     with
     | Error error ->
       complete
@@ -1025,7 +1052,7 @@ let execute ?observer ?name ~conn command =
     describe_connection_dialect trace Connection.dialect;
     match
       time_sync trace ~set:set_compile (fun () ->
-        compile_command Connection.dialect command)
+        compile_portable_command Connection.dialect command)
     with
     | Error error ->
       complete
@@ -1035,6 +1062,72 @@ let execute ?observer ?name ~conn command =
         (Error error)
     | Ok compiled -> run_execute_compiled trace ~conn compiled)
 ;;
+
+module Dialect_specific = struct
+  let fetch ~dialect ?observer ?name ~conn query =
+    with_trace ?observer ?name ~compiled:false Fetch (fun trace ->
+      let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+      match
+        time_sync trace ~set:set_compile (fun () ->
+          compile_specific trace ~dialect Connection.dialect query)
+      with
+      | Error error ->
+        complete
+          trace
+          ~outcome:(Failed (compilation_failure error))
+          ~row_count:None
+          (Error error)
+      | Ok compiled -> run_fetch_compiled trace ~conn compiled)
+  ;;
+
+  let fetch_one ~dialect ?observer ?name ~conn query =
+    with_trace ?observer ?name ~compiled:false Fetch_one (fun trace ->
+      let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+      match
+        time_sync trace ~set:set_compile (fun () ->
+          compile_specific trace ~dialect Connection.dialect query)
+      with
+      | Error error ->
+        complete
+          trace
+          ~outcome:(Failed (compilation_failure error))
+          ~row_count:None
+          (Error error)
+      | Ok compiled -> run_fetch_one_compiled trace ~conn compiled)
+  ;;
+
+  let fetch_opt ~dialect ?observer ?name ~conn query =
+    with_trace ?observer ?name ~compiled:false Fetch_opt (fun trace ->
+      let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+      match
+        time_sync trace ~set:set_compile (fun () ->
+          compile_specific trace ~dialect Connection.dialect query)
+      with
+      | Error error ->
+        complete
+          trace
+          ~outcome:(Failed (compilation_failure error))
+          ~row_count:None
+          (Error error)
+      | Ok compiled -> run_fetch_opt_compiled trace ~conn compiled)
+  ;;
+
+  let execute ~dialect ?observer ?name ~conn command =
+    with_trace ?observer ?name ~compiled:false Execute (fun trace ->
+      let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+      match
+        time_sync trace ~set:set_compile (fun () ->
+          compile_specific_command trace ~dialect Connection.dialect command)
+      with
+      | Error error ->
+        complete
+          trace
+          ~outcome:(Failed (compilation_failure error))
+          ~row_count:None
+          (Error error)
+      | Ok compiled -> run_execute_compiled trace ~conn compiled)
+  ;;
+end
 
 let transaction ~conn ~f =
   let module Connection = (val conn : Caqti_lwt.CONNECTION) in

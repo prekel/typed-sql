@@ -16,7 +16,11 @@ let id = Column.v_exn items "id" Db_type.int
 let name = Column.nullable_v_exn items "name" Db_type.text
 let projection row = Projection.expr (Expr.column row id)
 let query () = Query.(from items)
-let compile dialect query = Query.(select projection query) |> Compiler.compile ~dialect
+
+let compile dialect query =
+  Query.(select projection query) |> Compiler.compile_portable ~dialect
+;;
+
 let sql dialect query = compile dialect query |> ok_exn |> Compiled_query.sql
 
 let equal_dialect left right =
@@ -75,7 +79,7 @@ let%test_unit "all public database types participate in query shapes" =
         from table
         |> where (fun row -> Expr.column row column =$ value)
         |> select (fun row -> Projection.expr (Expr.column row column)))
-      |> Compiler.compile ~dialect
+      |> Compiler.compile_portable ~dialect
       |> ok_exn
       |> ignore)
   in
@@ -155,7 +159,7 @@ let%test_unit "compiled SQL printers return the canonical execution text" =
   let query = query () |> compile Dialect.Postgresql |> ok_exn in
   let command =
     Insert.(into items |> set id 1 |> command)
-    |> Compiler.compile_command ~dialect:Dialect.Sqlite
+    |> Compiler.compile_command ~dialect:Dialect.sqlite
     |> ok_exn
   in
   assert (
@@ -285,7 +289,7 @@ let%test_unit "foreign sources are rejected in projection, sorting, JOIN and DML
   List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
     check
       (Query.(query () |> select (fun _ -> Projection.expr expression))
-       |> Compiler.compile ~dialect);
+       |> Compiler.compile_portable ~dialect);
     List.iter
       [ Query.(query () |> order_by (fun _ -> expression) `Asc)
       ; Query.(query () |> where (fun row -> Expr.column row id =. expression))
@@ -299,21 +303,21 @@ let%test_unit "foreign sources are rejected in projection, sorting, JOIN and DML
          query ()
          |> inner_join items ~on:(fun _ _ -> expression =$ 0)
          |> select (fun _ -> Projection.expr expression))
-       |> Compiler.compile ~dialect);
+       |> Compiler.compile_portable ~dialect);
     check
-      (Compiler.compile_command
+      (Compiler.compile_portable_command
          ~dialect
          Insert.(into items |> set_expr id expression |> command));
     check
-      (Compiler.compile_command
+      (Compiler.compile_portable_command
          ~dialect
          Update.(table items |> set_expr id expression |> all_rows |> command));
     check
-      (Compiler.compile_command
+      (Compiler.compile_portable_command
          ~dialect
          Delete.(from items |> where (fun _ -> expression =$ 0) |> command));
     check
-      (Compiler.compile
+      (Compiler.compile_portable
          ~dialect
          Insert.(
            into items |> set id 1 |> returning (fun _ -> Projection.expr expression))))
@@ -324,21 +328,21 @@ let%expect_test "invalid DML and pagination diagnostics" =
     Stdlib.Format.printf "%a@." Compile_error.pp (error_exn result)
   in
   print_result
-    (Compiler.compile_command ~dialect:Dialect.Sqlite Insert.(into items |> command));
+    (Compiler.compile_command ~dialect:Dialect.sqlite Insert.(into items |> command));
   [%expect {| INSERT must assign at least one column |}];
   print_result
     (Compiler.compile_command
-       ~dialect:Dialect.Sqlite
+       ~dialect:Dialect.sqlite
        Update.(table items |> all_rows |> command));
   [%expect {| UPDATE must assign at least one column |}];
   print_result
     (Compiler.compile_command
-       ~dialect:Dialect.Sqlite
+       ~dialect:Dialect.sqlite
        Insert.(into items |> set id 1 |> set id 2 |> command));
   [%expect {| column id is assigned more than once |}];
   print_result
     (Compiler.compile
-       ~dialect:Dialect.Sqlite
+       ~dialect:Dialect.sqlite
        Delete.(from items |> all_rows |> returning (fun _ -> Projection.return ())));
   [%expect {| SELECT projection must contain at least one expression |}];
   print_result (compile Dialect.Sqlite Query.(query () |> offset (-1)));
@@ -363,7 +367,7 @@ let%expect_test "multi-assignment UPDATE and DELETE RETURNING" =
       |> returning projection)
   in
   let render dialect query =
-    Compiler.compile ~dialect query |> ok_exn |> Compiled_query.sql
+    Compiler.compile_portable ~dialect query |> ok_exn |> Compiled_query.sql
   in
   Stdlib.print_endline (render Dialect.Postgresql updated);
   [%expect
@@ -429,7 +433,7 @@ let%test_unit "builders are immutable and all_rows clears filters" =
     let compiled = compile dialect base |> ok_exn in
     assert (equal_dialect (Compiled_query.dialect compiled) dialect);
     let render command =
-      let compiled = Compiler.compile_command ~dialect command |> ok_exn in
+      let compiled = Compiler.compile_portable_command ~dialect command |> ok_exn in
       assert (equal_dialect (Compiled_command.dialect compiled) dialect);
       Compiled_command.sql compiled
     in

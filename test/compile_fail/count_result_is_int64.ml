@@ -11,6 +11,7 @@ end
 let query =
   Query.(
     from Person.table
-    |> having (fun person -> Expr.count (Expr.column person Person.id_column) =$ "wrong")
+    |> Postgresql.Query.having (fun person ->
+      Expr.count (Expr.column person Person.id_column) =$ "wrong")
     |> select (fun _ -> Projection.expr Expr.count_all))
 ;;

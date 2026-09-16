@@ -1,8 +1,8 @@
 open! Base
 
-type 'result t =
+type ('result, +'requirements) t =
   { ast : Ast.result_query
-  ; projection : 'result Projection.t
+  ; projection : ('result, 'requirements) Projection.t
   }
 
 let create ast projection = { ast; projection }

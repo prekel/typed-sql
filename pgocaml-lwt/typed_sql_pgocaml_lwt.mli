@@ -47,21 +47,21 @@ val pp_error : Formatter.t -> error -> unit
     Use [Typed_sql.Query.order_by] when the order is significant. *)
 val fetch
   :  conn:'connection Pgocaml.t
-  -> 'result Typed_sql.Result_query.t
+  -> ('result, Typed_sql.Dialect.postgresql) Typed_sql.Result_query.t
   -> ('result list, error) Result.t Lwt.t
 
 (** Execute a query which must return exactly one row. No [LIMIT] is added;
     zero or multiple rows return [Cardinality]. *)
 val fetch_one
   :  conn:'connection Pgocaml.t
-  -> 'result Typed_sql.Result_query.t
+  -> ('result, Typed_sql.Dialect.postgresql) Typed_sql.Result_query.t
   -> ('result, error) Result.t Lwt.t
 
 (** Execute a query which may return zero or one row. No [LIMIT] is added;
     multiple rows return [Cardinality]. *)
 val fetch_opt
   :  conn:'connection Pgocaml.t
-  -> 'result Typed_sql.Result_query.t
+  -> ('result, Typed_sql.Dialect.postgresql) Typed_sql.Result_query.t
   -> ('result option, error) Result.t Lwt.t
 
 (** Execute a command. PG'OCaml does not expose a portable affected-row count,
@@ -69,7 +69,7 @@ val fetch_opt
     result rows return [Cardinality]. *)
 val execute
   :  conn:'connection Pgocaml.t
-  -> Typed_sql.Command.t
+  -> Typed_sql.Dialect.postgresql Typed_sql.Command.t
   -> (Typed_sql.Affected_rows.t, error) Result.t Lwt.t
 
 (** Run [f] in a PostgreSQL transaction. [Ok] commits and [Error] rolls back.

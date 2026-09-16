@@ -80,7 +80,7 @@ let main () =
          |> caqti_or_fail
        in
        let compiled =
-         Compiler.compile ~dialect:Dialect.Sqlite (query 1L)
+         Compiler.compile ~dialect:Dialect.sqlite (query 1L)
          |> Result.map_error ~f:Compile_error.to_string
          |> Result.ok_or_failwith
        in

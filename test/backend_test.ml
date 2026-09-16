@@ -4,7 +4,7 @@ open Infix
 module B = Typed_sql_backend
 
 let compile_exn dialect query =
-  Compiler.compile ~dialect query
+  Compiler.compile_portable ~dialect query
   |> Result.map_error ~f:Compile_error.to_string
   |> Result.ok_or_failwith
 ;;
@@ -75,7 +75,7 @@ let%test_unit "command shapes expose their stable representation" =
   let id = Column.v_exn table "id" Db_type.int64 in
   let compiled =
     Insert.(into table |> set id 1L |> command)
-    |> Compiler.compile_command ~dialect:Dialect.Sqlite
+    |> Compiler.compile_command ~dialect:Dialect.sqlite
     |> Result.map_error ~f:Compile_error.to_string
     |> Result.ok_or_failwith
   in

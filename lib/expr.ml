@@ -1,6 +1,6 @@
 open! Base
 
-type 'a t =
+type ('a, +'requirements) t =
   { node : Ast.expr
   ; db_type : 'a Db_type.t
   }
@@ -34,12 +34,21 @@ let to_nullable expression =
 
 let param db_type value = { node = Ast.Param (Db_type.Value (db_type, value)); db_type }
 
-let compare : type a. Ast.comparison -> a t -> a t -> Condition.t =
+let compare
+  : type a requirements.
+    Ast.comparison
+    -> (a, requirements) t
+    -> (a, requirements) t
+    -> requirements Condition.t
+  =
   fun comparison left right ->
   Condition.create (Ast.Compare (comparison, left.node, right.node))
 ;;
 
-let compare_value : type a. Ast.comparison -> a t -> a -> Condition.t =
+let compare_value
+  : type a requirements.
+    Ast.comparison -> (a, requirements) t -> a -> requirements Condition.t
+  =
   fun comparison left value -> compare comparison left (param left.db_type value)
 ;;
 
@@ -94,23 +103,57 @@ let case branches ~else_ =
   }
 ;;
 
-let arithmetic operator left right =
+let arithmetic
+  : type a requirements.
+    Ast.arithmetic -> (a, requirements) t -> (a, requirements) t -> (a, requirements) t
+  =
+  fun operator left right ->
   { node = Ast.Arithmetic (operator, left.node, right.node); db_type = left.db_type }
 ;;
 
 module type Arithmetic = sig
   type value
 
-  val add : value t -> value t -> value t
-  val subtract : value t -> value t -> value t
-  val multiply : value t -> value t -> value t
-  val divide : value t -> value t -> value t
+  val add
+    :  (value, 'requirements) t
+    -> (value, 'requirements) t
+    -> (value, 'requirements) t
+
+  val subtract
+    :  (value, 'requirements) t
+    -> (value, 'requirements) t
+    -> (value, 'requirements) t
+
+  val multiply
+    :  (value, 'requirements) t
+    -> (value, 'requirements) t
+    -> (value, 'requirements) t
+
+  val divide
+    :  (value, 'requirements) t
+    -> (value, 'requirements) t
+    -> (value, 'requirements) t
 
   module Infix : sig
-    val ( +. ) : value t -> value t -> value t
-    val ( -. ) : value t -> value t -> value t
-    val ( *. ) : value t -> value t -> value t
-    val ( /. ) : value t -> value t -> value t
+    val ( +. )
+      :  (value, 'requirements) t
+      -> (value, 'requirements) t
+      -> (value, 'requirements) t
+
+    val ( -. )
+      :  (value, 'requirements) t
+      -> (value, 'requirements) t
+      -> (value, 'requirements) t
+
+    val ( *. )
+      :  (value, 'requirements) t
+      -> (value, 'requirements) t
+      -> (value, 'requirements) t
+
+    val ( /. )
+      :  (value, 'requirements) t
+      -> (value, 'requirements) t
+      -> (value, 'requirements) t
   end
 end
 
@@ -119,10 +162,10 @@ module Arithmetic (Value : sig
   end) : Arithmetic with type value = Value.t = struct
   type value = Value.t
 
-  let add = arithmetic Ast.Add
-  let subtract = arithmetic Ast.Subtract
-  let multiply = arithmetic Ast.Multiply
-  let divide = arithmetic Ast.Divide
+  let add left right = arithmetic Ast.Add left right
+  let subtract left right = arithmetic Ast.Subtract left right
+  let multiply left right = arithmetic Ast.Multiply left right
+  let divide left right = arithmetic Ast.Divide left right
 
   module Infix = struct
     let ( +. ) = add

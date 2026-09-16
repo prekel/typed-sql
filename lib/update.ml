@@ -3,7 +3,7 @@ open! Base
 type unscoped
 type scoped
 
-type ('row, 'scope) t =
+type ('row, 'scope, +'requirements) t =
   { reference : 'row Table_ref.t
   ; source : Ast.source
   ; assignments : Ast.assignment list

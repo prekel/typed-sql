@@ -15,7 +15,7 @@ let compile value =
     from Item.table
     |> where (fun item -> Item.name item =$ value)
     |> select (fun item -> Projection.expr (Item.name item)))
-  |> Compiler.compile ~dialect:Dialect.Sqlite
+  |> Compiler.compile ~dialect:Dialect.sqlite
 ;;
 
 let placeholder_count_matches =

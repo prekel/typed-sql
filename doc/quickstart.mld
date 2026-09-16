@@ -25,7 +25,8 @@ module Person = struct
 end
 ]}
 
-[Projection] реализует [Base.Applicative.S]. С [ppx_let] сборку результата
+[Projection] реализует [Base.Applicative.S2]: второй phantom-параметр хранит
+требования к SQL dialect. С [ppx_let] сборку результата
 можно записать через [let%map]:
 
 {[
@@ -77,15 +78,33 @@ SQL можно проверить до выполнения:
 {[
 let sql =
   by_name "Ada"
-  |> Compiler.compile ~dialect:Dialect.Postgresql
+  |> Compiler.compile ~dialect:Dialect.postgresql
   |> Result.map ~f:Compiled_query.sql
 ]}
+
+Обычный DSL строит portable query: одно и то же значение можно передать
+[Compiler.compile] с [Dialect.postgresql] или [Dialect.sqlite]. Witness выбирает
+dialect и одновременно проверяет требования query. Например, SQL [DEFAULT] в
+[Insert] и [Update] добавляет требование PostgreSQL, поэтому его нельзя
+скомпилировать с [Dialect.sqlite].
+
+Portable [Query.having] доступен только после [Query.group_by]. PostgreSQL
+разрешает [HAVING] без [GROUP BY] как одну aggregate group; этот вариант явно
+записывается через [Postgresql.Query.having] и требует
+[Dialect.postgresql]. Требование сохраняется внутри scalar subquery, projection
+и DML assignment.
 
 На Caqti Lwt connection запрос выполняется отдельно:
 
 {[
 Typed_sql_caqti_lwt.fetch ~conn (by_name "Ada")
 ]}
+
+Обычные функции Caqti adapter принимают только portable statement, так что
+выбор dialect остаётся свойством connection. Для PostgreSQL-specific query
+используется [Typed_sql_caqti_lwt.Dialect_specific.fetch
+~dialect:Dialect.postgresql ~conn query]; adapter до compilation сверяет этот
+witness с dialect connection.
 
 Приложение должно самостоятельно подключить нужный Caqti driver. Параметры
 остаются отдельными значениями и не вставляются в SQL string.

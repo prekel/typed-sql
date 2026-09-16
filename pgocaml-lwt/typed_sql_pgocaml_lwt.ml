@@ -254,7 +254,7 @@ let run ~conn ~sql ~parameters =
 ;;
 
 let fetch ~conn query =
-  match Typed_sql.Compiler.compile ~dialect:Typed_sql.Dialect.Postgresql query with
+  match Typed_sql.Compiler.compile ~dialect:Typed_sql.Dialect.postgresql query with
   | Error error -> Lwt.return (Error (Compile error))
   | Ok compiled ->
     let open Lwt.Syntax in
@@ -298,7 +298,7 @@ let fetch_opt ~conn query =
 
 let execute ~conn command =
   match
-    Typed_sql.Compiler.compile_command ~dialect:Typed_sql.Dialect.Postgresql command
+    Typed_sql.Compiler.compile_command ~dialect:Typed_sql.Dialect.postgresql command
   with
   | Error error -> Lwt.return (Error (Compile error))
   | Ok compiled ->

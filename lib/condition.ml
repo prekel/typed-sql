@@ -1,6 +1,6 @@
 open! Base
 
-type t = Ast.condition
+type +'requirements t = Ast.condition
 
 let true_ = Ast.True
 let false_ = Ast.False

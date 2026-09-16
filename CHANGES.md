@@ -1,5 +1,31 @@
 # История изменений
 
+## 0.1.2 — 16 сентября 2026
+
+### Добавлено
+
+- Статические dialect requirements для выражений, условий, projections,
+  запросов и DML. Portable statements принимают PostgreSQL и SQLite witnesses,
+  а dialect-specific операции отклоняются несовместимым compiler witness ещё
+  при typechecking.
+- `Postgresql.Query.having` для PostgreSQL `HAVING` без `GROUP BY` и
+  compile-fail проверки распространения requirements через scalar subqueries,
+  projections и assignments.
+- `Typed_sql_caqti_lwt.Dialect_specific` для явного выполнения
+  dialect-specific statements с проверкой dialect текущего connection.
+
+### Изменено
+
+- `Compiler.compile` и `Compiler.compile_command` принимают типизированные
+  `Dialect.postgresql`/`Dialect.sqlite`; runtime-выбор для portable statements
+  вынесен в `compile_portable` и `compile_portable_command`.
+- Обычные функции Caqti adapter принимают только portable statements, а
+  PG'OCaml adapter — statements, совместимые с PostgreSQL.
+- `Insert.default`, `Update.default` и PostgreSQL `HAVING` накапливают
+  PostgreSQL requirement вместо поздней ошибки SQLite compiler.
+- `Projection` реализует `Base.Applicative.S2`, сохраняя dialect requirement
+  при аппликативной композиции.
+
 ## 0.1.1 — 16 сентября 2026
 
 ### Добавлено

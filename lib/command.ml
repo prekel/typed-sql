@@ -1,6 +1,6 @@
 open! Base
 
-type t = Ast.command
+type +'requirements t = Ast.command
 
 let create command = command
 let ast command = command

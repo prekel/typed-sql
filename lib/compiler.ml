@@ -42,7 +42,7 @@ let command_shape ~dialect ~template ~parameters =
   |> Shape.create
 ;;
 
-let compile ~dialect query =
+let compile_for_kind ~dialect query =
   let ast = Result_query.ast query |> Normalizer.result_query in
   let open Result.Let_syntax in
   let%bind () = Validator.result_query ast in
@@ -50,10 +50,14 @@ let compile ~dialect query =
   let template, parameters = Renderer.result_query lowered in
   let projection = Result_query.projection query in
   let shape = shape ~dialect ~template ~parameters ~projection in
+  let projection = Projection.erase projection in
   Compiled_query.create ~dialect ~template ~parameters ~projection ~shape
 ;;
 
-let compile_command ~dialect command =
+let compile ~dialect query = compile_for_kind ~dialect:(Dialect.kind dialect) query
+let compile_portable = compile_for_kind
+
+let compile_command_for_kind ~dialect command =
   let ast = Command.ast command |> Normalizer.command in
   let open Result.Let_syntax in
   let%bind () = Validator.command ast in
@@ -62,3 +66,9 @@ let compile_command ~dialect command =
   let shape = command_shape ~dialect ~template ~parameters in
   Compiled_command.create ~dialect ~template ~parameters ~shape
 ;;
+
+let compile_command ~dialect command =
+  compile_command_for_kind ~dialect:(Dialect.kind dialect) command
+;;
+
+let compile_portable_command = compile_command_for_kind

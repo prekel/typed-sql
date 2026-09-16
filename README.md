@@ -187,7 +187,7 @@ round trip и декодирование. Большое время `database` �
 
 ```ocaml
 let compiled =
-  Typed_sql.Compiler.compile ~dialect:Typed_sql.Dialect.Sqlite (query "Ada")
+  Typed_sql.Compiler.compile ~dialect:Typed_sql.Dialect.sqlite (query "Ada")
 
 let fetch_compiled conn =
   match compiled with

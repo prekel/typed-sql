@@ -28,27 +28,27 @@ let () =
   ignore first_row;
   List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
     Query.(from First.table |> select First.projection)
-    |> Compiler.compile ~dialect
+    |> Compiler.compile_portable ~dialect
     |> Result.map_error ~f:Compile_error.to_string
     |> Result.ok_or_failwith
     |> ignore;
     Query.(from Second.table |> select Second.projection)
-    |> Compiler.compile ~dialect
+    |> Compiler.compile_portable ~dialect
     |> Result.map_error ~f:Compile_error.to_string
     |> Result.ok_or_failwith
     |> ignore;
     Query.(from Third.table |> select Third.projection)
-    |> Compiler.compile ~dialect
+    |> Compiler.compile_portable ~dialect
     |> Result.map_error ~f:Compile_error.to_string
     |> Result.ok_or_failwith
     |> ignore;
     Query.(from Fourth.table |> select Fourth.projection)
-    |> Compiler.compile ~dialect
+    |> Compiler.compile_portable ~dialect
     |> Result.map_error ~f:Compile_error.to_string
     |> Result.ok_or_failwith
     |> ignore;
     Query.(from Fifth.table |> select Fifth.projection)
-    |> Compiler.compile ~dialect
+    |> Compiler.compile_portable ~dialect
     |> Result.map_error ~f:Compile_error.to_string
     |> Result.ok_or_failwith
     |> ignore)

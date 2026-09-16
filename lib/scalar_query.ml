@@ -1,6 +1,6 @@
 open! Base
 
-type 'a t =
+type ('a, +'requirements) t =
   { ast : Ast.select
   ; db_type : 'a Db_type.t
   }

@@ -64,7 +64,7 @@ module Resource = struct
 end
 
 let compile_exn dialect query =
-  match Compiler.compile ~dialect query with
+  match Compiler.compile_portable ~dialect query with
   | Ok compiled -> compiled
   | Error error -> failwith (Compile_error.to_string error)
 ;;
@@ -168,7 +168,7 @@ let%test "escaped table reference is rejected" =
       |> where (fun _ -> Person.name foreign =$ "Ada")
       |> select Person.projection)
   in
-  match Compiler.compile ~dialect:Dialect.Sqlite query with
+  match Compiler.compile ~dialect:Dialect.sqlite query with
   | Error (Compile_error.Foreign_source _) -> true
   | _ -> false
 ;;
@@ -176,11 +176,11 @@ let%test "escaped table reference is rejected" =
 let%expect_test "invalid limits and empty projections are validation errors" =
   let empty = Query.(from Person.table |> select (fun _ -> Projection.return ())) in
   let negative = Query.(from Person.table |> limit (-1) |> select Person.projection) in
-  (match Compiler.compile ~dialect:Dialect.Sqlite empty with
+  (match Compiler.compile ~dialect:Dialect.sqlite empty with
    | Ok _ -> failwith "unexpected success"
    | Error error -> Stdlib.print_endline (Compile_error.to_string error));
   [%expect {| SELECT projection must contain at least one expression |}];
-  (match Compiler.compile ~dialect:Dialect.Sqlite negative with
+  (match Compiler.compile ~dialect:Dialect.sqlite negative with
    | Ok _ -> failwith "unexpected success"
    | Error error -> Stdlib.print_endline (Compile_error.to_string error));
   [%expect {| LIMIT must be non-negative, got -1 |}]
@@ -249,13 +249,13 @@ let%expect_test "joins use deterministic aliases and LEFT JOIN makes its side nu
 ;;
 
 let compile_result_exn dialect query =
-  match Compiler.compile ~dialect query with
+  match Compiler.compile_portable ~dialect query with
   | Ok compiled -> compiled
   | Error error -> failwith (Compile_error.to_string error)
 ;;
 
 let compile_command_exn dialect command =
-  match Compiler.compile_command ~dialect command with
+  match Compiler.compile_portable_command ~dialect command with
   | Ok compiled -> compiled
   | Error error -> failwith (Compile_error.to_string error)
 ;;
@@ -346,7 +346,10 @@ let%expect_test "multi-row INSERT, DEFAULT, conflict policy, and UPDATE FROM" =
     |> default Person.id_column
     |> set Person.name_column "Ada"
     |> command)
-  |> compile_command_exn Dialect.Postgresql
+  |> Compiler.compile_command ~dialect:Dialect.postgresql
+  |> ( function
+   | Ok compiled -> compiled
+   | Error error -> failwith (Compile_error.to_string error) )
   |> Compiled_command.sql
   |> Stdlib.print_endline;
   [%expect
@@ -507,7 +510,10 @@ let%expect_test "multi-row INSERT, DEFAULT, conflict policy, and UPDATE FROM" =
       (t0."id" = t1."person_id")
     |}];
   Update.(table Person.table |> default Person.name_column |> all_rows |> command)
-  |> compile_command_exn Dialect.Postgresql
+  |> Compiler.compile_command ~dialect:Dialect.postgresql
+  |> ( function
+   | Ok compiled -> compiled
+   | Error error -> failwith (Compile_error.to_string error) )
   |> Compiled_command.sql
   |> Stdlib.print_endline;
   [%expect
@@ -531,28 +537,13 @@ let%expect_test "DML validation and capability diagnostics" =
       ; (fun row -> row |> set Person.id_column 2L)
       ]
     |> command)
-  |> Compiler.compile_command ~dialect:Dialect.Sqlite
+  |> Compiler.compile_command ~dialect:Dialect.sqlite
   |> print_error;
   [%expect {| INSERT row 2 assigns columns [id], expected [id, name] |}];
   Insert.(rows Person.table [ Fn.id; Fn.id ] |> command)
-  |> Compiler.compile_command ~dialect:Dialect.Sqlite
+  |> Compiler.compile_command ~dialect:Dialect.sqlite
   |> print_error;
   [%expect {| INSERT row 1 has no assignments |}];
-  Insert.(into Person.table |> default Person.id_column |> command)
-  |> Compiler.compile_command ~dialect:Dialect.Sqlite
-  |> print_error;
-  [%expect {| INSERT DEFAULT is not supported by the sqlite dialect |}];
-  Insert.(
-    into Person.table
-    |> default Person.id_column
-    |> returning (fun person -> Projection.expr (Person.id person)))
-  |> Compiler.compile ~dialect:Dialect.Sqlite
-  |> print_error;
-  [%expect {| INSERT DEFAULT is not supported by the sqlite dialect |}];
-  Update.(table Person.table |> default Person.name_column |> all_rows |> command)
-  |> Compiler.compile_command ~dialect:Dialect.Sqlite
-  |> print_error;
-  [%expect {| UPDATE SET DEFAULT is not supported by the sqlite dialect |}];
   let duplicate_target =
     Insert.Conflict_target.(column Person.id_column |> add Person.id_column)
   in
@@ -562,7 +553,7 @@ let%expect_test "DML validation and capability diagnostics" =
     |> on_conflict duplicate_target
     |> do_nothing
     |> command)
-  |> Compiler.compile_command ~dialect:Dialect.Postgresql
+  |> Compiler.compile_command ~dialect:Dialect.postgresql
   |> print_error;
   [%expect {| ON CONFLICT target contains column id more than once |}];
   Insert.(
@@ -571,7 +562,7 @@ let%expect_test "DML validation and capability diagnostics" =
     |> on_conflict (Conflict_target.column Person.id_column)
     |> do_update (fun ~existing:_ ~excluded:_ -> Conflict_update.empty)
     |> command)
-  |> Compiler.compile_command ~dialect:Dialect.Sqlite
+  |> Compiler.compile_command ~dialect:Dialect.sqlite
   |> print_error;
   [%expect {| ON CONFLICT DO UPDATE must assign at least one column |}]
 ;;
@@ -957,7 +948,7 @@ let%test_unit "GROUP BY compares every public arithmetic and string function" =
         |> select (fun person -> Projection.pair (make_expression person) Expr.count_all))
     in
     List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
-      match Compiler.compile ~dialect query with
+      match Compiler.compile_portable ~dialect query with
       | Ok _ -> ()
       | Error error -> failwith (Compile_error.to_string error))
   in
@@ -979,7 +970,7 @@ let%test_unit "GROUP BY compares every public arithmetic and string function" =
         |> group_by group
         |> select (fun person -> Projection.expr (projection person)))
     in
-    match Compiler.compile ~dialect:Dialect.Sqlite query with
+    match Compiler.compile ~dialect:Dialect.sqlite query with
     | Error Compile_error.Ungrouped_expression -> ()
     | Error error -> failwith (Compile_error.to_string error)
     | Ok _ -> failwith "different expressions were treated as the same group"
@@ -998,7 +989,7 @@ let%test_unit "GROUP BY compares every public arithmetic and string function" =
 
 let%expect_test "aggregate validation rejects invalid SQL scopes" =
   let print_error query =
-    match Compiler.compile ~dialect:Dialect.Sqlite query with
+    match Compiler.compile ~dialect:Dialect.sqlite query with
     | Ok _ -> failwith "expected aggregate validation error"
     | Error error -> Stdlib.print_endline (Compile_error.to_string error)
   in
@@ -1115,7 +1106,7 @@ let%expect_test "scalar subqueries are nullable and require a cardinality proof"
     Query.(
       from Person.table |> select (fun _ -> Projection.expr (Expr.scalar_subquery scalar)))
   in
-  (match Compiler.compile ~dialect:Dialect.Sqlite query with
+  (match Compiler.compile ~dialect:Dialect.sqlite query with
    | Ok _ -> failwith "unbounded scalar subquery unexpectedly compiled"
    | Error error -> Stdlib.print_endline (Compile_error.to_string error));
   [%expect {| scalar subquery requires LIMIT 0/1 or a local aggregate without GROUP BY |}];
@@ -1192,10 +1183,16 @@ let%expect_test "HAVING establishes aggregate context" =
   let query =
     Query.(
       from Person.table
-      |> having (fun _ -> Condition.true_)
+      |> Postgresql.Query.having (fun _ -> Condition.true_)
       |> select (fun _ -> Projection.expr (Expr.param Db_type.int 1)))
   in
-  query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
+  query
+  |> Compiler.compile ~dialect:Dialect.postgresql
+  |> ( function
+   | Ok compiled -> compiled
+   | Error error -> failwith (Compile_error.to_string error) )
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
@@ -1204,19 +1201,13 @@ let%expect_test "HAVING establishes aggregate context" =
     HAVING
       TRUE
     |}];
-  (match Compiler.compile ~dialect:Dialect.Sqlite query with
-   | Error (Compile_error.Unsupported_operation { operation; dialect = Dialect.Sqlite })
-     -> Stdlib.print_endline operation
-   | Error error -> failwith (Compile_error.to_string error)
-   | Ok _ -> failwith "SQLite accepted HAVING without aggregation");
-  [%expect {| HAVING without GROUP BY or an aggregate projection |}];
   let query =
     Query.(
       from Person.table
-      |> having (fun person -> Person.id person >$ 0L)
+      |> Postgresql.Query.having (fun person -> Person.id person >$ 0L)
       |> select (fun _ -> Projection.expr Expr.count_all))
   in
-  match Compiler.compile ~dialect:Dialect.Postgresql query with
+  match Compiler.compile ~dialect:Dialect.postgresql query with
   | Error Compile_error.Ungrouped_expression -> ()
   | Error error -> failwith (Compile_error.to_string error)
   | Ok _ -> failwith "ungrouped HAVING column unexpectedly compiled"
@@ -1226,7 +1217,7 @@ let%test_unit
     "scalar aggregate proofs and nested SQLite capability checks use public builders"
   =
   let compile query =
-    match Compiler.compile ~dialect:Dialect.Sqlite query with
+    match Compiler.compile ~dialect:Dialect.sqlite query with
     | Ok _ -> ()
     | Error error -> failwith (Compile_error.to_string error)
   in
@@ -1253,7 +1244,7 @@ let%test_unit
     Expr.scalar_subquery
       Query.(
         from Department.table
-        |> having (fun _ -> Condition.true_)
+        |> Postgresql.Query.having (fun _ -> Condition.true_)
         |> limit 1
         |> select_scalar (fun _ -> Expr.param Db_type.text "fallback"))
   in
@@ -1264,10 +1255,9 @@ let%test_unit
       |> all_rows
       |> command)
   in
-  (match Compiler.compile_command ~dialect:Dialect.Sqlite command with
-   | Error (Compile_error.Unsupported_operation { dialect = Dialect.Sqlite; _ }) -> ()
-   | Error error -> failwith (Compile_error.to_string error)
-   | Ok _ -> failwith "SQLite command accepted nested unsupported HAVING");
+  (match Compiler.compile_command ~dialect:Dialect.postgresql command with
+   | Ok _ -> ()
+   | Error error -> failwith (Compile_error.to_string error));
   let returning =
     Update.(
       table Person.table
@@ -1275,10 +1265,9 @@ let%test_unit
       |> all_rows
       |> returning (fun _ -> Projection.expr unsupported_scalar))
   in
-  match Compiler.compile ~dialect:Dialect.Sqlite returning with
-  | Error (Compile_error.Unsupported_operation { dialect = Dialect.Sqlite; _ }) -> ()
+  match Compiler.compile ~dialect:Dialect.postgresql returning with
+  | Ok _ -> ()
   | Error error -> failwith (Compile_error.to_string error)
-  | Ok _ -> failwith "SQLite RETURNING accepted nested unsupported HAVING"
 ;;
 
 let%expect_test "negated subqueries render explicitly" =
@@ -1440,16 +1429,22 @@ let%test_unit "public edge paths preserve normalized semantics" =
   let repeated_having =
     Query.(
       from Person.table
-      |> having (fun _ -> Expr.count_all >$ 0L)
-      |> having (fun _ -> Expr.count_all <$ 10L)
+      |> Postgresql.Query.having (fun _ -> Expr.count_all >$ 0L)
+      |> Postgresql.Query.having (fun _ -> Expr.count_all <$ 10L)
       |> select (fun _ -> Projection.expr Expr.count_all))
-    |> compile_exn Dialect.Sqlite
+    |> Compiler.compile ~dialect:Dialect.postgresql
+    |> function
+    | Ok compiled -> compiled
+    | Error error -> failwith (Compile_error.to_string error)
   in
   assert (String.is_substring (Compiled_query.sql repeated_having) ~substring:"AND ");
   Insert.(rows Person.table [] |> set Person.id_column 7L |> command)
   |> compile_command_exn Dialect.Sqlite
   |> ignore;
   Insert.(rows Person.table [] |> default Person.id_column |> command)
-  |> compile_command_exn Dialect.Postgresql
+  |> Compiler.compile_command ~dialect:Dialect.postgresql
+  |> ( function
+   | Ok compiled -> compiled
+   | Error error -> failwith (Compile_error.to_string error) )
   |> ignore
 ;;

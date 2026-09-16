@@ -87,7 +87,7 @@ let%expect_test "private inspection preserves public query types and source iden
   let projection = Result_query.projection original in
   let ast = { ast with A.projection = Projection.expressions projection } in
   let rebuilt = Result_query.create (A.Select ast) projection in
-  let compile query = Compiler.compile ~dialect:Dialect.Sqlite query |> ok_exn in
+  let compile query = Compiler.compile ~dialect:Dialect.sqlite query |> ok_exn in
   let original, rebuilt = compile original, compile rebuilt in
   assert (Shape.equal (Compiled_query.shape original) (Compiled_query.shape rebuilt));
   (match Projection.expressions projection with
@@ -218,7 +218,7 @@ let%expect_test "validator rejects malformed private conflict clauses" =
 
 let%test "private commands reach compiler validation" =
   let invalid = command A.Update [] |> Command.create in
-  match Compiler.compile_command ~dialect:Dialect.Sqlite invalid with
+  match Compiler.compile_command ~dialect:Dialect.sqlite invalid with
   | Error (Compile_error.Empty_assignments `Update) -> true
   | _ -> false
 ;;
@@ -237,18 +237,20 @@ let%test_unit "private UPSERT DEFAULT reaches dialect capability checking" =
     }
   in
   let command = Command.create ast in
-  ignore (Compiler.compile_command ~dialect:Dialect.Postgresql command |> ok_exn);
-  match Compiler.compile_command ~dialect:Dialect.Sqlite command with
+  ignore (Compiler.compile_command ~dialect:Dialect.postgresql command |> ok_exn);
+  match Compiler.compile_command ~dialect:Dialect.sqlite command with
   | Error (Compile_error.Unsupported_operation { operation; dialect = Dialect.Sqlite }) ->
     assert (String.equal operation "ON CONFLICT DO UPDATE SET DEFAULT")
   | _ -> failwith "SQLite accepted an UPSERT DEFAULT assignment"
 ;;
 
 let%expect_test "private constructors share opaque public types" =
-  let expression : int Expr.t =
+  let expression : (int, Dialect.portable) Expr.t =
     Expr.create (A.Param (Db_type.Value (Db_type.int, 42))) Db_type.int
   in
-  let condition : Condition.t = Condition.create (A.Is_not_null (Expr.node expression)) in
+  let condition : Dialect.portable Condition.t =
+    Condition.create (A.Is_not_null (Expr.node expression))
+  in
   (match Condition.node condition with
    | A.Is_not_null (A.Param _) -> ()
    | _ -> failwith "condition representation changed");
@@ -259,7 +261,12 @@ let%expect_test "private constructors share opaque public types" =
   let shape : Shape.t = Shape.create (Template.shape_string template) in
   let parameters = [ Db_type.Value (Db_type.int, 42) ] in
   let compiled : int Compiled_query.t =
-    Compiled_query.create ~dialect:Dialect.Sqlite ~template ~parameters ~projection ~shape
+    Compiled_query.create
+      ~dialect:Dialect.Sqlite
+      ~template
+      ~parameters
+      ~projection:(Projection.erase projection)
+      ~shape
   in
   assert (Shape.equal shape (Compiled_query.shape compiled));
   Stdlib.print_endline (Compiled_query.sql compiled);

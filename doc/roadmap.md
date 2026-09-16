@@ -1,6 +1,6 @@
 # Дорожная карта
 
-Состояние проекта на 15 сентября 2026 года. Документ сопоставляет текущую
+Состояние проекта на 16 сентября 2026 года. Документ сопоставляет текущую
 реализацию с исходным [first_plan.md](first_plan.md), фиксирует завершённый
 релизный срез и перечисляет следующую работу. Приложение RealWorld будет жить в
 отдельном репозитории и использовать `typed-sql` вместе с `../typed-endpoint`.
@@ -41,9 +41,9 @@ constructors, codec views, packed parameters, renderer helpers и decoder IR.
   `CURRENT_TIMESTAMP`.
 
 Aggregate validator запрещает aggregates в `WHERE`, `JOIN ON` и `GROUP BY`,
-nested aggregates и non-grouped expressions. Наличие `HAVING` создаёт
-aggregate context; SQLite отклоняет `HAVING` без `GROUP BY` и aggregate в
-projection через capability error. Точное составное выражение из
+nested aggregates и non-grouped expressions. Portable `HAVING` доступен после
+`GROUP BY`. PostgreSQL-вариант без `GROUP BY` строится явным
+`Postgresql.Query.having` и требует PostgreSQL уже в типе statement. Точное составное выражение из
 columns, arithmetic и portable string functions можно повторить в projection и
 `ORDER BY` после `GROUP BY`.
 
@@ -73,8 +73,20 @@ assignments и предикат обновления. Повторные пре�
 Builder поддерживает `set_opt` и `set_expr_opt`. UPSERT совместим с
 multi-row `VALUES` и `RETURNING`; пустые или повторные update assignments и
 повторные target columns отклоняются compiler. SQLite не поддерживает
-`DEFAULT` внутри `VALUES` и `UPDATE SET DEFAULT`, поэтому compiler возвращает
-`Unsupported_operation`, не подменяя семантику.
+`DEFAULT` внутри `VALUES` и `UPDATE SET DEFAULT`. Эти builders добавляют
+PostgreSQL requirement, поэтому SQLite witness и portable Caqti API отклоняют
+такой statement при typechecking, не подменяя семантику.
+
+### Requirements dialect
+
+Публичные `Expr`, `Condition`, `Projection`, query и DML builders несут
+covariant phantom requirement. Portable statement можно компилировать обоими
+static witnesses: `Dialect.postgresql` и `Dialect.sqlite`. PostgreSQL-only
+operation добавляет [`Postgresql], а requirement проходит через subquery,
+projection, UPSERT и assignments. Runtime `Dialect.t` остаётся только у
+`Compiler.compile_portable` и обычных Caqti функций, которые принимают
+исключительно portable statements. Для явного dialect-specific выполнения
+Caqti предоставляет `Dialect_specific` и сверяет witness с connection.
 
 ### Execution adapters
 

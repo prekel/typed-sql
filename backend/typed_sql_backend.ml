@@ -4,7 +4,7 @@ module Template = Typed_sql_private.Template
 module Shape = Typed_sql_private.Shape
 
 module Projection = struct
-  type 'a t = 'a Typed_sql_private.Projection.t
+  type 'a t = 'a Typed_sql_private.Projection.erased
 
   module Make (A : sig
       include Applicative.S

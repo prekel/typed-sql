@@ -372,166 +372,190 @@ end
     are embedded with [Expr.scalar_subquery] or membership predicates; execute a
     top-level value through [Result_query] instead. *)
 module Scalar_query : sig
-  type 'a t
+  type ('a, +'requirements) t
 end
 
 (** SQL predicates and boolean composition. *)
 module Condition : sig
   (** A predicate using SQL three-valued logic. *)
-  type t
+  type +'requirements t
 
   (** A predicate that always evaluates to SQL [TRUE]. Normalization removes it
       when it is an identity element. *)
-  val true_ : t
+  val true_ : 'requirements t
 
   (** A predicate that always evaluates to SQL [FALSE]. Normalization folds
       surrounding boolean expressions when possible. *)
-  val false_ : t
+  val false_ : 'requirements t
 
   (** Negate a predicate using SQL [NOT]. *)
-  val not_ : t -> t
+  val not_ : 'requirements t -> 'requirements t
 
   (** Infix composition for SQL predicates. *)
   module Infix : sig
     (** SQL conjunction. *)
-    val ( &&. ) : t -> t -> t
+    val ( &&. ) : 'requirements t -> 'requirements t -> 'requirements t
 
     (** SQL disjunction. *)
-    val ( ||. ) : t -> t -> t
+    val ( ||. ) : 'requirements t -> 'requirements t -> 'requirements t
   end
 end
 
 (** Typed scalar SQL expressions and comparisons. *)
 module Expr : sig
   (** A typed scalar SQL expression. *)
-  type 'a t
+  type ('a, +'requirements) t
 
   (** Refer to a column from a regular table occurrence. The phantom row type
       prevents using a column declared for another table descriptor. *)
-  val column : 'row Table_ref.t -> ('row, 'base, 'value) Column.t -> 'value t
+  val column
+    :  'row Table_ref.t
+    -> ('row, 'base, 'value) Column.t
+    -> ('value, 'requirements) t
 
   (** A column selected through the nullable side of a LEFT JOIN. Existing
       schema nullability is flattened, so the result contains one [option]. *)
   val nullable_column
     :  'row Nullable_table_ref.t
     -> ('row, 'base, 'value) Column.t
-    -> 'base option t
+    -> ('base option, 'requirements) t
 
   (** Treat an expression as nullable without changing its SQL. This is useful
       for null checks on a non-nullable expression. *)
-  val to_nullable : 'a t -> 'a option t
+  val to_nullable : ('a, 'requirements) t -> ('a option, 'requirements) t
 
   (** Create a bound parameter. The value never becomes part of rendered SQL. *)
-  val param : 'a Db_type.t -> 'a -> 'a t
+  val param : 'a Db_type.t -> 'a -> ('a, 'requirements) t
 
   (** Test a nullable expression with SQL [IS NULL]. *)
-  val is_null : 'a option t -> Condition.t
+  val is_null : ('a option, 'requirements) t -> 'requirements Condition.t
 
   (** Test a nullable expression with SQL [IS NOT NULL]. *)
-  val is_not_null : 'a option t -> Condition.t
+  val is_not_null : ('a option, 'requirements) t -> 'requirements Condition.t
 
   (** Test whether an expression equals one of the bound values. An empty list
       is normalized to SQL [FALSE]. *)
-  val in_ : 'a t -> 'a list -> Condition.t
+  val in_ : ('a, 'requirements) t -> 'a list -> 'requirements Condition.t
 
   (** Test whether an expression differs from every bound value. An empty list
       is normalized to SQL [TRUE]. As in SQL, a [NULL] in a non-empty list can
       make the predicate unknown. *)
-  val not_in : 'a t -> 'a list -> Condition.t
+  val not_in : ('a, 'requirements) t -> 'a list -> 'requirements Condition.t
 
   (** Test membership against typed SQL expressions instead of OCaml values. *)
-  val in_exprs : 'a t -> 'a t list -> Condition.t
+  val in_exprs
+    :  ('a, 'requirements) t
+    -> ('a, 'requirements) t list
+    -> 'requirements Condition.t
 
   (** Test non-membership against typed SQL expressions. *)
-  val not_in_exprs : 'a t -> 'a t list -> Condition.t
+  val not_in_exprs
+    :  ('a, 'requirements) t
+    -> ('a, 'requirements) t list
+    -> 'requirements Condition.t
 
   (** Test whether an expression lies inside an inclusive range whose bounds
       are bound parameters. *)
-  val between : 'a t -> lower:'a -> upper:'a -> Condition.t
+  val between : ('a, 'requirements) t -> lower:'a -> upper:'a -> 'requirements Condition.t
 
   (** Test an inclusive range using SQL expressions as both bounds. *)
-  val between_exprs : 'a t -> lower:'a t -> upper:'a t -> Condition.t
+  val between_exprs
+    :  ('a, 'requirements) t
+    -> lower:('a, 'requirements) t
+    -> upper:('a, 'requirements) t
+    -> 'requirements Condition.t
 
   (** Compare values with null-safe SQL semantics. PostgreSQL uses [IS DISTINCT
       FROM], while SQLite uses its equivalent [IS NOT] operator. *)
-  val is_distinct_from : 'a t -> 'a t -> Condition.t
+  val is_distinct_from
+    :  ('a, 'requirements) t
+    -> ('a, 'requirements) t
+    -> 'requirements Condition.t
 
   (** Null-safe comparison with a bound OCaml value. *)
-  val is_distinct_from_value : 'a t -> 'a -> Condition.t
+  val is_distinct_from_value : ('a, 'requirements) t -> 'a -> 'requirements Condition.t
 
   (** Build a searched SQL [CASE]. Conditions are tested in list order. An
       empty branch list yields [else_] directly at execution. All branch
       expressions have the same OCaml and database type. *)
-  val case : (Condition.t * 'a t) list -> else_:'a t -> 'a t
+  val case
+    :  ('requirements Condition.t * ('a, 'requirements) t) list
+    -> else_:('a, 'requirements) t
+    -> ('a, 'requirements) t
 
   (** Convert text to lowercase using the database's portable scalar
       function. *)
-  val lower : string t -> string t
+  val lower : (string, 'requirements) t -> (string, 'requirements) t
 
   (** Convert text to uppercase. *)
-  val upper : string t -> string t
+  val upper : (string, 'requirements) t -> (string, 'requirements) t
 
   (** Return the number of characters in text. Lowering uses [CHAR_LENGTH] on
       PostgreSQL and [LENGTH] on SQLite. *)
-  val length : string t -> int t
+  val length : (string, 'requirements) t -> (int, 'requirements) t
 
   (** Concatenate two text expressions with SQL [||]. *)
-  val concat : string t -> string t -> string t
+  val concat
+    :  (string, 'requirements) t
+    -> (string, 'requirements) t
+    -> (string, 'requirements) t
 
   (** Concatenate text with a bound OCaml string. *)
-  val concat_value : string t -> string -> string t
+  val concat_value : (string, 'requirements) t -> string -> (string, 'requirements) t
 
   (** Count rows in the current aggregate group. *)
-  val count_all : int64 t
+  val count_all : (int64, 'requirements) t
 
   (** Count non-null values of an expression. *)
-  val count : 'a t -> int64 t
+  val count : ('a, 'requirements) t -> (int64, 'requirements) t
 
   (** Count distinct non-null values of an expression. *)
-  val count_distinct : 'a t -> int64 t
+  val count_distinct : ('a, 'requirements) t -> (int64, 'requirements) t
 
   (** Embed a one-column SELECT, returning [None] when it returns no row.
       Compilation requires [LIMIT 0/1] or an aggregate belonging to this SELECT
       without [GROUP BY]. No limit is added implicitly. For an already nullable
       expression prefer [scalar_subquery_nullable] to avoid nested options. *)
-  val scalar_subquery : 'a Scalar_query.t -> 'a option t
+  val scalar_subquery : ('a, 'requirements) Scalar_query.t -> ('a option, 'requirements) t
 
   (** Embed a nullable one-column SELECT without adding another option layer.
       An absent row and a row containing SQL [NULL] both decode as [None].
       The cardinality requirements are the same as [scalar_subquery]. *)
-  val scalar_subquery_nullable : 'a option Scalar_query.t -> 'a option t
+  val scalar_subquery_nullable
+    :  ('a option, 'requirements) Scalar_query.t
+    -> ('a option, 'requirements) t
 
   (** The transaction's current timestamp. Both supported dialects render the
       standard SQL [CURRENT_TIMESTAMP] expression. *)
-  val current_timestamp : Ptime.t t
+  val current_timestamp : (Ptime.t, 'requirements) t
 
   (** Type-safe arithmetic over SQL integers represented as OCaml [int]. *)
   module Int : sig
     module Infix : sig
-      val ( +. ) : int t -> int t -> int t
-      val ( -. ) : int t -> int t -> int t
-      val ( *. ) : int t -> int t -> int t
-      val ( /. ) : int t -> int t -> int t
+      val ( +. ) : (int, 'r) t -> (int, 'r) t -> (int, 'r) t
+      val ( -. ) : (int, 'r) t -> (int, 'r) t -> (int, 'r) t
+      val ( *. ) : (int, 'r) t -> (int, 'r) t -> (int, 'r) t
+      val ( /. ) : (int, 'r) t -> (int, 'r) t -> (int, 'r) t
     end
   end
 
   (** Type-safe arithmetic over SQL integers represented as OCaml [int64]. *)
   module Int64 : sig
     module Infix : sig
-      val ( +. ) : int64 t -> int64 t -> int64 t
-      val ( -. ) : int64 t -> int64 t -> int64 t
-      val ( *. ) : int64 t -> int64 t -> int64 t
-      val ( /. ) : int64 t -> int64 t -> int64 t
+      val ( +. ) : (int64, 'r) t -> (int64, 'r) t -> (int64, 'r) t
+      val ( -. ) : (int64, 'r) t -> (int64, 'r) t -> (int64, 'r) t
+      val ( *. ) : (int64, 'r) t -> (int64, 'r) t -> (int64, 'r) t
+      val ( /. ) : (int64, 'r) t -> (int64, 'r) t -> (int64, 'r) t
     end
   end
 
   (** Type-safe arithmetic over SQL floating-point values. *)
   module Float : sig
     module Infix : sig
-      val ( +. ) : float t -> float t -> float t
-      val ( -. ) : float t -> float t -> float t
-      val ( *. ) : float t -> float t -> float t
-      val ( /. ) : float t -> float t -> float t
+      val ( +. ) : (float, 'r) t -> (float, 'r) t -> (float, 'r) t
+      val ( -. ) : (float, 'r) t -> (float, 'r) t -> (float, 'r) t
+      val ( *. ) : (float, 'r) t -> (float, 'r) t -> (float, 'r) t
+      val ( /. ) : (float, 'r) t -> (float, 'r) t -> (float, 'r) t
     end
   end
 
@@ -540,47 +564,47 @@ module Expr : sig
       using the type carried by the left expression. *)
   module Infix : sig
     (** SQL equality between two expressions. *)
-    val ( =. ) : 'a t -> 'a t -> Condition.t
+    val ( =. ) : ('a, 'r) t -> ('a, 'r) t -> 'r Condition.t
 
     (** SQL inequality between two expressions. *)
-    val ( <>. ) : 'a t -> 'a t -> Condition.t
+    val ( <>. ) : ('a, 'r) t -> ('a, 'r) t -> 'r Condition.t
 
     (** SQL less-than comparison between two expressions. *)
-    val ( <. ) : 'a t -> 'a t -> Condition.t
+    val ( <. ) : ('a, 'r) t -> ('a, 'r) t -> 'r Condition.t
 
     (** SQL less-than-or-equal comparison between two expressions. *)
-    val ( <=. ) : 'a t -> 'a t -> Condition.t
+    val ( <=. ) : ('a, 'r) t -> ('a, 'r) t -> 'r Condition.t
 
     (** SQL greater-than comparison between two expressions. *)
-    val ( >. ) : 'a t -> 'a t -> Condition.t
+    val ( >. ) : ('a, 'r) t -> ('a, 'r) t -> 'r Condition.t
 
     (** SQL greater-than-or-equal comparison between two expressions. *)
-    val ( >=. ) : 'a t -> 'a t -> Condition.t
+    val ( >=. ) : ('a, 'r) t -> ('a, 'r) t -> 'r Condition.t
 
     (** SQL equality with a bound OCaml value. *)
-    val ( =$ ) : 'a t -> 'a -> Condition.t
+    val ( =$ ) : ('a, 'r) t -> 'a -> 'r Condition.t
 
     (** SQL inequality with a bound OCaml value. *)
-    val ( <>$ ) : 'a t -> 'a -> Condition.t
+    val ( <>$ ) : ('a, 'r) t -> 'a -> 'r Condition.t
 
     (** SQL less-than comparison with a bound OCaml value. *)
-    val ( <$ ) : 'a t -> 'a -> Condition.t
+    val ( <$ ) : ('a, 'r) t -> 'a -> 'r Condition.t
 
     (** SQL less-than-or-equal comparison with a bound OCaml value. *)
-    val ( <=$ ) : 'a t -> 'a -> Condition.t
+    val ( <=$ ) : ('a, 'r) t -> 'a -> 'r Condition.t
 
     (** SQL greater-than comparison with a bound OCaml value. *)
-    val ( >$ ) : 'a t -> 'a -> Condition.t
+    val ( >$ ) : ('a, 'r) t -> 'a -> 'r Condition.t
 
     (** SQL greater-than-or-equal comparison with a bound OCaml value. *)
-    val ( >=$ ) : 'a t -> 'a -> Condition.t
+    val ( >=$ ) : ('a, 'r) t -> 'a -> 'r Condition.t
 
     (** SQL [LIKE] between text expressions. *)
-    val ( =~. ) : string t -> string t -> Condition.t
+    val ( =~. ) : (string, 'r) t -> (string, 'r) t -> 'r Condition.t
 
     (** SQL [LIKE] with a bound pattern. Wildcards are interpreted by the
         database and are not escaped by typed-sql. *)
-    val ( =~$ ) : string t -> string -> Condition.t
+    val ( =~$ ) : (string, 'r) t -> string -> 'r Condition.t
   end
 end
 
@@ -599,40 +623,39 @@ module Projection : sig
   (** An applicative description of SELECT expressions and their result
       decoder. A standalone [return] projection is rejected because SQL SELECT must
       contain at least one expression. *)
-  type 'a t
+  type ('a, +'requirements) t
 
   (** Standard applicative operations. [return] contributes no SQL expression;
       [map] changes only decoding; [both], [map2], [map3], [apply], and [all]
       concatenate selected expressions from left to right. *)
-  include Base.Applicative.S with type 'a t := 'a t
+  include Base.Applicative.S2 with type ('a, 'requirements) t := ('a, 'requirements) t
 
   (** Add one typed SQL expression and decode its field unchanged. *)
-  val expr : 'a Expr.t -> 'a t
+  val expr : ('a, 'requirements) Expr.t -> ('a, 'requirements) t
 
   (** Select two expressions from left to right and decode them as a pair. *)
-  val pair : 'a Expr.t -> 'b Expr.t -> ('a * 'b) t
+  val pair
+    :  ('a, 'requirements) Expr.t
+    -> ('b, 'requirements) Expr.t
+    -> ('a * 'b, 'requirements) t
 
   (** Syntax support for applicative [let%map] and parallel [and] bindings. *)
   module Let_syntax : sig
-    (** The same operation as [Projection.return]. *)
-    val return : 'a -> 'a t
+    val return : 'a -> ('a, 'requirements) t
 
-    (** Infix applicative operators supplied by Base. *)
-    include Base.Applicative.Applicative_infix with type 'a t := 'a t
+    include
+      Base.Applicative.Applicative_infix2
+      with type ('a, 'requirements) t := ('a, 'requirements) t
 
-    (** Operations consumed by [ppx_let]. Application code normally opens the
-        outer [Projection.Let_syntax] module. *)
     module Let_syntax : sig
-      (** Lift a decoded constant without adding a SELECT expression. *)
-      val return : 'a -> 'a t
+      val return : 'a -> ('a, 'requirements) t
+      val map : ('a, 'requirements) t -> f:('a -> 'b) -> ('b, 'requirements) t
 
-      (** Transform a decoded projection result. *)
-      val map : 'a t -> f:('a -> 'b) -> 'b t
+      val both
+        :  ('a, 'requirements) t
+        -> ('b, 'requirements) t
+        -> ('a * 'b, 'requirements) t
 
-      (** Combine two projections in left-to-right SELECT order. *)
-      val both : 'a t -> 'b t -> ('a * 'b) t
-
-      (** Scope opened on the right-hand side of [let%map] bindings. *)
       module Open_on_rhs : sig end
     end
   end
@@ -641,13 +664,13 @@ end
 (** Finished statements that decode returned rows. *)
 module Result_query : sig
   (** A deferred statement that returns decoded rows. *)
-  type 'result t
+  type ('result, +'requirements) t
 end
 
 (** Finished statements that return only an affected-row result. *)
 module Command : sig
   (** A deferred INSERT, UPDATE, or DELETE statement without returned rows. *)
-  type t
+  type +'requirements t
 end
 
 (** Immutable SELECT builders. *)
@@ -655,7 +678,10 @@ module Query : sig
   (** An immutable SELECT builder. ['ctx] is the callback context of visible
       table references. [select] finishes the builder and determines the result
       type. *)
-  type 'ctx t
+  type ungrouped
+
+  type grouped
+  type ('ctx, 'grouping, +'requirements) t
 
   (** Direction for one [ORDER BY] key. *)
   type direction =
@@ -665,73 +691,108 @@ module Query : sig
 
   (** Start a SELECT builder from one table. Subsequent callbacks receive the
       only valid reference to this occurrence. *)
-  val from : 'row Table.t -> 'row Table_ref.t t
+  val from : 'row Table.t -> ('row Table_ref.t, ungrouped, 'requirements) t
 
   (** Finish the builder with a result projection. Keeping [select] last avoids
       a temporary projection while filters and joins are assembled. *)
-  val select : ('ctx -> 'result Projection.t) -> 'ctx t -> 'result Result_query.t
+  val select
+    :  ('ctx -> ('result, 'requirements) Projection.t)
+    -> ('ctx, 'grouping, 'requirements) t
+    -> ('result, 'requirements) Result_query.t
 
   (** Finish a builder as a one-expression query suitable for a scalar
       subquery or [IN] predicate. *)
-  val select_scalar : ('ctx -> 'value Expr.t) -> 'ctx t -> 'value Scalar_query.t
+  val select_scalar
+    :  ('ctx -> ('value, 'requirements) Expr.t)
+    -> ('ctx, 'grouping, 'requirements) t
+    -> ('value, 'requirements) Scalar_query.t
 
   (** Test whether an unfinished SELECT returns at least one row. Its
       projection is intentionally omitted and rendered as [SELECT 1]. The
       query may capture references from the enclosing callback. *)
-  val exists : 'inner_ctx t -> Condition.t
+  val exists : ('inner_ctx, 'grouping, 'requirements) t -> 'requirements Condition.t
 
   (** Negated [EXISTS]. *)
-  val not_exists : 'inner_ctx t -> Condition.t
+  val not_exists : ('inner_ctx, 'grouping, 'requirements) t -> 'requirements Condition.t
 
   (** Test membership in a typed one-column SELECT. *)
-  val in_subquery : 'a Expr.t -> 'a Scalar_query.t -> Condition.t
+  val in_subquery
+    :  ('a, 'requirements) Expr.t
+    -> ('a, 'requirements) Scalar_query.t
+    -> 'requirements Condition.t
 
   (** Test non-membership in a typed one-column SELECT. *)
-  val not_in_subquery : 'a Expr.t -> 'a Scalar_query.t -> Condition.t
+  val not_in_subquery
+    :  ('a, 'requirements) Expr.t
+    -> ('a, 'requirements) Scalar_query.t
+    -> 'requirements Condition.t
 
   (** Append an [INNER JOIN]. The [on] callback sees the existing context and a
       regular reference to the newly joined table. *)
   val inner_join
     :  'row Table.t
-    -> on:('ctx -> 'row Table_ref.t -> Condition.t)
-    -> 'ctx t
-    -> ('ctx * 'row Table_ref.t) t
+    -> on:('ctx -> 'row Table_ref.t -> 'requirements Condition.t)
+    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx * 'row Table_ref.t, 'grouping, 'requirements) t
 
   (** [on] sees the new table before null extension. Subsequent callbacks
       receive a nullable reference and must use [Expr.nullable_column]. *)
   val left_join
     :  'row Table.t
-    -> on:('ctx -> 'row Table_ref.t -> Condition.t)
-    -> 'ctx t
-    -> ('ctx * 'row Nullable_table_ref.t) t
+    -> on:('ctx -> 'row Table_ref.t -> 'requirements Condition.t)
+    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx * 'row Nullable_table_ref.t, 'grouping, 'requirements) t
 
   (** Repeated calls combine predicates with SQL AND. *)
-  val where : ('ctx -> Condition.t) -> 'ctx t -> 'ctx t
+  val where
+    :  ('ctx -> 'requirements Condition.t)
+    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'requirements) t
 
   (** Add a predicate only when the optional value is [Some]. [None] returns
       the same immutable query unchanged. *)
-  val where_opt : 'value option -> f:('ctx -> 'value -> Condition.t) -> 'ctx t -> 'ctx t
+  val where_opt
+    :  'value option
+    -> f:('ctx -> 'value -> 'requirements Condition.t)
+    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'requirements) t
 
   (** Remove duplicate result rows with portable SQL [DISTINCT]. *)
-  val distinct : 'ctx t -> 'ctx t
+  val distinct : ('ctx, 'grouping, 'requirements) t -> ('ctx, 'grouping, 'requirements) t
 
   (** Append one [GROUP BY] expression. Repeated calls preserve call order. *)
-  val group_by : ('ctx -> 'value Expr.t) -> 'ctx t -> 'ctx t
+  val group_by
+    :  ('ctx -> ('value, 'requirements) Expr.t)
+    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx, grouped, 'requirements) t
 
   (** Add an aggregate-group predicate. Repeated calls combine predicates with
       SQL [AND]. The compiler rejects ungrouped non-aggregate expressions. *)
-  val having : ('ctx -> Condition.t) -> 'ctx t -> 'ctx t
+  val having
+    :  ('ctx -> 'requirements Condition.t)
+    -> ('ctx, grouped, 'requirements) t
+    -> ('ctx, grouped, 'requirements) t
 
   (** Append one ordering key. Repeated calls preserve call order. *)
-  val order_by : ('ctx -> 'value Expr.t) -> direction -> 'ctx t -> 'ctx t
+  val order_by
+    :  ('ctx -> ('value, 'requirements) Expr.t)
+    -> direction
+    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'requirements) t
 
   (** Set the maximum number of returned rows. The compiler rejects negative
       values. A later call replaces the previous limit. *)
-  val limit : int -> 'ctx t -> 'ctx t
+  val limit
+    :  int
+    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'requirements) t
 
   (** Set the number of rows to skip. The compiler rejects negative values. A
       later call replaces the previous offset. *)
-  val offset : int -> 'ctx t -> 'ctx t
+  val offset
+    :  int
+    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'requirements) t
 end
 
 (** Immutable INSERT builders. *)
@@ -739,7 +800,7 @@ module Insert : sig
   (** An INSERT builder. The compiler rejects empty rows, duplicate target
       columns, and different column sets across rows. Values passed to [set]
       are always bound. *)
-  type 'row t
+  type ('row, +'requirements) t
 
   (** Non-empty columns identifying a unique key. The database checks that a
       matching unique index or constraint exists. Every column carries the
@@ -757,76 +818,108 @@ module Insert : sig
   end
 
   (** An INSERT paired with a conflict target and awaiting an action. *)
-  type 'row conflict
+  type ('row, +'requirements) conflict
 
   (** Immutable assignments and an optional predicate for the conflicting row. *)
   module Conflict_update : sig
     (** An update action for one target table. *)
-    type 'row t
+    type ('row, +'requirements) t
 
     (** Start without assignments or a predicate. Compilation rejects an
         action that still has no assignments after optional fields are omitted. *)
-    val empty : 'row t
+    val empty : ('row, 'requirements) t
 
     (** Append a bound value assignment. Duplicate columns and columns owned
         by another table descriptor are rejected. *)
-    val set : ('row, 'base, 'value) Column.t -> 'value -> 'row t -> 'row t
+    val set
+      :  ('row, 'base, 'value) Column.t
+      -> 'value
+      -> ('row, 'requirements) t
+      -> ('row, 'requirements) t
 
     (** Append an expression assignment. The [existing] and [excluded]
         references are visible, including inside correlated subqueries.
         Columns owned by another table descriptor and direct aggregate
         expressions are rejected. *)
-    val set_expr : ('row, 'base, 'value) Column.t -> 'value Expr.t -> 'row t -> 'row t
+    val set_expr
+      :  ('row, 'base, 'value) Column.t
+      -> ('value, 'requirements) Expr.t
+      -> ('row, 'requirements) t
+      -> ('row, 'requirements) t
 
     (** Omit [None]; [Some None] assigns SQL NULL to a nullable column. *)
-    val set_opt : ('row, 'base, 'value) Column.t -> 'value option -> 'row t -> 'row t
+    val set_opt
+      :  ('row, 'base, 'value) Column.t
+      -> 'value option
+      -> ('row, 'requirements) t
+      -> ('row, 'requirements) t
 
     (** Omit [None], or append the supplied typed expression. *)
     val set_expr_opt
       :  ('row, 'base, 'value) Column.t
-      -> 'value Expr.t option
-      -> 'row t
-      -> 'row t
+      -> ('value, 'requirements) Expr.t option
+      -> ('row, 'requirements) t
+      -> ('row, 'requirements) t
 
     (** Restrict the conflict update. Repeated calls combine with SQL AND.
         Without a predicate, every conflicting row is updated. FALSE or NULL
         skips the update and produces no RETURNING row. This predicate does
         not filter successful inserts. *)
-    val where : Condition.t -> 'row t -> 'row t
+    val where
+      :  'requirements Condition.t
+      -> ('row, 'requirements) t
+      -> ('row, 'requirements) t
   end
 
   (** Start an INSERT containing one empty row. *)
-  val into : 'row Table.t -> 'row t
+  val into : 'row Table.t -> ('row, 'requirements) t
 
   (** Assign a column from an OCaml value, which is always bound as a
       parameter. *)
-  val set : ('row, 'base, 'value) Column.t -> 'value -> 'row t -> 'row t
+  val set
+    :  ('row, 'base, 'value) Column.t
+    -> 'value
+    -> ('row, 'requirements) t
+    -> ('row, 'requirements) t
 
   (** Assign a column from a typed expression. VALUES cannot reference the
       target or excluded row; independent scalar subqueries are allowed. *)
-  val set_expr : ('row, 'base, 'value) Column.t -> 'value Expr.t -> 'row t -> 'row t
+  val set_expr
+    :  ('row, 'base, 'value) Column.t
+    -> ('value, 'requirements) Expr.t
+    -> ('row, 'requirements) t
+    -> ('row, 'requirements) t
 
-  (** Assign SQL [DEFAULT] to a column without inventing an OCaml value. SQLite
-      rejects this operation explicitly because it does not support [DEFAULT]
+  (** Assign SQL [DEFAULT] to a column without inventing an OCaml value. This
+      adds a PostgreSQL requirement because SQLite does not support [DEFAULT]
       inside a [VALUES] row. *)
-  val default : ('row, 'base, 'value) Column.t -> 'row t -> 'row t
+  val default
+    :  ('row, 'base, 'value) Column.t
+    -> ('row, ([> `Postgresql ] as 'requirements)) t
+    -> ('row, 'requirements) t
 
   (** Build a multi-row INSERT. Each function receives an empty row builder.
       Rows may call [set], [set_expr], or [default] in any order, but every row
       must assign the same set of columns. *)
-  val rows : 'row Table.t -> ('row t -> 'row t) list -> 'row t
+  val rows
+    :  'row Table.t
+    -> (('row, 'requirements) t -> ('row, 'requirements) t) list
+    -> ('row, 'requirements) t
 
   (** Ignore rows rejected by a unique or exclusion conflict. PostgreSQL and
       SQLite both render [ON CONFLICT DO NOTHING]; other integrity errors still
       fail through the execution adapter. *)
-  val on_conflict_do_nothing : 'row t -> 'row t
+  val on_conflict_do_nothing : ('row, 'requirements) t -> ('row, 'requirements) t
 
   (** Select a non-empty conflict target. The result must be completed with
       [do_nothing] or [do_update] before it can be finalized. *)
-  val on_conflict : 'row Conflict_target.t -> 'row t -> 'row conflict
+  val on_conflict
+    :  'row Conflict_target.t
+    -> ('row, 'requirements) t
+    -> ('row, 'requirements) conflict
 
   (** Ignore a conflict matching the selected target. *)
-  val do_nothing : 'row conflict -> 'row t
+  val do_nothing : ('row, 'requirements) conflict -> ('row, 'requirements) t
 
   (** Update the conflicting row. The callback receives the proposed
       [excluded] row and current [existing] row. Compilation rejects an empty
@@ -835,19 +928,21 @@ module Insert : sig
       VALUES or RETURNING. PostgreSQL rejects a multi-row
       UPSERT that updates the same conflicting row twice. *)
   val do_update
-    :  (existing:'row Table_ref.t -> excluded:'row Table_ref.t -> 'row Conflict_update.t)
-    -> 'row conflict
-    -> 'row t
+    :  (existing:'row Table_ref.t
+        -> excluded:'row Table_ref.t
+        -> ('row, 'requirements) Conflict_update.t)
+    -> ('row, 'requirements) conflict
+    -> ('row, 'requirements) t
 
   (** Finish an INSERT without returned rows. Compilation rejects an empty or
       duplicate assignment list. *)
-  val command : 'row t -> Command.t
+  val command : ('row, 'requirements) t -> 'requirements Command.t
 
   (** Finish an INSERT with a typed [RETURNING] projection. *)
   val returning
-    :  ('row Table_ref.t -> 'result Projection.t)
-    -> 'row t
-    -> 'result Result_query.t
+    :  ('row Table_ref.t -> ('result, 'requirements) Projection.t)
+    -> ('row, 'requirements) t
+    -> ('result, 'requirements) Result_query.t
 end
 
 (** Immutable UPDATE builders with type-level row-scope authorization. *)
@@ -859,45 +954,48 @@ module Update : sig
   type scoped
 
   (** Only builders scoped by [where] or [all_rows] can be finalized. *)
-  type ('row, 'scope) t
+  type ('row, 'scope, +'requirements) t
 
   (** Start an UPDATE without assignments or row scope. *)
-  val table : 'row Table.t -> ('row, unscoped) t
+  val table : 'row Table.t -> ('row, unscoped, 'requirements) t
 
   (** Assign a column from an OCaml value, which is always bound as a
       parameter. *)
   val set
     :  ('row, 'base, 'value) Column.t
     -> 'value
-    -> ('row, 'scope) t
-    -> ('row, 'scope) t
+    -> ('row, 'scope, 'requirements) t
+    -> ('row, 'scope, 'requirements) t
 
   (** Assign a column from a typed expression. The compiler rejects an
       expression referring to another query source. *)
   val set_expr
     :  ('row, 'base, 'value) Column.t
-    -> 'value Expr.t
-    -> ('row, 'scope) t
-    -> ('row, 'scope) t
+    -> ('value, 'requirements) Expr.t
+    -> ('row, 'scope, 'requirements) t
+    -> ('row, 'scope, 'requirements) t
 
-  (** Assign SQL [DEFAULT] to a column. PostgreSQL supports this operation;
-      compilation for SQLite returns [Compile_error.Unsupported_operation]. *)
-  val default : ('row, 'base, 'value) Column.t -> ('row, 'scope) t -> ('row, 'scope) t
+  (** Assign SQL [DEFAULT] to a column. This adds a PostgreSQL requirement
+      because SQLite does not support [UPDATE SET DEFAULT]. *)
+  val default
+    :  ('row, 'base, 'value) Column.t
+    -> ('row, 'scope, ([> `Postgresql ] as 'requirements)) t
+    -> ('row, 'scope, 'requirements) t
 
   (** Conditionally bind and assign a value. [None] leaves the builder
       unchanged. For a nullable column, [Some None] writes SQL [NULL]. *)
   val set_opt
     :  ('row, 'base, 'value) Column.t
     -> 'value option
-    -> ('row, 'scope) t
-    -> ('row, 'scope) t
+    -> ('row, 'scope, 'requirements) t
+    -> ('row, 'scope, 'requirements) t
 
   (** Conditionally assign an expression. [None] leaves the builder unchanged. *)
   val set_expr_opt
     :  ('row, 'base, 'value) Column.t
-    -> 'value Expr.t option
-    -> ('row, 'scope) t
-    -> ('row, 'scope) t
+    -> ('value, 'requirements) Expr.t option
+    -> ('row, 'scope, 'requirements) t
+    -> ('row, 'scope, 'requirements) t
 
   (** Add one table to [UPDATE ... FROM] and configure the update while its
       reference is in lexical scope. The callback receives the target, the new
@@ -907,27 +1005,30 @@ module Update : sig
     -> f:
          ('row Table_ref.t
           -> 'source Table_ref.t
-          -> ('row, 'scope) t
-          -> ('row, 'new_scope) t)
-    -> ('row, 'scope) t
-    -> ('row, 'new_scope) t
+          -> ('row, 'scope, 'requirements) t
+          -> ('row, 'new_scope, 'requirements) t)
+    -> ('row, 'scope, 'requirements) t
+    -> ('row, 'new_scope, 'requirements) t
 
   (** Add a row predicate and mark the UPDATE as scoped. Repeated calls combine
       predicates with SQL [AND]. *)
-  val where : ('row Table_ref.t -> Condition.t) -> ('row, 'scope) t -> ('row, scoped) t
+  val where
+    :  ('row Table_ref.t -> 'requirements Condition.t)
+    -> ('row, 'scope, 'requirements) t
+    -> ('row, scoped, 'requirements) t
 
   (** Explicitly authorize updating every row, removing any previous filter. *)
-  val all_rows : ('row, 'scope) t -> ('row, scoped) t
+  val all_rows : ('row, 'scope, 'requirements) t -> ('row, scoped, 'requirements) t
 
   (** Finish a scoped UPDATE without returned rows. Compilation rejects an
       empty or duplicate assignment list. *)
-  val command : ('row, scoped) t -> Command.t
+  val command : ('row, scoped, 'requirements) t -> 'requirements Command.t
 
   (** Finish a scoped UPDATE with a typed [RETURNING] projection. *)
   val returning
-    :  ('row Table_ref.t -> 'result Projection.t)
-    -> ('row, scoped) t
-    -> 'result Result_query.t
+    :  ('row Table_ref.t -> ('result, 'requirements) Projection.t)
+    -> ('row, scoped, 'requirements) t
+    -> ('result, 'requirements) Result_query.t
 end
 
 (** Immutable DELETE builders with type-level row-scope authorization. *)
@@ -939,26 +1040,29 @@ module Delete : sig
   type scoped
 
   (** Only builders scoped by [where] or [all_rows] can be finalized. *)
-  type ('row, 'scope) t
+  type ('row, 'scope, +'requirements) t
 
   (** Start a DELETE without row scope. *)
-  val from : 'row Table.t -> ('row, unscoped) t
+  val from : 'row Table.t -> ('row, unscoped, 'requirements) t
 
   (** Add a row predicate and mark the DELETE as scoped. Repeated calls combine
       predicates with SQL [AND]. *)
-  val where : ('row Table_ref.t -> Condition.t) -> ('row, 'scope) t -> ('row, scoped) t
+  val where
+    :  ('row Table_ref.t -> 'requirements Condition.t)
+    -> ('row, 'scope, 'requirements) t
+    -> ('row, scoped, 'requirements) t
 
   (** Explicitly authorize deleting every row, removing any previous filter. *)
-  val all_rows : ('row, 'scope) t -> ('row, scoped) t
+  val all_rows : ('row, 'scope, 'requirements) t -> ('row, scoped, 'requirements) t
 
   (** Finish a scoped DELETE without returned rows. *)
-  val command : ('row, scoped) t -> Command.t
+  val command : ('row, scoped, 'requirements) t -> 'requirements Command.t
 
   (** Finish a scoped DELETE with a typed [RETURNING] projection. *)
   val returning
-    :  ('row Table_ref.t -> 'result Projection.t)
-    -> ('row, scoped) t
-    -> 'result Result_query.t
+    :  ('row Table_ref.t -> ('result, 'requirements) Projection.t)
+    -> ('row, scoped, 'requirements) t
+    -> ('result, 'requirements) Result_query.t
 end
 
 (** Supported SQL dialects. *)
@@ -968,8 +1072,37 @@ module Dialect : sig
     | Postgresql (** PostgreSQL quoting and [$n] placeholders. *)
     | Sqlite (** SQLite quoting and [?n] placeholders. *)
 
+  (** No dialect-specific requirement. *)
+  type portable = []
+
+  (** A statement requiring PostgreSQL semantics. *)
+  type postgresql = [ `Postgresql ]
+
+  (** A statement requiring SQLite semantics. *)
+  type sqlite = [ `Sqlite ]
+
+  (** A typed choice of compilation dialect. *)
+  type 'requirements witness
+
+  val postgresql : postgresql witness
+  val sqlite : sqlite witness
+  val kind : _ witness -> t
+
   (** Return the stable lowercase dialect name used in diagnostics. *)
   val to_string : t -> string
+end
+
+(** PostgreSQL-specific builders. Using one adds a PostgreSQL requirement to
+    the resulting statement. *)
+module Postgresql : sig
+  module Query : sig
+    (** Add [HAVING] before [GROUP BY]. PostgreSQL treats the input as one
+        aggregate group; portable [Query.having] requires [Query.grouped]. *)
+    val having
+      :  ('ctx -> 'requirements Condition.t)
+      -> ('ctx, Query.ungrouped, ([> `Postgresql ] as 'requirements)) Query.t
+      -> ('ctx, Query.ungrouped, 'requirements) Query.t
+  end
 end
 
 (** Errors returned by pure compilation. *)
@@ -1094,13 +1227,25 @@ module Compiler : sig
   (** Pure compilation: assigns deterministic aliases and bind slots, and
       reports invalid input without performing database operations. *)
   val compile
+    :  dialect:'requirements Dialect.witness
+    -> ('result, 'requirements) Result_query.t
+    -> ('result Compiled_query.t, Compile_error.t) Result.t
+
+  (** Compile a statement proven portable when the dialect is selected at
+      runtime, for example from a connection or application configuration. *)
+  val compile_portable
     :  dialect:Dialect.t
-    -> 'result Result_query.t
+    -> ('result, Dialect.portable) Result_query.t
     -> ('result Compiled_query.t, Compile_error.t) Result.t
 
   (** Purely validate and compile a command without returned rows. *)
   val compile_command
+    :  dialect:'requirements Dialect.witness
+    -> 'requirements Command.t
+    -> (Compiled_command.t, Compile_error.t) Result.t
+
+  val compile_portable_command
     :  dialect:Dialect.t
-    -> Command.t
+    -> Dialect.portable Command.t
     -> (Compiled_command.t, Compile_error.t) Result.t
 end
