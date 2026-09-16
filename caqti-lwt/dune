@@ -1,6 +1,6 @@
 (library
  (name typed_sql_caqti_lwt)
  (public_name typed-sql-caqti-lwt)
- (libraries base caqti caqti-lwt lwt ptime typed-sql typed-sql.backend)
+ (libraries base caqti caqti-lwt lwt ptime typed-sql typed-sql.backend unix)
  (preprocess
   (pps ppx_let)))

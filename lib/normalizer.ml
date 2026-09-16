@@ -138,10 +138,21 @@ let normalize_assignment assignment =
   { assignment with Ast.value }
 ;;
 
+let normalize_conflict = function
+  | Ast.Do_nothing _ as conflict -> conflict
+  | Ast.Do_update update ->
+    Ast.Do_update
+      { update with
+        assignments = List.map update.assignments ~f:normalize_assignment
+      ; where_ = optional_condition update.where_
+      }
+;;
+
 let command (command : Ast.command) =
   { command with
     Ast.assignments = List.map command.assignments ~f:normalize_assignment
   ; rows = List.map command.rows ~f:(List.map ~f:normalize_assignment)
+  ; conflict = Option.map command.conflict ~f:normalize_conflict
   ; where_ = optional_condition command.where_
   }
 ;;

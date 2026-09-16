@@ -2,3 +2,18 @@
  (name query_bench)
  (modules query_bench)
  (libraries base typed-sql unix))
+
+(executable
+ (name execution_bench)
+ (modules execution_bench)
+ (libraries
+  base
+  caqti
+  caqti-driver-sqlite3
+  caqti-lwt
+  caqti-lwt.unix
+  lwt.unix
+  typed-sql
+  typed-sql-caqti-lwt
+  unix
+  uri))

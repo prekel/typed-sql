@@ -113,7 +113,19 @@ type command_kind =
   | Update
   | Delete
 
-type conflict = Do_nothing
+type conflict_target_column =
+  { target_source_id : int
+  ; target_column : Identifier.t
+  }
+
+type conflict =
+  | Do_nothing of conflict_target_column list option
+  | Do_update of
+      { target : conflict_target_column list
+      ; excluded_source_id : int
+      ; assignments : assignment list
+      ; where_ : condition option
+      }
 
 type command =
   { kind : command_kind

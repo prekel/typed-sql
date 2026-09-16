@@ -84,3 +84,52 @@ let%test_unit "command shapes expose their stable representation" =
     String.equal (B.Shape.to_string shape) (Stdlib.Format.asprintf "%a" B.Shape.pp shape));
   assert (Int.(B.Shape.hash shape = B.Shape.hash shape))
 ;;
+
+let%test_unit "UPSERT shape excludes values and bind slots follow SQL order" =
+  let table : unit Table.t = Table.v_exn "items" in
+  let id = Column.v_exn table "id" Db_type.int64 in
+  let make dialect value filtered =
+    Insert.(
+      into table
+      |> set id value
+      |> on_conflict (Conflict_target.column id)
+      |> do_update (fun ~existing ~excluded:_ ->
+        let action = Conflict_update.(empty |> set id Int64.(value + 1L)) in
+        if filtered then
+          Conflict_update.(
+            action |> where (Expr.column existing id >$ Int64.(value + 2L)))
+        else
+          action)
+      |> returning (fun row ->
+        Projection.pair (Expr.column row id) (Expr.param Db_type.int64 Int64.(value + 3L))))
+    |> compile_exn dialect
+  in
+  List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
+    let first = make dialect 10L true in
+    let second = make dialect 20L true in
+    let shape query = B.Compiled_query.shape query in
+    assert (B.Shape.equal (shape first) (shape second));
+    assert (not (B.Shape.equal (shape first) (shape (make dialect 10L false))));
+    let values =
+      B.Compiled_query.parameters first
+      |> List.map ~f:(fun (B.Db_type.Value (codec, value)) ->
+        match B.Db_type.view codec with
+        | B.Db_type.Int64 -> (value : int64)
+        | _ -> failwith "UPSERT parameter codec changed")
+    in
+    assert (List.equal Int64.equal values [ 10L; 11L; 12L; 13L ]);
+    let param index =
+      match dialect with
+      | Dialect.Postgresql -> Stdlib.Format.asprintf "$%d" (index + 1)
+      | Dialect.Sqlite -> Stdlib.Format.asprintf "?%d" (index + 1)
+    in
+    let backend_sql =
+      B.Template.map (B.Compiled_query.template first) ~text:Fn.id ~param
+      |> Stdlib.Format.asprintf
+           "%a"
+           (Stdlib.Format.pp_print_list
+              ~pp_sep:(fun _formatter () -> ())
+              Stdlib.Format.pp_print_string)
+    in
+    assert (String.equal backend_sql (Compiled_query.sql first)))
+;;

@@ -2,7 +2,7 @@
 
 (name typed-sql)
 
-(version 0.1.0)
+(version 0.1.1)
 
 (generate_opam_files true)
 
@@ -48,6 +48,7 @@
   (caqti (and (>= 3.0.0) (< 3.1.0~)))
   (caqti-lwt (and (>= 3.0.0) (< 3.1.0~)))
   lwt
+  base-unix
   (caqti-driver-sqlite3 :with-test)
   (uri :with-test))
  (tags

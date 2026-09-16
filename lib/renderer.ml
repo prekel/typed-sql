@@ -410,6 +410,12 @@ let rec render_insert_rows ~aliases ~columns rows state =
 
 let aliases_for_command (command : Ast.command) =
   match command.kind, command.from with
+  | Ast.Insert, _ ->
+    let target = command.source.source_id, "" in
+    (match command.conflict with
+     | Some (Ast.Do_update { excluded_source_id; _ }) ->
+       [ command.source.source_id, "t0"; excluded_source_id, "excluded" ]
+     | None | Some (Ast.Do_nothing _) -> [ target ])
   | Ast.Update, _ :: _ ->
     let sources = command.source :: command.from in
     List.mapi sources ~f:(fun index source ->
@@ -417,10 +423,8 @@ let aliases_for_command (command : Ast.command) =
   | _ -> [ command.source.source_id, "" ]
 ;;
 
-let render_from_sources ~aliases sources =
-  List.map sources ~f:(fun (source : Ast.source) ->
-    let alias = alias_for aliases source.Ast.source_id in
-    concat [ render_source source; text " AS "; text alias ])
+let render_conflict_target target =
+  List.map target ~f:(fun target -> quote_identifier target.Ast.target_column)
   |> separate ~by:(concat [ text ","; break " " ])
 ;;
 
@@ -431,6 +435,51 @@ let where_clause ~aliases where_ parts state =
     let condition, state = render_condition ~aliases condition state in
     ( concat [ parts; break " "; text "WHERE"; nest (concat [ break " "; condition ]) ]
     , state )
+;;
+
+let render_conflict ~aliases conflict parts state =
+  match conflict with
+  | Ast.Do_nothing None ->
+    concat [ parts; break " "; text "ON CONFLICT DO NOTHING" ], state
+  | Ast.Do_nothing (Some target) ->
+    let target = render_conflict_target target in
+    ( concat
+        [ parts
+        ; break " "
+        ; text "ON CONFLICT ("
+        ; nest (concat [ break ""; target ])
+        ; break ""
+        ; text ")"
+        ; break " "
+        ; text "DO NOTHING"
+        ]
+    , state )
+  | Ast.Do_update { target; assignments; where_; _ } ->
+    let target = render_conflict_target target in
+    let assignments, state = render_assignments ~aliases assignments state in
+    let parts =
+      concat
+        [ parts
+        ; break " "
+        ; text "ON CONFLICT ("
+        ; nest (concat [ break ""; target ])
+        ; break ""
+        ; text ")"
+        ; break " "
+        ; text "DO UPDATE"
+        ; break " "
+        ; text "SET"
+        ; nest (concat [ break " "; assignments ])
+        ]
+    in
+    where_clause ~aliases where_ parts state
+;;
+
+let render_from_sources ~aliases sources =
+  List.map sources ~f:(fun (source : Ast.source) ->
+    let alias = alias_for aliases source.Ast.source_id in
+    concat [ render_source source; text " AS "; text alias ])
+  |> separate ~by:(concat [ text ","; break " " ])
 ;;
 
 let render_command_ast (command : Ast.command) state =
@@ -444,10 +493,18 @@ let render_command_ast (command : Ast.command) state =
       |> separate ~by:(concat [ text ","; break " " ])
     in
     let rows, state = render_insert_rows ~aliases ~columns command.rows state in
+    let target_alias =
+      let alias = alias_for aliases command.source.source_id in
+      if String.is_empty alias then
+        Template.Empty
+      else
+        concat [ text " AS "; text alias ]
+    in
     let parts =
       concat
         [ text "INSERT INTO "
         ; render_source command.source
+        ; target_alias
         ; text " ("
         ; nest (concat [ break ""; rendered_columns ])
         ; break ""
@@ -457,10 +514,10 @@ let render_command_ast (command : Ast.command) state =
         ; nest (concat [ break " "; rows ])
         ]
     in
-    let parts =
+    let parts, state =
       match command.conflict with
-      | None -> parts
-      | Some Ast.Do_nothing -> concat [ parts; break " "; text "ON CONFLICT DO NOTHING" ]
+      | None -> parts, state
+      | Some conflict -> render_conflict ~aliases conflict parts state
     in
     parts, state
   | Ast.Update ->

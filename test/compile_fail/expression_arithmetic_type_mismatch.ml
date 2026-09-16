@@ -12,8 +12,7 @@ let query =
   Query.(
     from Person.table
     |> select (fun person ->
+      let open Expr.Int64.Infix in
       Projection.expr
-        (Expr.Int64.add
-           (Expr.column person Person.id_column)
-           (Expr.column person Person.name_column))))
+        (Expr.column person Person.id_column +. Expr.column person Person.name_column)))
 ;;

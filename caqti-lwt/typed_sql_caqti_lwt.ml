@@ -13,6 +13,10 @@ type constraint_kind =
 type error =
   | Compile of Typed_sql.Compile_error.t
   | Unsupported_dialect of string
+  | Dialect_mismatch of
+      { compiled : Typed_sql.Dialect.t
+      ; connection : Typed_sql.Dialect.t
+      }
   | Codec of string
   | Schema of string
   | Constraint_violation of
@@ -24,6 +28,11 @@ type error =
 let error_to_string = function
   | Compile error -> Typed_sql.Compile_error.to_string error
   | Unsupported_dialect dialect -> "unsupported Caqti dialect: " ^ dialect
+  | Dialect_mismatch { compiled; connection } ->
+    "compiled statement uses "
+    ^ Typed_sql.Dialect.to_string compiled
+    ^ " but the connection uses "
+    ^ Typed_sql.Dialect.to_string connection
   | Codec message -> "codec failed: " ^ message
   | Schema message -> "schema introspection failed: " ^ message
   | Constraint_violation { kind; message } ->
@@ -44,6 +53,314 @@ let error_to_string = function
 let pp_error formatter error =
   Stdlib.Format.pp_print_string formatter (error_to_string error)
 ;;
+
+module Profile = struct
+  type operation =
+    | Fetch
+    | Fetch_one
+    | Fetch_opt
+    | Execute
+
+  type failure =
+    | Compile
+    | Encode
+    | Database
+    | Decode
+    | Dialect
+    | Cancelled
+    | Raised
+
+  type outcome =
+    | Succeeded
+    | Failed of failure
+
+  type durations =
+    { compile : float option
+    ; prepare : float option
+    ; database : float option
+    ; decode : float option
+    ; total : float
+    }
+
+  type event =
+    { name : string option
+    ; operation : operation
+    ; compiled : bool
+    ; dialect : Typed_sql.Dialect.t option
+    ; fingerprint : string option
+    ; parameter_count : int option
+    ; row_count : int option
+    ; outcome : outcome
+    ; durations : durations
+    }
+
+  type observer = event -> unit
+
+  let operation_to_string = function
+    | Fetch -> "fetch"
+    | Fetch_one -> "fetch_one"
+    | Fetch_opt -> "fetch_opt"
+    | Execute -> "execute"
+  ;;
+
+  let operation_tag = function
+    | Fetch -> "f"
+    | Fetch_one -> "1"
+    | Fetch_opt -> "?"
+    | Execute -> "x"
+  ;;
+end
+
+module Profiler = struct
+  type entry =
+    { name : string option
+    ; operation : Profile.operation
+    ; compiled : bool
+    ; fingerprint : string option
+    ; parameter_count : int option
+    ; calls : int
+    ; failures : int
+    ; rows : int
+    ; compile_seconds : float
+    ; prepare_seconds : float
+    ; database_seconds : float
+    ; decode_seconds : float
+    ; total_seconds : float
+    ; max_compile_seconds : float
+    ; max_prepare_seconds : float
+    ; max_database_seconds : float
+    ; max_decode_seconds : float
+    ; max_total_seconds : float
+    }
+
+  type snapshot =
+    { entries : entry list
+    ; overflow_calls : int
+    ; overflow_seconds : float
+    }
+
+  type aggregate =
+    { name : string option
+    ; operation : Profile.operation
+    ; compiled : bool
+    ; fingerprint : string option
+    ; mutable parameter_count : int option
+    ; mutable calls : int
+    ; mutable failures : int
+    ; mutable rows : int
+    ; mutable compile_seconds : float
+    ; mutable prepare_seconds : float
+    ; mutable database_seconds : float
+    ; mutable decode_seconds : float
+    ; mutable total_seconds : float
+    ; mutable max_compile_seconds : float
+    ; mutable max_prepare_seconds : float
+    ; mutable max_database_seconds : float
+    ; mutable max_decode_seconds : float
+    ; mutable max_total_seconds : float
+    }
+
+  type t =
+    { max_shapes : int
+    ; aggregates : aggregate Hashtbl.M(String).t
+    ; mutable overflow_calls : int
+    ; mutable overflow_seconds : float
+    }
+
+  let create ?(max_shapes = 1024) () =
+    if max_shapes <= 0 then
+      Stdlib.invalid_arg "Profiler.create: max_shapes must be positive";
+    { max_shapes
+    ; aggregates = Hashtbl.create (module String)
+    ; overflow_calls = 0
+    ; overflow_seconds = 0.
+    }
+  ;;
+
+  let option_key = function
+    | None -> "-"
+    | Some value -> Int.to_string (String.length value) ^ ":" ^ value
+  ;;
+
+  let key (event : Profile.event) =
+    String.concat
+      ~sep:"|"
+      [ option_key event.name
+      ; Profile.operation_tag event.operation
+      ; Bool.to_string event.compiled
+      ; option_key event.fingerprint
+      ]
+  ;;
+
+  let seconds = Option.value ~default:0.
+
+  let add event aggregate =
+    let durations = event.Profile.durations in
+    aggregate.calls <- aggregate.calls + 1;
+    aggregate.failures
+    <- (aggregate.failures
+        +
+        match event.outcome with
+        | Succeeded -> 0
+        | Failed _ -> 1);
+    aggregate.rows <- aggregate.rows + Option.value event.row_count ~default:0;
+    aggregate.compile_seconds <- aggregate.compile_seconds +. seconds durations.compile;
+    aggregate.prepare_seconds <- aggregate.prepare_seconds +. seconds durations.prepare;
+    aggregate.database_seconds <- aggregate.database_seconds +. seconds durations.database;
+    aggregate.decode_seconds <- aggregate.decode_seconds +. seconds durations.decode;
+    aggregate.total_seconds <- aggregate.total_seconds +. durations.total;
+    aggregate.max_compile_seconds
+    <- Float.max aggregate.max_compile_seconds (seconds durations.compile);
+    aggregate.max_prepare_seconds
+    <- Float.max aggregate.max_prepare_seconds (seconds durations.prepare);
+    aggregate.max_database_seconds
+    <- Float.max aggregate.max_database_seconds (seconds durations.database);
+    aggregate.max_decode_seconds
+    <- Float.max aggregate.max_decode_seconds (seconds durations.decode);
+    aggregate.max_total_seconds <- Float.max aggregate.max_total_seconds durations.total;
+    aggregate.parameter_count
+    <- Option.first_some aggregate.parameter_count event.parameter_count
+  ;;
+
+  let record profiler event =
+    let key = key event in
+    match Hashtbl.find profiler.aggregates key with
+    | Some aggregate -> add event aggregate
+    | None when Hashtbl.length profiler.aggregates < profiler.max_shapes ->
+      let aggregate =
+        { name = event.name
+        ; operation = event.operation
+        ; compiled = event.compiled
+        ; fingerprint = event.fingerprint
+        ; parameter_count = event.parameter_count
+        ; calls = 0
+        ; failures = 0
+        ; rows = 0
+        ; compile_seconds = 0.
+        ; prepare_seconds = 0.
+        ; database_seconds = 0.
+        ; decode_seconds = 0.
+        ; total_seconds = 0.
+        ; max_compile_seconds = 0.
+        ; max_prepare_seconds = 0.
+        ; max_database_seconds = 0.
+        ; max_decode_seconds = 0.
+        ; max_total_seconds = 0.
+        }
+      in
+      add event aggregate;
+      Hashtbl.set profiler.aggregates ~key ~data:aggregate
+    | None ->
+      profiler.overflow_calls <- profiler.overflow_calls + 1;
+      profiler.overflow_seconds <- profiler.overflow_seconds +. event.durations.total
+  ;;
+
+  let observer profiler event = record profiler event
+
+  let entry (aggregate : aggregate) : entry =
+    { name = aggregate.name
+    ; operation = aggregate.operation
+    ; compiled = aggregate.compiled
+    ; fingerprint = aggregate.fingerprint
+    ; parameter_count = aggregate.parameter_count
+    ; calls = aggregate.calls
+    ; failures = aggregate.failures
+    ; rows = aggregate.rows
+    ; compile_seconds = aggregate.compile_seconds
+    ; prepare_seconds = aggregate.prepare_seconds
+    ; database_seconds = aggregate.database_seconds
+    ; decode_seconds = aggregate.decode_seconds
+    ; total_seconds = aggregate.total_seconds
+    ; max_compile_seconds = aggregate.max_compile_seconds
+    ; max_prepare_seconds = aggregate.max_prepare_seconds
+    ; max_database_seconds = aggregate.max_database_seconds
+    ; max_decode_seconds = aggregate.max_decode_seconds
+    ; max_total_seconds = aggregate.max_total_seconds
+    }
+  ;;
+
+  let local_seconds (entry : entry) = entry.compile_seconds +. entry.prepare_seconds
+
+  let snapshot ?(limit = 20) profiler =
+    if limit < 0 then
+      Stdlib.invalid_arg "Profiler.snapshot: limit must be non-negative";
+    let entries =
+      Hashtbl.data profiler.aggregates
+      |> List.map ~f:entry
+      |> List.sort ~compare:(fun left right ->
+        Float.compare (local_seconds right) (local_seconds left))
+      |> Fn.flip List.take limit
+    in
+    { entries
+    ; overflow_calls = profiler.overflow_calls
+    ; overflow_seconds = profiler.overflow_seconds
+    }
+  ;;
+
+  let reset profiler =
+    Hashtbl.clear profiler.aggregates;
+    profiler.overflow_calls <- 0;
+    profiler.overflow_seconds <- 0.
+  ;;
+
+  let snapshot_and_reset ?limit profiler =
+    let snapshot = snapshot ?limit profiler in
+    reset profiler;
+    snapshot
+  ;;
+
+  let pp formatter snapshot =
+    Stdlib.Format.fprintf
+      formatter
+      "%-24s %-10s %8s %8s %7s %7s %9s %10s %10s %10s %10s %9s %s@."
+      "query"
+      "operation"
+      "mode"
+      "calls"
+      "errors"
+      "params"
+      "rows"
+      "compile"
+      "prepare"
+      "database"
+      "decode"
+      "local%"
+      "fingerprint";
+    List.iter snapshot.entries ~f:(fun entry ->
+      let local = local_seconds entry in
+      let local_percent =
+        if Float.(entry.total_seconds > 0.) then
+          local /. entry.total_seconds *. 100.
+        else
+          0.
+      in
+      Stdlib.Format.fprintf
+        formatter
+        "%-24s %-10s %8s %8d %7d %7s %9d %10.6f %10.6f %10.6f %10.6f %8.2f%% %s@."
+        (Option.value entry.name ~default:"-")
+        (Profile.operation_to_string entry.operation)
+        (if entry.compiled then
+           "compiled"
+         else
+           "ordinary")
+        entry.calls
+        entry.failures
+        (Option.value_map entry.parameter_count ~default:"-" ~f:Int.to_string)
+        entry.rows
+        entry.compile_seconds
+        entry.prepare_seconds
+        entry.database_seconds
+        entry.decode_seconds
+        local_percent
+        (Option.value entry.fingerprint ~default:"-"));
+    if snapshot.overflow_calls > 0 then
+      Stdlib.Format.fprintf
+        formatter
+        "overflow: %d calls, %.6fs total@."
+        snapshot.overflow_calls
+        snapshot.overflow_seconds
+  ;;
+end
 
 let dialect_of_caqti = function
   | T.Dialect.Pgsql _ -> Ok Typed_sql.Dialect.Postgresql
@@ -243,6 +560,156 @@ let map_caqti_error result =
   Result.map_error result ~f:(fun error -> classify_caqti_error (error :> Caqti.Error.t))
 ;;
 
+type trace =
+  { observer : Profile.observer
+  ; name : string option
+  ; operation : Profile.operation
+  ; compiled : bool
+  ; started : float
+  ; mutable dialect : Typed_sql.Dialect.t option
+  ; mutable fingerprint : string option
+  ; mutable parameter_count : int option
+  ; mutable compile_seconds : float option
+  ; mutable prepare_seconds : float option
+  ; mutable database_seconds : float option
+  ; mutable decode_seconds : float option
+  ; mutable finished : bool
+  }
+
+let now () = Unix.gettimeofday ()
+let elapsed started = Float.max 0. (now () -. started)
+
+let time_sync trace ~set f =
+  match trace with
+  | None -> f ()
+  | Some trace ->
+    let started = now () in
+    (match f () with
+     | value ->
+       set trace (Some (elapsed started));
+       value
+     | exception error ->
+       set trace (Some (elapsed started));
+       raise error)
+;;
+
+let time_lwt trace ~set f =
+  match trace with
+  | None -> f ()
+  | Some trace ->
+    let started = now () in
+    Lwt.try_bind
+      f
+      (fun value ->
+         set trace (Some (elapsed started));
+         Lwt.return value)
+      (fun error ->
+         set trace (Some (elapsed started));
+         Lwt.fail error)
+;;
+
+let emit trace ~outcome ~row_count =
+  match trace with
+  | None -> ()
+  | Some trace when trace.finished -> ()
+  | Some trace ->
+    trace.finished <- true;
+    let event : Profile.event =
+      { name = trace.name
+      ; operation = trace.operation
+      ; compiled = trace.compiled
+      ; dialect = trace.dialect
+      ; fingerprint = trace.fingerprint
+      ; parameter_count = trace.parameter_count
+      ; row_count
+      ; outcome
+      ; durations =
+          { compile = trace.compile_seconds
+          ; prepare = trace.prepare_seconds
+          ; database = trace.database_seconds
+          ; decode = trace.decode_seconds
+          ; total = elapsed trace.started
+          }
+      }
+    in
+    (try trace.observer event with
+     | _ -> ())
+;;
+
+let complete trace ~outcome ~row_count result =
+  emit trace ~outcome ~row_count;
+  Lwt.return result
+;;
+
+let with_trace ?observer ?name ~compiled operation f =
+  match observer with
+  | None -> f None
+  | Some observer ->
+    let trace =
+      { observer
+      ; name
+      ; operation
+      ; compiled
+      ; started = now ()
+      ; dialect = None
+      ; fingerprint = None
+      ; parameter_count = None
+      ; compile_seconds = None
+      ; prepare_seconds = None
+      ; database_seconds = None
+      ; decode_seconds = None
+      ; finished = false
+      }
+    in
+    Lwt.catch
+      (fun () -> f (Some trace))
+      (fun error ->
+         let failure =
+           match error with
+           | Lwt.Canceled -> Profile.Cancelled
+           | _ -> Profile.Raised
+         in
+         emit (Some trace) ~outcome:(Failed failure) ~row_count:None;
+         Lwt.fail error)
+;;
+
+let set_compile trace value = trace.compile_seconds <- value
+let set_prepare trace value = trace.prepare_seconds <- value
+let set_database trace value = trace.database_seconds <- value
+let set_decode trace value = trace.decode_seconds <- value
+
+let add_prepare trace value =
+  trace.prepare_seconds
+  <- Some
+       (Option.value trace.prepare_seconds ~default:0. +. Option.value value ~default:0.)
+;;
+
+let set_dialect trace dialect =
+  Option.iter trace ~f:(fun trace -> trace.dialect <- Some dialect)
+;;
+
+let fingerprint shape =
+  Typed_sql_backend.Shape.to_string shape |> Stdlib.Digest.string |> Stdlib.Digest.to_hex
+;;
+
+let describe_query trace compiled =
+  Option.iter trace ~f:(fun trace ->
+    trace.dialect <- Some (Typed_sql.Compiled_query.dialect compiled);
+    trace.fingerprint
+    <- Some (fingerprint (Typed_sql_backend.Compiled_query.shape compiled));
+    trace.parameter_count
+    <- Some (List.length (Typed_sql_backend.Compiled_query.parameters compiled)))
+;;
+
+let describe_command trace compiled =
+  Option.iter trace ~f:(fun trace ->
+    trace.dialect <- Some (Typed_sql.Compiled_command.dialect compiled);
+    trace.fingerprint
+    <- Some (fingerprint (Typed_sql_backend.Compiled_command.shape compiled));
+    trace.parameter_count
+    <- Some (List.length (Typed_sql_backend.Compiled_command.parameters compiled)))
+;;
+
 let compile dialect query =
   let open Result.Let_syntax in
   let%bind dialect = dialect_of_caqti dialect in
@@ -257,101 +724,316 @@ let compile_command dialect command =
   |> Result.map_error ~f:(fun error -> Compile error)
 ;;
 
-let fetch ~conn query =
+let run_fetch_compiled trace ~conn compiled =
   let module Connection = (val conn : Caqti_lwt.CONNECTION) in
-  match compile Connection.dialect query with
-  | Error error -> Lwt.return (Error error)
-  | Ok compiled ->
-    (match pack_parameters (Typed_sql_backend.Compiled_query.parameters compiled) with
-     | Error error -> Lwt.return (Error error)
-     | Ok (Parameters parameters) ->
-       (match projection_row (Typed_sql_backend.Compiled_query.projection compiled) with
-        | Projection_row row ->
-          let request_type =
-            T.Request_type.Infix.(parameters.row_type -->* row.row_type)
-          in
-          let request =
-            T.Request.create T.Request.Dynamic request_type (fun _ ->
-              caqti_query (Typed_sql_backend.Compiled_query.template compiled))
-          in
-          Connection.collect_list request parameters.value
-          |> Lwt.map (fun result ->
-            let open Result.Let_syntax in
-            let%bind rows = map_caqti_error result in
-            Result.all (List.map rows ~f:row.decode))))
-;;
-
-let fetch_one ~conn query =
-  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
-  match compile Connection.dialect query with
-  | Error error -> Lwt.return (Error error)
-  | Ok compiled ->
-    (match pack_parameters (Typed_sql_backend.Compiled_query.parameters compiled) with
-     | Error error -> Lwt.return (Error error)
-     | Ok (Parameters parameters) ->
-       (match projection_row (Typed_sql_backend.Compiled_query.projection compiled) with
-        | Projection_row row ->
-          let request_type =
-            T.Request_type.Infix.(parameters.row_type -->! row.row_type)
-          in
-          let request =
-            T.Request.create T.Request.Dynamic request_type (fun _ ->
-              caqti_query (Typed_sql_backend.Compiled_query.template compiled))
-          in
-          Connection.find request parameters.value
-          |> Lwt.map (fun result ->
-            let open Result.Let_syntax in
-            let%bind raw = map_caqti_error result in
-            row.decode raw)))
-;;
-
-let fetch_opt ~conn query =
-  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
-  match compile Connection.dialect query with
-  | Error error -> Lwt.return (Error error)
-  | Ok compiled ->
-    (match pack_parameters (Typed_sql_backend.Compiled_query.parameters compiled) with
-     | Error error -> Lwt.return (Error error)
-     | Ok (Parameters parameters) ->
-       (match projection_row (Typed_sql_backend.Compiled_query.projection compiled) with
-        | Projection_row row ->
-          let request_type =
-            T.Request_type.Infix.(parameters.row_type -->? row.row_type)
-          in
-          let request =
-            T.Request.create T.Request.Dynamic request_type (fun _ ->
-              caqti_query (Typed_sql_backend.Compiled_query.template compiled))
-          in
-          Connection.find_opt request parameters.value
-          |> Lwt.map (fun result ->
-            let open Result.Let_syntax in
-            let%bind raw = map_caqti_error result in
-            match raw with
-            | None -> Ok None
-            | Some raw -> Result.map (row.decode raw) ~f:Option.some)))
-;;
-
-let execute ~conn command =
-  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
-  match compile_command Connection.dialect command with
-  | Error error -> Lwt.return (Error error)
-  | Ok compiled ->
-    (match pack_parameters (Typed_sql_backend.Compiled_command.parameters compiled) with
-     | Error error -> Lwt.return (Error error)
-     | Ok (Parameters parameters) ->
-       let request_type =
-         T.Request_type.Infix.(parameters.row_type -->. T.Row_type.unit)
-       in
+  describe_query trace compiled;
+  match
+    time_sync trace ~set:set_prepare (fun () ->
+      pack_parameters (Typed_sql_backend.Compiled_query.parameters compiled))
+  with
+  | Error error -> complete trace ~outcome:(Failed Encode) ~row_count:None (Error error)
+  | Ok (Parameters parameters) ->
+    (match
+       time_sync trace ~set:add_prepare (fun () ->
+         projection_row (Typed_sql_backend.Compiled_query.projection compiled))
+     with
+     | Projection_row row ->
+       let request_type = T.Request_type.Infix.(parameters.row_type -->* row.row_type) in
        let request =
-         T.Request.create T.Request.Dynamic request_type (fun _ ->
-           caqti_query (Typed_sql_backend.Compiled_command.template compiled))
+         time_sync trace ~set:add_prepare (fun () ->
+           let query = caqti_query (Typed_sql_backend.Compiled_query.template compiled) in
+           T.Request.create T.Request.Dynamic request_type (fun _ -> query))
        in
-       Connection.exec_with_affected_count request parameters.value
-       |> Lwt.map (function
-         | Ok count -> Ok (Typed_sql.Affected_rows.Known count)
-         | Error `Unsupported -> Ok Typed_sql.Affected_rows.Unknown
-         | Error (#Caqti.Error.t as error) ->
-           Error (classify_caqti_error (error :> Caqti.Error.t))))
+       let open Lwt.Syntax in
+       let* result =
+         time_lwt trace ~set:set_database (fun () ->
+           Connection.collect_list request parameters.value)
+       in
+       (match map_caqti_error result with
+        | Error error ->
+          complete trace ~outcome:(Failed Database) ~row_count:None (Error error)
+        | Ok rows ->
+          let row_count = List.length rows in
+          let result =
+            time_sync trace ~set:set_decode (fun () ->
+              Result.all (List.map rows ~f:row.decode))
+          in
+          (match result with
+           | Ok rows ->
+             complete trace ~outcome:Succeeded ~row_count:(Some row_count) (Ok rows)
+           | Error error ->
+             complete
+               trace
+               ~outcome:(Failed Decode)
+               ~row_count:(Some row_count)
+               (Error error))))
+;;
+
+let run_fetch_one_compiled trace ~conn compiled =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  describe_query trace compiled;
+  match
+    time_sync trace ~set:set_prepare (fun () ->
+      pack_parameters (Typed_sql_backend.Compiled_query.parameters compiled))
+  with
+  | Error error -> complete trace ~outcome:(Failed Encode) ~row_count:None (Error error)
+  | Ok (Parameters parameters) ->
+    (match
+       time_sync trace ~set:add_prepare (fun () ->
+         projection_row (Typed_sql_backend.Compiled_query.projection compiled))
+     with
+     | Projection_row row ->
+       let request_type = T.Request_type.Infix.(parameters.row_type -->! row.row_type) in
+       let request =
+         time_sync trace ~set:add_prepare (fun () ->
+           let query = caqti_query (Typed_sql_backend.Compiled_query.template compiled) in
+           T.Request.create T.Request.Dynamic request_type (fun _ -> query))
+       in
+       let open Lwt.Syntax in
+       let* result =
+         time_lwt trace ~set:set_database (fun () ->
+           Connection.find request parameters.value)
+       in
+       (match map_caqti_error result with
+        | Error error ->
+          complete trace ~outcome:(Failed Database) ~row_count:None (Error error)
+        | Ok raw ->
+          let result = time_sync trace ~set:set_decode (fun () -> row.decode raw) in
+          (match result with
+           | Ok row -> complete trace ~outcome:Succeeded ~row_count:(Some 1) (Ok row)
+           | Error error ->
+             complete trace ~outcome:(Failed Decode) ~row_count:(Some 1) (Error error))))
+;;
+
+let run_fetch_opt_compiled trace ~conn compiled =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  describe_query trace compiled;
+  match
+    time_sync trace ~set:set_prepare (fun () ->
+      pack_parameters (Typed_sql_backend.Compiled_query.parameters compiled))
+  with
+  | Error error -> complete trace ~outcome:(Failed Encode) ~row_count:None (Error error)
+  | Ok (Parameters parameters) ->
+    (match
+       time_sync trace ~set:add_prepare (fun () ->
+         projection_row (Typed_sql_backend.Compiled_query.projection compiled))
+     with
+     | Projection_row row ->
+       let request_type = T.Request_type.Infix.(parameters.row_type -->? row.row_type) in
+       let request =
+         time_sync trace ~set:add_prepare (fun () ->
+           let query = caqti_query (Typed_sql_backend.Compiled_query.template compiled) in
+           T.Request.create T.Request.Dynamic request_type (fun _ -> query))
+       in
+       let open Lwt.Syntax in
+       let* result =
+         time_lwt trace ~set:set_database (fun () ->
+           Connection.find_opt request parameters.value)
+       in
+       (match map_caqti_error result with
+        | Error error ->
+          complete trace ~outcome:(Failed Database) ~row_count:None (Error error)
+        | Ok None -> complete trace ~outcome:Succeeded ~row_count:(Some 0) (Ok None)
+        | Ok (Some raw) ->
+          let result = time_sync trace ~set:set_decode (fun () -> row.decode raw) in
+          (match result with
+           | Ok row ->
+             complete trace ~outcome:Succeeded ~row_count:(Some 1) (Ok (Some row))
+           | Error error ->
+             complete trace ~outcome:(Failed Decode) ~row_count:(Some 1) (Error error))))
+;;
+
+let run_execute_compiled trace ~conn compiled =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  describe_command trace compiled;
+  match
+    time_sync trace ~set:set_prepare (fun () ->
+      pack_parameters (Typed_sql_backend.Compiled_command.parameters compiled))
+  with
+  | Error error -> complete trace ~outcome:(Failed Encode) ~row_count:None (Error error)
+  | Ok (Parameters parameters) ->
+    let request_type = T.Request_type.Infix.(parameters.row_type -->. T.Row_type.unit) in
+    let request =
+      time_sync trace ~set:add_prepare (fun () ->
+        let query = caqti_query (Typed_sql_backend.Compiled_command.template compiled) in
+        T.Request.create T.Request.Dynamic request_type (fun _ -> query))
+    in
+    let open Lwt.Syntax in
+    let* result =
+      time_lwt trace ~set:set_database (fun () ->
+        Connection.exec_with_affected_count request parameters.value)
+    in
+    (match result with
+     | Ok count ->
+       complete
+         trace
+         ~outcome:Succeeded
+         ~row_count:(Some count)
+         (Ok (Typed_sql.Affected_rows.Known count))
+     | Error `Unsupported ->
+       complete
+         trace
+         ~outcome:Succeeded
+         ~row_count:None
+         (Ok Typed_sql.Affected_rows.Unknown)
+     | Error (#Caqti.Error.t as error) ->
+       complete
+         trace
+         ~outcome:(Failed Database)
+         ~row_count:None
+         (Error (classify_caqti_error (error :> Caqti.Error.t))))
+;;
+
+let same_dialect left right =
+  match left, right with
+  | Typed_sql.Dialect.Postgresql, Typed_sql.Dialect.Postgresql
+  | Typed_sql.Dialect.Sqlite, Typed_sql.Dialect.Sqlite -> true
+  | Typed_sql.Dialect.Postgresql, Typed_sql.Dialect.Sqlite
+  | Typed_sql.Dialect.Sqlite, Typed_sql.Dialect.Postgresql -> false
+;;
+
+let connection_dialect trace dialect =
+  match dialect_of_caqti dialect with
+  | Error error -> Error error
+  | Ok dialect ->
+    set_dialect trace dialect;
+    Ok dialect
+;;
+
+let describe_connection_dialect trace dialect =
+  match dialect_of_caqti dialect with
+  | Ok dialect -> set_dialect trace dialect
+  | Error _ -> ()
+;;
+
+let check_query_dialect trace connection compiled =
+  describe_query trace compiled;
+  match connection_dialect trace connection with
+  | Error error -> Error error
+  | Ok connection ->
+    let compiled = Typed_sql.Compiled_query.dialect compiled in
+    if same_dialect compiled connection then
+      Ok ()
+    else
+      Error (Dialect_mismatch { compiled; connection })
+;;
+
+let check_command_dialect trace connection compiled =
+  describe_command trace compiled;
+  match connection_dialect trace connection with
+  | Error error -> Error error
+  | Ok connection ->
+    let compiled = Typed_sql.Compiled_command.dialect compiled in
+    if same_dialect compiled connection then
+      Ok ()
+    else
+      Error (Dialect_mismatch { compiled; connection })
+;;
+
+let compilation_failure = function
+  | Unsupported_dialect _ | Dialect_mismatch _ -> Profile.Dialect
+  | Compile _ | Codec _ | Schema _ | Constraint_violation _ | Caqti _ -> Profile.Compile
+;;
+
+let fetch_compiled ?observer ?name ~conn compiled =
+  with_trace ?observer ?name ~compiled:true Fetch (fun trace ->
+    let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+    match check_query_dialect trace Connection.dialect compiled with
+    | Error error ->
+      complete trace ~outcome:(Failed Dialect) ~row_count:None (Error error)
+    | Ok () -> run_fetch_compiled trace ~conn compiled)
+;;
+
+let fetch_one_compiled ?observer ?name ~conn compiled =
+  with_trace ?observer ?name ~compiled:true Fetch_one (fun trace ->
+    let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+    match check_query_dialect trace Connection.dialect compiled with
+    | Error error ->
+      complete trace ~outcome:(Failed Dialect) ~row_count:None (Error error)
+    | Ok () -> run_fetch_one_compiled trace ~conn compiled)
+;;
+
+let fetch_opt_compiled ?observer ?name ~conn compiled =
+  with_trace ?observer ?name ~compiled:true Fetch_opt (fun trace ->
+    let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+    match check_query_dialect trace Connection.dialect compiled with
+    | Error error ->
+      complete trace ~outcome:(Failed Dialect) ~row_count:None (Error error)
+    | Ok () -> run_fetch_opt_compiled trace ~conn compiled)
+;;
+
+let execute_compiled ?observer ?name ~conn compiled =
+  with_trace ?observer ?name ~compiled:true Execute (fun trace ->
+    let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+    match check_command_dialect trace Connection.dialect compiled with
+    | Error error ->
+      complete trace ~outcome:(Failed Dialect) ~row_count:None (Error error)
+    | Ok () -> run_execute_compiled trace ~conn compiled)
+;;
+
+let fetch ?observer ?name ~conn query =
+  with_trace ?observer ?name ~compiled:false Fetch (fun trace ->
+    let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+    describe_connection_dialect trace Connection.dialect;
+    match
+      time_sync trace ~set:set_compile (fun () -> compile Connection.dialect query)
+    with
+    | Error error ->
+      complete
+        trace
+        ~outcome:(Failed (compilation_failure error))
+        ~row_count:None
+        (Error error)
+    | Ok compiled -> run_fetch_compiled trace ~conn compiled)
+;;
+
+let fetch_one ?observer ?name ~conn query =
+  with_trace ?observer ?name ~compiled:false Fetch_one (fun trace ->
+    let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+    describe_connection_dialect trace Connection.dialect;
+    match
+      time_sync trace ~set:set_compile (fun () -> compile Connection.dialect query)
+    with
+    | Error error ->
+      complete
+        trace
+        ~outcome:(Failed (compilation_failure error))
+        ~row_count:None
+        (Error error)
+    | Ok compiled -> run_fetch_one_compiled trace ~conn compiled)
+;;
+
+let fetch_opt ?observer ?name ~conn query =
+  with_trace ?observer ?name ~compiled:false Fetch_opt (fun trace ->
+    let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+    describe_connection_dialect trace Connection.dialect;
+    match
+      time_sync trace ~set:set_compile (fun () -> compile Connection.dialect query)
+    with
+    | Error error ->
+      complete
+        trace
+        ~outcome:(Failed (compilation_failure error))
+        ~row_count:None
+        (Error error)
+    | Ok compiled -> run_fetch_opt_compiled trace ~conn compiled)
+;;
+
+let execute ?observer ?name ~conn command =
+  with_trace ?observer ?name ~compiled:false Execute (fun trace ->
+    let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+    describe_connection_dialect trace Connection.dialect;
+    match
+      time_sync trace ~set:set_compile (fun () ->
+        compile_command Connection.dialect command)
+    with
+    | Error error ->
+      complete
+        trace
+        ~outcome:(Failed (compilation_failure error))
+        ~row_count:None
+        (Error error)
+    | Ok compiled -> run_execute_compiled trace ~conn compiled)
 ;;
 
 let transaction ~conn ~f =

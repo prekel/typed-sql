@@ -14,3 +14,8 @@ let v_exn ?schema name =
 
 let name table = table.name
 let schema table = table.schema
+
+let equal left right =
+  Identifier.equal left.name right.name
+  && Option.equal Identifier.equal left.schema right.schema
+;;

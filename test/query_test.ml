@@ -372,6 +372,91 @@ let%expect_test "multi-row INSERT, DEFAULT, conflict policy, and UPDATE FROM" =
       ($1)
     ON CONFLICT DO NOTHING
     |}];
+  let conflict_target = Insert.Conflict_target.column Person.id_column in
+  Insert.(
+    into Person.table
+    |> set Person.id_column 1L
+    |> on_conflict conflict_target
+    |> do_nothing
+    |> command)
+  |> compile_command_exn Dialect.Postgresql
+  |> Compiled_command.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    INSERT INTO "public"."people" (
+      "id"
+    )
+    VALUES
+      ($1)
+    ON CONFLICT (
+      "id"
+    )
+    DO NOTHING
+    |}];
+  let upsert =
+    Insert.(
+      into Person.table
+      |> set Person.id_column 1L
+      |> set Person.name_column "Ada"
+      |> on_conflict conflict_target
+      |> do_update (fun ~existing ~excluded ->
+        Conflict_update.(
+          empty
+          |> set_expr
+               Person.name_column
+               (Expr.concat
+                  (Person.name existing)
+                  (Expr.concat_value (Person.name excluded) "!"))
+          |> set Person.id_column 2L))
+      |> returning (fun person -> Projection.pair (Person.id person) (Person.name person)))
+  in
+  upsert
+  |> compile_result_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    INSERT INTO "public"."people" AS t0 (
+      "id",
+      "name"
+    )
+    VALUES
+      ($1, $2)
+    ON CONFLICT (
+      "id"
+    )
+    DO UPDATE
+    SET
+      "name" = (t0."name" || (excluded."name" || $3)),
+      "id" = $4
+    RETURNING
+      "id",
+      "name"
+    |}];
+  upsert
+  |> compile_result_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    INSERT INTO "public"."people" AS t0 (
+      "id",
+      "name"
+    )
+    VALUES
+      (?1, ?2)
+    ON CONFLICT (
+      "id"
+    )
+    DO UPDATE
+    SET
+      "name" = (t0."name" || (excluded."name" || ?3)),
+      "id" = ?4
+    RETURNING
+      "id",
+      "name"
+    |}];
   Insert.(
     into Person.table |> set Person.id_column 1L |> on_conflict_do_nothing |> command)
   |> compile_command_exn Dialect.Sqlite
@@ -467,7 +552,28 @@ let%expect_test "DML validation and capability diagnostics" =
   Update.(table Person.table |> default Person.name_column |> all_rows |> command)
   |> Compiler.compile_command ~dialect:Dialect.Sqlite
   |> print_error;
-  [%expect {| UPDATE SET DEFAULT is not supported by the sqlite dialect |}]
+  [%expect {| UPDATE SET DEFAULT is not supported by the sqlite dialect |}];
+  let duplicate_target =
+    Insert.Conflict_target.(column Person.id_column |> add Person.id_column)
+  in
+  Insert.(
+    into Person.table
+    |> set Person.id_column 1L
+    |> on_conflict duplicate_target
+    |> do_nothing
+    |> command)
+  |> Compiler.compile_command ~dialect:Dialect.Postgresql
+  |> print_error;
+  [%expect {| ON CONFLICT target contains column id more than once |}];
+  Insert.(
+    into Person.table
+    |> set Person.id_column 1L
+    |> on_conflict (Conflict_target.column Person.id_column)
+    |> do_update (fun ~existing:_ ~excluded:_ -> Conflict_update.empty)
+    |> command)
+  |> Compiler.compile_command ~dialect:Dialect.Sqlite
+  |> print_error;
+  [%expect {| ON CONFLICT DO UPDATE must assign at least one column |}]
 ;;
 
 let%expect_test "conditional UPDATE assignments distinguish omission from NULL" =
@@ -565,33 +671,36 @@ let%expect_test "typed arithmetic renders for every numeric representation" =
         let int64 = Person.id person in
         let int_ = Expr.param Db_type.int 12 in
         let float = Expr.param Db_type.float 12.0 in
+        let int64_values =
+          let open Expr.Int64.Infix in
+          [ int64 +. Expr.param Db_type.int64 1L
+          ; int64 -. Expr.param Db_type.int64 2L
+          ; int64 *. Expr.param Db_type.int64 3L
+          ; int64 /. Expr.param Db_type.int64 4L
+          ]
+        in
+        let int_values =
+          let open Expr.Int.Infix in
+          [ int_ +. Expr.param Db_type.int 1
+          ; int_ -. Expr.param Db_type.int 2
+          ; int_ *. Expr.param Db_type.int 3
+          ; int_ /. Expr.param Db_type.int 4
+          ]
+        in
+        let float_values =
+          let open Expr.Float.Infix in
+          [ float +. Expr.param Db_type.float 1.0
+          ; float -. Expr.param Db_type.float 2.0
+          ; float *. Expr.param Db_type.float 3.0
+          ; float /. Expr.param Db_type.float 4.0
+          ]
+        in
         Projection.map3
           ~f:(fun int64_values int_values float_values ->
             int64_values, int_values, float_values)
-          (Projection.all
-             (List.map
-                [ Expr.Int64.add int64 (Expr.param Db_type.int64 1L)
-                ; Expr.Int64.subtract int64 (Expr.param Db_type.int64 2L)
-                ; Expr.Int64.multiply int64 (Expr.param Db_type.int64 3L)
-                ; Expr.Int64.divide int64 (Expr.param Db_type.int64 4L)
-                ]
-                ~f:Projection.expr))
-          (Projection.all
-             (List.map
-                [ Expr.Int.add int_ (Expr.param Db_type.int 1)
-                ; Expr.Int.subtract int_ (Expr.param Db_type.int 2)
-                ; Expr.Int.multiply int_ (Expr.param Db_type.int 3)
-                ; Expr.Int.divide int_ (Expr.param Db_type.int 4)
-                ]
-                ~f:Projection.expr))
-          (Projection.all
-             (List.map
-                [ Expr.Float.add float (Expr.param Db_type.float 1.0)
-                ; Expr.Float.subtract float (Expr.param Db_type.float 2.0)
-                ; Expr.Float.multiply float (Expr.param Db_type.float 3.0)
-                ; Expr.Float.divide float (Expr.param Db_type.float 4.0)
-                ]
-                ~f:Projection.expr))))
+          (Projection.all (List.map int64_values ~f:Projection.expr))
+          (Projection.all (List.map int_values ~f:Projection.expr))
+          (Projection.all (List.map float_values ~f:Projection.expr))))
   in
   query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
@@ -772,13 +881,15 @@ let%expect_test "GROUP BY accepts the same portable expression in projection" =
       LOWER(t0."name") ASC
     |}];
   let arithmetic =
+    let arithmetic_expression person =
+      let open Expr.Int64.Infix in
+      Person.id person +. Person.id person
+    in
     Query.(
       from Person.table
-      |> group_by (fun person -> Expr.Int64.add (Person.id person) (Person.id person))
+      |> group_by arithmetic_expression
       |> select (fun person ->
-        Projection.pair
-          (Expr.Int64.add (Person.id person) (Person.id person))
-          Expr.count_all))
+        Projection.pair (arithmetic_expression person) Expr.count_all))
   in
   arithmetic
   |> compile_exn Dialect.Postgresql
@@ -850,9 +961,15 @@ let%test_unit "GROUP BY compares every public arithmetic and string function" =
       | Ok _ -> ()
       | Error error -> failwith (Compile_error.to_string error))
   in
-  check (fun person -> Expr.Int64.subtract (Person.id person) (Person.id person));
-  check (fun person -> Expr.Int64.multiply (Person.id person) (Person.id person));
-  check (fun person -> Expr.Int64.divide (Person.id person) (Person.id person));
+  check (fun person ->
+    let open Expr.Int64.Infix in
+    Person.id person -. Person.id person);
+  check (fun person ->
+    let open Expr.Int64.Infix in
+    Person.id person *. Person.id person);
+  check (fun person ->
+    let open Expr.Int64.Infix in
+    Person.id person /. Person.id person);
   check (fun person -> Expr.upper (Person.name person));
   check (fun person -> Expr.length (Person.name person));
   let expect_ungrouped group projection =
@@ -868,8 +985,12 @@ let%test_unit "GROUP BY compares every public arithmetic and string function" =
     | Ok _ -> failwith "different expressions were treated as the same group"
   in
   expect_ungrouped
-    (fun person -> Expr.Int64.add (Person.id person) (Person.id person))
-    (fun person -> Expr.Int64.subtract (Person.id person) (Person.id person));
+    (fun person ->
+       let open Expr.Int64.Infix in
+       Person.id person +. Person.id person)
+    (fun person ->
+       let open Expr.Int64.Infix in
+       Person.id person -. Person.id person);
   expect_ungrouped
     (fun person -> Expr.lower (Person.name person))
     (fun person -> Expr.upper (Person.name person))

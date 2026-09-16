@@ -36,6 +36,10 @@ let assignment : A.assignment =
   }
 ;;
 
+let conflict_column ?(source_id = 0) column : A.conflict_target_column =
+  { target_source_id = source_id; target_column = column }
+;;
+
 let command kind assignments : A.command =
   let assignments, rows =
     match kind with
@@ -176,11 +180,68 @@ let%expect_test "validator catches invalid DML assignments and RETURNING" =
   Validator.command insert |> ok_exn
 ;;
 
+let%expect_test "validator rejects malformed private conflict clauses" =
+  let id = Identifier.of_string_exn "id" in
+  let insert = command A.Insert [ assignment ] in
+  let validate conflict =
+    Validator.command { insert with conflict = Some conflict } |> print_validation
+  in
+  validate (A.Do_nothing (Some []));
+  [%expect {| ON CONFLICT target must contain at least one column |}];
+  validate
+    (A.Do_update
+       { target = []
+       ; excluded_source_id = 1
+       ; where_ = None
+       ; assignments = [ assignment ]
+       });
+  [%expect {| ON CONFLICT target must contain at least one column |}];
+  validate
+    (A.Do_update
+       { target = [ conflict_column id; conflict_column id ]
+       ; excluded_source_id = 1
+       ; where_ = None
+       ; assignments = [ assignment ]
+       });
+  [%expect {| ON CONFLICT target contains column id more than once |}];
+  validate (A.Do_nothing (Some [ conflict_column ~source_id:99 id ]));
+  [%expect {| ON CONFLICT target column belongs to source #99, expected source #0 |}];
+  validate
+    (A.Do_update
+       { target = [ conflict_column id ]
+       ; excluded_source_id = 1
+       ; where_ = None
+       ; assignments = [ assignment; assignment ]
+       });
+  [%expect {| column id is assigned more than once |}]
+;;
+
 let%test "private commands reach compiler validation" =
   let invalid = command A.Update [] |> Command.create in
   match Compiler.compile_command ~dialect:Dialect.Sqlite invalid with
   | Error (Compile_error.Empty_assignments `Update) -> true
   | _ -> false
+;;
+
+let%test_unit "private UPSERT DEFAULT reaches dialect capability checking" =
+  let ast =
+    { (command A.Insert [ assignment ]) with
+      conflict =
+        Some
+          (A.Do_update
+             { target = [ conflict_column assignment.column ]
+             ; excluded_source_id = 1
+             ; assignments = [ { assignment with value = A.Default } ]
+             ; where_ = None
+             })
+    }
+  in
+  let command = Command.create ast in
+  ignore (Compiler.compile_command ~dialect:Dialect.Postgresql command |> ok_exn);
+  match Compiler.compile_command ~dialect:Dialect.Sqlite command with
+  | Error (Compile_error.Unsupported_operation { operation; dialect = Dialect.Sqlite }) ->
+    assert (String.equal operation "ON CONFLICT DO UPDATE SET DEFAULT")
+  | _ -> failwith "SQLite accepted an UPSERT DEFAULT assignment"
 ;;
 
 let%expect_test "private constructors share opaque public types" =
@@ -478,10 +539,39 @@ let%test_unit
   assert (
     Lower.command_has_unsupported_having
       ~dialect:Dialect.Sqlite
+      { (command A.Insert [ assignment ]) with
+        conflict =
+          Some
+            (A.Do_update
+               { target = [ conflict_column (Identifier.of_string_exn "id") ]
+               ; excluded_source_id = 1
+               ; where_ = None
+               ; assignments = [ bad_assignment ]
+               })
+      });
+  assert (
+    Lower.command_has_unsupported_having
+      ~dialect:Dialect.Sqlite
       { (command A.Update [ assignment ]) with where_ = Some (A.Exists nested_select) });
   (match Lower.command ~dialect:Dialect.Sqlite (command A.Update [ bad_assignment ]) with
    | Error (Compile_error.Unsupported_operation { dialect = Dialect.Sqlite; _ }) -> ()
    | _ -> failwith "UPDATE did not reject a nested unsupported HAVING");
+  (match
+     Lower.command
+       ~dialect:Dialect.Sqlite
+       { (command A.Insert [ assignment ]) with
+         conflict =
+           Some
+             (A.Do_update
+                { target = [ conflict_column (Identifier.of_string_exn "id") ]
+                ; excluded_source_id = 1
+                ; where_ = None
+                ; assignments = [ { assignment with A.value = A.Default } ]
+                })
+       }
+   with
+   | Error (Compile_error.Unsupported_operation { dialect = Dialect.Sqlite; _ }) -> ()
+   | _ -> failwith "SQLite accepted DEFAULT in an UPSERT assignment");
   (match
      Lower.result_query
        ~dialect:Dialect.Sqlite

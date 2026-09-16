@@ -99,10 +99,21 @@ let assignment ~dialect (assignment : Ast.assignment) =
   { assignment with Ast.value }
 ;;
 
+let conflict ~dialect = function
+  | Ast.Do_nothing _ as conflict -> conflict
+  | Ast.Do_update update ->
+    Ast.Do_update
+      { update with
+        assignments = List.map update.assignments ~f:(assignment ~dialect)
+      ; where_ = Option.map update.where_ ~f:(condition ~dialect)
+      }
+;;
+
 let lower_command ~dialect (command : Ast.command) =
   { command with
     Ast.assignments = List.map command.assignments ~f:(assignment ~dialect)
   ; rows = List.map command.rows ~f:(List.map ~f:(assignment ~dialect))
+  ; conflict = Option.map command.conflict ~f:(conflict ~dialect)
   ; where_ = Option.map command.where_ ~f:(condition ~dialect)
   }
 ;;
@@ -180,6 +191,14 @@ let command_has_unsupported_having ~dialect command =
   List.exists command.Ast.assignments ~f:(assignment_has_unsupported_having ~dialect)
   || List.exists command.rows ~f:(fun row ->
     List.exists row ~f:(assignment_has_unsupported_having ~dialect))
+  || Option.value_map command.conflict ~default:false ~f:(function
+    | Ast.Do_nothing _ -> false
+    | Ast.Do_update update ->
+      List.exists update.assignments ~f:(assignment_has_unsupported_having ~dialect)
+      || Option.value_map
+           update.where_
+           ~default:false
+           ~f:(condition_has_unsupported_having ~dialect))
   || Option.value_map
        command.where_
        ~default:false
@@ -194,6 +213,11 @@ let command ~dialect command =
     unsupported "INSERT DEFAULT" dialect
   | Dialect.Sqlite, Ast.Update when has_default command.assignments ->
     unsupported "UPDATE SET DEFAULT" dialect
+  | Dialect.Sqlite, Ast.Insert
+    when Option.value_map command.conflict ~default:false ~f:(function
+           | Ast.Do_nothing _ -> false
+           | Ast.Do_update update -> has_default update.assignments) ->
+    unsupported "ON CONFLICT DO UPDATE SET DEFAULT" dialect
   | _ -> Ok (lower_command ~dialect command)
 ;;
 

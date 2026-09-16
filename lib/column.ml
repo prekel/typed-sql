@@ -22,3 +22,10 @@ let table column = column.table
 let name column = column.name
 let base_db_type column = column.base_db_type
 let db_type column = column.db_type
+
+let source_id_for reference column =
+  if Table.equal (Table_ref.table reference) column.table then
+    Table_ref.source_id reference
+  else
+    Table_ref.create column.table |> Table_ref.source_id
+;;

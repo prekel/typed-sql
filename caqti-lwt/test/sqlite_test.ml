@@ -236,7 +236,83 @@ let assert_codec_error expected = function
   | Ok _ -> failwith "expected a codec error"
 ;;
 
+let profiler_test () =
+  let module Profile = Typed_sql_caqti_lwt.Profile in
+  let profiler = Typed_sql_caqti_lwt.Profiler.create ~max_shapes:2 () in
+  let event
+        ?(name = "people.list")
+        ?(fingerprint = "shape-a")
+        ?(compiled = false)
+        ?(outcome = Profile.Succeeded)
+        ~compile
+        ~prepare
+        ~total
+        ()
+    : Profile.event
+    =
+    { name = Some name
+    ; operation = Profile.Fetch
+    ; compiled
+    ; dialect = Some Dialect.Sqlite
+    ; fingerprint = Some fingerprint
+    ; parameter_count = Some 1
+    ; row_count = Some 2
+    ; outcome
+    ; durations =
+        { compile = Some compile
+        ; prepare = Some prepare
+        ; database = Some 0.5
+        ; decode = Some 0.01
+        ; total
+        }
+    }
+  in
+  let observe = Typed_sql_caqti_lwt.Profiler.observer profiler in
+  observe (event ~compile:0.2 ~prepare:0.1 ~total:1. ());
+  observe
+    (event
+       ~outcome:(Profile.Failed Profile.Database)
+       ~compile:0.3
+       ~prepare:0.2
+       ~total:1.2
+       ());
+  observe (event ~compiled:true ~compile:0. ~prepare:0.05 ~total:0.8 ());
+  observe
+    (event ~name:"other" ~fingerprint:"shape-b" ~compile:1. ~prepare:1. ~total:3. ());
+  let snapshot = Typed_sql_caqti_lwt.Profiler.snapshot profiler in
+  (match List.find snapshot.entries ~f:(fun entry -> not entry.compiled) with
+   | Some entry ->
+     if
+       not
+         (Int.(entry.calls = 2)
+          && Int.(entry.failures = 1)
+          && Int.(entry.rows = 4)
+          && Float.(entry.compile_seconds > 0.49)
+          && Float.(entry.prepare_seconds > 0.29)
+          && Float.(entry.max_compile_seconds > 0.29)
+          && Float.(entry.max_total_seconds > 1.19))
+     then
+       failwith "profiler aggregated an event incorrectly"
+   | None -> failwith "profiler omitted ordinary executions");
+  (match List.find snapshot.entries ~f:(fun entry -> entry.compiled) with
+   | Some entry when Int.(entry.calls = 1) -> ()
+   | Some _ -> failwith "profiler aggregated compiled executions incorrectly"
+   | None -> failwith "profiler merged ordinary and compiled executions");
+  if not Int.(snapshot.overflow_calls = 1) then
+    failwith "profiler did not bound shape cardinality";
+  let report = Stdlib.Format.asprintf "%a" Typed_sql_caqti_lwt.Profiler.pp snapshot in
+  if not (String.is_substring report ~substring:"people.list") then
+    failwith "profiler report omitted the query name";
+  let cleared = Typed_sql_caqti_lwt.Profiler.snapshot_and_reset profiler in
+  if not Int.(List.length cleared.entries = 2) then
+    failwith "snapshot_and_reset returned the wrong snapshot";
+  let empty = Typed_sql_caqti_lwt.Profiler.snapshot profiler in
+  if not (List.is_empty empty.entries && Int.(empty.overflow_calls = 0)) then
+    failwith "snapshot_and_reset did not clear the profiler"
+;;
+
 let run conn =
+  profiler_test ();
   let module Connection = (val conn : Caqti_lwt.CONNECTION) in
   let* () =
     Connection.exec
@@ -359,6 +435,122 @@ let run conn =
     ~equal:Person.equal
     [ { Person.id = 1L; name = "Ada"; role = `Admin; nickname = None } ]
     rows;
+  let compiled =
+    match Compiler.compile ~dialect:Dialect.Sqlite query with
+    | Ok compiled -> compiled
+    | Error error -> failwith (Compile_error.to_string error)
+  in
+  let observed = ref None in
+  let observer event = observed := Some event in
+  let* profiled_rows =
+    Typed_sql_caqti_lwt.fetch ~observer ~name:"people.admins" ~conn query
+    >>= adapter_or_fail
+  in
+  assert_equal ~equal:Person.equal rows profiled_rows;
+  (match !observed with
+   | Some event ->
+     if
+       Option.is_none event.durations.compile
+       || Option.is_none event.durations.prepare
+       || Option.is_none event.durations.database
+       || Option.is_none event.durations.decode
+       || Option.is_none event.fingerprint
+       || event.compiled
+       || not (Option.equal String.equal event.name (Some "people.admins"))
+     then
+       failwith "profiled fetch omitted execution measurements"
+   | None -> failwith "profiled fetch emitted no event");
+  observed := None;
+  let* compiled_rows =
+    Typed_sql_caqti_lwt.fetch_compiled ~observer ~conn compiled >>= adapter_or_fail
+  in
+  assert_equal ~equal:Person.equal rows compiled_rows;
+  (match !observed with
+   | Some event when event.compiled && Option.is_none event.durations.compile -> ()
+   | Some _ -> failwith "compiled fetch reported compilation time"
+   | None -> failwith "compiled fetch emitted no event");
+  let* compiled_row =
+    Typed_sql_caqti_lwt.fetch_one_compiled ~conn compiled >>= adapter_or_fail
+  in
+  if Int64.(compiled_row.id <> 1L) then
+    failwith "fetch_one_compiled returned the wrong row";
+  let* compiled_row =
+    Typed_sql_caqti_lwt.fetch_opt_compiled
+      ~observer:(fun _ -> failwith "ignored observer failure")
+      ~conn
+      compiled
+    >>= adapter_or_fail
+  in
+  if Option.is_none compiled_row then
+    failwith "fetch_opt_compiled returned no row";
+  let postgresql =
+    match Compiler.compile ~dialect:Dialect.Postgresql query with
+    | Ok compiled -> compiled
+    | Error error -> failwith (Compile_error.to_string error)
+  in
+  let* mismatch = Typed_sql_caqti_lwt.fetch_compiled ~conn postgresql in
+  (match mismatch with
+   | Error
+       (Typed_sql_caqti_lwt.Dialect_mismatch
+          { compiled = Dialect.Postgresql; connection = Dialect.Sqlite }) -> ()
+   | Error error -> failwith (Typed_sql_caqti_lwt.error_to_string error)
+   | Ok _ -> failwith "a PostgreSQL compiled query ran on SQLite");
+  let no_op_delete =
+    Delete.(from Person.table |> where (fun person -> Person.id person =$ -1L) |> command)
+  in
+  let compiled_delete =
+    match Compiler.compile_command ~dialect:Dialect.Sqlite no_op_delete with
+    | Ok compiled -> compiled
+    | Error error -> failwith (Compile_error.to_string error)
+  in
+  let* _ =
+    Typed_sql_caqti_lwt.execute_compiled ~conn compiled_delete >>= adapter_or_fail
+  in
+  let invalid_limit =
+    Query.(from Person.table |> limit (-1) |> select Person.projection)
+  in
+  observed := None;
+  let* invalid_limit = Typed_sql_caqti_lwt.fetch ~observer ~conn invalid_limit in
+  (match invalid_limit, !observed with
+   | ( Error (Typed_sql_caqti_lwt.Compile (Compile_error.Negative_limit -1))
+     , Some
+         { outcome =
+             Typed_sql_caqti_lwt.Profile.Failed Typed_sql_caqti_lwt.Profile.Compile
+         ; fingerprint = None
+         ; durations = { compile = Some _; _ }
+         ; _
+         } ) -> ()
+   | Error error, _ -> failwith (Typed_sql_caqti_lwt.error_to_string error)
+   | Ok _, _ -> failwith "negative LIMIT unexpectedly executed");
+  let raising_query =
+    Query.(
+      from Person.table
+      |> limit 1
+      |> select (fun person ->
+        Projection.map
+          ~f:(fun _ -> failwith "projection callback failed")
+          (Projection.expr (Person.id person))))
+  in
+  observed := None;
+  let* raised =
+    Lwt.catch
+      (fun () ->
+         let* _ = Typed_sql_caqti_lwt.fetch_one ~observer ~conn raising_query in
+         Lwt.return false)
+      (function
+        | Failure message when String.equal message "projection callback failed" ->
+          Lwt.return true
+        | error -> Lwt.fail error)
+  in
+  if not raised then
+    failwith "projection exception was not preserved";
+  (match !observed with
+   | Some
+       { outcome = Typed_sql_caqti_lwt.Profile.Failed Typed_sql_caqti_lwt.Profile.Raised
+       ; durations = { decode = Some _; _ }
+       ; _
+       } -> ()
+   | _ -> failwith "raised exception emitted the wrong profile event");
   let* row = Typed_sql_caqti_lwt.fetch_one ~conn query >>= adapter_or_fail in
   if Int64.(row.id <> 1L) then
     failwith "fetch_one returned the wrong row";
@@ -548,8 +740,18 @@ let run conn =
       |> set Mapped_failure.decode_column "ok"
       |> command)
   in
-  let* encode_failure = Typed_sql_caqti_lwt.execute ~conn codec_encode_failure in
+  observed := None;
+  let* encode_failure =
+    Typed_sql_caqti_lwt.execute ~observer ~conn codec_encode_failure
+  in
   assert_codec_error "encode rejected by test codec" encode_failure;
+  (match !observed with
+   | Some
+       { outcome = Typed_sql_caqti_lwt.Profile.Failed Typed_sql_caqti_lwt.Profile.Encode
+       ; durations = { prepare = Some _; database = None; _ }
+       ; _
+       } -> ()
+   | _ -> failwith "encode failure emitted the wrong profile event");
   let* () =
     Connection.exec
       (direct "INSERT INTO mapped_failures (encoded, decoded) VALUES ('ok', 'bad')")
@@ -561,8 +763,17 @@ let run conn =
       from Mapped_failure.table
       |> select (fun row -> Projection.expr (Mapped_failure.decoded row)))
   in
-  let* decode_failure = Typed_sql_caqti_lwt.fetch ~conn codec_decode_failure in
+  observed := None;
+  let* decode_failure = Typed_sql_caqti_lwt.fetch ~observer ~conn codec_decode_failure in
   assert_codec_error "decode rejected by test codec" decode_failure;
+  (match !observed with
+   | Some
+       { outcome = Typed_sql_caqti_lwt.Profile.Failed Typed_sql_caqti_lwt.Profile.Decode
+       ; row_count = Some 1
+       ; durations = { decode = Some _; _ }
+       ; _
+       } -> ()
+   | _ -> failwith "decode failure emitted the wrong profile event");
   let* decode_failure = Typed_sql_caqti_lwt.fetch_one ~conn codec_decode_failure in
   assert_codec_error "decode rejected by test codec" decode_failure;
   let* decode_failure = Typed_sql_caqti_lwt.fetch_opt ~conn codec_decode_failure in
@@ -749,7 +960,8 @@ let run conn =
       |> set Person.nickname_column None
       |> command)
   in
-  let* duplicate = Typed_sql_caqti_lwt.execute ~conn duplicate in
+  observed := None;
+  let* duplicate = Typed_sql_caqti_lwt.execute ~observer ~conn duplicate in
   (match duplicate with
    | Error (Typed_sql_caqti_lwt.Constraint_violation { kind = Other; _ }) -> ()
    | Error error ->
@@ -757,6 +969,13 @@ let run conn =
        ("expected SQLite integrity error, got "
         ^ Typed_sql_caqti_lwt.error_to_string error)
    | Ok _ -> failwith "duplicate primary key unexpectedly succeeded");
+  (match !observed with
+   | Some
+       { outcome = Typed_sql_caqti_lwt.Profile.Failed Typed_sql_caqti_lwt.Profile.Database
+       ; durations = { database = Some _; _ }
+       ; _
+       } -> ()
+   | _ -> failwith "database failure emitted the wrong profile event");
   let ignored_duplicate =
     Insert.(
       into Person.table
@@ -774,6 +993,46 @@ let run conn =
    | Affected_rows.Known 0 | Affected_rows.Unknown -> ()
    | Affected_rows.Known count ->
      failwith ("ON CONFLICT DO NOTHING affected " ^ Int.to_string count ^ " rows"));
+  let upsert_person name =
+    Insert.(
+      into Person.table
+      |> set Person.id_column 77L
+      |> set Person.name_column name
+      |> set Person.role_column `Guest
+      |> set Person.nickname_column None
+      |> on_conflict (Conflict_target.column Person.id_column)
+      |> do_update (fun ~existing ~excluded ->
+        Conflict_update.(
+          empty
+          |> set_expr
+               Person.name_column
+               (Expr.concat
+                  (Person.name existing)
+                  (Expr.concat (Expr.param Db_type.text "/") (Person.name excluded)))
+          |> set_expr Person.role_column (Person.role excluded)
+          |> set_expr Person.nickname_column (Person.nickname excluded)))
+      |> returning Person.projection)
+  in
+  let* inserted =
+    Typed_sql_caqti_lwt.fetch_one ~conn (upsert_person "Before") >>= adapter_or_fail
+  in
+  if
+    not
+      (Person.equal
+         inserted
+         { Person.id = 77L; name = "Before"; role = `Guest; nickname = None })
+  then
+    failwith "UPSERT insert branch returned the wrong row";
+  let* updated =
+    Typed_sql_caqti_lwt.fetch_one ~conn (upsert_person "After") >>= adapter_or_fail
+  in
+  if
+    not
+      (Person.equal
+         updated
+         { Person.id = 77L; name = "Before/After"; role = `Guest; nickname = None })
+  then
+    failwith "UPSERT update branch returned the wrong row";
   let transaction_insert id name =
     Insert.(
       into Person.table
@@ -1020,12 +1279,129 @@ let run conn =
   Lwt.return_unit
 ;;
 
+let upsert_test conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let table : unit Table.t = Table.v_exn "excluded" in
+  let id = Column.v_exn table "id" Db_type.int64 in
+  let key = Column.v_exn table "key" Db_type.text in
+  let version = Column.v_exn table "version" Db_type.int64 in
+  let role = Column.v_exn table "role" Person.role_type in
+  let note = Column.nullable_v_exn table "note" Db_type.text in
+  let target = Insert.Conflict_target.(column id |> add key) in
+  let projection row =
+    Projection.map3
+      ~f:(fun version role note -> version, role, note)
+      (Projection.expr (Expr.column row version))
+      (Projection.expr (Expr.column row role))
+      (Projection.expr (Expr.column row note))
+  in
+  let row id_value key_value version_value builder =
+    Insert.(
+      builder
+      |> set id id_value
+      |> set key key_value
+      |> set version version_value
+      |> set role `Guest
+      |> set note None)
+  in
+  let* () =
+    Connection.exec
+      (direct
+         "CREATE TABLE excluded (id INTEGER, key TEXT, version INTEGER, role TEXT, note TEXT, PRIMARY KEY (id, key))")
+      ()
+    |> caqti_or_fail
+  in
+  let fetch query = Typed_sql_caqti_lwt.fetch ~conn query >>= adapter_or_fail in
+  let equal = equal_triple Int64.equal Person.equal_role (Option.equal String.equal) in
+  let upsert builders =
+    Insert.(
+      rows table builders
+      |> on_conflict target
+      |> do_update (fun ~existing ~excluded ->
+        Conflict_update.(
+          empty
+          |> set_expr version (Expr.column excluded version)
+          |> set_expr role (Expr.column excluded role)
+          |> set_opt note (Some None)
+          |> set_expr_opt key None
+          |> where (Expr.column excluded version >. Expr.column existing version)
+          |> where (Expr.column excluded key <>$ "skip")))
+      |> returning projection)
+  in
+  let* inserted = fetch (upsert [ row 1L "a" 1L; row 2L "b" 2L ]) in
+  assert_equal ~equal [ 1L, `Guest, None; 2L, `Guest, None ] inserted;
+  let* updated = fetch (upsert [ row 1L "a" 10L; row 2L "b" 1L; row 3L "skip" 1L ]) in
+  assert_equal ~equal [ 10L, `Guest, None; 1L, `Guest, None ] updated;
+  let* skipped = fetch (upsert [ row 3L "skip" 20L ]) in
+  assert (List.is_empty skipped);
+  let ignored =
+    Insert.(
+      rows table [ row 1L "a" 99L ]
+      |> on_conflict target
+      |> do_nothing
+      |> returning projection)
+  in
+  let* ignored = fetch ignored in
+  assert (List.is_empty ignored);
+  let null_predicate =
+    Insert.(
+      rows table [ row 1L "a" 99L ]
+      |> on_conflict target
+      |> do_update (fun ~existing ~excluded:_ ->
+        Conflict_update.(
+          empty |> set version 100L |> where (Expr.column existing note =$ Some "never")))
+      |> returning projection)
+  in
+  let* skipped = fetch null_predicate in
+  assert (List.is_empty skipped);
+  let correlated =
+    Insert.(
+      rows table [ row 1L "a" 11L ]
+      |> on_conflict target
+      |> do_update (fun ~existing ~excluded ->
+        let exists =
+          Query.(
+            from table
+            |> where (fun inner ->
+              Expr.column inner key
+              =. Expr.column existing key
+              &&. (Expr.column inner version <. Expr.column excluded version))
+            |> exists)
+        in
+        Conflict_update.(
+          empty
+          |> set_expr version (Expr.column excluded version)
+          |> set_opt role (Some `Admin)
+          |> set_expr_opt
+               note
+               (Some (Expr.param (Db_type.option Db_type.text) (Some "changed")))
+          |> where exists))
+      |> returning projection)
+  in
+  let* updated = fetch correlated in
+  assert_equal ~equal [ 11L, `Admin, Some "changed" ] updated;
+  let snapshot =
+    Query.(
+      from table |> order_by (fun row -> Expr.column row id) `Asc |> select projection)
+  in
+  let* final = fetch snapshot in
+  assert_equal
+    ~equal
+    [ 11L, `Admin, Some "changed"; 2L, `Guest, None; 1L, `Guest, None ]
+    final;
+  Connection.exec (direct "DROP TABLE excluded") () |> caqti_or_fail
+;;
+
 let main () =
   let* conn =
     Caqti_lwt_unix.connect (Uri.of_string "sqlite3::memory:") |> caqti_or_fail
   in
   let module Connection = (val conn : Caqti_lwt.CONNECTION) in
-  Lwt.finalize (fun () -> run conn) (fun () -> Connection.disconnect ())
+  Lwt.finalize
+    (fun () ->
+       let* () = upsert_test conn in
+       run conn)
+    (fun () -> Connection.disconnect ())
 ;;
 
 let () = Lwt_main.run (main ())

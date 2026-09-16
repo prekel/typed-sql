@@ -1,5 +1,17 @@
 # История изменений
 
+## 0.1.1 — 16 сентября 2026
+
+### Добавлено
+
+- Portable UPSERT с conflict target, `DO UPDATE`,
+  типизированными ссылками на existing/excluded rows и `RETURNING`.
+  `Insert.Conflict_update` строит assignments через pipeline, поддерживает
+  optional fields и условие `DO UPDATE … WHERE`.
+- Caqti adapter получил opt-in profiling событий, bounded top-K profiler и
+  выполнение заранее созданных `Compiled_query`/`Compiled_command` с проверкой
+  dialect.
+
 ## 0.1.0 — 15 сентября 2026
 
 ### Добавлено

@@ -16,6 +16,13 @@ type t =
       ; expected : Identifier.t list
       ; actual : Identifier.t list
       }
+  | Empty_conflict_target
+  | Duplicate_conflict_target of Identifier.t
+  | Invalid_conflict_target_source of
+      { expected : int
+      ; actual : int
+      }
+  | Empty_conflict_update
   | Invalid_assignment_source of
       { expected : int
       ; actual : int
@@ -58,6 +65,19 @@ let to_string = function
       ; columns expected
       ; "]"
       ]
+  | Empty_conflict_target -> "ON CONFLICT target must contain at least one column"
+  | Duplicate_conflict_target column ->
+    Stdlib.Format.asprintf
+      "ON CONFLICT target contains column %s more than once"
+      (Identifier.to_string column)
+  | Invalid_conflict_target_source { expected; actual } ->
+    String.concat
+      [ "ON CONFLICT target column belongs to source #"
+      ; Int.to_string actual
+      ; ", expected source #"
+      ; Int.to_string expected
+      ]
+  | Empty_conflict_update -> "ON CONFLICT DO UPDATE must assign at least one column"
   | Invalid_assignment_source { expected; actual } ->
     String.concat
       [ "assignment belongs to source #"

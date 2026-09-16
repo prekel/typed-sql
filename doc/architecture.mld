@@ -127,6 +127,14 @@ parameters и projection, поэтому различает mapped codecs с о�
 generated aliases. PG'OCaml low-level API не сообщает affected rows, поэтому
 его [execute] возвращает [Affected_rows.Unknown].
 
+Caqti adapter может выполнять как deferred DSL values, так и заранее созданные
+[Compiled_query]/[Compiled_command]. Перед compiled-вызовом он проверяет
+dialect соединения. Его opt-in observer измеряет compilation, подготовку Caqti
+request, database round trip и projection decoding; bind values в событие не
+попадают. Встроенный bounded profiler группирует события по имени, операции,
+режиму выполнения и fingerprint [Shape], не добавляя состояние или эффекты в
+ядро.
+
 Transactions находятся в execution adapters. Callback получает то же
 connection value; [Ok] приводит к commit, [Error] — к rollback, исключение
 откатывается и затем пробрасывается дальше.

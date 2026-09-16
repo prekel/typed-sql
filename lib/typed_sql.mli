@@ -507,11 +507,6 @@ module Expr : sig
 
   (** Type-safe arithmetic over SQL integers represented as OCaml [int]. *)
   module Int : sig
-    val add : int t -> int t -> int t
-    val subtract : int t -> int t -> int t
-    val multiply : int t -> int t -> int t
-    val divide : int t -> int t -> int t
-
     module Infix : sig
       val ( +. ) : int t -> int t -> int t
       val ( -. ) : int t -> int t -> int t
@@ -522,11 +517,6 @@ module Expr : sig
 
   (** Type-safe arithmetic over SQL integers represented as OCaml [int64]. *)
   module Int64 : sig
-    val add : int64 t -> int64 t -> int64 t
-    val subtract : int64 t -> int64 t -> int64 t
-    val multiply : int64 t -> int64 t -> int64 t
-    val divide : int64 t -> int64 t -> int64 t
-
     module Infix : sig
       val ( +. ) : int64 t -> int64 t -> int64 t
       val ( -. ) : int64 t -> int64 t -> int64 t
@@ -537,11 +527,6 @@ module Expr : sig
 
   (** Type-safe arithmetic over SQL floating-point values. *)
   module Float : sig
-    val add : float t -> float t -> float t
-    val subtract : float t -> float t -> float t
-    val multiply : float t -> float t -> float t
-    val divide : float t -> float t -> float t
-
     module Infix : sig
       val ( +. ) : float t -> float t -> float t
       val ( -. ) : float t -> float t -> float t
@@ -756,6 +741,60 @@ module Insert : sig
       are always bound. *)
   type 'row t
 
+  (** Non-empty columns identifying a unique key. The database checks that a
+      matching unique index or constraint exists. Every column carries the
+      same phantom row type as the INSERT target; compilation also verifies
+      that its owning table descriptor matches the target table. *)
+  module Conflict_target : sig
+    type 'row t
+
+    (** Start a conflict target with one column. *)
+    val column : ('row, 'base, 'value) Column.t -> 'row t
+
+    (** Append a column to a composite conflict target. Ordering is preserved;
+        compilation rejects duplicate columns. *)
+    val add : ('row, 'base, 'value) Column.t -> 'row t -> 'row t
+  end
+
+  (** An INSERT paired with a conflict target and awaiting an action. *)
+  type 'row conflict
+
+  (** Immutable assignments and an optional predicate for the conflicting row. *)
+  module Conflict_update : sig
+    (** An update action for one target table. *)
+    type 'row t
+
+    (** Start without assignments or a predicate. Compilation rejects an
+        action that still has no assignments after optional fields are omitted. *)
+    val empty : 'row t
+
+    (** Append a bound value assignment. Duplicate columns and columns owned
+        by another table descriptor are rejected. *)
+    val set : ('row, 'base, 'value) Column.t -> 'value -> 'row t -> 'row t
+
+    (** Append an expression assignment. The [existing] and [excluded]
+        references are visible, including inside correlated subqueries.
+        Columns owned by another table descriptor and direct aggregate
+        expressions are rejected. *)
+    val set_expr : ('row, 'base, 'value) Column.t -> 'value Expr.t -> 'row t -> 'row t
+
+    (** Omit [None]; [Some None] assigns SQL NULL to a nullable column. *)
+    val set_opt : ('row, 'base, 'value) Column.t -> 'value option -> 'row t -> 'row t
+
+    (** Omit [None], or append the supplied typed expression. *)
+    val set_expr_opt
+      :  ('row, 'base, 'value) Column.t
+      -> 'value Expr.t option
+      -> 'row t
+      -> 'row t
+
+    (** Restrict the conflict update. Repeated calls combine with SQL AND.
+        Without a predicate, every conflicting row is updated. FALSE or NULL
+        skips the update and produces no RETURNING row. This predicate does
+        not filter successful inserts. *)
+    val where : Condition.t -> 'row t -> 'row t
+  end
+
   (** Start an INSERT containing one empty row. *)
   val into : 'row Table.t -> 'row t
 
@@ -763,8 +802,8 @@ module Insert : sig
       parameter. *)
   val set : ('row, 'base, 'value) Column.t -> 'value -> 'row t -> 'row t
 
-  (** Assign a column from a typed expression. The compiler rejects an
-      expression referring to a different source. *)
+  (** Assign a column from a typed expression. VALUES cannot reference the
+      target or excluded row; independent scalar subqueries are allowed. *)
   val set_expr : ('row, 'base, 'value) Column.t -> 'value Expr.t -> 'row t -> 'row t
 
   (** Assign SQL [DEFAULT] to a column without inventing an OCaml value. SQLite
@@ -781,6 +820,24 @@ module Insert : sig
       SQLite both render [ON CONFLICT DO NOTHING]; other integrity errors still
       fail through the execution adapter. *)
   val on_conflict_do_nothing : 'row t -> 'row t
+
+  (** Select a non-empty conflict target. The result must be completed with
+      [do_nothing] or [do_update] before it can be finalized. *)
+  val on_conflict : 'row Conflict_target.t -> 'row t -> 'row conflict
+
+  (** Ignore a conflict matching the selected target. *)
+  val do_nothing : 'row conflict -> 'row t
+
+  (** Update the conflicting row. The callback receives the proposed
+      [excluded] row and current [existing] row. Compilation rejects an empty
+      or duplicate assignment list and references outside these two rows.
+      The [excluded] reference is scoped to this action and cannot appear in
+      VALUES or RETURNING. PostgreSQL rejects a multi-row
+      UPSERT that updates the same conflicting row twice. *)
+  val do_update
+    :  (existing:'row Table_ref.t -> excluded:'row Table_ref.t -> 'row Conflict_update.t)
+    -> 'row conflict
+    -> 'row t
 
   (** Finish an INSERT without returned rows. Compilation rejects an empty or
       duplicate assignment list. *)
@@ -944,6 +1001,16 @@ module Compile_error : sig
         }
     (** A multi-row INSERT contains different column sets. Ordering may differ
         and is normalized to the first row during rendering. *)
+    | Empty_conflict_target
+    (** A malformed private AST contains an empty [ON CONFLICT] target. Public
+        [Insert.Conflict_target] values are non-empty by construction. *)
+    | Duplicate_conflict_target of Identifier.t
+    (** The same column occurs more than once in a conflict target. *)
+    | Invalid_conflict_target_source of
+        { expected : int
+        ; actual : int
+        } (** A conflict target column belongs to another table source. *)
+    | Empty_conflict_update (** [ON CONFLICT DO UPDATE] contains no assignments. *)
     | Invalid_assignment_source of
         { expected : int (** The source identity of the command target. *)
         ; actual : int (** The source identity stored in the malformed assignment. *)

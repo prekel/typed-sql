@@ -347,7 +347,7 @@ let validate_insert_rows ~source_id rows =
             Error
               (Compile_error.Mismatched_insert_columns { row = index; expected; actual })
           else
-            validate_assignments ~source_id ~visible:[ source_id ] assignments)
+            validate_assignments ~source_id ~visible:[] assignments)
     in
     let open Result.Let_syntax in
     let%bind () = validate_row 1 first in
@@ -356,9 +356,81 @@ let validate_insert_rows ~source_id rows =
       validate_row (index + 2) assignments)
 ;;
 
+let duplicate_conflict_column targets =
+  let rec loop seen = function
+    | [] -> None
+    | target :: rest ->
+      if List.mem seen target.Ast.target_column ~equal:Identifier.equal then
+        Some target.target_column
+      else
+        loop (target.target_column :: seen) rest
+  in
+  loop [] targets
+;;
+
+let validate_conflict_target ~source_id target =
+  if List.is_empty target then
+    Error Compile_error.Empty_conflict_target
+  else (
+    match
+      List.find target ~f:(fun target -> Int.(target.Ast.target_source_id <> source_id))
+    with
+    | Some target ->
+      Error
+        (Compile_error.Invalid_conflict_target_source
+           { expected = source_id; actual = target.target_source_id })
+    | None ->
+      (match duplicate_conflict_column target with
+       | None -> Ok ()
+       | Some column -> Error (Compile_error.Duplicate_conflict_target column)))
+;;
+
+let validate_conflict ~source_id = function
+  | Ast.Do_nothing None -> Ok ()
+  | Ast.Do_nothing (Some target) -> validate_conflict_target ~source_id target
+  | Ast.Do_update { target; excluded_source_id; assignments; where_ } ->
+    let open Result.Let_syntax in
+    let%bind () = validate_conflict_target ~source_id target in
+    (match duplicate_assignment assignments with
+     | Some column -> Error (Compile_error.Duplicate_assignment column)
+     | None ->
+       if List.is_empty assignments then
+         Error Compile_error.Empty_conflict_update
+       else (
+         let visible = [ source_id; excluded_source_id ] in
+         let%bind () = validate_assignments ~source_id ~visible assignments in
+         let%bind () =
+           List.fold assignments ~init:(Ok ()) ~f:(fun result assignment ->
+             let%bind () = result in
+             match assignment.Ast.value with
+             | Ast.Default -> Ok ()
+             | Ast.Expression expression ->
+               if
+                 (analyze_expression ~groups:[] ~inside_aggregate:false expression)
+                   .has_aggregate
+               then
+                 Error (Compile_error.Aggregate_not_allowed "ON CONFLICT DO UPDATE SET")
+               else
+                 Ok ())
+         in
+         match where_ with
+         | None -> Ok ()
+         | Some condition ->
+           let%bind () =
+             validate_condition ~validate_subquery:validate_select ~visible condition
+           in
+           ensure_no_aggregate "ON CONFLICT DO UPDATE WHERE" condition))
+;;
+
 let validate_command (command : Ast.command) =
   match command.Ast.kind with
-  | Ast.Insert -> validate_insert_rows ~source_id:command.source.source_id command.rows
+  | Ast.Insert ->
+    let open Result.Let_syntax in
+    let source_id = command.source.source_id in
+    let%bind () = validate_insert_rows ~source_id command.rows in
+    (match command.conflict with
+     | None -> Ok ()
+     | Some conflict -> validate_conflict ~source_id conflict)
   | Ast.Update ->
     if List.is_empty command.assignments then
       Error (Compile_error.Empty_assignments `Update)

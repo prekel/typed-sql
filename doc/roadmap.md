@@ -64,12 +64,17 @@ builder проверяет пустые строки, повторные columns
 во всех строках. `Update.set_opt` различает «не менять» и запись `NULL` для
 nullable columns.
 
-`Insert.on_conflict_do_nothing` является portable API для PostgreSQL и SQLite.
-Он позволяет делать идемпотентные вставки tags, follows и favorites без
-предварительного `SELECT`. Остальные integrity failures сохраняются как ошибки
-adapter. SQLite не поддерживает `DEFAULT` внутри `VALUES` и `UPDATE SET
-DEFAULT`, поэтому compiler возвращает `Unsupported_operation`, не подменяя
-семантику.
+Portable UPSERT API для PostgreSQL и SQLite поддерживает global и
+target-specific `DO NOTHING`, составной conflict target и `DO UPDATE` с
+типизированными ссылками на existing/excluded rows. В разрабатываемой 0.2.0
+`Insert.Conflict_update.(empty |> set_expr ... |> where ...)` задаёт
+assignments и предикат обновления. Повторные предикаты объединяются через
+`AND`; пропущенное обновление не возвращает строку в `RETURNING`.
+Builder поддерживает `set_opt` и `set_expr_opt`. UPSERT совместим с
+multi-row `VALUES` и `RETURNING`; пустые или повторные update assignments и
+повторные target columns отклоняются compiler. SQLite не поддерживает
+`DEFAULT` внутри `VALUES` и `UPDATE SET DEFAULT`, поэтому compiler возвращает
+`Unsupported_operation`, не подменяя семантику.
 
 ### Execution adapters
 
@@ -136,7 +141,7 @@ OCaml keywords и одиночный `_`, а ссылки на библиоте�
   suites; порог равен 99%, отчёт находится в
   `_coverage/all/html/index.html`.
 
-Последний полный прогон перед обновлением этого документа дал 97,71% через
+Последний полный прогон перед обновлением этого документа дал 97,90% через
 публичный API и 100,00% всеми тестами ядра. Точные цифры следует обновлять после
 изменения instrumented implementation.
 
@@ -204,69 +209,53 @@ idempotent inserts, count queries, correlated flags и batch loading tags чер
 
 Ниже — потребности из прикладного разбора RealWorld в порядке приоритета.
 Это будущие расширения, а не уже доступный API. Scoped mutations, transactions,
-`ON CONFLICT DO NOTHING`, отдельные count queries, correlated flags и batch
-loading через `IN` уже есть в DSL; их неиспользование приложением само по себе
-не означает пробел в `typed-sql`.
+полноценный UPSERT, отдельные count queries, correlated flags и batch loading
+через `IN` уже есть в DSL; их неиспользование приложением само по себе не
+означает пробел в `typed-sql`.
 
-1. **Полноценный UPSERT.** Добавить conflict target, `DO UPDATE`, типизированный
-   `excluded` и совместимость с `RETURNING` для PostgreSQL и SQLite. В
-   предоставленном разборе `article_repository_sqlite.ml` создание тега через
-   `SELECT → INSERT` отмечено как race condition при конкурентной вставке
-   одного имени. Нужен атомарный запрос создания или получения тега:
-
-   ```sql
-   INSERT INTO tags (name) VALUES (?)
-   ON CONFLICT (name) DO UPDATE SET name = excluded.name
-   RETURNING id, name
-   ```
-
-   Предварительное направление API: `Insert.on_conflict [ Tags.name_column ]`
-   и `Insert.do_update (fun excluded row -> ...)`; точные сигнатуры ещё нужно
-   спроектировать. Существующий `DO NOTHING` обеспечивает идемпотентную вставку,
-   но сам по себе не возвращает конфликтующую строку через `RETURNING`.
-
-2. **Derived tables и CTE.** Добавить `FROM (SELECT ...) AS page` и
+1. **Derived tables и CTE.** Добавить `FROM (SELECT ...) AS page` и
    `WITH page AS (...)`. Для read model статьи сначала выбирать страницу с
    фильтрами, сортировкой и `LIMIT/OFFSET`, затем присоединять authors, tags и
    favorites. Так размножение строк после JOIN не меняет границы страницы.
 
-3. **Агрегация коллекций.** Добавить aggregates вроде `array_agg`, `json_agg`
+2. **Агрегация коллекций.** Добавить aggregates вроде `array_agg`, `json_agg`
    и `json_group_array` с типизированным декодированием коллекций. Сейчас
    вложенный read model можно собирать несколькими batch-запросами; другой
    portable вариант — плоский JOIN и группировка строк в OCaml с сохранением
    корректной пагинации. JSON aggregation для PostgreSQL и SQLite должна
    иметь отдельные dialect namespaces.
 
-4. **Типизированные связи из схемы.** Генерировать FK descriptors и удобные
+3. **Типизированные связи из схемы.** Генерировать FK descriptors и удобные
    отношения вроде `Articles.author`, `Comments.article`, `Favorites.user`,
    пригодные для будущего `join_fk`. FK metadata уже сохраняется, arbitrary
    JOIN уже доступен; не хватает типизированного сокращения ручных сравнений
    колонок, включая составные ключи.
 
-5. **Prepared queries.** Рассмотреть `('params, 'result) Prepared_query.t`
+4. **Prepared queries.** Рассмотреть `('params, 'result) Prepared_query.t`
    для отделения заранее скомпилированного плана от значений конкретного
    выполнения. Для RealWorld это пока оптимизация низкого приоритета;
    реализация требует измерений. Подробности и граница с prepared statement
    cache adapter приведены в разделе «Параметры и возможный `Prepared_query`».
 
-6. **Дополнительные SQL-конструкции.** Добавлять по прикладной необходимости
+5. **Дополнительные SQL-конструкции.** Добавлять по прикладной необходимости
    `UNION`, `INTERSECT`, `EXCEPT`, window functions, `DISTINCT ON`, `LATERAL`,
    `ILIKE` и `NULLS FIRST/LAST`. `COUNT(*) OVER ()` может вернуть страницу и
    общее количество одним запросом; для пустой страницы потребуется отдельное
    получение количества. PostgreSQL JSON и arrays требуют dialect API.
 
-7. **Больше типов.** Добавить корректные codecs и codegen mappings для
+6. **Больше типов.** Добавить корректные codecs и codegen mappings для
    decimal/numeric, enums, JSON, arrays и пользовательских PostgreSQL types.
    Неизвестные типы сейчас намеренно останавливают codegen; молчаливое
    преобразование в неточный базовый тип недопустимо.
 
-8. **Более полный schema snapshot.** Расширить IR, introspection и snapshot
+7. **Более полный schema snapshot.** Расширить IR, introspection и snapshot
    обычными, expression и partial indexes, CHECK constraints и triggers.
    Текущий snapshot сохраняет columns, PK, FK и UNIQUE, но этого недостаточно
    для полного обнаружения drift производственных индексов и ограничений.
 
-Первые два расширения закрывают прикладные задачи атомарности и построения
-read models. Миграциями `typed-realworld` продолжает управлять dbmate:
+Первое расширение закрывает построение сложных paginated read models. Задача
+атомарного создания или получения tags закрыта portable UPSERT. Миграциями
+`typed-realworld` продолжает управлять dbmate:
 выполнение миграций остаётся отдельным слоем, вне query DSL.
 
 ### 2. Добавить PostgreSQL runtime infrastructure, когда подключение разрешат
@@ -291,9 +280,9 @@ read models. Миграциями `typed-realworld` продолжает упр�
 
 ### 4. Добавлять сложные запросы по прикладной необходимости
 
-Начать с UPSERT для PostgreSQL/SQLite, затем derived tables и CTE согласно
-приоритетам RealWorld выше. Остальные конструкции вводить по прикладной
-необходимости. PostgreSQL extensions (`ILIKE`, `DISTINCT ON`, JSON, arrays)
+Начать с derived tables и CTE согласно приоритетам RealWorld выше. Остальные
+конструкции вводить по прикладной необходимости. PostgreSQL extensions
+(`ILIKE`, `DISTINCT ON`, JSON, arrays)
 должны находиться в явно именованных namespaces. Все расширения должны
 проходить capability check до rendering; conflict targets и `DO UPDATE`
 не являются исключительно PostgreSQL-возможностями. Portable approximation
@@ -313,9 +302,11 @@ read models. Миграциями `typed-realworld` продолжает упр�
 #### Параметры и возможный `Prepared_query`
 
 Сейчас bind values входят в immutable query AST, но не интерполируются в SQL.
-Каждый вызов execution adapter заново выполняет normalization, validation,
-dialect lowering и rendering, после чего передаёт значения отдельно от SQL с
-placeholders. `Shape.t` уже не содержит сами значения: он определяется
+Обычный вызов execution adapter выполняет normalization, validation, dialect
+lowering и rendering, после чего передаёт значения отдельно от SQL с
+placeholders. Caqti adapter также принимает заранее полученные
+`Compiled_query`/`Compiled_command` и умеет отдельно профилировать compilation,
+подготовку request, database round trip и decoding. `Shape.t` не содержит сами значения: он определяется
 dialect, SQL template, типами параметров и типами результата. Поэтому запросы
 с одинаковой структурой и разными значениями получают одинаковый shape.
 

@@ -7,7 +7,7 @@
 Текущий срез поддерживает типизированные `SELECT` с joins, portable
 выражениями, aggregates, `GROUP BY`, correlated subqueries, calendar date,
 timestamp и UUID. DML
-включает multi-row `INSERT`, portable `ON CONFLICT DO NOTHING`, scoped
+включает multi-row `INSERT`, portable UPSERT, scoped
 `UPDATE`/`DELETE`, `DEFAULT`, `UPDATE FROM`, условные assignments и `RETURNING`.
 Пакет `typed-sql-caqti-lwt` выполняет запросы через Caqti для PostgreSQL и
 SQLite и умеет читать их схему; `typed-sql-pgocaml-lwt` выполняет PostgreSQL
@@ -109,6 +109,45 @@ let insert_once =
     |> command)
 ```
 
+Для атомарного insert-or-update задаётся непустой conflict target. Callback
+получает типизированные ссылки на существующую строку и на предложенную SQL
+строку `excluded`:
+
+```ocaml
+let upsert_person id name =
+  let target = Insert.Conflict_target.column Person.id_col in
+  Insert.(
+    into Person.table
+    |> set Person.id_col id
+    |> set Person.name_col name
+    |> on_conflict target
+    |> do_update (fun ~existing ~excluded ->
+      Conflict_update.(
+        empty
+        |> set_expr Person.name_col (Person.name excluded)
+        |> where (Person.name existing <>. Person.name excluded)))
+    |> returning (fun person ->
+      Projection.pair (Person.id person) (Person.name person)))
+```
+
+Составной target записывается как
+`Insert.Conflict_target.(column first_col |> add second_col)`. Вместо
+`do_update` можно завершить target-specific политику через `do_nothing`.
+
+`Conflict_update.where` ограничивает обновление при конфликте; обычную вставку
+он не фильтрует. Повторные условия объединяются через `AND`. Если условие
+ложно или равно SQL NULL, строка не обновляется и не попадает в `RETURNING` —
+для одной строки используйте `fetch_opt`. Без `where` обновляется каждая
+конфликтующая строка. `set_opt` и `set_expr_opt` пропускают `None`;
+`set_opt nullable_col (Some None)` записывает NULL.
+
+Conflict target описывает колонки уникального ключа. Наличие подходящего
+ограничения проверяет БД; partial indexes и именованные constraints пока не
+входят в этот API. Compiler дополнительно проверяет, что target и update
+assignments принадлежат таблице INSERT, даже если разные descriptors используют
+один phantom-тип. В multi-row UPSERT не следует повторять один конфликтующий
+ключ: PostgreSQL отклоняет повторное обновление одной строки в одном запросе.
+
 Операции, семантика которых отсутствует в выбранном dialect, возвращают
 `Compile_error.Unsupported_operation` до rendering.
 
@@ -117,6 +156,48 @@ Query не содержит connection или `Lwt.t`. Materialization выпо�
 ```ocaml
 Typed_sql_caqti_lwt.fetch ~conn (query "Ada")
 ```
+
+Чтобы найти запросы, на которых заметна стоимость DSL compilation, Caqti
+adapter принимает необязательный observer. Встроенный profiler ограничивает
+число хранимых SQL shapes и строит отчёт по суммарному времени локальной
+подготовки:
+
+```ocaml
+let profiler = Typed_sql_caqti_lwt.Profiler.create ()
+let observer = Typed_sql_caqti_lwt.Profiler.observer profiler
+
+let fetch_person conn name =
+  Typed_sql_caqti_lwt.fetch_one
+    ~observer
+    ~name:"people.by_name"
+    ~conn
+    (query name)
+
+let print_profile () =
+  Stdlib.Format.printf
+    "%a%!"
+    Typed_sql_caqti_lwt.Profiler.pp
+    (Typed_sql_caqti_lwt.Profiler.snapshot profiler)
+```
+
+Событие отдельно измеряет compilation, подготовку Caqti request, database
+round trip и декодирование. Большое время `database` следует разбирать через
+план SQL и индексы. Накопленное `compile` показывает верхнюю границу выигрыша
+от заранее созданного `Compiled_query`:
+
+```ocaml
+let compiled =
+  Typed_sql.Compiler.compile ~dialect:Typed_sql.Dialect.Sqlite (query "Ada")
+
+let fetch_compiled conn =
+  match compiled with
+  | Error error -> Lwt.return (Error (Typed_sql_caqti_lwt.Compile error))
+  | Ok query -> Typed_sql_caqti_lwt.fetch_one_compiled ~conn query
+```
+
+`Compiled_query` содержит конкретные bind values. Для одной формы запроса с
+меняющимися значениями нужен будущий `Prepared_query`; параметризованный запрос
+нельзя заменить одним `Compiled_query` без изменения результата.
 
 Транзакционная граница также принадлежит adapter:
 
