@@ -1,5 +1,6 @@
 open! Base
 open Typed_sql
+open Statement_compile
 open Infix
 
 type row
@@ -35,7 +36,7 @@ let%expect_test "conditional composite multi-row UPSERT and RETURNING" =
           |> where (Expr.column existing id >$ 0L)
           |> where (Expr.column existing name <>. Expr.column excluded name)))
       |> returning (fun row ->
-        Projection.pair (Expr.column row name) (Expr.param Db_type.int 9)))
+        Projection.pair (Expr.column row name) (Expr.constant Db_type.int 9)))
   in
   Compiler.compile ~dialect:Dialect.postgresql query
   |> ok
@@ -142,7 +143,7 @@ let%test_unit "optional fields and predicates preserve immutable actions" =
   let changed =
     Insert.Conflict_update.(
       action
-      |> set_expr_opt id (Some (Expr.param Db_type.int64 3L))
+      |> set_expr_opt id (Some (Expr.constant Db_type.int64 3L))
       |> where Condition.false_)
   in
   List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
@@ -289,7 +290,7 @@ let%test_unit "capability traversal includes conflict assignments and WHERE" =
       from table
       |> Postgresql.Query.having (fun _ -> Expr.count_all >$ 0L)
       |> limit 1
-      |> select_scalar (fun _ -> Expr.param Db_type.int64 1L))
+      |> select_scalar (fun _ -> Expr.constant Db_type.int64 1L))
     |> Expr.scalar_subquery
   in
   let make action = Insert.(update action |> command) in

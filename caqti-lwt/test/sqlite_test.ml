@@ -2,6 +2,31 @@ open! Base
 open Typed_sql
 open Infix
 module T = Caqti.Template
+module Adapter = Typed_sql_caqti_lwt
+
+module Typed_sql_caqti_lwt = struct
+  include Adapter
+
+  let fetch ?observer ?name ~conn query =
+    let statement = Statement.Portable.query_many_exn (fun _ -> query) in
+    run ?observer ?name ~conn statement ()
+  ;;
+
+  let fetch_one ?observer ?name ~conn query =
+    let statement = Statement.Portable.query_one_exn (fun _ -> query) in
+    run ?observer ?name ~conn statement ()
+  ;;
+
+  let fetch_opt ?observer ?name ~conn query =
+    let statement = Statement.Portable.query_optional_exn (fun _ -> query) in
+    run ?observer ?name ~conn statement ()
+  ;;
+
+  let execute ?observer ?name ~conn command =
+    let statement = Statement.Portable.command_exn (fun _ -> command) in
+    run ?observer ?name ~conn statement ()
+  ;;
+end
 
 let ( let* ) = Lwt.bind
 let ( >>= ) = Lwt.bind
@@ -75,6 +100,27 @@ module Person = struct
             (Projection.expr (nickname reference))))
   ;;
 end
+
+type person_lookup =
+  { person_id : int64
+  ; maximum_rows : int
+  }
+
+let person_lookup_statement =
+  Statement.Portable.query_many_exn (fun params ->
+    let person_id =
+      params.column ~name:"person_id" Person.id_column ~get:(fun input -> input.person_id)
+    in
+    let maximum_rows =
+      params.non_negative_int ~name:"maximum_rows" ~get:(fun input -> input.maximum_rows)
+    in
+    Query.(
+      from Person.table
+      |> where (fun person ->
+        Person.id person >=. person_id &&. (Person.id person <=. person_id))
+      |> limit_param maximum_rows
+      |> select Person.projection))
+;;
 
 module Department = struct
   type row
@@ -242,9 +288,7 @@ let profiler_test () =
   let event
         ?(name = "people.list")
         ?(fingerprint = "shape-a")
-        ?(compiled = false)
         ?(outcome = Profile.Succeeded)
-        ~compile
         ~prepare
         ~total
         ()
@@ -252,52 +296,43 @@ let profiler_test () =
     =
     { name = Some name
     ; operation = Profile.Fetch
-    ; compiled
     ; dialect = Some Dialect.Sqlite
     ; fingerprint = Some fingerprint
     ; parameter_count = Some 1
     ; row_count = Some 2
     ; outcome
     ; durations =
-        { compile = Some compile
-        ; prepare = Some prepare
-        ; database = Some 0.5
-        ; decode = Some 0.01
-        ; total
-        }
+        { prepare = Some prepare; database = Some 0.5; decode = Some 0.01; total }
     }
   in
   let observe = Typed_sql_caqti_lwt.Profiler.observer profiler in
-  observe (event ~compile:0.2 ~prepare:0.1 ~total:1. ());
-  observe
-    (event
-       ~outcome:(Profile.Failed Profile.Database)
-       ~compile:0.3
-       ~prepare:0.2
-       ~total:1.2
-       ());
-  observe (event ~compiled:true ~compile:0. ~prepare:0.05 ~total:0.8 ());
-  observe
-    (event ~name:"other" ~fingerprint:"shape-b" ~compile:1. ~prepare:1. ~total:3. ());
+  observe (event ~prepare:0.1 ~total:1. ());
+  observe (event ~outcome:(Profile.Failed Profile.Database) ~prepare:0.2 ~total:1.2 ());
+  observe (event ~fingerprint:"shape-b" ~prepare:0.05 ~total:0.8 ());
+  observe (event ~name:"other" ~fingerprint:"shape-c" ~prepare:1. ~total:3. ());
   let snapshot = Typed_sql_caqti_lwt.Profiler.snapshot profiler in
-  (match List.find snapshot.entries ~f:(fun entry -> not entry.compiled) with
+  (match
+     List.find snapshot.entries ~f:(fun entry ->
+       Option.equal String.equal entry.fingerprint (Some "shape-a"))
+   with
    | Some entry ->
      if
        not
          (Int.(entry.calls = 2)
           && Int.(entry.failures = 1)
           && Int.(entry.rows = 4)
-          && Float.(entry.compile_seconds > 0.49)
           && Float.(entry.prepare_seconds > 0.29)
-          && Float.(entry.max_compile_seconds > 0.29)
           && Float.(entry.max_total_seconds > 1.19))
      then
        failwith "profiler aggregated an event incorrectly"
    | None -> failwith "profiler omitted ordinary executions");
-  (match List.find snapshot.entries ~f:(fun entry -> entry.compiled) with
+  (match
+     List.find snapshot.entries ~f:(fun entry ->
+       Option.equal String.equal entry.fingerprint (Some "shape-b"))
+   with
    | Some entry when Int.(entry.calls = 1) -> ()
-   | Some _ -> failwith "profiler aggregated compiled executions incorrectly"
-   | None -> failwith "profiler merged ordinary and compiled executions");
+   | Some _ -> failwith "profiler aggregated a shape incorrectly"
+   | None -> failwith "profiler merged distinct shapes");
   if not Int.(snapshot.overflow_calls = 1) then
     failwith "profiler did not bound shape cardinality";
   let report = Stdlib.Format.asprintf "%a" Typed_sql_caqti_lwt.Profiler.pp snapshot in
@@ -435,60 +470,73 @@ let run conn =
     ~equal:Person.equal
     [ { Person.id = 1L; name = "Ada"; role = `Admin; nickname = None } ]
     rows;
-  let compiled =
-    match Compiler.compile ~dialect:Dialect.sqlite query with
-    | Ok compiled -> compiled
-    | Error error -> failwith (Compile_error.to_string error)
+  let* lookup =
+    Typed_sql_caqti_lwt.run
+      ~conn
+      person_lookup_statement
+      { person_id = 1L; maximum_rows = 1 }
+    >>= adapter_or_fail
   in
+  assert_equal ~equal:Person.equal rows lookup;
+  let* invalid_parameter =
+    Typed_sql_caqti_lwt.run
+      ~conn
+      person_lookup_statement
+      { person_id = 1L; maximum_rows = -1 }
+  in
+  (match invalid_parameter with
+   | Error
+       (Typed_sql_caqti_lwt.Parameter
+          { name = Some name; message = "must be non-negative, got -1" }) ->
+     assert (String.equal name "maximum_rows")
+   | Error error -> failwith (Typed_sql_caqti_lwt.error_to_string error)
+   | Ok _ -> failwith "negative runtime LIMIT reached SQLite");
+  let many = Statement.Portable.query_many_exn (fun _ -> query) in
+  let one = Statement.Portable.query_one_exn (fun _ -> query) in
+  let optional = Statement.Portable.query_optional_exn (fun _ -> query) in
   let observed = ref None in
   let observer event = observed := Some event in
   let* profiled_rows =
-    Typed_sql_caqti_lwt.fetch ~observer ~name:"people.admins" ~conn query
+    Typed_sql_caqti_lwt.run ~observer ~name:"people.admins" ~conn many ()
     >>= adapter_or_fail
   in
   assert_equal ~equal:Person.equal rows profiled_rows;
   (match !observed with
    | Some event ->
      if
-       Option.is_none event.durations.compile
-       || Option.is_none event.durations.prepare
+       Option.is_none event.durations.prepare
        || Option.is_none event.durations.database
        || Option.is_none event.durations.decode
        || Option.is_none event.fingerprint
-       || event.compiled
        || not (Option.equal String.equal event.name (Some "people.admins"))
      then
        failwith "profiled fetch omitted execution measurements"
    | None -> failwith "profiled fetch emitted no event");
   observed := None;
   let* compiled_rows =
-    Typed_sql_caqti_lwt.fetch_compiled ~observer ~conn compiled >>= adapter_or_fail
+    Typed_sql_caqti_lwt.run ~observer ~conn many () >>= adapter_or_fail
   in
   assert_equal ~equal:Person.equal rows compiled_rows;
   (match !observed with
-   | Some event when event.compiled && Option.is_none event.durations.compile -> ()
-   | Some _ -> failwith "compiled fetch reported compilation time"
+   | Some _ -> ()
    | None -> failwith "compiled fetch emitted no event");
-  let* compiled_row =
-    Typed_sql_caqti_lwt.fetch_one_compiled ~conn compiled >>= adapter_or_fail
-  in
+  let* compiled_row = Typed_sql_caqti_lwt.run ~conn one () >>= adapter_or_fail in
   if Int64.(compiled_row.id <> 1L) then
-    failwith "fetch_one_compiled returned the wrong row";
+    failwith "query_one returned the wrong row";
   let* compiled_row =
-    Typed_sql_caqti_lwt.fetch_opt_compiled
+    Typed_sql_caqti_lwt.run
       ~observer:(fun _ -> failwith "ignored observer failure")
       ~conn
-      compiled
+      optional
+      ()
     >>= adapter_or_fail
   in
   if Option.is_none compiled_row then
-    failwith "fetch_opt_compiled returned no row";
+    failwith "query_optional returned no row";
   let postgresql =
-    match Compiler.compile ~dialect:Dialect.postgresql query with
-    | Ok compiled -> compiled
-    | Error error -> failwith (Compile_error.to_string error)
+    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun _ -> query)
   in
-  let* mismatch = Typed_sql_caqti_lwt.fetch_compiled ~conn postgresql in
+  let* mismatch = Typed_sql_caqti_lwt.run ~conn postgresql () in
   (match mismatch with
    | Error
        (Typed_sql_caqti_lwt.Dialect_mismatch
@@ -499,14 +547,13 @@ let run conn =
     Query.(
       from Person.table
       |> Postgresql.Query.having (fun _ -> Condition.true_)
-      |> select Person.projection)
+      |> select (fun _ -> Projection.expr Expr.count_all))
   in
-  let* specific_mismatch =
-    Typed_sql_caqti_lwt.Dialect_specific.fetch
-      ~dialect:Dialect.postgresql
-      ~conn
-      postgresql_only
+  let postgresql_only =
+    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun _ ->
+      postgresql_only)
   in
+  let* specific_mismatch = Typed_sql_caqti_lwt.run ~conn postgresql_only () in
   (match specific_mismatch with
    | Error
        (Typed_sql_caqti_lwt.Dialect_mismatch
@@ -517,29 +564,16 @@ let run conn =
     Delete.(from Person.table |> where (fun person -> Person.id person =$ -1L) |> command)
   in
   let compiled_delete =
-    match Compiler.compile_command ~dialect:Dialect.sqlite no_op_delete with
-    | Ok compiled -> compiled
-    | Error error -> failwith (Compile_error.to_string error)
+    Statement.For_dialect.command_exn ~dialect:Dialect.sqlite (fun _ -> no_op_delete)
   in
-  let* _ =
-    Typed_sql_caqti_lwt.execute_compiled ~conn compiled_delete >>= adapter_or_fail
-  in
+  let* _ = Typed_sql_caqti_lwt.run ~conn compiled_delete () >>= adapter_or_fail in
   let invalid_limit =
     Query.(from Person.table |> limit (-1) |> select Person.projection)
   in
-  observed := None;
-  let* invalid_limit = Typed_sql_caqti_lwt.fetch ~observer ~conn invalid_limit in
-  (match invalid_limit, !observed with
-   | ( Error (Typed_sql_caqti_lwt.Compile (Compile_error.Negative_limit -1))
-     , Some
-         { outcome =
-             Typed_sql_caqti_lwt.Profile.Failed Typed_sql_caqti_lwt.Profile.Compile
-         ; fingerprint = None
-         ; durations = { compile = Some _; _ }
-         ; _
-         } ) -> ()
-   | Error error, _ -> failwith (Typed_sql_caqti_lwt.error_to_string error)
-   | Ok _, _ -> failwith "negative LIMIT unexpectedly executed");
+  (match Statement.Portable.query_many (fun _ -> invalid_limit) with
+   | Error { error = Compile_error.Negative_limit -1; _ } -> ()
+   | Error error -> failwith (Compile_error.to_string error.error)
+   | Ok _ -> failwith "negative LIMIT unexpectedly compiled");
   let raising_query =
     Query.(
       from Person.table
@@ -673,10 +707,10 @@ let run conn =
         let%map name = Projection.expr (Person.name person)
         and values =
           Projection.all
-            [ Projection.expr (Expr.param Db_type.int 11)
+            [ Projection.expr (Expr.constant Db_type.int 11)
             ; Projection.apply
                 (Projection.return Int.succ)
-                (Projection.expr (Expr.param Db_type.int 22))
+                (Projection.expr (Expr.constant Db_type.int 22))
             ]
         and empty = Projection.all [] in
         name, values, empty))
@@ -875,12 +909,12 @@ let run conn =
     Query.(
       from Person.table
       |> where (fun person ->
-        Expr.in_exprs (Person.id person) [ Expr.param Db_type.int64 1L ]
-        &&. Expr.not_in_exprs (Person.id person) [ Expr.param Db_type.int64 2L ]
+        Expr.in_exprs (Person.id person) [ Expr.constant Db_type.int64 1L ]
+        &&. Expr.not_in_exprs (Person.id person) [ Expr.constant Db_type.int64 2L ]
         &&. Expr.between_exprs
               (Person.id person)
-              ~lower:(Expr.param Db_type.int64 1L)
-              ~upper:(Expr.param Db_type.int64 3L))
+              ~lower:(Expr.constant Db_type.int64 1L)
+              ~upper:(Expr.constant Db_type.int64 3L))
       |> select (fun person ->
         let open Expr.Int64.Infix in
         Projection.map3
@@ -891,10 +925,10 @@ let run conn =
                 ~else_:
                   (Expr.concat
                      (Expr.lower (Person.name person))
-                     (Expr.param Db_type.text "!"))))
+                     (Expr.constant Db_type.text "!"))))
           (Projection.expr
-             ((Person.id person +. Expr.param Db_type.int64 5L)
-              *. Expr.param Db_type.int64 2L))
+             ((Person.id person +. Expr.constant Db_type.int64 5L)
+              *. Expr.constant Db_type.int64 2L))
           (Projection.expr (Expr.length (Person.name person)))))
   in
   let* expression_result =
@@ -1026,7 +1060,7 @@ let run conn =
                Person.name_column
                (Expr.concat
                   (Person.name existing)
-                  (Expr.concat (Expr.param Db_type.text "/") (Person.name excluded)))
+                  (Expr.concat (Expr.constant Db_type.text "/") (Person.name excluded)))
           |> set_expr Person.role_column (Person.role excluded)
           |> set_expr Person.nickname_column (Person.nickname excluded)))
       |> returning Person.projection)
@@ -1392,7 +1426,7 @@ let upsert_test conn =
           |> set_opt role (Some `Admin)
           |> set_expr_opt
                note
-               (Some (Expr.param (Db_type.option Db_type.text) (Some "changed")))
+               (Some (Expr.constant (Db_type.option Db_type.text) (Some "changed")))
           |> where exists))
       |> returning projection)
   in
@@ -1410,6 +1444,98 @@ let upsert_test conn =
   Connection.exec (direct "DROP TABLE excluded") () |> caqti_or_fail
 ;;
 
+let dynamic_test conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let* () =
+    Connection.exec (direct "CREATE TABLE dynamic_items (id INTEGER NOT NULL)") ()
+    |> caqti_or_fail
+  in
+  let table : unit Table.t = Table.v_exn "dynamic_items" in
+  let id = Column.v_exn table "id" Db_type.int in
+  let insert =
+    Statement.Dynamic.Portable.command (fun value ->
+      Insert.(into table |> set id value |> command))
+  in
+  let* _ = Adapter.run ~conn insert 1 >>= adapter_or_fail in
+  let* _ = Adapter.run ~conn insert 2 >>= adapter_or_fail in
+  let builds = ref 0 in
+  let query (ids, suffix) =
+    Int.incr builds;
+    Query.(
+      from table
+      |> where (fun row -> Expr.in_ (Expr.column row id) ids)
+      |> order_by (fun row -> Expr.column row id) `Asc
+      |> select (fun row ->
+        Projection.map
+          (Projection.expr (Expr.column row id))
+          ~f:(fun value -> Int.to_string value ^ suffix)))
+  in
+  let many = Statement.Dynamic.Portable.query_many query in
+  let one = Statement.Dynamic.Portable.query_one query in
+  let optional = Statement.Dynamic.Portable.query_optional query in
+  assert (Int.(!builds = 0));
+  let* rows = Adapter.run ~conn many ([ 1; 2 ], "a") >>= adapter_or_fail in
+  assert (List.equal String.equal rows [ "1a"; "2a" ]);
+  assert (Int.(!builds = 1));
+  let* rows = Adapter.run ~conn many ([ 2 ], "b") >>= adapter_or_fail in
+  assert (List.equal String.equal rows [ "2b" ]);
+  let* rows = Adapter.run ~conn many ([], "") >>= adapter_or_fail in
+  assert (List.is_empty rows);
+  let* row = Adapter.run ~conn one ([ 1 ], "c") >>= adapter_or_fail in
+  assert (String.equal row "1c");
+  let* row = Adapter.run ~conn optional ([ 2 ], "d") >>= adapter_or_fail in
+  assert (Option.equal String.equal row (Some "2d"));
+  let* row = Adapter.run ~conn optional ([], "") >>= adapter_or_fail in
+  assert (Option.is_none row);
+  let* missing = Adapter.run ~conn one ([], "") in
+  assert (Result.is_error missing);
+  let* too_many = Adapter.run ~conn optional ([ 1; 2 ], "") in
+  assert (Result.is_error too_many);
+  let* too_many = Adapter.run ~conn one ([ 1; 2 ], "") in
+  assert (Result.is_error too_many);
+  assert (Int.(!builds = 9));
+  let invalid =
+    Statement.Dynamic.Portable.query_many (fun maximum_rows ->
+      Query.(
+        from table
+        |> limit maximum_rows
+        |> select (fun row -> Projection.expr (Expr.column row id))))
+  in
+  let* error = Adapter.run ~conn invalid (-1) in
+  (match error with
+   | Error (Adapter.Compile ({ dialect = Sqlite; error = Negative_limit -1 } as error)) ->
+     assert (
+       String.is_substring (Adapter.error_to_string (Compile error)) ~substring:"LIMIT")
+   | _ -> failwith "dynamic compilation error did not reach adapter");
+  let escaped = ref None in
+  ignore
+    Query.(
+      from table
+      |> select (fun row ->
+        escaped := Some row;
+        Projection.expr (Expr.column row id)));
+  let invalid =
+    Statement.Dynamic.Portable.query_many (fun () ->
+      Query.(
+        from table
+        |> select (fun _ -> Projection.expr (Expr.column (Option.value_exn !escaped) id))))
+  in
+  let* error = Adapter.run ~conn invalid () in
+  (match error with
+   | Error (Adapter.Compile { error = Foreign_source _; _ }) -> ()
+   | _ -> failwith "foreign source did not reach adapter");
+  let invalid =
+    Statement.Dynamic.Portable.command (fun value ->
+      Insert.(into table |> set id value |> set id value |> command))
+  in
+  let* error = Adapter.run ~conn invalid 3 in
+  (match error with
+   | Error (Adapter.Compile { error = Duplicate_assignment column; _ }) ->
+     assert (String.equal (Identifier.to_string column) "id")
+   | _ -> failwith "command compilation error did not reach adapter");
+  Connection.exec (direct "DROP TABLE dynamic_items") () |> caqti_or_fail
+;;
+
 let main () =
   let* conn =
     Caqti_lwt_unix.connect (Uri.of_string "sqlite3::memory:") |> caqti_or_fail
@@ -1417,6 +1543,7 @@ let main () =
   let module Connection = (val conn : Caqti_lwt.CONNECTION) in
   Lwt.finalize
     (fun () ->
+       let* () = dynamic_test conn in
        let* () = upsert_test conn in
        run conn)
     (fun () -> Connection.disconnect ())

@@ -2,10 +2,11 @@ open! Base
 
 type state =
   { next_parameter : int
-  ; parameters_rev : Db_type.packed_value list
+  ; parameters_rev : Ast.parameter list
+  ; slot_indices : (int * int) list
   }
 
-let initial_state = { next_parameter = 0; parameters_rev = [] }
+let initial_state = { next_parameter = 0; parameters_rev = []; slot_indices = [] }
 let text value = Template.Text value
 let break flat = Template.Break flat
 let concat templates = Template.concat templates
@@ -64,6 +65,27 @@ let aliases_for_select ~parent_aliases (select : Ast.select) =
        source.source_id, Stdlib.Format.asprintf "t%d" (first_index + index)))
 ;;
 
+let render_parameter parameter state =
+  match parameter with
+  | Ast.Value _ ->
+    let index = state.next_parameter in
+    ( Template.Param index
+    , { state with
+        next_parameter = index + 1
+      ; parameters_rev = parameter :: state.parameters_rev
+      } )
+  | Ast.Slot { id; _ } ->
+    (match List.Assoc.find state.slot_indices id ~equal:Int.equal with
+     | Some index -> Template.Param index, state
+     | None ->
+       let index = state.next_parameter in
+       ( Template.Param index
+       , { next_parameter = index + 1
+         ; parameters_rev = parameter :: state.parameters_rev
+         ; slot_indices = (id, index) :: state.slot_indices
+         } ))
+;;
+
 let rec render_expr ~aliases expression state =
   match expression with
   | Ast.Column { source_id; name; _ } ->
@@ -74,10 +96,7 @@ let rec render_expr ~aliases expression state =
        else
          concat [ text alias; text "."; column ])
     , state )
-  | Ast.Param value ->
-    let index = state.next_parameter in
-    ( Template.Param index
-    , { next_parameter = index + 1; parameters_rev = value :: state.parameters_rev } )
+  | Ast.Param parameter -> render_parameter parameter state
   | Ast.Arithmetic (operator, left, right) ->
     let left, state = render_expr ~aliases left state in
     let right, state = render_expr ~aliases right state in
@@ -344,15 +363,23 @@ and render_select ~parent_aliases (select : Ast.select) state =
       ( concat [ parts; break " "; text "ORDER BY"; nest (concat [ break " "; orders ]) ]
       , state )
   in
-  let parts =
+  let parts, state =
     match select.limit with
-    | None -> parts
-    | Some n -> concat [ parts; break " "; text "LIMIT "; text (Int.to_string n) ]
+    | None -> parts, state
+    | Some (Ast.Literal n) ->
+      concat [ parts; break " "; text "LIMIT "; text (Int.to_string n) ], state
+    | Some (Ast.Parameter parameter) ->
+      let parameter, state = render_parameter parameter state in
+      concat [ parts; break " "; text "LIMIT "; parameter ], state
   in
-  let parts =
+  let parts, state =
     match select.offset with
-    | None -> parts
-    | Some n -> concat [ parts; break " "; text "OFFSET "; text (Int.to_string n) ]
+    | None -> parts, state
+    | Some (Ast.Literal n) ->
+      concat [ parts; break " "; text "OFFSET "; text (Int.to_string n) ], state
+    | Some (Ast.Parameter parameter) ->
+      let parameter, state = render_parameter parameter state in
+      concat [ parts; break " "; text "OFFSET "; parameter ], state
   in
   parts, state
 ;;

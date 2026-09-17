@@ -17,14 +17,16 @@ type constraint_kind =
     when the database does not expose a more specific cause. *)
 
 type error =
-  | Compile of Typed_sql.Compile_error.t
-  (** The typed query failed validation or compilation. *)
+  | Compile of Typed_sql.Statement.definition_error
+  (** A dynamic statement failed compilation before database access. *)
   | Unsupported_dialect of string
   (** The connected Caqti driver has no matching typed-sql dialect. *)
   | Dialect_mismatch of
       { expected : Typed_sql.Dialect.t
       ; connection : Typed_sql.Dialect.t
       } (** A statement requires a different connection dialect. *)
+  | Parameter of Typed_sql.Statement.binding_error
+  (** A runtime statement parameter failed validation before database access. *)
   | Codec of string
   (** A mapped [Typed_sql.Db_type] rejected parameter encoding or row decoding. *)
   | Schema of string
@@ -55,7 +57,6 @@ module Profile : sig
     | Execute
 
   type failure =
-    | Compile
     | Encode
     | Database
     | Decode
@@ -68,8 +69,7 @@ module Profile : sig
     | Failed of failure
 
   type durations =
-    { compile : float option
-    ; prepare : float option
+    { prepare : float option
     ; database : float option
     ; decode : float option
     ; total : float
@@ -78,7 +78,6 @@ module Profile : sig
   type event =
     { name : string option
     ; operation : operation
-    ; compiled : bool
     ; dialect : Typed_sql.Dialect.t option
     ; fingerprint : string option
     ; parameter_count : int option
@@ -99,18 +98,15 @@ module Profiler : sig
   type entry =
     { name : string option
     ; operation : Profile.operation
-    ; compiled : bool
     ; fingerprint : string option
     ; parameter_count : int option
     ; calls : int
     ; failures : int
     ; rows : int
-    ; compile_seconds : float
     ; prepare_seconds : float
     ; database_seconds : float
     ; decode_seconds : float
     ; total_seconds : float
-    ; max_compile_seconds : float
     ; max_prepare_seconds : float
     ; max_database_seconds : float
     ; max_decode_seconds : float
@@ -124,7 +120,7 @@ module Profiler : sig
     }
 
   (** Create an aggregator retaining at most [max_shapes] distinct
-      [(name, operation, compiled mode, fingerprint)] groups. Additional groups
+      [(name, operation, fingerprint)] groups. Additional groups
       contribute to the overflow counters. *)
   val create : ?max_shapes:int -> unit -> t
 
@@ -134,8 +130,8 @@ module Profiler : sig
   (** Return a callback suitable for the execution functions below. *)
   val observer : t -> Profile.observer
 
-  (** Return up to [limit] groups, ordered by cumulative compilation and
-      adapter-preparation time. *)
+  (** Return up to [limit] groups, ordered by cumulative adapter-preparation
+      time. *)
   val snapshot : ?limit:int -> t -> snapshot
 
   (** Return [snapshot] and clear all accumulated data. *)
@@ -144,113 +140,21 @@ module Profiler : sig
   (** Clear all accumulated data. *)
   val reset : t -> unit
 
-  (** Print a compact report. Potential compiled savings are represented by
-      compilation time; preparation time is an upper bound for additional
-      future prepared-query savings. *)
+  (** Print a compact report. Preparation time is an upper bound for potential
+      future server-prepared-query savings. *)
   val pp : Formatter.t -> snapshot -> unit
 end
 
-(** Execute a query and collect every row in the order returned by the
-    database. Use [Typed_sql.Query.order_by] when the order is significant. *)
-val fetch
+(** Resolve [input] and execute the statement with its selected cardinality.
+    Static statements bind an existing plan; dynamic statements build and
+    compile one plan before adapter profiling and database access. *)
+val run
   :  ?observer:Profile.observer
   -> ?name:string
   -> conn:Caqti_lwt.connection
-  -> ('result, Typed_sql.Dialect.portable) Typed_sql.Result_query.t
-  -> ('result list, error) Result.t Lwt.t
-
-(** Execute an already compiled query. Compilation time is absent from the
-    emitted profile event. *)
-val fetch_compiled
-  :  ?observer:Profile.observer
-  -> ?name:string
-  -> conn:Caqti_lwt.connection
-  -> 'result Typed_sql.Compiled_query.t
-  -> ('result list, error) Result.t Lwt.t
-
-(** Execute a query which must return exactly one row. The adapter adds no
-    [LIMIT]; zero or multiple rows produce a Caqti cardinality error. *)
-val fetch_one
-  :  ?observer:Profile.observer
-  -> ?name:string
-  -> conn:Caqti_lwt.connection
-  -> ('result, Typed_sql.Dialect.portable) Typed_sql.Result_query.t
-  -> ('result, error) Result.t Lwt.t
-
-val fetch_one_compiled
-  :  ?observer:Profile.observer
-  -> ?name:string
-  -> conn:Caqti_lwt.connection
-  -> 'result Typed_sql.Compiled_query.t
-  -> ('result, error) Result.t Lwt.t
-
-(** Execute a query which may return zero or one row. The adapter adds no
-    [LIMIT]; multiple rows produce a Caqti cardinality error. *)
-val fetch_opt
-  :  ?observer:Profile.observer
-  -> ?name:string
-  -> conn:Caqti_lwt.connection
-  -> ('result, Typed_sql.Dialect.portable) Typed_sql.Result_query.t
-  -> ('result option, error) Result.t Lwt.t
-
-val fetch_opt_compiled
-  :  ?observer:Profile.observer
-  -> ?name:string
-  -> conn:Caqti_lwt.connection
-  -> 'result Typed_sql.Compiled_query.t
-  -> ('result option, error) Result.t Lwt.t
-
-(** Execute a command. The result is [Affected_rows.Unknown] when the Caqti
-    driver cannot report an affected-row count. *)
-val execute
-  :  ?observer:Profile.observer
-  -> ?name:string
-  -> conn:Caqti_lwt.connection
-  -> Typed_sql.Dialect.portable Typed_sql.Command.t
-  -> (Typed_sql.Affected_rows.t, error) Result.t Lwt.t
-
-val execute_compiled
-  :  ?observer:Profile.observer
-  -> ?name:string
-  -> conn:Caqti_lwt.connection
-  -> Typed_sql.Compiled_command.t
-  -> (Typed_sql.Affected_rows.t, error) Result.t Lwt.t
-
-(** Execute a statement whose dialect is selected explicitly. The adapter
-    checks that [conn] uses the selected dialect before compiling it. *)
-module Dialect_specific : sig
-  val fetch
-    :  dialect:'requirements Typed_sql.Dialect.witness
-    -> ?observer:Profile.observer
-    -> ?name:string
-    -> conn:Caqti_lwt.connection
-    -> ('result, 'requirements) Typed_sql.Result_query.t
-    -> ('result list, error) Result.t Lwt.t
-
-  val fetch_one
-    :  dialect:'requirements Typed_sql.Dialect.witness
-    -> ?observer:Profile.observer
-    -> ?name:string
-    -> conn:Caqti_lwt.connection
-    -> ('result, 'requirements) Typed_sql.Result_query.t
-    -> ('result, error) Result.t Lwt.t
-
-  val fetch_opt
-    :  dialect:'requirements Typed_sql.Dialect.witness
-    -> ?observer:Profile.observer
-    -> ?name:string
-    -> conn:Caqti_lwt.connection
-    -> ('result, 'requirements) Typed_sql.Result_query.t
-    -> ('result option, error) Result.t Lwt.t
-
-  val execute
-    :  dialect:'requirements Typed_sql.Dialect.witness
-    -> ?observer:Profile.observer
-    -> ?name:string
-    -> conn:Caqti_lwt.connection
-    -> 'requirements Typed_sql.Command.t
-    -> (Typed_sql.Affected_rows.t, error) Result.t Lwt.t
-end
+  -> ('input, 'output, 'requirements) Typed_sql.Statement.t
+  -> 'input
+  -> ('output, error) Result.t Lwt.t
 
 (** Run [f] inside one transaction on [conn]. [Ok] commits and [Error] rolls
     back. A failed commit is also followed by rollback before its error is

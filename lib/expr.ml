@@ -32,7 +32,9 @@ let to_nullable expression =
   { node = expression.node; db_type = Db_type.option expression.db_type }
 ;;
 
-let param db_type value = { node = Ast.Param (Db_type.Value (db_type, value)); db_type }
+let constant db_type value =
+  { node = Ast.Param (Ast.Value (Db_type.Value (db_type, value))); db_type }
+;;
 
 let compare
   : type a requirements.
@@ -49,7 +51,7 @@ let compare_value
   : type a requirements.
     Ast.comparison -> (a, requirements) t -> a -> requirements Condition.t
   =
-  fun comparison left value -> compare comparison left (param left.db_type value)
+  fun comparison left value -> compare comparison left (constant left.db_type value)
 ;;
 
 let eq left right = compare Ast.Eq left right
@@ -72,11 +74,11 @@ let not_in_exprs expression values =
 ;;
 
 let in_ expression values =
-  in_exprs expression (List.map values ~f:(param expression.db_type))
+  in_exprs expression (List.map values ~f:(constant expression.db_type))
 ;;
 
 let not_in expression values =
-  not_in_exprs expression (List.map values ~f:(param expression.db_type))
+  not_in_exprs expression (List.map values ~f:(constant expression.db_type))
 ;;
 
 let between_exprs expression ~lower ~upper =
@@ -86,8 +88,8 @@ let between_exprs expression ~lower ~upper =
 let between expression ~lower ~upper =
   between_exprs
     expression
-    ~lower:(param expression.db_type lower)
-    ~upper:(param expression.db_type upper)
+    ~lower:(constant expression.db_type lower)
+    ~upper:(constant expression.db_type upper)
 ;;
 
 let is_distinct_from left right = compare Ast.Is_distinct_from left right
@@ -195,7 +197,7 @@ let concat left right =
   { node = Ast.Concat (left.node, right.node); db_type = Db_type.text }
 ;;
 
-let concat_value left right = concat left (param Db_type.text right)
+let concat_value left right = concat left (constant Db_type.text right)
 let count_all = { node = Ast.Aggregate Ast.Count_all; db_type = Db_type.int64 }
 
 let count expression =

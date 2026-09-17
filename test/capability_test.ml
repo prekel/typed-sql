@@ -1,5 +1,6 @@
 open! Base
 open Typed_sql
+open Statement_compile
 open Infix
 
 module Item = struct

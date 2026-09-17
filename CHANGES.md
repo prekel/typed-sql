@@ -1,5 +1,43 @@
 # История изменений
 
+## 0.2.0 — 17 сентября 2026
+
+### Добавлено
+
+- `Statement.Portable` и `Statement.For_dialect`: запрос и его SQL-планы
+  создаются один раз при инициализации OCaml-модуля, а выполнение принимает
+  одно типизированное input-значение.
+- `Statement.Dynamic.Portable` с `query_many`, `query_one`, `query_optional` и
+  `command` для безопасной runtime-компиляции SQL-формы из input без cache.
+- Явные ошибки runtime-компиляции dynamic statement в `Statement.sql`, Caqti
+  Lwt и PG'OCaml Lwt adapters.
+- Runtime slots через `params.column` и `params.expr` без отдельного
+  аппликативного descriptor параметров.
+- Примеры десятипараметрического input на обычном кортеже, labeled tuple и
+  record. Для переиспользуемых statements рекомендуется модуль операции с
+  вложенным `Input.t`, `statement` и getters от Jane Street `ppx_fields_conv`.
+- Проверяемые runtime `LIMIT`/`OFFSET` и `Statement.choose` для конечного набора
+  заранее скомпилированных SQL shapes.
+- ADR с обоснованием статического API и рассмотренными альтернативами.
+
+### Изменено
+
+- Caqti Lwt и PG'OCaml Lwt предоставляют единый `run`; cardinality задаётся
+  конструкторами `query_many`, `query_one`, `query_optional` и `command`.
+- `Compiler`, `Compiled_query` и `Compiled_command` стали внутренней границей
+  ядра и backend adapters.
+- `Expr.param` переименован в `Expr.constant`: прямые OCaml-значения в DSL
+  считаются константами времени создания statement, а runtime-значения входят
+  только через `Statement.parameters`.
+- Публичные `Dialect.t`, `Statement.binding_error` и `Statement.sql_error`
+  больше не раскрывают равенство с типами внутренней библиотеки; backend
+  преобразует dialect и ошибки явно.
+
+### Удалено
+
+- Публичные `fetch`, `fetch_one`, `fetch_opt`, `execute`, compiled-варианты и
+  `Dialect_specific` в execution adapters.
+
 ## 0.1.2 — 16 сентября 2026
 
 ### Добавлено

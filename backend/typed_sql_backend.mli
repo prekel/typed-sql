@@ -1,8 +1,8 @@
 open! Base
 
-(** Execution-adapter contract. Compile through [Typed_sql.Compiler], then
-    consume the same opaque compiled value here. No AST constructors or unchecked
-    conversions are exposed. Application code only needs [Typed_sql]. *)
+(** Execution-adapter contract for resolving opaque statements. No AST
+    constructors or unchecked conversions are exposed. Application code only
+    needs [Typed_sql]. *)
 
 (** Read-only access to codecs carried by compiled statements. *)
 module Db_type : sig
@@ -104,8 +104,12 @@ end
 
 (** Adapter access to a compiled row-returning statement. *)
 module Compiled_query : sig
-  (** The same opaque compiled query produced by [Typed_sql.Compiler]. *)
-  type 'a t = 'a Typed_sql.Compiled_query.t
+  (** A resolved query plan. Values can only be obtained from
+      {!Statement.resolve}. *)
+  type 'a t
+
+  val dialect : 'a t -> Typed_sql.Dialect.t
+  val sql : 'a t -> string
 
   (** Return the SQL template with parameter slots kept separate. *)
   val template : 'a t -> Template.t
@@ -122,8 +126,12 @@ end
 
 (** Adapter access to a compiled statement without returned rows. *)
 module Compiled_command : sig
-  (** The same opaque compiled command produced by [Typed_sql.Compiler]. *)
-  type t = Typed_sql.Compiled_command.t
+  (** A resolved command plan. Values can only be obtained from
+      {!Statement.resolve}. *)
+  type t
+
+  val dialect : t -> Typed_sql.Dialect.t
+  val sql : t -> string
 
   (** Return the SQL template with parameter slots kept separate. *)
   val template : t -> Template.t
@@ -133,4 +141,32 @@ module Compiled_command : sig
 
   (** Return the cache identity of the compiled command. *)
   val shape : t -> Shape.t
+end
+
+(** Resolve a statement for one input and connection dialect. Dynamic
+    statements are built and compiled during this call. *)
+module Statement : sig
+  type (_, _) cardinality =
+    | Many : ('row, 'row list) cardinality
+    | One : ('row, 'row) cardinality
+    | Optional : ('row, 'row option) cardinality
+
+  type 'output execution = private
+    | Query_execution :
+        { cardinality : ('row, 'output) cardinality
+        ; compiled : 'row Compiled_query.t
+        }
+        -> 'output execution
+    | Command_execution : Compiled_command.t -> Typed_sql.Affected_rows.t execution
+
+  type resolve_error =
+    | Dialect_mismatch
+    | Binding of Typed_sql.Statement.binding_error
+    | Compilation of Typed_sql.Statement.definition_error
+
+  val resolve
+    :  dialect:Typed_sql.Dialect.t
+    -> 'input
+    -> ('input, 'output, 'requirements) Typed_sql.Statement.t
+    -> ('output execution, resolve_error) Result.t
 end

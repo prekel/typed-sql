@@ -23,7 +23,7 @@ and expr =
       ; name : Identifier.t
       ; db_type : Db_type.packed
       }
-  | Param of Db_type.packed_value
+  | Param of parameter
   | Arithmetic of arithmetic * expr * expr
   | String_function of string_function * expr
   | Concat of expr * expr
@@ -31,6 +31,13 @@ and expr =
   | Aggregate of aggregate
   | Scalar_subquery of select
   | Current_timestamp
+
+and parameter =
+  | Value of Db_type.packed_value
+  | Slot of
+      { id : int
+      ; db_type : Db_type.packed
+      }
 
 and comparison =
   | Eq
@@ -94,9 +101,13 @@ and select =
   ; group_by : expr list
   ; having : condition option
   ; order_by : order list
-  ; limit : int option
-  ; offset : int option
+  ; limit : pagination option
+  ; offset : pagination option
   }
+
+and pagination =
+  | Literal of int
+  | Parameter of parameter
 
 type assignment =
   { source_id : int

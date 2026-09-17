@@ -49,7 +49,7 @@ module Conflict_update = struct
   ;;
 
   let set column value update =
-    set_expr column (Expr.param (Column.db_type column) value) update
+    set_expr column (Expr.constant (Column.db_type column) value) update
   ;;
 
   let set_opt column value update =
@@ -104,7 +104,7 @@ let set_expr column expression insert =
 ;;
 
 let set column value insert =
-  set_expr column (Expr.param (Column.db_type column) value) insert
+  set_expr column (Expr.constant (Column.db_type column) value) insert
 ;;
 
 let default column insert =

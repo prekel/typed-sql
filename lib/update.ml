@@ -36,7 +36,7 @@ let set_expr column expression update =
 ;;
 
 let set column value update =
-  set_expr column (Expr.param (Column.db_type column) value) update
+  set_expr column (Expr.constant (Column.db_type column) value) update
 ;;
 
 let default column update =

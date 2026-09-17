@@ -7,7 +7,7 @@ execution adapter.
 
 Текущий срез включает:
 
-- типы БД, table/column descriptors и bind parameters;
+- типы БД, table/column descriptors, константы statement и runtime-параметры;
 - отдельные scalar expressions и SQL conditions;
 - applicative projections произвольного OCaml-типа;
 - [SELECT], joins, filtering, ordering, pagination, grouping и aggregates;
@@ -20,8 +20,12 @@ execution adapter.
 - Lwt execution через [typed-sql-caqti-lwt] и PostgreSQL execution через
   [typed-sql-pgocaml-lwt].
 
-Начать работу можно с {!page-quickstart}. Границы между DSL, compiler и Caqti
-описаны в {!page-architecture}.
+Начать работу можно с {!page-quickstart}. Варианты входного типа для statement
+с примерами собраны на странице {!page-statement_inputs}. Запросы, чья форма
+зависит от input, описаны на странице {!page-dynamic_statements}. Границы между
+DSL, compiler и Caqti описаны в {!page-architecture}. Решение сделать
+[Statement] единственным API выполнения и отвергнутые варианты записаны в
+{{:adr/0001-static-statement-api.md}ADR 0001}.
 
 API приложения целиком описан в [lib/typed_sql.mli]. Для авторов execution
 adapters есть отдельная библиотека [typed-sql.backend] и контракт

@@ -3,10 +3,35 @@ open Typed_sql
 open Infix
 module B = Typed_sql_backend
 
-let compile_exn dialect query =
-  Compiler.compile_portable ~dialect query
-  |> Result.map_error ~f:Compile_error.to_string
-  |> Result.ok_or_failwith
+let compile_exn
+  : type row.
+    Dialect.t -> (row, Dialect.portable) Result_query.t -> row B.Compiled_query.t
+  =
+  fun dialect query ->
+  let statement =
+    Statement.Portable.query_many (fun _ -> query)
+    |> Result.map_error ~f:(fun (error : Statement.definition_error) ->
+      Compile_error.to_string error.error)
+    |> Result.ok_or_failwith
+  in
+  match B.Statement.resolve ~dialect () statement with
+  | Ok (B.Statement.Query_execution { cardinality = B.Statement.Many; compiled }) ->
+    compiled
+  | Ok (B.Statement.Query_execution _) -> failwith "query cardinality changed"
+  | Error _ -> failwith "query resolution failed"
+;;
+
+let compile_command_exn dialect command =
+  let statement =
+    Statement.Portable.command (fun _ -> command)
+    |> Result.map_error ~f:(fun (error : Statement.definition_error) ->
+      Compile_error.to_string error.error)
+    |> Result.ok_or_failwith
+  in
+  match B.Statement.resolve ~dialect () statement with
+  | Ok (B.Statement.Command_execution compiled) -> compiled
+  | Ok (B.Statement.Query_execution _) -> failwith "command resolved as a query"
+  | Error _ -> failwith "command resolution failed"
 ;;
 
 let%test_unit "query shape excludes values and generative source ids" =
@@ -49,7 +74,7 @@ let%test_unit "backend template layout matches public canonical SQL" =
               ~pp_sep:(fun _formatter () -> ())
               Stdlib.Format.pp_print_string)
     in
-    assert (String.equal backend_sql (Compiled_query.sql compiled)))
+    assert (String.equal backend_sql (B.Compiled_query.sql compiled)))
 ;;
 
 let%test "mapped codecs with the same name have distinct shapes" =
@@ -74,10 +99,7 @@ let%test_unit "command shapes expose their stable representation" =
   let table : unit Table.t = Table.v_exn "items" in
   let id = Column.v_exn table "id" Db_type.int64 in
   let compiled =
-    Insert.(into table |> set id 1L |> command)
-    |> Compiler.compile_command ~dialect:Dialect.sqlite
-    |> Result.map_error ~f:Compile_error.to_string
-    |> Result.ok_or_failwith
+    Insert.(into table |> set id 1L |> command) |> compile_command_exn Dialect.Sqlite
   in
   let shape = B.Compiled_command.shape compiled in
   assert (
@@ -101,7 +123,9 @@ let%test_unit "UPSERT shape excludes values and bind slots follow SQL order" =
         else
           action)
       |> returning (fun row ->
-        Projection.pair (Expr.column row id) (Expr.param Db_type.int64 Int64.(value + 3L))))
+        Projection.pair
+          (Expr.column row id)
+          (Expr.constant Db_type.int64 Int64.(value + 3L))))
     |> compile_exn dialect
   in
   List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
@@ -131,5 +155,5 @@ let%test_unit "UPSERT shape excludes values and bind slots follow SQL order" =
               ~pp_sep:(fun _formatter () -> ())
               Stdlib.Format.pp_print_string)
     in
-    assert (String.equal backend_sql (Compiled_query.sql first)))
+    assert (String.equal backend_sql (B.Compiled_query.sql first)))
 ;;

@@ -1,3 +1,8 @@
 (documentation
  (package typed-sql)
- (mld_files index quickstart architecture))
+ (mld_files
+  index
+  quickstart
+  statement_inputs
+  dynamic_statements
+  architecture))

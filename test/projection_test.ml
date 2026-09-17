@@ -6,11 +6,22 @@ module A :
   Base.Applicative.S2 with type ('a, 'requirements) t = ('a, 'requirements) Projection.t =
   Projection
 
-let compile_exn dialect projection =
-  Query.(from (Table.v_exn "items") |> select (fun _ -> projection))
-  |> Compiler.compile_portable ~dialect
-  |> Result.map_error ~f:Compile_error.to_string
-  |> Result.ok_or_failwith
+let compile_exn
+  : type row. Dialect.t -> (row, Dialect.portable) Projection.t -> row B.Compiled_query.t
+  =
+  fun dialect projection ->
+  let query = Query.(from (Table.v_exn "items") |> select (fun _ -> projection)) in
+  let statement =
+    Statement.Portable.query_many (fun _ -> query)
+    |> Result.map_error ~f:(fun (error : Statement.definition_error) ->
+      Compile_error.to_string error.error)
+    |> Result.ok_or_failwith
+  in
+  match B.Statement.resolve ~dialect () statement with
+  | Ok (B.Statement.Query_execution { cardinality = B.Statement.Many; compiled }) ->
+    compiled
+  | Ok (B.Statement.Query_execution _) -> failwith "query cardinality changed"
+  | Error _ -> failwith "query resolution failed"
 ;;
 
 let%expect_test "applicative syntax preserves SELECT and bind order" =
@@ -19,8 +30,8 @@ let%expect_test "applicative syntax preserves SELECT and bind order" =
     let%map label = Projection.return "label"
     and values =
       A.all
-        [ Projection.expr (Expr.param Db_type.int 11)
-        ; A.apply (A.return Int.succ) (Projection.expr (Expr.param Db_type.int 22))
+        [ Projection.expr (Expr.constant Db_type.int 11)
+        ; A.apply (A.return Int.succ) (Projection.expr (Expr.constant Db_type.int 22))
         ]
     and empty = A.all [] in
     label, values, empty
@@ -38,7 +49,7 @@ let%expect_test "applicative syntax preserves SELECT and bind order" =
     assert (List.equal Int.equal parameters [ 11; 22 ]);
     compiled
   in
-  Stdlib.print_endline (Compiled_query.sql (compile Dialect.Postgresql));
+  Stdlib.print_endline (B.Compiled_query.sql (compile Dialect.Postgresql));
   [%expect
     {|
     SELECT
@@ -46,7 +57,7 @@ let%expect_test "applicative syntax preserves SELECT and bind order" =
       $2
     FROM "items" AS t0
     |}];
-  Stdlib.print_endline (Compiled_query.sql (compile Dialect.Sqlite));
+  Stdlib.print_endline (B.Compiled_query.sql (compile Dialect.Sqlite));
   [%expect
     {|
     SELECT
@@ -89,8 +100,8 @@ let%test_unit "backend interpreter defers maps until decoding" =
   let mapped = ref 0 in
   let projection =
     let open Projection.Let_syntax in
-    let%map id = Projection.expr (Expr.param Db_type.int 7)
-    and name = Projection.expr (Expr.param Db_type.text "Ada")
+    let%map id = Projection.expr (Expr.constant Db_type.int 7)
+    and name = Projection.expr (Expr.constant Db_type.text "Ada")
     and suffix = Projection.return "!" in
     Int.incr mapped;
     Int.to_string id ^ ": " ^ name ^ suffix

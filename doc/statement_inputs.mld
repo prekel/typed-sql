@@ -1,0 +1,445 @@
+{0 Входные значения статического statement}
+
+Эта страница описывает фиксированную SQL-форму, созданную через
+[Statement.Portable] или [Statement.For_dialect]. Когда input меняет структуру
+предиката, projection или число bind slots, используется
+[Statement.Dynamic.Portable]; см. {!page-dynamic_statements}.
+
+У statement есть два разных времени жизни значений. OCaml-значение, переданное
+прямо в DSL через оператор с [$], [Expr.constant], [Insert.set] или
+[Update.set], захватывается один раз при создании [Statement.t]. Это константа
+statement:
+
+{[
+let ada_after_ten =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Person.table
+      |> where (fun person ->
+        Person.name person =$ "Ada" &&. (Person.id person >$ 10L))
+      |> select Person.projection))
+]}
+
+["Ada"] и [10L] остаются SQL bind values: renderer выдаёт placeholders, а не
+вставляет значения в SQL. Однако при разных вызовах [ada_after_ten] они уже не
+меняются.
+
+Значение времени выполнения объявляется через аргумент [params] конструктора.
+[params.column] выводит [Db_type] из descriptor колонки, а [params.expr]
+принимает его явно. В следующих вариантах один statement получает десять
+значений: восемь фильтров, [LIMIT] и [OFFSET]. Все варианты вызывают один
+query-builder:
+
+{[
+let build_query
+      ~name
+      ~min_id
+      ~max_id
+      ~email
+      ~min_age
+      ~max_age
+      ~city
+      ~active
+      ~maximum_rows
+      ~start_at
+  =
+  Query.(
+    from Person.table
+    |> where (fun person ->
+      Person.name person =. name
+      &&. (Person.id person >=. min_id)
+      &&. (Person.id person <=. max_id)
+      &&. (Person.email person =. email)
+      &&. (Person.age person >=. min_age)
+      &&. (Person.age person <=. max_age)
+      &&. (Person.city person =. city)
+      &&. (Person.active person =. active))
+    |> limit_param maximum_rows
+    |> offset_param start_at
+    |> select Person.projection)
+]}
+
+Getter сохраняется в скомпилированном statement и применяется к input каждого
+вызова. Повторное использование одного expression повторяет один и тот же bind
+slot. Форма SQL и число slots остаются статическими.
+
+{1 Рекомендуемая структура модуля}
+
+Переиспользуемую операцию рекомендуется оформлять отдельным модулем. Вложенный
+[Input] владеет типом входа и его getters, а [statement] явно обозначает
+готовую статическую операцию:
+
+{[
+module Find_people = struct
+  module Input = struct
+    type t =
+      { name : string
+      ; min_id : int64
+      ; maximum_rows : int
+      }
+    [@@deriving fields ~getters]
+  end
+
+  let statement =
+    Statement.Portable.query_many_exn (fun params ->
+      let name = params.column Person.name_column ~get:Input.name in
+      let min_id = params.column Person.id_column ~get:Input.min_id in
+      let maximum_rows =
+        params.non_negative_int ~name:"maximum_rows" ~get:Input.maximum_rows
+      in
+      Query.(
+        from Person.table
+        |> where (fun person ->
+          Person.name person =. name
+          &&. (Person.id person >=. min_id))
+        |> limit_param maximum_rows
+        |> select Person.projection))
+end
+
+let result =
+  Typed_sql_caqti_lwt.run
+    ~conn
+    Find_people.statement
+    { Find_people.Input.name = "Ada"
+    ; min_id = 1L
+    ; maximum_rows = 50
+    }
+]}
+
+Такой layout даёт тип [Find_people.Input.t], не выпускает сгенерированные имена
+в окружающий модуль и оставляет рядом контракт входа и SQL-операцию. Имена
+[Input] и [statement] предпочтительнее сокращений [p] и [s]: они остаются
+понятными в сигнатурах, сообщениях компилятора и результатах поиска.
+
+Для генерации getters приложение добавляет [ppx_fields_conv] в зависимости и
+включает PPX в Dune:
+
+{[
+(preprocess
+ (pps ppx_fields_conv))
+]}
+
+Следующие разделы сравнивают этот рекомендуемый вариант с кортежами и record с
+ручными getters на одном десятипараметрическом statement.
+
+{1 Обычный кортеж}
+
+В обычном кортеже позиция каждого из десяти элементов входит в контракт:
+
+{[
+type input =
+  string * int64 * int64 * string * int * int * string * bool * int * int
+
+let find_people =
+  Statement.Portable.query_many_exn (fun params ->
+    let name =
+      params.column Person.name_column
+        ~get:(fun (name, _, _, _, _, _, _, _, _, _) -> name)
+    in
+    let min_id =
+      params.column Person.id_column
+        ~get:(fun (_, min_id, _, _, _, _, _, _, _, _) -> min_id)
+    in
+    let max_id =
+      params.column Person.id_column
+        ~get:(fun (_, _, max_id, _, _, _, _, _, _, _) -> max_id)
+    in
+    let email =
+      params.column Person.email_column
+        ~get:(fun (_, _, _, email, _, _, _, _, _, _) -> email)
+    in
+    let min_age =
+      params.column Person.age_column
+        ~get:(fun (_, _, _, _, min_age, _, _, _, _, _) -> min_age)
+    in
+    let max_age =
+      params.column Person.age_column
+        ~get:(fun (_, _, _, _, _, max_age, _, _, _, _) -> max_age)
+    in
+    let city =
+      params.column Person.city_column
+        ~get:(fun (_, _, _, _, _, _, city, _, _, _) -> city)
+    in
+    let active =
+      params.column Person.active_column
+        ~get:(fun (_, _, _, _, _, _, _, active, _, _) -> active)
+    in
+    let maximum_rows =
+      params.non_negative_int ~name:"maximum_rows"
+        ~get:(fun (_, _, _, _, _, _, _, _, value, _) -> value)
+    in
+    let start_at =
+      params.non_negative_int ~name:"start_at"
+        ~get:(fun (_, _, _, _, _, _, _, _, _, value) -> value)
+    in
+    build_query
+      ~name ~min_id ~max_id ~email ~min_age ~max_age ~city ~active
+      ~maximum_rows ~start_at)
+
+let result =
+  Typed_sql_caqti_lwt.run
+    ~conn
+    find_people
+    ("Ada", 1L, 100L, "ada@example.test", 18, 120, "London", true, 50, 0)
+]}
+
+При десяти значениях позиционный вариант уже трудно читать и менять: добавление
+одного элемента требует исправить каждый pattern.
+
+{1 Кортеж с метками и объявленным типом}
+
+Labeled tuple сохраняет имена. Известный тип позволяет каждому getter читать
+только своё поле через partial pattern [..]:
+
+{[
+type input =
+  name:string
+  * min_id:int64
+  * max_id:int64
+  * email:string
+  * min_age:int
+  * max_age:int
+  * city:string
+  * active:bool
+  * maximum_rows:int
+  * start_at:int
+
+let name ((~name, ..) : input) = name
+let min_id ((~min_id, ..) : input) = min_id
+let max_id ((~max_id, ..) : input) = max_id
+let email ((~email, ..) : input) = email
+let min_age ((~min_age, ..) : input) = min_age
+let max_age ((~max_age, ..) : input) = max_age
+let city ((~city, ..) : input) = city
+let active ((~active, ..) : input) = active
+let maximum_rows ((~maximum_rows, ..) : input) = maximum_rows
+let start_at ((~start_at, ..) : input) = start_at
+
+let find_people =
+  Statement.Portable.query_many_exn (fun params ->
+    let name = params.column Person.name_column ~get:name in
+    let min_id = params.column Person.id_column ~get:min_id in
+    let max_id = params.column Person.id_column ~get:max_id in
+    let email = params.column Person.email_column ~get:email in
+    let min_age = params.column Person.age_column ~get:min_age in
+    let max_age = params.column Person.age_column ~get:max_age in
+    let city = params.column Person.city_column ~get:city in
+    let active = params.column Person.active_column ~get:active in
+    let maximum_rows =
+      params.non_negative_int ~name:"maximum_rows" ~get:maximum_rows
+    in
+    let start_at = params.non_negative_int ~name:"start_at" ~get:start_at in
+    build_query
+      ~name ~min_id ~max_id ~email ~min_age ~max_age ~city ~active
+      ~maximum_rows ~start_at)
+
+let result =
+  Typed_sql_caqti_lwt.run
+    ~conn
+    find_people
+    ( ~name:"Ada"
+    , ~min_id:1L
+    , ~max_id:100L
+    , ~email:"ada@example.test"
+    , ~min_age:18
+    , ~max_age:120
+    , ~city:"London"
+    , ~active:true
+    , ~maximum_rows:50
+    , ~start_at:0 )
+]}
+
+{1 Кортеж с метками без объявления типа}
+
+OCaml может вывести тот же десятиэлементный тип без [type input]. Первый getter
+должен задать полную форму кортежа; после этого остальные getters используют
+partial patterns:
+
+{[
+let find_people =
+  Statement.Portable.query_many_exn (fun params ->
+    let name =
+      params.column Person.name_column
+        ~get:
+          (fun
+            ( ~name
+            , ~min_id:_
+            , ~max_id:_
+            , ~email:_
+            , ~min_age:_
+            , ~max_age:_
+            , ~city:_
+            , ~active:_
+            , ~maximum_rows:_
+            , ~start_at:_ )
+          -> name)
+    in
+    let min_id =
+      params.column Person.id_column ~get:(fun (~min_id, ..) -> min_id)
+    in
+    let max_id =
+      params.column Person.id_column ~get:(fun (~max_id, ..) -> max_id)
+    in
+    let email =
+      params.column Person.email_column ~get:(fun (~email, ..) -> email)
+    in
+    let min_age =
+      params.column Person.age_column ~get:(fun (~min_age, ..) -> min_age)
+    in
+    let max_age =
+      params.column Person.age_column ~get:(fun (~max_age, ..) -> max_age)
+    in
+    let city =
+      params.column Person.city_column ~get:(fun (~city, ..) -> city)
+    in
+    let active =
+      params.column Person.active_column ~get:(fun (~active, ..) -> active)
+    in
+    let maximum_rows =
+      params.non_negative_int ~name:"maximum_rows"
+        ~get:(fun (~maximum_rows, ..) -> maximum_rows)
+    in
+    let start_at =
+      params.non_negative_int ~name:"start_at"
+        ~get:(fun (~start_at, ..) -> start_at)
+    in
+    build_query
+      ~name ~min_id ~max_id ~email ~min_age ~max_age ~city ~active
+      ~maximum_rows ~start_at)
+]}
+
+Если все getters используют [..] и тип не указан снаружи, компилятор не может
+восстановить пропущенные поля. Поэтому вариант без объявления типа всё равно
+требует один полный десятиэлементный pattern.
+
+{1 Record}
+
+Record требует одно объявление полей, после чего каждый getter использует
+обычную projection через точку:
+
+{[
+type input =
+  { name : string
+  ; min_id : int64
+  ; max_id : int64
+  ; email : string
+  ; min_age : int
+  ; max_age : int
+  ; city : string
+  ; active : bool
+  ; maximum_rows : int
+  ; start_at : int
+  }
+
+let find_people =
+  Statement.Portable.query_many_exn (fun params ->
+    let name = params.column Person.name_column ~get:(fun input -> input.name) in
+    let min_id = params.column Person.id_column ~get:(fun input -> input.min_id) in
+    let max_id = params.column Person.id_column ~get:(fun input -> input.max_id) in
+    let email = params.column Person.email_column ~get:(fun input -> input.email) in
+    let min_age = params.column Person.age_column ~get:(fun input -> input.min_age) in
+    let max_age = params.column Person.age_column ~get:(fun input -> input.max_age) in
+    let city = params.column Person.city_column ~get:(fun input -> input.city) in
+    let active = params.column Person.active_column ~get:(fun input -> input.active) in
+    let maximum_rows =
+      params.non_negative_int ~name:"maximum_rows"
+        ~get:(fun input -> input.maximum_rows)
+    in
+    let start_at =
+      params.non_negative_int ~name:"start_at"
+        ~get:(fun input -> input.start_at)
+    in
+    build_query
+      ~name ~min_id ~max_id ~email ~min_age ~max_age ~city ~active
+      ~maximum_rows ~start_at)
+
+let result =
+  Typed_sql_caqti_lwt.run
+    ~conn
+    find_people
+    { name = "Ada"
+    ; min_id = 1L
+    ; max_id = 100L
+    ; email = "ada@example.test"
+    ; min_age = 18
+    ; max_age = 120
+    ; city = "London"
+    ; active = true
+    ; maximum_rows = 50
+    ; start_at = 0
+    }
+]}
+
+{1 Record с getters от ppx_fields_conv}
+
+Jane Street
+{{:https://github.com/janestreet/ppx_fields_conv}ppx_fields_conv} умеет
+генерировать обычные getter-функции для каждого поля record. Он подключается в
+[preprocess] Dune и используется через [@@deriving fields ~getters]:
+
+{[
+module Find_people = struct
+  module Input = struct
+    type t =
+      { name : string
+      ; min_id : int64
+      ; max_id : int64
+      ; email : string
+      ; min_age : int
+      ; max_age : int
+      ; city : string
+      ; active : bool
+      ; maximum_rows : int
+      ; start_at : int
+      }
+    [@@deriving fields ~getters]
+  end
+
+  let statement =
+    Statement.Portable.query_many_exn (fun params ->
+      let name = params.column Person.name_column ~get:Input.name in
+      let min_id = params.column Person.id_column ~get:Input.min_id in
+      let max_id = params.column Person.id_column ~get:Input.max_id in
+      let email = params.column Person.email_column ~get:Input.email in
+      let min_age = params.column Person.age_column ~get:Input.min_age in
+      let max_age = params.column Person.age_column ~get:Input.max_age in
+      let city = params.column Person.city_column ~get:Input.city in
+      let active = params.column Person.active_column ~get:Input.active in
+      let maximum_rows =
+        params.non_negative_int ~name:"maximum_rows" ~get:Input.maximum_rows
+      in
+      let start_at =
+        params.non_negative_int ~name:"start_at" ~get:Input.start_at
+      in
+      build_query
+        ~name ~min_id ~max_id ~email ~min_age ~max_age ~city ~active
+        ~maximum_rows ~start_at)
+end
+
+let result =
+  Typed_sql_caqti_lwt.run
+    ~conn
+    Find_people.statement
+    { Find_people.Input.name = "Ada"
+    ; min_id = 1L
+    ; max_id = 100L
+    ; email = "ada@example.test"
+    ; min_age = 18
+    ; max_age = 120
+    ; city = "London"
+    ; active = true
+    ; maximum_rows = 50
+    ; start_at = 0
+    }
+]}
+
+Селектор [~getters] генерирует только функции вроде
+[Find_people.Input.name : Find_people.Input.t -> string]. Statement не зависит
+от first-class field descriptors и не меняет свой API.
+
+При десяти параметрах оба record-варианта сохраняют явные имена и номинальный
+тип. Ручные lambdas [fun input -> input.field] проще для небольшого input;
+[ppx_fields_conv] убирает их в крупных records. Вложенный [Input] с
+[ppx_fields_conv] — рекомендуемый вариант для переиспользуемых и экспортируемых
+statements. Labeled tuple полезен для локальной операции, когда отдельный record
+кажется лишним, но версия без type declaration требует один полный pattern.

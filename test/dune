@@ -2,14 +2,22 @@
  (name typed_sql_expect_tests)
  (modules
   capability_test
+  dynamic_statement_test
+  operation_module_test
   query_test
   public_api_test
   schema_snapshot_test
+  statement_input_test
   upsert_test)
- (libraries base compiler-libs.common typed-sql yojson)
+ (libraries
+  base
+  compiler-libs.common
+  typed-sql
+  typed_sql_test_support
+  yojson)
  (inline_tests)
  (preprocess
-  (pps ppx_expect ppx_let)))
+  (pps ppx_expect ppx_fields_conv ppx_let)))
 
 (library
  (name typed_sql_backend_expect_tests)
@@ -30,7 +38,7 @@
 (test
  (name property_test)
  (modules property_test)
- (libraries base qcheck typed-sql))
+ (libraries base qcheck typed-sql typed_sql_test_support))
 
 (executable
  (name schema_codegen_fixture_generator)
@@ -64,6 +72,6 @@
 (test
  (name generated_schema_downstream_test)
  (modules generated_schema generated_schema_downstream_test)
- (libraries base typed-sql)
+ (libraries base typed-sql typed_sql_test_support)
  (preprocess
   (pps ppx_let)))

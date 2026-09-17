@@ -60,8 +60,9 @@ let ordered_query ~orders =
 ;;
 
 let compile query =
-  Compiler.compile ~dialect:Dialect.postgresql query
-  |> Result.map_error ~f:Compile_error.to_string
+  Statement.For_dialect.query_many ~dialect:Dialect.postgresql (fun _ -> query)
+  |> Result.map_error ~f:(fun (error : Statement.definition_error) ->
+    Compile_error.to_string error.error)
   |> Result.ok_or_failwith
   |> Stdlib.Sys.opaque_identity
   |> ignore

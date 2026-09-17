@@ -40,7 +40,8 @@ type constraint_kind =
   | Other
 
 type error =
-  | Compile of Typed_sql.Compile_error.t
+  | Compile of Typed_sql.Statement.definition_error
+  | Parameter of Typed_sql.Statement.binding_error
   | Encode of string
   | Decode of string
   | Cardinality of
@@ -54,7 +55,15 @@ type error =
   | Pgocaml of exn
 
 let error_to_string = function
-  | Compile error -> Typed_sql.Compile_error.to_string error
+  | Compile { dialect; error } ->
+    "statement compilation failed for "
+    ^ Typed_sql.Dialect.to_string dialect
+    ^ ": "
+    ^ Typed_sql.Compile_error.to_string error
+  | Parameter { name; message } ->
+    (match name with
+     | None -> "statement parameter failed validation: " ^ message
+     | Some name -> "statement parameter " ^ name ^ " failed validation: " ^ message)
   | Encode message -> "parameter encoding failed: " ^ message
   | Decode message -> "row decoding failed: " ^ message
   | Cardinality { expected; actual } ->
@@ -238,7 +247,7 @@ let decode_row projection row =
     Error ("row has " ^ Int.to_string (List.length remaining) ^ " unexpected column(s)")
 ;;
 
-let run ~conn ~sql ~parameters =
+let run_sql ~conn ~sql ~parameters =
   match encode_parameters parameters with
   | Error message -> Lwt.return (Error (Encode message))
   | Ok params ->
@@ -253,67 +262,88 @@ let run ~conn ~sql ~parameters =
       (fun error -> Lwt.return (Error (error_of_exn error)))
 ;;
 
-let fetch ~conn query =
-  match Typed_sql.Compiler.compile ~dialect:Typed_sql.Dialect.postgresql query with
-  | Error error -> Lwt.return (Error (Compile error))
-  | Ok compiled ->
-    let open Lwt.Syntax in
-    let* rows =
-      run
-        ~conn
-        ~sql:(Typed_sql.Compiled_query.sql compiled)
-        ~parameters:(Typed_sql_backend.Compiled_query.parameters compiled)
-    in
+let fetch_compiled ~conn compiled =
+  let open Lwt.Syntax in
+  let* rows =
+    run_sql
+      ~conn
+      ~sql:(Typed_sql_backend.Compiled_query.sql compiled)
+      ~parameters:(Typed_sql_backend.Compiled_query.parameters compiled)
+  in
+  match rows with
+  | Error error -> Lwt.return (Error error)
+  | Ok rows ->
+    Typed_sql_backend.Compiled_query.projection compiled |> fun projection ->
+    Result.all (List.map rows ~f:(decode_row projection))
+    |> Result.map_error ~f:(fun message -> Decode message)
+    |> Lwt.return
+;;
+
+let execute_compiled ~conn compiled =
+  let open Lwt.Syntax in
+  let* rows =
+    run_sql
+      ~conn
+      ~sql:(Typed_sql_backend.Compiled_command.sql compiled)
+      ~parameters:(Typed_sql_backend.Compiled_command.parameters compiled)
+  in
+  match rows with
+  | Error error -> Lwt.return (Error error)
+  | Ok [] -> Lwt.return (Ok Typed_sql.Affected_rows.Unknown)
+  | Ok rows ->
+    Lwt.return (Error (Cardinality { expected = "zero"; actual = List.length rows }))
+;;
+
+let apply_cardinality
+  : type row output.
+    (row, output) Typed_sql_backend.Statement.cardinality
+    -> row list
+    -> (output, error) Result.t
+  =
+  fun cardinality rows ->
+  match cardinality with
+  | Many -> Ok rows
+  | One ->
     (match rows with
-     | Error error -> Lwt.return (Error error)
-     | Ok rows ->
-       Typed_sql_backend.Compiled_query.projection compiled |> fun projection ->
-       Result.all (List.map rows ~f:(decode_row projection))
-       |> Result.map_error ~f:(fun message -> Decode message)
-       |> Lwt.return)
+     | [ row ] -> Ok row
+     | rows -> Error (Cardinality { expected = "exactly one"; actual = List.length rows }))
+  | Optional ->
+    (match rows with
+     | [] -> Ok None
+     | [ row ] -> Ok (Some row)
+     | rows -> Error (Cardinality { expected = "at most one"; actual = List.length rows }))
 ;;
 
-let fetch_one ~conn query =
-  let open Lwt.Syntax in
-  let* result = fetch ~conn query in
-  match result with
-  | Error error -> Lwt.return (Error error)
-  | Ok [ row ] -> Lwt.return (Ok row)
-  | Ok rows ->
-    Lwt.return
-      (Error (Cardinality { expected = "exactly one"; actual = List.length rows }))
-;;
-
-let fetch_opt ~conn query =
-  let open Lwt.Syntax in
-  let* result = fetch ~conn query in
-  match result with
-  | Error error -> Lwt.return (Error error)
-  | Ok [] -> Lwt.return (Ok None)
-  | Ok [ row ] -> Lwt.return (Ok (Some row))
-  | Ok rows ->
-    Lwt.return
-      (Error (Cardinality { expected = "at most one"; actual = List.length rows }))
-;;
-
-let execute ~conn command =
+let run
+  : type input output requirements connection.
+    conn:connection Pgocaml.t
+    -> (input, output, requirements) Typed_sql.Statement.t
+    -> input
+    -> (output, error) Result.t Lwt.t
+  =
+  fun ~conn statement input ->
   match
-    Typed_sql.Compiler.compile_command ~dialect:Typed_sql.Dialect.postgresql command
+    Typed_sql_backend.Statement.resolve
+      ~dialect:Typed_sql.Dialect.Postgresql
+      input
+      statement
   with
-  | Error error -> Lwt.return (Error (Compile error))
-  | Ok compiled ->
+  | Error Typed_sql_backend.Statement.Dialect_mismatch ->
+    Lwt.return
+      (Error
+         (Parameter { name = None; message = "statement does not support PostgreSQL" }))
+  | Error (Typed_sql_backend.Statement.Binding error) ->
+    Lwt.return (Error (Parameter error))
+  | Error (Typed_sql_backend.Statement.Compilation error) ->
+    Lwt.return (Error (Compile error))
+  | Ok (Typed_sql_backend.Statement.Query_execution { cardinality; compiled }) ->
     let open Lwt.Syntax in
-    let* rows =
-      run
-        ~conn
-        ~sql:(Typed_sql.Compiled_command.sql compiled)
-        ~parameters:(Typed_sql_backend.Compiled_command.parameters compiled)
-    in
-    (match rows with
+    let* result = fetch_compiled ~conn compiled in
+    (match result with
      | Error error -> Lwt.return (Error error)
-     | Ok [] -> Lwt.return (Ok Typed_sql.Affected_rows.Unknown)
-     | Ok rows ->
-       Lwt.return (Error (Cardinality { expected = "zero"; actual = List.length rows })))
+     | Ok rows -> Lwt.return (apply_cardinality cardinality rows))
+  | Ok (Typed_sql_backend.Statement.Command_execution compiled) ->
+    execute_compiled ~conn compiled
 ;;
 
 let transaction ~conn ~f =

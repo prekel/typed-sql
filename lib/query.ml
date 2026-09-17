@@ -145,6 +145,30 @@ let order_by make_expression direction query =
   { query with ast = { query.ast with order_by = query.ast.order_by @ [ order ] } }
 ;;
 
-let limit limit query = { query with ast = { query.ast with limit = Some limit } }
-let offset offset query = { query with ast = { query.ast with offset = Some offset } }
+let limit limit query =
+  { query with ast = { query.ast with limit = Some (Ast.Literal limit) } }
+;;
+
+let offset offset query =
+  { query with ast = { query.ast with offset = Some (Ast.Literal offset) } }
+;;
+
+let limit_param parameter query =
+  { query with
+    ast =
+      { query.ast with
+        limit = Some (Ast.Parameter (Pagination_parameter.node parameter))
+      }
+  }
+;;
+
+let offset_param parameter query =
+  { query with
+    ast =
+      { query.ast with
+        offset = Some (Ast.Parameter (Pagination_parameter.node parameter))
+      }
+  }
+;;
+
 let ast query = query.ast

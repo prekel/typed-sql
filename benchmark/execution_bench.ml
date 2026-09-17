@@ -21,9 +21,11 @@ module Item = struct
   let projection row = Projection.pair (id row) (name row)
 end
 
-let query id =
-  Query.(
-    from Item.table |> where (fun item -> Item.id item =$ id) |> select Item.projection)
+let statement =
+  Statement.Portable.query_one_exn (fun params ->
+    let id = params.column Item.id_column ~get:Fn.id in
+    Query.(
+      from Item.table |> where (fun item -> Item.id item =. id) |> select Item.projection))
 ;;
 
 let direct sql =
@@ -79,22 +81,13 @@ let main () =
            ()
          |> caqti_or_fail
        in
-       let compiled =
-         Compiler.compile ~dialect:Dialect.sqlite (query 1L)
-         |> Result.map_error ~f:Compile_error.to_string
-         |> Result.ok_or_failwith
-       in
        let iterations = 10_000 in
        let* () =
-         measure ~name:"ordinary" ~iterations (fun () ->
-           Typed_sql_caqti_lwt.fetch_one ~conn (query 1L))
+         measure ~name:"statement" ~iterations (fun () ->
+           Typed_sql_caqti_lwt.run ~conn statement 1L)
        in
-       let* () =
-         measure ~name:"observer enabled" ~iterations (fun () ->
-           Typed_sql_caqti_lwt.fetch_one ~observer:ignore ~conn (query 1L))
-       in
-       measure ~name:"compiled" ~iterations (fun () ->
-         Typed_sql_caqti_lwt.fetch_one_compiled ~conn compiled))
+       measure ~name:"observer enabled" ~iterations (fun () ->
+         Typed_sql_caqti_lwt.run ~observer:ignore ~conn statement 1L))
     (fun () -> Connection.disconnect ())
 ;;
 

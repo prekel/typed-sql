@@ -1,5 +1,6 @@
 open! Base
 open Typed_sql
+open Statement_compile
 open Infix
 
 module Person = struct
@@ -69,6 +70,8 @@ let compile_exn dialect query =
   | Error error -> failwith (Compile_error.to_string error)
 ;;
 
+(* Golden queries in this file use definition-time constants. [Statement_compile]
+   routes compilation through the public [Statement] API. *)
 let%expect_test "PostgreSQL and SQLite rendering" =
   let query =
     Query.(
@@ -573,7 +576,7 @@ let%expect_test "conditional UPDATE assignments distinguish omission from NULL" 
     |> set_opt Person.name_column None
     |> set_opt Person.nickname_column (Some None)
     |> set_expr_opt Person.id_column None
-    |> set_expr_opt Person.id_column (Some (Expr.param Db_type.int64 2L))
+    |> set_expr_opt Person.id_column (Some (Expr.constant Db_type.int64 2L))
     |> where (fun person -> Person.id person =$ 1L)
     |> command)
   |> compile_command_exn Dialect.Sqlite
@@ -660,30 +663,30 @@ let%expect_test "typed arithmetic renders for every numeric representation" =
       from Person.table
       |> select (fun person ->
         let int64 = Person.id person in
-        let int_ = Expr.param Db_type.int 12 in
-        let float = Expr.param Db_type.float 12.0 in
+        let int_ = Expr.constant Db_type.int 12 in
+        let float = Expr.constant Db_type.float 12.0 in
         let int64_values =
           let open Expr.Int64.Infix in
-          [ int64 +. Expr.param Db_type.int64 1L
-          ; int64 -. Expr.param Db_type.int64 2L
-          ; int64 *. Expr.param Db_type.int64 3L
-          ; int64 /. Expr.param Db_type.int64 4L
+          [ int64 +. Expr.constant Db_type.int64 1L
+          ; int64 -. Expr.constant Db_type.int64 2L
+          ; int64 *. Expr.constant Db_type.int64 3L
+          ; int64 /. Expr.constant Db_type.int64 4L
           ]
         in
         let int_values =
           let open Expr.Int.Infix in
-          [ int_ +. Expr.param Db_type.int 1
-          ; int_ -. Expr.param Db_type.int 2
-          ; int_ *. Expr.param Db_type.int 3
-          ; int_ /. Expr.param Db_type.int 4
+          [ int_ +. Expr.constant Db_type.int 1
+          ; int_ -. Expr.constant Db_type.int 2
+          ; int_ *. Expr.constant Db_type.int 3
+          ; int_ /. Expr.constant Db_type.int 4
           ]
         in
         let float_values =
           let open Expr.Float.Infix in
-          [ float +. Expr.param Db_type.float 1.0
-          ; float -. Expr.param Db_type.float 2.0
-          ; float *. Expr.param Db_type.float 3.0
-          ; float /. Expr.param Db_type.float 4.0
+          [ float +. Expr.constant Db_type.float 1.0
+          ; float -. Expr.constant Db_type.float 2.0
+          ; float *. Expr.constant Db_type.float 3.0
+          ; float /. Expr.constant Db_type.float 4.0
           ]
         in
         Projection.map3
@@ -1184,7 +1187,7 @@ let%expect_test "HAVING establishes aggregate context" =
     Query.(
       from Person.table
       |> Postgresql.Query.having (fun _ -> Condition.true_)
-      |> select (fun _ -> Projection.expr (Expr.param Db_type.int 1)))
+      |> select (fun _ -> Projection.expr (Expr.constant Db_type.int 1)))
   in
   query
   |> Compiler.compile ~dialect:Dialect.postgresql
@@ -1246,7 +1249,7 @@ let%test_unit
         from Department.table
         |> Postgresql.Query.having (fun _ -> Condition.true_)
         |> limit 1
-        |> select_scalar (fun _ -> Expr.param Db_type.text "fallback"))
+        |> select_scalar (fun _ -> Expr.constant Db_type.text "fallback"))
   in
   let command =
     Update.(
@@ -1420,7 +1423,7 @@ let%test_unit "public edge paths preserve normalized semantics" =
       |> where (fun person ->
         Expr.is_distinct_from
           (Person.nickname person)
-          (Expr.param (Db_type.option Db_type.text) None))
+          (Expr.constant (Db_type.option Db_type.text) None))
       |> select Person.projection)
     |> compile_exn Dialect.Postgresql
   in

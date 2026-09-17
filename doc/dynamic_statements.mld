@@ -1,0 +1,103 @@
+{0 Динамические statements}
+
+[Statement.Dynamic.Portable] предназначен для случая, когда input определяет
+саму форму SQL: оператор сравнения, число элементов [IN], вложенность
+предикатов или projection. Все варианты projection должны декодироваться в
+один OCaml-тип, заданный типом statement. Конструктор сохраняет callback и не
+запускает его. Каждый вызов [Statement.sql] или execution adapter вызывает
+callback один раз, проверяет и компилирует получившийся запрос для выбранного
+dialect.
+
+Например, приложение может определить небольшой язык поиска:
+
+{[
+module Predicate = struct
+  type t =
+    | Name_equals of string
+    | Id_at_least of int64
+    | Id_at_most of int64
+    | Ids of int64 list
+    | And of t list
+    | Or of t list
+    | Not of t
+
+  let rec to_condition person = function
+    | Name_equals name -> Person.name person =$ name
+    | Id_at_least id -> Person.id person >=$ id
+    | Id_at_most id -> Person.id person <=$ id
+    | Ids ids -> Expr.in_ (Person.id person) ids
+    | And predicates ->
+      List.fold predicates ~init:Condition.true_ ~f:(fun result predicate ->
+        result &&. to_condition person predicate)
+    | Or predicates ->
+      List.fold predicates ~init:Condition.false_ ~f:(fun result predicate ->
+        result ||. to_condition person predicate)
+    | Not predicate -> Condition.not_ (to_condition person predicate)
+end
+]}
+
+Операция сохраняет тот же рекомендуемый layout с вложенным [Input]:
+
+{[
+module Search_people = struct
+  module Input = struct
+    type t =
+      { predicate : Predicate.t
+      ; maximum_rows : int
+      }
+  end
+
+  let statement =
+    Statement.Dynamic.Portable.query_many (fun (input : Input.t) ->
+      Query.(
+        from Person.table
+        |> where (fun person ->
+          Predicate.to_condition person input.predicate)
+        |> order_by (fun person -> Person.id person) `Asc
+        |> limit input.maximum_rows
+        |> select Person.projection))
+end
+]}
+
+В динамическом callback операторы с [$], [Expr.constant], [Insert.set] и
+[Update.set] получают значения текущего input. Они всё равно создают bind
+parameters и не интерполируют значения в SQL. В отличие от статического
+[Statement.Portable], отдельный [params] здесь не нужен: запрос целиком
+перестраивается для вызова.
+
+{[
+Typed_sql_caqti_lwt.run
+  ~conn
+  Search_people.statement
+  { predicate =
+      And
+        [ Name_equals "Ada"
+        ; Or [ Id_at_least 10L; Id_at_most 3L ]
+        ]
+  ; maximum_rows = 20
+  }
+]}
+
+Доступны [query_many], [query_one], [query_optional] и [command]. Их
+cardinality проверяется adapter так же, как у статических statements.
+[Statement.choose] может объединять статические и динамические ветки; callback
+запускается только у выбранной динамической ветки.
+
+{1 Ошибки и стоимость}
+
+Validation, lowering и rendering происходят при каждом вызове без cache. Ошибка
+компиляции возвращается как [Statement.Compilation_error] из [Statement.sql] и
+как [Typed_sql_caqti_lwt.Compile] или [Typed_sql_pgocaml_lwt.Compile] из
+execution adapter. [Statement.sql_exn] поднимает
+[Statement.Definition_error]. Исключение, выброшенное самим callback, проходит
+без изменения.
+
+Static [Statement.Portable] остаётся предпочтительным для фиксированной формы:
+он компилирует PostgreSQL и SQLite планы при создании модуля и выполняет только
+binding. Dynamic-вариант нужен, когда число возможных форм не ограничено или
+их явное перечисление через [Statement.choose] непрактично.
+
+[Dynamic.Portable] сохраняет статическую проверку dialect requirements:
+callback обязан вернуть portable query или command. PostgreSQL-specific
+операцию следует выразить отдельным будущим dialect-specific динамическим API;
+сейчас такой конструктор намеренно отсутствует.

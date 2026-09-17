@@ -1,5 +1,6 @@
 open! Base
 open Typed_sql
+open Statement_compile
 open Infix
 
 let ok_exn result =
@@ -17,6 +18,55 @@ let name = Column.nullable_v_exn items "name" Db_type.text
 let projection row = Projection.expr (Expr.column row id)
 let query () = Query.(from items)
 
+type statement_input =
+  { minimum_id : int
+  ; maximum_rows : int
+  ; start_at : int
+  ; filtered : bool
+  }
+
+let statement_builds = ref 0
+
+let filtered_statement =
+  Statement.Portable.query_many_exn (fun params ->
+    Int.incr statement_builds;
+    let minimum_id =
+      params.column ~name:"minimum_id" id ~get:(fun input -> input.minimum_id)
+    in
+    let maximum_rows =
+      params.non_negative_int ~name:"maximum_rows" ~get:(fun input -> input.maximum_rows)
+    in
+    let start_at =
+      params.non_negative_int ~name:"start_at" ~get:(fun input -> input.start_at)
+    in
+    Query.(
+      from items
+      |> where (fun row ->
+        Expr.column row id >=. minimum_id &&. (Expr.column row id <=. minimum_id))
+      |> limit_param maximum_rows
+      |> offset_param start_at
+      |> select projection))
+;;
+
+let all_statement =
+  Statement.Portable.query_many_exn
+    (fun (_ : (statement_input, Dialect.portable) Statement.parameters) ->
+       Query.(from items |> select projection))
+;;
+
+let selected_statement =
+  Statement.choose
+    ~when_:(fun input -> input.filtered)
+    ~if_true:filtered_statement
+    ~if_false:all_statement
+;;
+
+let insert_statement =
+  Statement.Portable.command_exn (fun params ->
+    let inserted_id = params.expr ~name:"id" Db_type.int ~get:Fn.id in
+    Insert.(into items |> set_expr id inserted_id |> command))
+;;
+
 let compile dialect query =
   Query.(select projection query) |> Compiler.compile_portable ~dialect
 ;;
@@ -27,6 +77,120 @@ let equal_dialect left right =
   match left, right with
   | Dialect.Postgresql, Dialect.Postgresql | Dialect.Sqlite, Dialect.Sqlite -> true
   | _ -> false
+;;
+
+let%test_unit "statements compile once and bind one typed input" =
+  assert (Int.(!statement_builds = 1));
+  let input = { minimum_id = 7; maximum_rows = 10; start_at = 0; filtered = true } in
+  let postgresql =
+    Statement.sql_exn ~dialect:Dialect.Postgresql ~input filtered_statement
+  in
+  let sqlite = Statement.sql_exn ~dialect:Dialect.Sqlite ~input filtered_statement in
+  assert (
+    Int.(
+      String.substr_index_all postgresql ~may_overlap:true ~pattern:"$1"
+      |> List.length
+      = 2));
+  assert (Int.(String.count postgresql ~f:(Char.equal '$') = 4));
+  assert (
+    Int.(
+      String.substr_index_all sqlite ~may_overlap:true ~pattern:"?1" |> List.length = 2));
+  assert (Int.(String.count sqlite ~f:(Char.equal '?') = 4));
+  ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input filtered_statement);
+  assert (Int.(!statement_builds = 1))
+;;
+
+let%test_unit "command statements bind runtime expressions" =
+  let postgresql =
+    Statement.sql_exn ~dialect:Dialect.Postgresql ~input:42 insert_statement
+  in
+  let sqlite = Statement.sql_exn ~dialect:Dialect.Sqlite ~input:42 insert_statement in
+  assert (String.is_substring postgresql ~substring:"$1");
+  assert (String.is_substring sqlite ~substring:"?1")
+;;
+
+let%test_unit "runtime pagination is validated before execution" =
+  let input = { minimum_id = 7; maximum_rows = -1; start_at = 0; filtered = true } in
+  match Statement.sql ~dialect:Dialect.Sqlite ~input filtered_statement with
+  | Error
+      (Statement.Invalid_parameter
+         { name = Some name; message = "must be non-negative, got -1" }) ->
+    assert (String.equal name "maximum_rows")
+  | Error _ | Ok _ -> failwith "negative runtime LIMIT was accepted"
+;;
+
+let%test_unit "choose selects only precompiled statement variants" =
+  let input filtered = { minimum_id = 7; maximum_rows = 10; start_at = 0; filtered } in
+  let filtered =
+    Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(input true) selected_statement
+  in
+  let all =
+    Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(input false) selected_statement
+  in
+  assert (String.is_substring filtered ~substring:"WHERE");
+  assert (not (String.is_substring all ~substring:"WHERE"))
+;;
+
+let statement_query = Query.(from items |> select projection)
+
+let%test_unit "dialect-specific statement constructors preserve cardinality" =
+  let definition_error (error : Statement.definition_error) =
+    Compile_error.to_string error.error
+  in
+  let one =
+    Statement.For_dialect.query_one ~dialect:Dialect.postgresql (fun _ -> statement_query)
+    |> Result.map_error ~f:definition_error
+    |> Result.ok_or_failwith
+  in
+  let optional =
+    Statement.For_dialect.query_optional ~dialect:Dialect.postgresql (fun _ ->
+      statement_query)
+    |> Result.map_error ~f:definition_error
+    |> Result.ok_or_failwith
+  in
+  ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() one);
+  ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() optional);
+  ignore
+    (Statement.For_dialect.query_one_exn ~dialect:Dialect.postgresql (fun _ ->
+       statement_query));
+  ignore
+    (Statement.For_dialect.query_optional_exn ~dialect:Dialect.postgresql (fun _ ->
+       statement_query))
+;;
+
+let%test_unit "statement reports unsupported runtime dialects" =
+  let query =
+    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun _ ->
+      statement_query)
+  in
+  (match Statement.sql ~dialect:Dialect.Sqlite ~input:() query with
+   | Error (Statement.Unsupported_dialect Dialect.Sqlite) -> ()
+   | Error _ | Ok _ -> failwith "PostgreSQL statement accepted SQLite");
+  (match Statement.sql_exn ~dialect:Dialect.Sqlite ~input:() query with
+   | exception Failure _ -> ()
+   | _ -> failwith "sql_exn accepted an unsupported dialect");
+  let command =
+    Statement.For_dialect.command_exn ~dialect:Dialect.postgresql (fun _ ->
+      Insert.(into items |> set id 1 |> command))
+  in
+  match Statement.sql ~dialect:Dialect.Sqlite ~input:() command with
+  | Error (Statement.Unsupported_dialect Dialect.Sqlite) -> ()
+  | Error _ | Ok _ -> failwith "PostgreSQL command accepted SQLite"
+;;
+
+let%test_unit "statement exn constructors expose definition and binding failures" =
+  (match
+     Statement.Portable.query_many_exn (fun _ ->
+       Query.(from items |> limit (-1) |> select projection))
+   with
+   | exception Statement.Definition_error { error = Compile_error.Negative_limit -1; _ }
+     -> ()
+   | _ -> failwith "invalid statement definition did not raise");
+  let input = { minimum_id = 7; maximum_rows = -1; start_at = 0; filtered = true } in
+  match Statement.sql_exn ~dialect:Dialect.Sqlite ~input filtered_statement with
+  | exception Failure message ->
+    assert (String.is_substring message ~substring:"maximum_rows")
+  | _ -> failwith "invalid statement input did not raise"
 ;;
 
 let%test_unit "identifier validation and descriptor accessors" =
@@ -174,8 +338,8 @@ let%test_unit "compiled SQL printers return the canonical execution text" =
 
 let%test_unit "condition identities preserve compiled SQL for both dialects" =
   List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
-    let atom = Expr.param Db_type.int 1 =$ 1 in
-    let other = Expr.param Db_type.int 2 <>$ 3 in
+    let atom = Expr.constant Db_type.int 1 =$ 1 in
+    let other = Expr.constant Db_type.int 2 <>$ 3 in
     let render predicate = sql dialect Query.(query () |> where (fun _ -> predicate)) in
     List.iter
       [ Condition.true_ &&. atom, atom
@@ -253,8 +417,8 @@ let%expect_test "null checks, NOT, OR and multiple sort keys" =
 
 let%test_unit "expression operators agree with bound-value operators" =
   List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
-    let left = Expr.param Db_type.int 1 in
-    let right = Expr.param Db_type.int 2 in
+    let left = Expr.constant Db_type.int 1 in
+    let right = Expr.constant Db_type.int 2 in
     let render condition = sql dialect Query.(query () |> where (fun _ -> condition)) in
     List.iter
       [ left =. right, left =$ 2
@@ -263,8 +427,8 @@ let%test_unit "expression operators agree with bound-value operators" =
       ; left <=. right, left <=$ 2
       ; left >. right, left >$ 2
       ; left >=. right, left >=$ 2
-      ; ( Expr.param Db_type.text "a" =~. Expr.param Db_type.text "%"
-        , Expr.param Db_type.text "a" =~$ "%" )
+      ; ( Expr.constant Db_type.text "a" =~. Expr.constant Db_type.text "%"
+        , Expr.constant Db_type.text "a" =~$ "%" )
       ]
       ~f:(fun (a, b) -> assert (String.equal (render a) (render b))))
 ;;
@@ -353,7 +517,7 @@ let%expect_test "multi-assignment UPDATE and DELETE RETURNING" =
   let updated =
     Update.(
       table items
-      |> set_expr id (Expr.param Db_type.int 2)
+      |> set_expr id (Expr.constant Db_type.int 2)
       |> set name (Some "updated")
       |> where (fun row -> Expr.column row id >$ 0)
       |> where (fun row -> Expr.column row id <$ 3)

@@ -16,6 +16,13 @@ for fixture in ./*.ml; do
   expected_module=""
   case "$fixture" in
     ./private_ast_is_not_public.ml) expected_module="Query.Private" ;;
+    ./public_binding_error_is_not_private.ml) expected_module="Typed_sql_private" ;;
+    ./public_command_parameters_are_hidden.ml) expected_module="Compiled_command" ;;
+    ./public_compiler_is_hidden.ml) expected_module="Compiler" ;;
+    ./public_compiled_record_is_hidden.ml) expected_module="Compiled_query" ;;
+    ./public_decoder_is_hidden.ml) expected_module="Compiled_query" ;;
+    ./public_dialect_is_not_private.ml) expected_module="Typed_sql_private" ;;
+    ./public_parameters_are_hidden.ml) expected_module="Compiled_query" ;;
     ./public_template_constructor_is_hidden.ml) expected_module="Template" ;;
     ./public_shape_is_hidden.ml) expected_module="Shape" ;;
   esac

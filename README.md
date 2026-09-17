@@ -1,8 +1,9 @@
 # typed-sql
 
-`typed-sql` — backend-independent typed relational query DSL для OCaml. Query
-строится как immutable deferred value, компилируется в dialect-specific SQL и
-только затем передаётся execution backend.
+`typed-sql` — backend-independent typed relational query DSL для OCaml.
+`Statement.t` служит единым объектом выполнения. Фиксированная форма SQL
+проверяется и компилируется при инициализации OCaml-модуля; динамическая форма
+может безопасно строиться из типизированного input при каждом вызове.
 
 Текущий срез поддерживает типизированные `SELECT` с joins, portable
 выражениями, aggregates, `GROUP BY`, correlated subqueries, calendar date,
@@ -27,22 +28,58 @@ module Person = struct
   let name row = Expr.column row name_col
 end
 
-let query name =
-  Query.(
-    from Person.table
-    |> where (fun person -> Person.name person =$ name)
-    |> order_by (fun person -> Person.id person) `Asc
-    |> limit 100
-    |> select (fun person -> Projection.pair (Person.id person) (Person.name person)))
+type find_people =
+  { name : string
+  ; maximum_rows : int
+  }
+
+let find_people =
+  Statement.Portable.query_many_exn (fun params ->
+    let name = params.column Person.name_col ~get:(fun input -> input.name) in
+    let maximum_rows =
+      params.non_negative_int
+        ~name:"maximum_rows"
+        ~get:(fun input -> input.maximum_rows)
+    in
+    Query.(
+      from Person.table
+      |> where (fun person -> Person.name person =. name)
+      |> order_by (fun person -> Person.id person) `Asc
+      |> limit_param maximum_rows
+      |> select (fun person ->
+        Projection.pair (Person.id person) (Person.name person))))
 ```
 
 `Query.(...)` локально открывает только query-builder и сохраняет видимой
 границу DSL. `select` ставится последним: он задаёт projection и превращает
 builder в готовый `Result_query.t`.
 
-`Compiled_query.sql` возвращает тот же канонический многострочный SQL, который
-execution adapter отправляет в базу. Значения не интерполируются и остаются
-bind parameters:
+Callback `query_many_exn` вызывается один раз во время создания значения.
+`params.column` выводит SQL-тип из descriptor колонки, поэтому отдельный
+аппликативный список параметров не нужен. `Statement.sql` возвращает тот же
+канонический SQL, который adapter отправит в базу; значения не
+интерполируются:
+
+Операторы с `$`, `Expr.constant`, `Insert.set` и `Update.set` захватывают
+константы времени создания statement. Меняющиеся между вызовами значения
+вводятся через `params` и используются как expressions операторами с точкой.
+Input может быть обычным кортежем, кортежем с метками или record; полные
+варианты приведены в [документации](doc/statement_inputs.mld).
+
+Если input задаёт саму структуру запроса, например рекурсивный язык предикатов
+или список переменной длины для `IN`, используется
+`Statement.Dynamic.Portable`. Callback получает input целиком; DSL всё равно
+создаёт bind parameters и компилирует portable SQL для dialect соединения.
+Подробный пример находится в
+[документации динамических statements](doc/dynamic_statements.mld).
+
+```ocaml
+let sql =
+  Statement.sql
+    ~dialect:Dialect.Postgresql
+    ~input:{ name = "Ada"; maximum_rows = 100 }
+    find_people
+```
 
 ```sql
 SELECT
@@ -53,12 +90,8 @@ WHERE
   (t0."name" = $1)
 ORDER BY
   t0."id" ASC
-LIMIT 100
+LIMIT $2
 ```
-
-Для вывода в formatter доступен `Compiled_query.pp`; он печатает в точности
-результат `Compiled_query.sql`. Для DML такое же соглашение действует у
-`Compiled_command.sql` и `Compiled_command.pp`.
 
 Scalar subquery выражает возможное отсутствие строки через `option` и требует
 явного доказательства cardinality: `LIMIT 0`/`LIMIT 1` либо aggregate без
@@ -101,12 +134,13 @@ let rename =
 
 ```ocaml
 let insert_once =
-  Insert.(
-    into Person.table
-    |> set Person.id_col 1L
-    |> set Person.name_col "Ada"
-    |> on_conflict_do_nothing
-    |> command)
+  Statement.Portable.command_exn (fun _ ->
+    Insert.(
+      into Person.table
+      |> set Person.id_col 1L
+      |> set Person.name_col "Ada"
+      |> on_conflict_do_nothing
+      |> command))
 ```
 
 Для атомарного insert-or-update задаётся непустой conflict target. Callback
@@ -137,7 +171,8 @@ let upsert_person id name =
 `Conflict_update.where` ограничивает обновление при конфликте; обычную вставку
 он не фильтрует. Повторные условия объединяются через `AND`. Если условие
 ложно или равно SQL NULL, строка не обновляется и не попадает в `RETURNING` —
-для одной строки используйте `fetch_opt`. Без `where` обновляется каждая
+для одной строки используйте `Statement.Portable.query_optional_exn`. Без
+`where` обновляется каждая
 конфликтующая строка. `set_opt` и `set_expr_opt` пропускают `None`;
 `set_opt nullable_col (Some None)` записывает NULL.
 
@@ -151,10 +186,14 @@ assignments принадлежат таблице INSERT, даже если ра
 Операции, семантика которых отсутствует в выбранном dialect, возвращают
 `Compile_error.Unsupported_operation` до rendering.
 
-Query не содержит connection или `Lwt.t`. Materialization выполняется отдельно:
+`Statement` не содержит connection или `Lwt.t`. Выполнение имеет один API для
+любой cardinality и для команд:
 
 ```ocaml
-Typed_sql_caqti_lwt.fetch ~conn (query "Ada")
+Typed_sql_caqti_lwt.run
+  ~conn
+  find_people
+  { name = "Ada"; maximum_rows = 100 }
 ```
 
 Чтобы найти запросы, на которых заметна стоимость DSL compilation, Caqti
@@ -166,12 +205,13 @@ adapter принимает необязательный observer. Встроен
 let profiler = Typed_sql_caqti_lwt.Profiler.create ()
 let observer = Typed_sql_caqti_lwt.Profiler.observer profiler
 
-let fetch_person conn name =
-  Typed_sql_caqti_lwt.fetch_one
+let fetch_people conn input =
+  Typed_sql_caqti_lwt.run
     ~observer
     ~name:"people.by_name"
     ~conn
-    (query name)
+    find_people
+    input
 
 let print_profile () =
   Stdlib.Format.printf
@@ -180,30 +220,16 @@ let print_profile () =
     (Typed_sql_caqti_lwt.Profiler.snapshot profiler)
 ```
 
-Событие отдельно измеряет compilation, подготовку Caqti request, database
-round trip и декодирование. Большое время `database` следует разбирать через
-план SQL и индексы. Накопленное `compile` показывает верхнюю границу выигрыша
-от заранее созданного `Compiled_query`:
-
-```ocaml
-let compiled =
-  Typed_sql.Compiler.compile ~dialect:Typed_sql.Dialect.sqlite (query "Ada")
-
-let fetch_compiled conn =
-  match compiled with
-  | Error error -> Lwt.return (Error (Typed_sql_caqti_lwt.Compile error))
-  | Ok query -> Typed_sql_caqti_lwt.fetch_one_compiled ~conn query
-```
-
-`Compiled_query` содержит конкретные bind values. Для одной формы запроса с
-меняющимися значениями нужен будущий `Prepared_query`; параметризованный запрос
-нельзя заменить одним `Compiled_query` без изменения результата.
+Событие измеряет подготовку Caqti request, database round trip и декодирование.
+Для dynamic statement построение DSL и compilation происходят до начала
+события и поэтому в него не входят. Большое время `database` следует разбирать
+через план SQL и индексы.
 
 Транзакционная граница также принадлежит adapter:
 
 ```ocaml
 Typed_sql_caqti_lwt.transaction ~conn ~f:(fun conn ->
-  Typed_sql_caqti_lwt.execute ~conn insert_once
+  Typed_sql_caqti_lwt.run ~conn insert_once ()
   |> Lwt.map (Result.map ~f:(fun _ -> ())))
 ```
 
@@ -251,14 +277,18 @@ typed-sql-codegen - < schema.json > schema.ml
 возвращает ошибку вместо выбора неточного codec.
 
 Весь API приложения с документацией находится в
-[`lib/typed_sql.mli`](lib/typed_sql.mli): схема, выражения, запросы, компиляция,
-канонический SQL, printers и ошибки. Для приложения достаточно библиотеки
+[`lib/typed_sql.mli`](lib/typed_sql.mli): схема, выражения, запросы, статические
+и динамические statements, канонический SQL и ошибки. Для приложения достаточно библиотеки
 `typed-sql` и выбранного execution adapter.
 
 Авторы адаптеров используют отдельную библиотеку `typed-sql.backend` и
 [`backend/typed_sql_backend.mli`](backend/typed_sql_backend.mli): параметры,
-codec, шаблоны, shape и декодеры. Она принимает результаты обычного
-`Typed_sql.Compiler` без преобразований.
+codec, шаблоны, shape и декодеры. Она разрешает `Statement.t` для dialect
+соединения и получает план с текущими bind values.
+
+Почему `Statement` стал единственным execution API и какие варианты
+рассматривались, описано в
+[`doc/adr/0001-static-statement-api.md`](doc/adr/0001-static-statement-api.md).
 
 Внутренняя `typed-sql.private` содержит реализацию только в `.ml`, включая AST
 и этапы compiler. White-box тесты используют её напрямую; этот интерфейс не

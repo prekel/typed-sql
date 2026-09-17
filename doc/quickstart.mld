@@ -40,53 +40,72 @@ let projection row =
 [Projection.return] добавляет OCaml-значение без SQL-колонки. В итоговой
 projection должно быть хотя бы одно выражение [Projection.expr].
 
-Query строится без connection и эффекта:
+Статический statement строится без connection и эффекта:
 
 {[
-let by_name name =
-  Query.(
-    from Person.table
-    |> where (fun person -> Person.name person =$ name)
-    |> order_by (fun person -> Person.id person) `Asc
-    |> limit 100
-    |> select Person.projection)
+module Find_by_name = struct
+  module Input = struct
+    type t =
+      { name : string
+      ; maximum_rows : int
+      }
+    [@@deriving fields ~getters]
+  end
+
+  let statement =
+    Statement.Portable.query_many_exn (fun params ->
+      let name = params.column Person.name_column ~get:Input.name in
+      let maximum_rows =
+        params.non_negative_int ~name:"maximum_rows" ~get:Input.maximum_rows
+      in
+      Query.(
+        from Person.table
+        |> where (fun person -> Person.name person =. name)
+        |> order_by (fun person -> Person.id person) `Asc
+        |> limit_param maximum_rows
+        |> select Person.projection))
+end
 ]}
 
+Для переиспользуемых операций рекомендуется такой отдельный модуль: [Input.t]
+задаёт тип входа, [ppx_fields_conv] генерирует getters, а [statement] хранит
+скомпилированную операцию. Подробное сравнение вариантов находится на странице
+{!page-statement_inputs}.
+
 [Infix] — основной API для сравнений: операторы с точкой сравнивают два
-выражения ([=.], [<.], [<=.], [>.], [>=.], [<>.]), а варианты с [$] создают
-bind parameter из значения OCaml ([=$], [<$], [<=$], [>$], [>=$], [<>$]).
+выражения ([=.], [<.], [<=.], [>.], [>=.], [<>.]), а варианты с [$] захватывают
+константу времени создания statement ([=$], [<$], [<=$], [>$], [>=$], [<>$]).
+Константа передаётся базе как bind value и не вставляется в SQL. Значение,
+которое меняется между вызовами, создаётся только через [params.column] или
+[params.expr] и сравнивается оператором с точкой.
 Для строк есть [=~.] и [=~$] ([LIKE]). Условия комбинируются через [&&.] и
 [||.]. [Query.(...)] локально открывает query-builder, а завершающий [select]
 превращает его в готовый [Result_query.t].
 
-Для batch query значения передаются списком с тем же типом, что у expression:
+Scalar query и [EXISTS] строятся тем же [Query.(...)] и могут захватывать table
+reference из внешнего callback. Если вход меняет саму форму SQL, заранее
+создаются конечные варианты и объединяются через [Statement.choose]. Для
+рекурсивного языка предикатов или другого неограниченного набора форм есть
+[Statement.Dynamic.Portable]; полный пример находится на странице
+{!page-dynamic_statements}.
 
-{[
-let by_ids ids =
-  Query.(
-    from Person.table
-    |> where (fun person -> Expr.in_values (Person.id person) ids)
-    |> select Person.projection)
-]}
-
-Пустой [IN] нормализуется в false, а пустой [NOT IN] — в true. Scalar query и
-[EXISTS] строятся тем же [Query.(...)] и могут захватывать table reference из
-внешнего callback.
-
-SQL можно проверить до выполнения:
+Callback конструктора вызывается при инициализации OCaml-модуля. SQL можно
+проверить до выполнения:
 
 {[
 let sql =
-  by_name "Ada"
-  |> Compiler.compile ~dialect:Dialect.postgresql
-  |> Result.map ~f:Compiled_query.sql
+  Statement.sql
+    ~dialect:Dialect.Postgresql
+    ~input:{ Find_by_name.Input.name = "Ada"; maximum_rows = 100 }
+    Find_by_name.statement
 ]}
 
-Обычный DSL строит portable query: одно и то же значение можно передать
-[Compiler.compile] с [Dialect.postgresql] или [Dialect.sqlite]. Witness выбирает
-dialect и одновременно проверяет требования query. Например, SQL [DEFAULT] в
-[Insert] и [Update] добавляет требование PostgreSQL, поэтому его нельзя
-скомпилировать с [Dialect.sqlite].
+[Statement.Portable] проверяет одну форму для PostgreSQL и SQLite. Для
+dialect-specific SQL используется [Statement.For_dialect] с
+[Dialect.postgresql] или [Dialect.sqlite]. Witness одновременно проверяет
+требования query. Например, SQL [DEFAULT] в [Insert] и [Update] добавляет
+требование PostgreSQL, поэтому такой statement нельзя создать с
+[Dialect.sqlite].
 
 Portable [Query.having] доступен только после [Query.group_by]. PostgreSQL
 разрешает [HAVING] без [GROUP BY] как одну aggregate group; этот вариант явно
@@ -94,17 +113,17 @@ Portable [Query.having] доступен только после [Query.group_by
 [Dialect.postgresql]. Требование сохраняется внутри scalar subquery, projection
 и DML assignment.
 
-На Caqti Lwt connection запрос выполняется отдельно:
+На Caqti Lwt connection statement выполняется единым вызовом [run]:
 
 {[
-Typed_sql_caqti_lwt.fetch ~conn (by_name "Ada")
+Typed_sql_caqti_lwt.run
+  ~conn
+  Find_by_name.statement
+  { Find_by_name.Input.name = "Ada"; maximum_rows = 100 }
 ]}
 
-Обычные функции Caqti adapter принимают только portable statement, так что
-выбор dialect остаётся свойством connection. Для PostgreSQL-specific query
-используется [Typed_sql_caqti_lwt.Dialect_specific.fetch
-~dialect:Dialect.postgresql ~conn query]; adapter до compilation сверяет этот
-witness с dialect connection.
+Adapter выбирает уже скомпилированный план по dialect connection. Для
+PostgreSQL-specific statement тот же [run] вернёт dialect mismatch на SQLite.
 
 Приложение должно самостоятельно подключить нужный Caqti driver. Параметры
 остаются отдельными значениями и не вставляются в SQL string.
@@ -113,12 +132,13 @@ DML использует такое же локальное открытие bui
 
 {[
 let insert_once =
-  Insert.(
-    into Person.table
-    |> set Person.id_column 1L
-    |> set Person.name_column "Ada"
-    |> on_conflict_do_nothing
-    |> command)
+  Statement.Portable.command_exn (fun _ ->
+    Insert.(
+      into Person.table
+      |> set Person.id_column 1L
+      |> set Person.name_column "Ada"
+      |> on_conflict_do_nothing
+      |> command))
 ]}
 
 [Insert.on_conflict_do_nothing] переносим между PostgreSQL и SQLite. Для

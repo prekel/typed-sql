@@ -2,7 +2,7 @@
 
 (name typed-sql)
 
-(version 0.1.2)
+(version 0.2.0)
 
 (generate_opam_files true)
 
@@ -19,13 +19,14 @@
  (name typed-sql)
  (synopsis "Typed relational query DSL for OCaml")
  (description
-  "A backend-independent OCaml DSL for constructing, validating, and compiling typed relational queries.")
+  "A backend-independent OCaml DSL for typed relational statements with static and dynamic compilation.")
  (depends
   (ocaml (>= 5.5.1))
   base
   ptime
   yojson
   ppx_let
+  (ppx_fields_conv :with-test)
   (qcheck :with-test)
   (ppx_expect :with-test)
   (bisect_ppx :with-dev-setup)
@@ -38,7 +39,7 @@
  (name typed-sql-caqti-lwt)
  (synopsis "Caqti Lwt execution backend for typed-sql")
  (description
-  "An Lwt adapter that executes typed-sql queries through Caqti PostgreSQL and SQLite connections.")
+  "An Lwt adapter that runs typed-sql statements through Caqti PostgreSQL and SQLite connections.")
  (depends
   (ocaml (>= 5.5.1))
   (typed-sql (= :version))
@@ -58,7 +59,7 @@
  (name typed-sql-pgocaml-lwt)
  (synopsis "PG'OCaml Lwt execution backend for typed-sql")
  (description
-  "An Lwt adapter that executes typed-sql queries through PG'OCaml on PostgreSQL.")
+  "An Lwt adapter that runs typed-sql statements through PG'OCaml on PostgreSQL.")
  (depends
   (ocaml (>= 5.5.1))
   (typed-sql (= :version))

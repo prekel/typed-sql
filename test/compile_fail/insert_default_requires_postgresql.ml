@@ -9,4 +9,4 @@ module Item = struct
 end
 
 let command = Insert.(into Item.table |> default Item.id |> command)
-let _ = Compiler.compile_command ~dialect:Dialect.sqlite command
+let _ = Statement.For_dialect.command ~dialect:Dialect.sqlite (fun _ -> command)

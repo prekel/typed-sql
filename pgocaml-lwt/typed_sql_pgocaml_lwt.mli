@@ -6,8 +6,8 @@ open! Base
 (** The concrete PG'OCaml implementation used by this adapter. *)
 module Pgocaml : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t
 
-(** An error produced while compiling, encoding, executing, or decoding a
-    query. *)
+(** An error produced while binding, encoding, executing, or decoding a
+    statement. *)
 type constraint_kind =
   | Unique
   | Foreign_key
@@ -18,8 +18,10 @@ type constraint_kind =
   | Other (** A portable classification derived from PostgreSQL SQLSTATE. *)
 
 type error =
-  | Compile of Typed_sql.Compile_error.t
-  (** The typed query failed validation or compilation. *)
+  | Compile of Typed_sql.Statement.definition_error
+  (** A dynamic statement failed compilation before database access. *)
+  | Parameter of Typed_sql.Statement.binding_error
+  (** A runtime statement parameter failed validation. *)
   | Encode of string
   (** A mapped parameter could not be converted to its database
         representation. *)
@@ -43,34 +45,13 @@ val error_to_string : error -> string
 (** Format an error using [error_to_string]. *)
 val pp_error : Formatter.t -> error -> unit
 
-(** Execute a query and collect every row in the order returned by PostgreSQL.
-    Use [Typed_sql.Query.order_by] when the order is significant. *)
-val fetch
+(** Resolve one input and execute a statement. Dynamic statements are built
+    and compiled before database access. *)
+val run
   :  conn:'connection Pgocaml.t
-  -> ('result, Typed_sql.Dialect.postgresql) Typed_sql.Result_query.t
-  -> ('result list, error) Result.t Lwt.t
-
-(** Execute a query which must return exactly one row. No [LIMIT] is added;
-    zero or multiple rows return [Cardinality]. *)
-val fetch_one
-  :  conn:'connection Pgocaml.t
-  -> ('result, Typed_sql.Dialect.postgresql) Typed_sql.Result_query.t
-  -> ('result, error) Result.t Lwt.t
-
-(** Execute a query which may return zero or one row. No [LIMIT] is added;
-    multiple rows return [Cardinality]. *)
-val fetch_opt
-  :  conn:'connection Pgocaml.t
-  -> ('result, Typed_sql.Dialect.postgresql) Typed_sql.Result_query.t
-  -> ('result option, error) Result.t Lwt.t
-
-(** Execute a command. PG'OCaml does not expose a portable affected-row count,
-    so a successful result is [Typed_sql.Affected_rows.Unknown]. Unexpected
-    result rows return [Cardinality]. *)
-val execute
-  :  conn:'connection Pgocaml.t
-  -> Typed_sql.Dialect.postgresql Typed_sql.Command.t
-  -> (Typed_sql.Affected_rows.t, error) Result.t Lwt.t
+  -> ('input, 'output, [< `Postgresql ]) Typed_sql.Statement.t
+  -> 'input
+  -> ('output, error) Result.t Lwt.t
 
 (** Run [f] in a PostgreSQL transaction. [Ok] commits and [Error] rolls back.
     Raised PostgreSQL errors are classified after rollback. *)

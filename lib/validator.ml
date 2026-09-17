@@ -215,10 +215,26 @@ let ensure_no_aggregate clause condition =
 let rec validate_select ~outer_visible ~allow_empty (select : Ast.select) =
   if (not allow_empty) && List.is_empty select.Ast.projection then
     Error Compile_error.Empty_projection
-  else if Option.exists select.limit ~f:(fun value -> value < 0) then
-    Error (Compile_error.Negative_limit (Option.value_exn select.limit))
-  else if Option.exists select.offset ~f:(fun value -> value < 0) then
-    Error (Compile_error.Negative_offset (Option.value_exn select.offset))
+  else if
+    Option.exists select.limit ~f:(function
+      | Ast.Literal value -> value < 0
+      | Ast.Parameter _ -> false)
+  then (
+    match
+      Option.value_exn select.limit
+    with
+    | Ast.Literal value -> Error (Compile_error.Negative_limit value)
+    | Ast.Parameter _ -> assert false)
+  else if
+    Option.exists select.offset ~f:(function
+      | Ast.Literal value -> value < 0
+      | Ast.Parameter _ -> false)
+  then (
+    match
+      Option.value_exn select.offset
+    with
+    | Ast.Literal value -> Error (Compile_error.Negative_offset value)
+    | Ast.Parameter _ -> assert false)
   else
     let open Result.Let_syntax in
     let%bind visible =

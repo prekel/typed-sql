@@ -3,8 +3,11 @@ open! Base
 let pp_parameter_fingerprints formatter parameters =
   Stdlib.Format.pp_print_list
     ~pp_sep:(fun formatter () -> Stdlib.Format.pp_print_char formatter ',')
-    (fun formatter (Db_type.Value (db_type, _)) ->
-       Stdlib.Format.pp_print_string formatter (Db_type.fingerprint db_type))
+    (fun formatter -> function
+       | Ast.Value (Db_type.Value (db_type, _)) ->
+         Stdlib.Format.pp_print_string formatter (Db_type.fingerprint db_type)
+       | Ast.Slot { db_type = Db_type.Pack db_type; _ } ->
+         Stdlib.Format.pp_print_string formatter (Db_type.fingerprint db_type))
     formatter
     parameters
 ;;
@@ -42,7 +45,22 @@ let command_shape ~dialect ~template ~parameters =
   |> Shape.create
 ;;
 
-let compile_for_kind ~dialect query =
+type 'result query_plan =
+  { dialect : Dialect.t
+  ; template : Template.t
+  ; parameters : Ast.parameter list
+  ; projection : 'result Projection.erased
+  ; shape : Shape.t
+  }
+
+type command_plan =
+  { dialect : Dialect.t
+  ; template : Template.t
+  ; parameters : Ast.parameter list
+  ; shape : Shape.t
+  }
+
+let compile_query_plan ~dialect query =
   let ast = Result_query.ast query |> Normalizer.result_query in
   let open Result.Let_syntax in
   let%bind () = Validator.result_query ast in
@@ -51,24 +69,15 @@ let compile_for_kind ~dialect query =
   let projection = Result_query.projection query in
   let shape = shape ~dialect ~template ~parameters ~projection in
   let projection = Projection.erase projection in
-  Compiled_query.create ~dialect ~template ~parameters ~projection ~shape
+  { dialect; template; parameters; projection; shape }
 ;;
 
-let compile ~dialect query = compile_for_kind ~dialect:(Dialect.kind dialect) query
-let compile_portable = compile_for_kind
-
-let compile_command_for_kind ~dialect command =
+let compile_command_plan ~dialect command =
   let ast = Command.ast command |> Normalizer.command in
   let open Result.Let_syntax in
   let%bind () = Validator.command ast in
   let%map lowered = Lower.command ~dialect ast in
   let template, parameters = Renderer.command lowered in
   let shape = command_shape ~dialect ~template ~parameters in
-  Compiled_command.create ~dialect ~template ~parameters ~shape
+  { dialect; template; parameters; shape }
 ;;
-
-let compile_command ~dialect command =
-  compile_command_for_kind ~dialect:(Dialect.kind dialect) command
-;;
-
-let compile_portable_command = compile_command_for_kind

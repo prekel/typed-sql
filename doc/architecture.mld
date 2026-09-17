@@ -13,10 +13,10 @@ Immutable semantic AST
  normalize -> validate -> lower -> render
           |
           v
-PostgreSQL or SQLite lowering
+Static plans, or a Dynamic callback compiled per input
           |
           v
-Backend-neutral template + typed parameters + projection plan
+Runtime input -> typed bind values + selected projection plan
           |
           v
 Caqti Lwt adapter / PG'OCaml Lwt adapter
@@ -41,10 +41,9 @@ Discovery запускается отдельно, а сохранённый gen
 [Expr] и [Projection] сохраняют OCaml-типы во время построения DSL. Второй
 phantom-параметр выражений, условий, projections и statements накапливает
 requirements dialect: пустой row variant означает portable SQL, а
-[`Postgresql] — требование PostgreSQL. [Compiler.compile] принимает typed
-[Dialect.witness], поэтому PostgreSQL-only statement нельзя передать witness
-SQLite. [Compiler.compile_portable] оставлен для runtime выбора dialect и
-принимает только portable statement. Compiler
+[`Postgresql] — требование PostgreSQL. [Statement.Portable] компилирует оба
+плана, а [Statement.For_dialect] принимает typed [Dialect.witness]. Поэтому
+PostgreSQL-only statement нельзя создать с witness SQLite. Внутренний compiler
 получает type-erased semantic nodes только после того, как публичные функции
 проверили совместимость выражений. Source identity остаётся в AST для проверки
 принадлежности колонок, а SQL aliases назначаются только renderer. Обычная
@@ -54,9 +53,18 @@ column descriptor отражает schema nullability: [Column.v] даёт об�
 schema-nullable колонки.
 
 Основной surface для predicates — общий [Infix], реэкспортирующий операторы
-[Expr.Infix] и [Condition.Infix]. Операторы сохраняют тип левого expression при
-создании bind parameter, поэтому строка SQL по-прежнему не строится из
-пользовательского значения.
+[Expr.Infix] и [Condition.Infix]. Оператор с [$] создаёт константу текущего AST:
+при создании static statement или при текущем вызове dynamic callback. Оператор
+с точкой принимает expression, в том числе runtime-слот из
+[Statement.parameters]. Оба вида значения кодируются как bind values, поэтому
+строка SQL не строится из пользовательского значения.
+
+[Statement.Dynamic.Portable] сохраняет callback вместо готовых планов. При
+каждом resolution callback получает input, после чего AST проходит тот же
+normalization, validation, lowering и rendering для dialect соединения.
+Получившиеся значения остаются bind parameters. Dynamic callback обязан вернуть
+portable query или command, поэтому dialect requirement по-прежнему
+проверяется OCaml-типами.
 
 {1 API приложения, адаптеров и тестов}
 
@@ -71,7 +79,7 @@ schema-nullable колонки.
 непосредственно через Dune. Внутри ядра функции вроде [Expr.node] и
 [Query.ast] вызываются напрямую.
 
-[Typed_sql] предоставляет схему, DSL, компиляцию, SQL и ошибки. Его
+[Typed_sql] предоставляет схему, DSL, [Statement], SQL и ошибки. Его
 сигнатура не раскрывает internal constructors и AST. Например, white-box тест
 может вызвать [Typed_sql_private.Query.ast builder] или
 [Typed_sql_private.Command.create ast], чтобы проверить compiler на намеренно
@@ -93,11 +101,10 @@ views и packed values объявлены [private]: адаптеры могут
 этом им не нужны. [Typed_sql_backend.Template.map] позволяет преобразовать
 текст и bind slots в представление backend.
 
-Общая граница двух API — только [Compiled_query.t] и [Compiled_command.t].
-Их представления закрыты локальными сигнатурами в соответствующих [.ml] ядра,
-а пользовательский фасад сохраняет равенство этих непрозрачных типов.
-Backend принимает результаты обычного compiler без копирования или casts.
-Типы схемы и DSL остаются абстрактными на границе [Typed_sql].
+Общая граница двух API — [Statement.t]. Backend выбирает план по dialect
+connection, применяет getters к текущему input и получает внутреннее execution
+значение с template, packed parameters и projection. Эти compiled-типы не
+входят в пользовательский фасад. Копирования AST и unchecked casts нет.
 
 Монадическая обёртка Lwt для PG'OCaml реализована через [Base.Monad.Make].
 Она находится в адаптере; ядро остаётся независимым от эффекта выполнения.
@@ -124,24 +131,23 @@ PostgreSQL [HAVING] и PostgreSQL requirement внутри subquery.
 
 Пакет [typed-sql] не зависит от Caqti, Lwt и PG'OCaml. [Result_query] содержит
 typed projection plan, а [Command] представляет statement без строк результата.
-После compiler они становятся [Compiled_query] или [Compiled_command] с
-template fragments, packed parameters и shape. Caqti adapter интерпретирует
-descriptors в [Caqti.Template.Row_type]. PG'OCaml adapter кодирует параметры и
-декодирует строки через тот же [Db_type] контракт без unchecked casts.
+При создании [Statement] они становятся внутренними планами с template
+fragments, layout параметров, projection и shape. При [run] getters создают
+packed values текущего input. Caqti adapter интерпретирует descriptors в
+[Caqti.Template.Row_type]. PG'OCaml adapter кодирует параметры и декодирует
+строки через тот же [Db_type] контракт без unchecked casts.
 
 Prepared statement lifetime принадлежит adapter'у. Shape включает type identity
 parameters и projection, поэтому различает mapped codecs с одинаковым именем;
 он не включает значения параметров, connection, generative source IDs или
 generated aliases. PG'OCaml low-level API не сообщает affected rows, поэтому
-его [execute] возвращает [Affected_rows.Unknown].
+[run] для команды возвращает [Affected_rows.Unknown].
 
-Caqti adapter может выполнять portable deferred DSL values и заранее созданные
-[Compiled_query]/[Compiled_command]. Для dialect-specific deferred DSL есть
-[Dialect_specific] с typed witness; перед compilation и перед compiled-вызовом
-adapter проверяет dialect соединения. Его opt-in observer измеряет compilation, подготовку Caqti
-request, database round trip и projection decoding; bind values в событие не
-попадают. Встроенный bounded profiler группирует события по имени, операции,
-режиму выполнения и fingerprint [Shape], не добавляя состояние или эффекты в
+Caqti и PG'OCaml предоставляют один [run] для query cardinality и команд.
+Adapter проверяет dialect соединения до binding. Его opt-in observer измеряет
+подготовку Caqti request, database round trip и projection decoding; bind
+values в событие не попадают. Встроенный bounded profiler группирует события
+по имени, операции и fingerprint [Shape], не добавляя состояние или эффекты в
 ядро.
 
 Transactions находятся в execution adapters. Callback получает то же

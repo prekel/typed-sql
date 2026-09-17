@@ -2,6 +2,36 @@ open! Base
 open Typed_sql_private
 open Expr.Infix
 module A = Ast
+module Raw_compiler = Compiler
+
+module Compiler = struct
+  let values parameters =
+    List.map parameters ~f:(function
+      | A.Value value -> value
+      | A.Slot _ -> failwith "unexpected statement slot")
+  ;;
+
+  let compile ~dialect query =
+    Raw_compiler.compile_query_plan ~dialect:(Dialect.kind dialect) query
+    |> Result.map ~f:(fun (plan : _ Raw_compiler.query_plan) ->
+      Compiled_query.create
+        ~dialect:plan.dialect
+        ~template:plan.template
+        ~parameters:(values plan.parameters)
+        ~projection:plan.projection
+        ~shape:plan.shape)
+  ;;
+
+  let compile_command ~dialect command =
+    Raw_compiler.compile_command_plan ~dialect:(Dialect.kind dialect) command
+    |> Result.map ~f:(fun (plan : Raw_compiler.command_plan) ->
+      Compiled_command.create
+        ~dialect:plan.dialect
+        ~template:plan.template
+        ~parameters:(values plan.parameters)
+        ~shape:plan.shape)
+  ;;
+end
 
 let source source_id : A.source =
   { source_id; schema = None; table = Identifier.of_string_exn "items" }
@@ -32,7 +62,7 @@ let select : A.select =
 let assignment : A.assignment =
   { source_id = 0
   ; column = Identifier.of_string_exn "id"
-  ; value = A.Expression (A.Param (Db_type.Value (Db_type.int, 7)))
+  ; value = A.Expression (A.Param (A.Value (Db_type.Value (Db_type.int, 7))))
   }
 ;;
 
@@ -134,9 +164,9 @@ let%expect_test "validator catches invalid select and JOIN scopes" =
   let validate query = Validator.result_query (A.Select query) |> print_validation in
   validate { select with projection = [] };
   [%expect {| SELECT projection must contain at least one expression |}];
-  validate { select with limit = Some (-1) };
+  validate { select with limit = Some (A.Literal (-1)) };
   [%expect {| LIMIT must be non-negative, got -1 |}];
-  validate { select with offset = Some (-2) };
+  validate { select with offset = Some (A.Literal (-2)) };
   [%expect {| OFFSET must be non-negative, got -2 |}];
   validate { select with projection = [ column 99 ] };
   [%expect {| expression references source #99, but the visible sources are 0 |}];
@@ -246,7 +276,7 @@ let%test_unit "private UPSERT DEFAULT reaches dialect capability checking" =
 
 let%expect_test "private constructors share opaque public types" =
   let expression : (int, Dialect.portable) Expr.t =
-    Expr.create (A.Param (Db_type.Value (Db_type.int, 42))) Db_type.int
+    Expr.create (A.Param (A.Value (Db_type.Value (Db_type.int, 42)))) Db_type.int
   in
   let condition : Dialect.portable Condition.t =
     Condition.create (A.Is_not_null (Expr.node expression))
@@ -293,7 +323,8 @@ let%expect_test "lowering and rendering preserve bind values for both dialects" 
   let ast =
     A.Returning
       { command = command A.Insert [ assignment ]
-      ; projection = [ column 0; A.Param (Db_type.Value (Db_type.text, "returned")) ]
+      ; projection =
+          [ column 0; A.Param (A.Value (Db_type.Value (Db_type.text, "returned"))) ]
       }
     |> Normalizer.result_query
   in
@@ -302,7 +333,9 @@ let%expect_test "lowering and rendering preserve bind values for both dialects" 
     let lowered = Lower.result_query ~dialect ast |> ok_exn in
     let template, parameters = Renderer.result_query lowered in
     (match parameters with
-     | [ Db_type.Value (first_type, first); Db_type.Value (second_type, second) ] ->
+     | [ A.Value (Db_type.Value (first_type, first))
+       ; A.Value (Db_type.Value (second_type, second))
+       ] ->
        (match Db_type.view first_type, Db_type.view second_type with
         | Db_type.Int, Db_type.Text ->
           assert (Int.(first = 7));
@@ -392,7 +425,10 @@ let%test_unit "internal helper boundary cases remain total" =
   in
   assert (String.equal rendered_sources "\"items\" AS t0,\n  \"items\" AS t1");
   assert (
-    not (Validator.same_column (column 0) (A.Param (Db_type.Value (Db_type.int, 0)))));
+    not
+      (Validator.same_column
+         (column 0)
+         (A.Param (A.Value (Db_type.Value (Db_type.int, 0))))));
   let arithmetic = A.Arithmetic (A.Add, column 0, column 0) in
   assert (Validator.same_group_expression arithmetic arithmetic);
   List.iter [ A.Add; A.Subtract; A.Multiply; A.Divide ] ~f:(fun operator ->
@@ -427,7 +463,7 @@ let%test_unit "internal helper boundary cases remain total" =
 let%test_unit
     "lowering capability traversal and scalar aggregate proof cover private cases"
   =
-  let parameter = A.Param (Db_type.Value (Db_type.int, 1)) in
+  let parameter = A.Param (A.Value (Db_type.Value (Db_type.int, 1))) in
   let local_aggregate = A.Aggregate (A.Count (column 0)) in
   let nested_select = { select with having = Some A.True } in
   let expression =
@@ -589,9 +625,9 @@ let%test_unit
    | _ -> failwith "RETURNING did not reject a nested unsupported HAVING");
   assert (
     not (Lower.select_has_unsupported_having ~dialect:Dialect.Postgresql nested_select));
-  assert (Aggregate_scope.at_most_one { select with limit = Some 0 });
-  assert (Aggregate_scope.at_most_one { select with limit = Some 1 });
-  assert (not (Aggregate_scope.at_most_one { select with limit = Some 2 }));
+  assert (Aggregate_scope.at_most_one { select with limit = Some (A.Literal 0) });
+  assert (Aggregate_scope.at_most_one { select with limit = Some (A.Literal 1) });
+  assert (not (Aggregate_scope.at_most_one { select with limit = Some (A.Literal 2) }));
   assert (
     Aggregate_scope.at_most_one { select with projection = [ A.Aggregate A.Count_all ] });
   assert (Aggregate_scope.at_most_one { select with projection = [ local_aggregate ] });

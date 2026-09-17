@@ -1,8 +1,9 @@
 open! Base
 
-(** Build typed SELECT, INSERT, UPDATE and DELETE queries without executing
-    them. Pass a finished query to an execution adapter, or compile it to inspect
-    its SQL. Values are bound as parameters; connections belong to adapters. *)
+(** Build typed SELECT, INSERT, UPDATE and DELETE statements without holding a
+    connection. Static [Statement.t] values compile their semantic AST once;
+    dynamic statements build and compile one AST for each input. All OCaml
+    values are encoded as SQL bind values. *)
 
 (** Validated names for schemas, tables, and columns. *)
 module Identifier : sig
@@ -375,6 +376,11 @@ module Scalar_query : sig
   type ('a, +'requirements) t
 end
 
+(** A validated runtime parameter for [LIMIT] or [OFFSET]. *)
+module Pagination_parameter : sig
+  type +'requirements t
+end
+
 (** SQL predicates and boolean composition. *)
 module Condition : sig
   (** A predicate using SQL three-valued logic. *)
@@ -424,8 +430,12 @@ module Expr : sig
       for null checks on a non-nullable expression. *)
   val to_nullable : ('a, 'requirements) t -> ('a option, 'requirements) t
 
-  (** Create a bound parameter. The value never becomes part of rendered SQL. *)
-  val param : 'a Db_type.t -> 'a -> ('a, 'requirements) t
+  (** Capture an OCaml constant in the current semantic AST. A static statement
+      captures it at definition time; a dynamic statement captures it during
+      the current callback invocation. It is sent as a bind value and never
+      interpolated into rendered SQL. Runtime input in a static statement must
+      be introduced through [Statement.parameters]. *)
+  val constant : 'a Db_type.t -> 'a -> ('a, 'requirements) t
 
   (** Test a nullable expression with SQL [IS NULL]. *)
   val is_null : ('a option, 'requirements) t -> 'requirements Condition.t
@@ -433,11 +443,13 @@ module Expr : sig
   (** Test a nullable expression with SQL [IS NOT NULL]. *)
   val is_not_null : ('a option, 'requirements) t -> 'requirements Condition.t
 
-  (** Test whether an expression equals one of the bound values. An empty list
+  (** Test whether an expression equals one of the OCaml constants captured in
+      the current AST. The constants are encoded as bind values. An empty list
       is normalized to SQL [FALSE]. *)
   val in_ : ('a, 'requirements) t -> 'a list -> 'requirements Condition.t
 
-  (** Test whether an expression differs from every bound value. An empty list
+  (** Test whether an expression differs from every OCaml constant captured in
+      the current AST. The constants are encoded as bind values. An empty list
       is normalized to SQL [TRUE]. As in SQL, a [NULL] in a non-empty list can
       make the predicate unknown. *)
   val not_in : ('a, 'requirements) t -> 'a list -> 'requirements Condition.t
@@ -454,8 +466,8 @@ module Expr : sig
     -> ('a, 'requirements) t list
     -> 'requirements Condition.t
 
-  (** Test whether an expression lies inside an inclusive range whose bounds
-      are bound parameters. *)
+  (** Test whether an expression lies inside an inclusive range whose OCaml
+      bounds are captured in the current AST and encoded as bind values. *)
   val between : ('a, 'requirements) t -> lower:'a -> upper:'a -> 'requirements Condition.t
 
   (** Test an inclusive range using SQL expressions as both bounds. *)
@@ -472,7 +484,7 @@ module Expr : sig
     -> ('a, 'requirements) t
     -> 'requirements Condition.t
 
-  (** Null-safe comparison with a bound OCaml value. *)
+  (** Null-safe comparison with an OCaml constant captured in the current AST. *)
   val is_distinct_from_value : ('a, 'requirements) t -> 'a -> 'requirements Condition.t
 
   (** Build a searched SQL [CASE]. Conditions are tested in list order. An
@@ -500,7 +512,7 @@ module Expr : sig
     -> (string, 'requirements) t
     -> (string, 'requirements) t
 
-  (** Concatenate text with a bound OCaml string. *)
+  (** Concatenate text with an OCaml string captured in the current AST. *)
   val concat_value : (string, 'requirements) t -> string -> (string, 'requirements) t
 
   (** Count rows in the current aggregate group. *)
@@ -560,8 +572,9 @@ module Expr : sig
   end
 
   (** Operators are the primary API for constructing comparisons. Operators with
-      a dot compare expressions; operators ending with [$] bind an OCaml value
-      using the type carried by the left expression. *)
+      a dot compare expressions; operators ending with [$] capture a
+      current-AST OCaml constant using the type carried by the left expression.
+      Constants are encoded as SQL bind values. *)
   module Infix : sig
     (** SQL equality between two expressions. *)
     val ( =. ) : ('a, 'r) t -> ('a, 'r) t -> 'r Condition.t
@@ -581,29 +594,29 @@ module Expr : sig
     (** SQL greater-than-or-equal comparison between two expressions. *)
     val ( >=. ) : ('a, 'r) t -> ('a, 'r) t -> 'r Condition.t
 
-    (** SQL equality with a bound OCaml value. *)
+    (** SQL equality with an OCaml constant captured in the current AST. *)
     val ( =$ ) : ('a, 'r) t -> 'a -> 'r Condition.t
 
-    (** SQL inequality with a bound OCaml value. *)
+    (** SQL inequality with an OCaml constant captured in the current AST. *)
     val ( <>$ ) : ('a, 'r) t -> 'a -> 'r Condition.t
 
-    (** SQL less-than comparison with a bound OCaml value. *)
+    (** SQL less-than comparison with an OCaml constant captured in the current AST. *)
     val ( <$ ) : ('a, 'r) t -> 'a -> 'r Condition.t
 
-    (** SQL less-than-or-equal comparison with a bound OCaml value. *)
+    (** SQL less-than-or-equal comparison with a current-AST OCaml constant. *)
     val ( <=$ ) : ('a, 'r) t -> 'a -> 'r Condition.t
 
-    (** SQL greater-than comparison with a bound OCaml value. *)
+    (** SQL greater-than comparison with an OCaml constant captured in the current AST. *)
     val ( >$ ) : ('a, 'r) t -> 'a -> 'r Condition.t
 
-    (** SQL greater-than-or-equal comparison with a bound OCaml value. *)
+    (** SQL greater-than-or-equal comparison with a current-AST OCaml constant. *)
     val ( >=$ ) : ('a, 'r) t -> 'a -> 'r Condition.t
 
     (** SQL [LIKE] between text expressions. *)
     val ( =~. ) : (string, 'r) t -> (string, 'r) t -> 'r Condition.t
 
-    (** SQL [LIKE] with a bound pattern. Wildcards are interpreted by the
-        database and are not escaped by typed-sql. *)
+    (** SQL [LIKE] with an OCaml pattern captured in the current AST. Wildcards
+        are interpreted by the database and are not escaped by typed-sql. *)
     val ( =~$ ) : (string, 'r) t -> string -> 'r Condition.t
   end
 end
@@ -793,13 +806,27 @@ module Query : sig
     :  int
     -> ('ctx, 'grouping, 'requirements) t
     -> ('ctx, 'grouping, 'requirements) t
+
+  (** Set [LIMIT] from a runtime statement parameter validated as non-negative
+      before execution. *)
+  val limit_param
+    :  'requirements Pagination_parameter.t
+    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'requirements) t
+
+  (** Set [OFFSET] from a runtime statement parameter validated as
+      non-negative before execution. *)
+  val offset_param
+    :  'requirements Pagination_parameter.t
+    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'requirements) t
 end
 
 (** Immutable INSERT builders. *)
 module Insert : sig
   (** An INSERT builder. The compiler rejects empty rows, duplicate target
       columns, and different column sets across rows. Values passed to [set]
-      are always bound. *)
+      are current-AST constants encoded as bind values. *)
   type ('row, +'requirements) t
 
   (** Non-empty columns identifying a unique key. The database checks that a
@@ -829,8 +856,9 @@ module Insert : sig
         action that still has no assignments after optional fields are omitted. *)
     val empty : ('row, 'requirements) t
 
-    (** Append a bound value assignment. Duplicate columns and columns owned
-        by another table descriptor are rejected. *)
+    (** Append an OCaml constant assignment captured in the current AST. The
+        constant is encoded as a bind value. Duplicate columns and columns
+        owned by another table descriptor are rejected. *)
     val set
       :  ('row, 'base, 'value) Column.t
       -> 'value
@@ -874,8 +902,9 @@ module Insert : sig
   (** Start an INSERT containing one empty row. *)
   val into : 'row Table.t -> ('row, 'requirements) t
 
-  (** Assign a column from an OCaml value, which is always bound as a
-      parameter. *)
+  (** Assign a column from an OCaml constant captured in the current AST. The
+      constant is encoded as a bind value. In a static statement, use
+      [set_expr] with [Statement.parameters] for runtime input. *)
   val set
     :  ('row, 'base, 'value) Column.t
     -> 'value
@@ -959,8 +988,9 @@ module Update : sig
   (** Start an UPDATE without assignments or row scope. *)
   val table : 'row Table.t -> ('row, unscoped, 'requirements) t
 
-  (** Assign a column from an OCaml value, which is always bound as a
-      parameter. *)
+  (** Assign a column from an OCaml constant captured in the current AST. The
+      constant is encoded as a bind value. In a static statement, use
+      [set_expr] with [Statement.parameters] for runtime input. *)
   val set
     :  ('row, 'base, 'value) Column.t
     -> 'value
@@ -982,8 +1012,9 @@ module Update : sig
     -> ('row, 'scope, ([> `Postgresql ] as 'requirements)) t
     -> ('row, 'scope, 'requirements) t
 
-  (** Conditionally bind and assign a value. [None] leaves the builder
-      unchanged. For a nullable column, [Some None] writes SQL [NULL]. *)
+  (** Conditionally assign an OCaml constant captured in the current AST.
+      [None] leaves the builder unchanged. For a nullable column, [Some None]
+      writes SQL [NULL]. *)
   val set_opt
     :  ('row, 'base, 'value) Column.t
     -> 'value option
@@ -1176,45 +1207,11 @@ module Compile_error : sig
   val to_string : t -> string
 end
 
-(** Validated and rendered statements that return rows. *)
-module Compiled_query : sig
-  (** A validated query. SQL contains placeholders, never interpolated values. *)
-  type 'result t = 'result Typed_sql_private.Compiled_query.t
-
-  (** Return the dialect used to compile the query. *)
-  val dialect : 'result t -> Dialect.t
-
-  (** Render canonical, deterministically indented SQL with dialect-specific
-      placeholders. Execution adapters send this same representation to the
-      database. Bound values remain separate. *)
-  val sql : 'result t -> string
-
-  (** Print exactly the canonical representation returned by [sql]. *)
-  val pp : Formatter.t -> 'result t -> unit
-end
-
-(** Validated and rendered statements without returned rows. *)
-module Compiled_command : sig
-  (** A compiled statement without a row decoder. *)
-  type t = Typed_sql_private.Compiled_command.t
-
-  (** Return the dialect used to compile the command. *)
-  val dialect : t -> Dialect.t
-
-  (** Render canonical, deterministically indented SQL with dialect-specific
-      placeholders. Execution adapters send this same representation to the
-      database. Bound values remain separate. *)
-  val sql : t -> string
-
-  (** Print exactly the canonical representation returned by [sql]. *)
-  val pp : Formatter.t -> t -> unit
-end
-
 (** Backend-independent affected-row results. *)
 module Affected_rows : sig
   (** [Unknown] means that the backend cannot report the count, not that zero
       rows were affected. *)
-  type t =
+  type t = Typed_sql_private.Affected_rows.t =
     | Known of int (** The backend reported an exact number of changed rows. *)
     | Unknown (** The backend completed the command but cannot report an exact count. *)
 
@@ -1222,30 +1219,177 @@ module Affected_rows : sig
   val pp : Formatter.t -> t -> unit
 end
 
-(** Pure query validation and SQL compilation. *)
-module Compiler : sig
-  (** Pure compilation: assigns deterministic aliases and bind slots, and
-      reports invalid input without performing database operations. *)
-  val compile
-    :  dialect:'requirements Dialect.witness
-    -> ('result, 'requirements) Result_query.t
-    -> ('result Compiled_query.t, Compile_error.t) Result.t
+(** A reusable query or command accepting one typed input. Static constructors
+    compile at definition time and use [parameters] for runtime values.
+    [Dynamic.Portable] builds and compiles from input on each execution. *)
+module Statement : sig
+  type ('input, 'output, +'requirements) t =
+    ('input, 'output, 'requirements) Typed_sql_private.Statement.t
 
-  (** Compile a statement proven portable when the dialect is selected at
-      runtime, for example from a connection or application configuration. *)
-  val compile_portable
+  type definition_error =
+    { dialect : Dialect.t
+    ; error : Compile_error.t
+    }
+
+  exception Definition_error of definition_error
+
+  type binding_error =
+    { name : string option
+    ; message : string
+    }
+
+  type sql_error =
+    | Unsupported_dialect of Dialect.t
+    | Invalid_parameter of binding_error
+    | Compilation_error of definition_error
+
+  (** Runtime input slots for one statement. Each getter is retained in the
+      compiled statement and applied to the input supplied to [sql] or an
+      execution adapter. Reusing the returned expression reuses one bind slot. *)
+  type ('input, 'requirements) parameters = private
+    { expr :
+        'value.
+        ?name:string
+        -> 'value Db_type.t
+        -> get:('input -> 'value)
+        -> ('value, 'requirements) Expr.t
+    ; column :
+        'row 'base 'value.
+        ?name:string
+        -> ('row, 'base, 'value) Column.t
+        -> get:('input -> 'value)
+        -> ('value, 'requirements) Expr.t
+    ; non_negative_int :
+        name:string -> get:('input -> int) -> 'requirements Pagination_parameter.t
+    }
+
+  module Portable : sig
+    val query_many
+      :  (('input, Dialect.portable) parameters -> ('row, Dialect.portable) Result_query.t)
+      -> (('input, 'row list, Dialect.portable) t, definition_error) Result.t
+
+    val query_one
+      :  (('input, Dialect.portable) parameters -> ('row, Dialect.portable) Result_query.t)
+      -> (('input, 'row, Dialect.portable) t, definition_error) Result.t
+
+    val query_optional
+      :  (('input, Dialect.portable) parameters -> ('row, Dialect.portable) Result_query.t)
+      -> (('input, 'row option, Dialect.portable) t, definition_error) Result.t
+
+    val command
+      :  (('input, Dialect.portable) parameters -> Dialect.portable Command.t)
+      -> (('input, Affected_rows.t, Dialect.portable) t, definition_error) Result.t
+
+    val query_many_exn
+      :  (('input, Dialect.portable) parameters -> ('row, Dialect.portable) Result_query.t)
+      -> ('input, 'row list, Dialect.portable) t
+
+    val query_one_exn
+      :  (('input, Dialect.portable) parameters -> ('row, Dialect.portable) Result_query.t)
+      -> ('input, 'row, Dialect.portable) t
+
+    val query_optional_exn
+      :  (('input, Dialect.portable) parameters -> ('row, Dialect.portable) Result_query.t)
+      -> ('input, 'row option, Dialect.portable) t
+
+    val command_exn
+      :  (('input, Dialect.portable) parameters -> Dialect.portable Command.t)
+      -> ('input, Affected_rows.t, Dialect.portable) t
+  end
+
+  module For_dialect : sig
+    val query_many
+      :  dialect:'requirements Dialect.witness
+      -> (('input, 'requirements) parameters -> ('row, 'requirements) Result_query.t)
+      -> (('input, 'row list, 'requirements) t, definition_error) Result.t
+
+    val query_one
+      :  dialect:'requirements Dialect.witness
+      -> (('input, 'requirements) parameters -> ('row, 'requirements) Result_query.t)
+      -> (('input, 'row, 'requirements) t, definition_error) Result.t
+
+    val query_optional
+      :  dialect:'requirements Dialect.witness
+      -> (('input, 'requirements) parameters -> ('row, 'requirements) Result_query.t)
+      -> (('input, 'row option, 'requirements) t, definition_error) Result.t
+
+    val command
+      :  dialect:'requirements Dialect.witness
+      -> (('input, 'requirements) parameters -> 'requirements Command.t)
+      -> (('input, Affected_rows.t, 'requirements) t, definition_error) Result.t
+
+    val query_many_exn
+      :  dialect:'requirements Dialect.witness
+      -> (('input, 'requirements) parameters -> ('row, 'requirements) Result_query.t)
+      -> ('input, 'row list, 'requirements) t
+
+    val query_one_exn
+      :  dialect:'requirements Dialect.witness
+      -> (('input, 'requirements) parameters -> ('row, 'requirements) Result_query.t)
+      -> ('input, 'row, 'requirements) t
+
+    val query_optional_exn
+      :  dialect:'requirements Dialect.witness
+      -> (('input, 'requirements) parameters -> ('row, 'requirements) Result_query.t)
+      -> ('input, 'row option, 'requirements) t
+
+    val command_exn
+      :  dialect:'requirements Dialect.witness
+      -> (('input, 'requirements) parameters -> 'requirements Command.t)
+      -> ('input, Affected_rows.t, 'requirements) t
+  end
+
+  module Dynamic : sig
+    (** Constructors retain a pure callback without invoking it. Each [sql] or
+        adapter [run] invokes it once and compiles for the selected dialect,
+        without caching. Values supplied to the DSL remain bound parameters
+        of that invocation, including values passed through [Expr.constant].
+        Compilation failures are returned at execution time; exceptions raised
+        by the callback propagate unchanged. Result cardinality is checked by
+        the adapter. *)
+    module Portable : sig
+      val query_many
+        :  ('input -> ('row, Dialect.portable) Result_query.t)
+        -> ('input, 'row list, Dialect.portable) t
+
+      val query_one
+        :  ('input -> ('row, Dialect.portable) Result_query.t)
+        -> ('input, 'row, Dialect.portable) t
+
+      val query_optional
+        :  ('input -> ('row, Dialect.portable) Result_query.t)
+        -> ('input, 'row option, Dialect.portable) t
+
+      val command
+        :  ('input -> Dialect.portable Command.t)
+        -> ('input, Affected_rows.t, Dialect.portable) t
+    end
+  end
+
+  (** Select between two statement branches for the current
+      input. Calls can be nested when more than two finite variants are
+      required. Only the selected branch is resolved; dynamic branches are
+      supported. *)
+  val choose
+    :  when_:('input -> bool)
+    -> if_true:('input, 'output, 'requirements) t
+    -> if_false:('input, 'output, 'requirements) t
+    -> ('input, 'output, 'requirements) t
+
+  (** Render the selected plan, building and compiling dynamic statements from
+      [input]. Static statements only select a plan and validate bindings. *)
+  val sql
     :  dialect:Dialect.t
-    -> ('result, Dialect.portable) Result_query.t
-    -> ('result Compiled_query.t, Compile_error.t) Result.t
+    -> input:'input
+    -> ('input, 'output, 'requirements) t
+    -> (string, sql_error) Result.t
 
-  (** Purely validate and compile a command without returned rows. *)
-  val compile_command
-    :  dialect:'requirements Dialect.witness
-    -> 'requirements Command.t
-    -> (Compiled_command.t, Compile_error.t) Result.t
-
-  val compile_portable_command
+  (** Render as [sql], raising when the input fails parameter validation or the
+      statement does not support the selected dialect. Dynamic compilation
+      failures raise [Definition_error]. *)
+  val sql_exn
     :  dialect:Dialect.t
-    -> Dialect.portable Command.t
-    -> (Compiled_command.t, Compile_error.t) Result.t
+    -> input:'input
+    -> ('input, 'output, 'requirements) t
+    -> string
 end

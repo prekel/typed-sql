@@ -1,5 +1,6 @@
 open! Base
 open Typed_sql
+open Statement_compile
 module First = Generated_schema.User_profile
 module Second = Generated_schema.User_profile_2
 module Third = Generated_schema.User_profile_3
