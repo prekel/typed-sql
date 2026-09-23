@@ -62,7 +62,7 @@ let active_people =
       |> select Person.projection)
 ;;
 
-let inferred_active_people =
+let inferred_active_people : (_, _, Dialect.portable) Derived_table.inferred =
   Query.(
     from Person.table
     |> where (fun person -> Person.name person =$ "Ada")

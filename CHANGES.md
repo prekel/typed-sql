@@ -1,6 +1,6 @@
 # История изменений
 
-## Unreleased
+## 0.3.0 — 23 сентября 2026
 
 ### Добавлено
 
@@ -21,6 +21,18 @@
   `Postgresql.Cte.command`.
 - `Statement.sql` и `Statement.sql_exn` позволяют получить SQL статического
   statement без input и без запуска parameter getters.
+
+### Изменено
+
+- Кардинальность SELECT стала частью типовой модели: `many`, `at_most_one` и
+  `exactly_one` распространяются через query builder и проверяются при
+  создании statement.
+- Добавлены `Query.limit_one` и `Query.select_exactly_one`, а также строгие
+  `query_one`/`query_optional` и runtime-конструкторы `expect_one`/
+  `expect_optional` для случаев, где гарантия появляется только из схемы или
+  бизнес-инварианта.
+- Публичный контракт кардинальности и его ограничения полностью описаны в
+  `lib/typed_sql.mli`; добавлены regression, compile-fail и adapter tests.
 
 ## 0.2.0 — 17 сентября 2026
 
