@@ -67,6 +67,18 @@ let insert_statement =
     Insert.(into items |> set_expr id inserted_id |> command))
 ;;
 
+type optional_filter_input = { name : string option }
+
+let optional_filter_statement =
+  Statement.Portable.query_many_exn (fun params ->
+    let expected_name = params.column name ~name:"name" ~get:(fun input -> input.name) in
+    Query.(
+      from items
+      |> where_optional_param expected_name ~f:(fun row expected_name ->
+        Expr.column row name =. expected_name)
+      |> select projection))
+;;
+
 let compile dialect query =
   Query.(select projection query) |> Compiler.compile_portable ~dialect
 ;;
@@ -117,6 +129,35 @@ let%test_unit "command statements bind runtime expressions" =
   assert (String.is_substring postgresql ~substring:"$1");
   assert (String.is_substring sqlite ~substring:"?1");
   assert (String.equal sqlite sqlite_without_input)
+;;
+
+let%expect_test "optional parameter predicates preserve one static SQL shape" =
+  Stdlib.print_endline
+    (Statement.sql_exn ~dialect:Dialect.Postgresql optional_filter_statement);
+  [%expect
+    {|
+    SELECT
+      t0."id"
+    FROM "items" AS t0
+    WHERE
+      (
+        ($1 IS NULL)
+        OR (t0."name" = $1)
+      )
+    |}];
+  Stdlib.print_endline
+    (Statement.sql_exn ~dialect:Dialect.Sqlite optional_filter_statement);
+  [%expect
+    {|
+    SELECT
+      t0."id"
+    FROM "items" AS t0
+    WHERE
+      (
+        (?1 IS NULL)
+        OR (t0."name" = ?1)
+      )
+    |}]
 ;;
 
 let%test_unit "rendering static SQL without input does not evaluate getters" =

@@ -315,6 +315,12 @@ let where_opt value ~f query =
   | Some value -> where (fun context -> f context value) query
 ;;
 
+let where_optional_param parameter ~f query =
+  where
+    (fun context -> Condition.Infix.(Expr.is_null parameter ||. f context parameter))
+    query
+;;
+
 let distinct query = { query with ast = { query.ast with distinct = true } }
 
 let group_by make_expression query =

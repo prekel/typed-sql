@@ -1,5 +1,13 @@
 # История изменений
 
+## 0.3.1 — 23 сентября 2026
+
+### Добавлено
+
+- `Query.where_optional_param` для nullable expression в static statement.
+  Комбинатор рендерит `(parameter IS NULL OR predicate)`, поэтому optional
+  filter не меняет SQL shape и не требует dynamic statement.
+
 ## 0.3.0 — 23 сентября 2026
 
 ### Добавлено

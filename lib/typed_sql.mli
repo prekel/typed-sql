@@ -1011,6 +1011,18 @@ module Query : sig
     -> ('ctx, 'grouping, 'cardinality, 'requirements) t
     -> ('ctx, 'grouping, 'cardinality, 'requirements) t
 
+  (** Add a fixed-shape optional predicate controlled by a nullable expression.
+      The rendered condition is [(parameter IS NULL OR predicate)]. This is
+      useful for nullable runtime parameters in static statements: unlike
+      [where_opt], it does not change the SQL shape. The predicate receives the
+      same nullable expression so it can be compared with nullable columns or
+      expressions. The cardinality bound is preserved. *)
+  val where_optional_param
+    :  ('value option, 'requirements) Expr.t
+    -> f:('ctx -> ('value option, 'requirements) Expr.t -> 'requirements Condition.t)
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+
   (** Remove duplicate result rows with portable SQL [DISTINCT]. The
       cardinality bound is preserved. *)
   val distinct
