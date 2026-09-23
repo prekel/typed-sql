@@ -35,6 +35,7 @@ type t =
   | Nested_aggregate
   | Ungrouped_expression
   | Scalar_subquery_may_return_many_rows
+  | Exactly_one_query_not_proven
   | Invalid_relation_column of int
   | Duplicate_relation_column of Identifier.t
   | Mismatched_relation_projection of
@@ -104,6 +105,8 @@ let to_string = function
   | Ungrouped_expression -> "non-aggregate expression must be present in GROUP BY"
   | Scalar_subquery_may_return_many_rows ->
     "scalar subquery requires LIMIT 0/1 or a local aggregate without GROUP BY"
+  | Exactly_one_query_not_proven ->
+    "exactly-one SELECT requires an ungrouped aggregate without HAVING, OFFSET, or LIMIT 0"
   | Invalid_relation_column position ->
     "relation output #" ^ Int.to_string position ^ " must be a direct descriptor column"
   | Duplicate_relation_column column ->

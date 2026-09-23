@@ -326,41 +326,25 @@ AS (...)` и объединение read-model ветвей без ручног�
 
 ### 2. Типизировать кардинальность SELECT
 
-Сейчас `Result_query.t` хранит тип декодированной строки и dialect requirement,
-а `Statement.query_many`, `query_optional` и `query_one` принимают один и тот
-же тип запроса. Выбранная cardinality является ожиданием execution adapter и
-проверяется только при выполнении. Нужно перенести доказуемую верхнюю границу
-числа строк в phantom-параметр `Query.t` и `Result_query.t`.
+`Query.t` и `Result_query.t` различают `many`, `at_most_one` и `exactly_one`.
+`Statement.query_many` принимает любую из этих cardinality; `query_optional` —
+`at_most_one` или `exactly_one`; `query_one` — только `exactly_one`.
 
-Минимальная модель должна различать `many`, `at_most_one` и `exactly_one`.
-Отдельный `Query.limit_one` устанавливает `LIMIT 1` и переводит запрос в
-`at_most_one`; такой запрос можно передать в `Statement.query_optional`.
-Обычный `Query.limit : int -> ...` и runtime `limit_param` доказательства не
-дают, поскольку значение может быть больше единицы. Если последующий вызов
-заменяет `LIMIT 1` произвольным limit, доказательство должно сбрасываться.
+`Query.limit_one` рендерит `LIMIT 1` и доказывает `at_most_one`. Обычные
+`Query.limit` и runtime `limit_param` сбрасывают доказательство, поэтому после
+замены лимита такой запрос нельзя передать в `query_optional`.
 
-`LIMIT 1` не доказывает наличие строки, поэтому сам по себе не разрешает
-статически безопасный `query_one`. Для `exactly_one` нужны отдельные источники
-доказательства: aggregate без `GROUP BY`, отсекающих `HAVING`/`OFFSET` и
-`LIMIT 0`, либо будущий lookup по типизированному unique/primary key. Текущий
-runtime-checked контракт `query_one` следует отделить и явно назвать, например
-`expect_one`, если совместимость API не требует оставить старое имя.
+`Query.select_exactly_one` создаёт `exactly_one` для ungrouped aggregate.
+Compiler дополнительно отклоняет запрос при `HAVING`, `OFFSET`, `LIMIT 0` или
+отсутствии local aggregate. `LIMIT 1` сам по себе не доказывает наличие строки.
 
-Целевой контракт:
+`expect_one` и `expect_optional` сохраняют явную runtime-проверку для запросов
+без статического доказательства. Adapters также проверяют фактическую
+кардинальность как защиту от ошибки драйвера или будущего внутреннего кода.
 
-- `query_many` принимает запрос с любой доказанной верхней границей и
-  возвращает список;
-- `query_optional` принимает `at_most_one` или `exactly_one` и возвращает
-  `option`;
-- `query_one` принимает только `exactly_one`;
-- `expect_one` остаётся явной runtime-проверкой для запроса без статического
-  доказательства.
-
-Изменение должно сопровождаться compile-fail тестами: обычный SELECT нельзя
-передать в `query_optional`, запрос после `limit_one` можно, а замена лимита на
-произвольный снова запрещает это. Адаптеры должны сохранить проверку фактической
-кардинальности как защиту от нарушения инварианта драйвером или будущим
-внутренним кодом.
+Compile-fail tests проверяют, что обычный SELECT нельзя передать в
+`query_optional`, запрос после `limit_one` можно, а последующий произвольный
+`limit` снова запрещает это.
 
 ### 3. Добавить PostgreSQL runtime infrastructure, когда подключение разрешат
 

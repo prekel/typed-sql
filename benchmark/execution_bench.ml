@@ -22,7 +22,7 @@ module Item = struct
 end
 
 let statement =
-  Statement.Portable.query_one_exn (fun params ->
+  Statement.Portable.expect_one_exn (fun params ->
     let id = params.column Item.id_column ~get:Fn.id in
     Query.(
       from Item.table |> where (fun item -> Item.id item =. id) |> select Item.projection))

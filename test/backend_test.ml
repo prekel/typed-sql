@@ -4,8 +4,10 @@ open Infix
 module B = Typed_sql_backend
 
 let compile_exn
-  : type row kind.
-    Dialect.t -> (row, kind, Dialect.portable) Result_query.t -> row B.Compiled_query.t
+  : type row kind cardinality.
+    Dialect.t
+    -> (row, kind, cardinality, Dialect.portable) Result_query.t
+    -> row B.Compiled_query.t
   =
   fun dialect query ->
   let statement =

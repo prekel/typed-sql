@@ -64,6 +64,17 @@ let compile_query_plan ~dialect query =
   let ast = Result_query.ast query |> Normalizer.result_query in
   let open Result.Let_syntax in
   let%bind () = Validator.result_query ast in
+  let%bind () =
+    if Result_query.requires_exactly_one query then (
+      match
+        ast
+      with
+      | Ast.Select (Ast.Simple select) when Aggregate_scope.exactly_one select -> Ok ()
+      | Ast.Select (Ast.Compound _) | Ast.Returning _ | Ast.Select (Ast.Simple _) ->
+        Error Compile_error.Exactly_one_query_not_proven)
+    else
+      Ok ()
+  in
   let%map lowered = Lower.result_query ~dialect ast in
   let template, parameters = Renderer.result_query lowered in
   let projection = Result_query.projection query in

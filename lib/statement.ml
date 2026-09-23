@@ -63,7 +63,7 @@ type 'input command_plan =
 type ('input, 'output, +'requirements) t =
   | Dynamic_query :
       { cardinality : ('row, 'output) cardinality
-      ; build : 'input -> ('row, 'kind, 'requirements) Result_query.t
+      ; build : 'input -> ('row, 'kind, 'query_cardinality, 'requirements) Result_query.t
       }
       -> ('input, 'output, 'requirements) t
   | Dynamic_command :
@@ -179,10 +179,14 @@ module Portable = struct
   let query_many build = create_query ~dialects ~cardinality:Many build
   let query_one build = create_query ~dialects ~cardinality:One build
   let query_optional build = create_query ~dialects ~cardinality:Optional build
+  let expect_one build = create_query ~dialects ~cardinality:One build
+  let expect_optional build = create_query ~dialects ~cardinality:Optional build
   let command build = create_command ~dialects build
   let query_many_exn build = query_many build |> or_raise
   let query_one_exn build = query_one build |> or_raise
   let query_optional_exn build = query_optional build |> or_raise
+  let expect_one_exn build = expect_one build |> or_raise
+  let expect_optional_exn build = expect_optional build |> or_raise
   let command_exn build = command build |> or_raise
 end
 
@@ -199,10 +203,20 @@ module For_dialect = struct
     create_query ~dialects:[ Dialect.kind dialect ] ~cardinality:Optional build
   ;;
 
+  let expect_one ~dialect build =
+    create_query ~dialects:[ Dialect.kind dialect ] ~cardinality:One build
+  ;;
+
+  let expect_optional ~dialect build =
+    create_query ~dialects:[ Dialect.kind dialect ] ~cardinality:Optional build
+  ;;
+
   let command ~dialect build = create_command ~dialects:[ Dialect.kind dialect ] build
   let query_many_exn ~dialect build = query_many ~dialect build |> or_raise
   let query_one_exn ~dialect build = query_one ~dialect build |> or_raise
   let query_optional_exn ~dialect build = query_optional ~dialect build |> or_raise
+  let expect_one_exn ~dialect build = expect_one ~dialect build |> or_raise
+  let expect_optional_exn ~dialect build = expect_optional ~dialect build |> or_raise
   let command_exn ~dialect build = command ~dialect build |> or_raise
 end
 
@@ -213,6 +227,8 @@ module Dynamic = struct
     let query_many build = Dynamic_query { cardinality = Many; build }
     let query_one build = Dynamic_query { cardinality = One; build }
     let query_optional build = Dynamic_query { cardinality = Optional; build }
+    let expect_one build = Dynamic_query { cardinality = One; build }
+    let expect_optional build = Dynamic_query { cardinality = Optional; build }
     let command build = Dynamic_command build
   end
 end

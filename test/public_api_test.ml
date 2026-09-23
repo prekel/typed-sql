@@ -164,29 +164,105 @@ let%test_unit "choose selects only precompiled statement variants" =
 
 let statement_query = Query.(from items |> select projection)
 
-let%test_unit "dialect-specific statement constructors preserve cardinality" =
+let%test_unit "dialect-specific statement constructors require cardinality proofs" =
   let definition_error (error : Statement.definition_error) =
     Compile_error.to_string error.error
   in
   let one =
-    Statement.For_dialect.query_one ~dialect:Dialect.postgresql (fun _ -> statement_query)
+    Statement.For_dialect.query_one ~dialect:Dialect.postgresql (fun _ ->
+      Query.(
+        from items
+        |> limit_one
+        |> select_exactly_one (fun _ -> Projection.expr Expr.count_all)))
     |> Result.map_error ~f:definition_error
     |> Result.ok_or_failwith
   in
   let optional =
     Statement.For_dialect.query_optional ~dialect:Dialect.postgresql (fun _ ->
-      statement_query)
+      Query.(from items |> limit_one |> select projection))
+    |> Result.map_error ~f:definition_error
+    |> Result.ok_or_failwith
+  in
+  let one_without_limit =
+    Statement.For_dialect.query_one ~dialect:Dialect.postgresql (fun _ ->
+      Query.(from items |> select_exactly_one (fun _ -> Projection.expr Expr.count_all)))
     |> Result.map_error ~f:definition_error
     |> Result.ok_or_failwith
   in
   ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() one);
   ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() optional);
+  ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() one_without_limit);
   ignore
     (Statement.For_dialect.query_one_exn ~dialect:Dialect.postgresql (fun _ ->
-       statement_query));
+       Query.(
+         from items
+         |> limit_one
+         |> select_exactly_one (fun _ -> Projection.expr Expr.count_all))));
   ignore
     (Statement.For_dialect.query_optional_exn ~dialect:Dialect.postgresql (fun _ ->
+       Query.(from items |> limit_one |> select projection)));
+  ignore
+    (Statement.For_dialect.expect_one_exn ~dialect:Dialect.postgresql (fun _ ->
+       statement_query));
+  ignore
+    (Statement.For_dialect.expect_optional_exn ~dialect:Dialect.postgresql (fun _ ->
        statement_query))
+;;
+
+let%test_unit "select_exactly_one validates its aggregate proof" =
+  let check_not_proven statement =
+    match statement with
+    | Error
+        ({ error = Compile_error.Exactly_one_query_not_proven; _ } :
+          Statement.definition_error) ->
+      assert (
+        String.equal
+          (Compile_error.to_string Compile_error.Exactly_one_query_not_proven)
+          "exactly-one SELECT requires an ungrouped aggregate without HAVING, OFFSET, or LIMIT 0")
+    | Error error -> failwith (Compile_error.to_string error.error)
+    | Ok _ -> failwith "invalid SELECT was accepted as exactly one row"
+  in
+  check_not_proven
+    (Statement.Portable.query_one (fun _ ->
+       Query.(from items |> select_exactly_one projection)));
+  check_not_proven
+    (Statement.Portable.query_one (fun _ ->
+       Query.(
+         from items
+         |> limit 0
+         |> select_exactly_one (fun _ -> Projection.expr Expr.count_all))));
+  check_not_proven
+    (Statement.Portable.query_one (fun parameters ->
+       let maximum = parameters.non_negative_int ~name:"limit" ~get:Fn.id in
+       Query.(
+         from items
+         |> limit_param maximum
+         |> select_exactly_one (fun _ -> Projection.expr Expr.count_all))))
+;;
+
+let%test_unit "portable statement constructors consume cardinality proofs" =
+  let one =
+    Statement.Portable.query_one (fun _ ->
+      Query.(from items |> select_exactly_one (fun _ -> Projection.expr Expr.count_all)))
+    |> Result.map_error ~f:(fun (error : Statement.definition_error) ->
+      Compile_error.to_string error.error)
+    |> Result.ok_or_failwith
+  in
+  let optional =
+    Statement.Portable.query_optional (fun _ ->
+      Query.(from items |> limit_one |> select projection))
+    |> Result.map_error ~f:(fun (error : Statement.definition_error) ->
+      Compile_error.to_string error.error)
+    |> Result.ok_or_failwith
+  in
+  ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() one);
+  ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() optional);
+  ignore
+    (Statement.Portable.query_one_exn (fun _ ->
+       Query.(from items |> select_exactly_one (fun _ -> Projection.expr Expr.count_all))));
+  ignore
+    (Statement.Portable.query_optional_exn (fun _ ->
+       Query.(from items |> limit_one |> select projection)))
 ;;
 
 let%test_unit "statement reports unsupported runtime dialects" =

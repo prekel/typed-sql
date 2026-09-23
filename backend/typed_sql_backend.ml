@@ -91,6 +91,7 @@ module Statement = struct
     | P.Nested_aggregate -> Nested_aggregate
     | P.Ungrouped_expression -> Ungrouped_expression
     | P.Scalar_subquery_may_return_many_rows -> Scalar_subquery_may_return_many_rows
+    | P.Exactly_one_query_not_proven -> Exactly_one_query_not_proven
     | P.Invalid_relation_column position -> Invalid_relation_column position
     | P.Duplicate_relation_column column ->
       Duplicate_relation_column (public_identifier column)

@@ -674,13 +674,38 @@ module Projection : sig
   end
 end
 
+(** Phantom proofs about SELECT result cardinality. These types describe what
+    the DSL and compiler can prove before execution; adapters still enforce
+    the requested runtime cardinality as a defensive check. *)
+module Cardinality : sig
+  (** No useful upper bound is known. This does not mean that the SELECT must
+      return multiple rows. *)
+  type many = [ `Many ]
+
+  (** The SELECT can return zero or one row. [Query.limit_one] establishes this
+      proof. *)
+  type at_most_one = [ `At_most_one ]
+
+  (** The SELECT is guaranteed to return one row. An [exactly_one] result is
+      also accepted by APIs requiring [at_most_one]. *)
+  type exactly_one =
+    [ `At_most_one
+    | `Exactly_one
+    ]
+end
+
 (** Finished statements that decode returned rows. *)
 module Result_query : sig
+  (** Marker for a completed SELECT. *)
   type select
+
+  (** Marker for a completed INSERT, UPDATE, or DELETE with [RETURNING]. *)
   type returning
 
-  (** A deferred statement that returns decoded rows. *)
-  type ('result, 'kind, +'requirements) t
+  (** A deferred statement that returns decoded rows. ['cardinality] records a
+      proof about the number of rows it can return; ['kind] distinguishes a
+      SELECT from DML [RETURNING]. *)
+  type ('result, 'kind, +'cardinality, +'requirements) t
 end
 
 (** Finished statements that return only an affected-row result. *)
@@ -732,11 +757,13 @@ module Derived_table : sig
 
   (** Give a SELECT result a relation descriptor so it can be used as a FROM
       source or JOIN target. [columns] must project direct columns from [table]
-      in the relation's declared order. *)
+      in the relation's declared order. The inner result's cardinality proof
+      is not exposed by the relation; a SELECT started from it has
+      [Cardinality.many]. *)
   val create
     :  table:'row Table.t
     -> columns:('row Table_ref.t -> ('columns, 'requirements) Projection.t)
-    -> ('result, Result_query.select, 'requirements) Result_query.t
+    -> ('result, Result_query.select, 'cardinality, 'requirements) Result_query.t
     -> ('row, 'requirements) t
 end
 
@@ -762,7 +789,8 @@ module Cte : sig
     | `Union_all
     ]
 
-  (** Define a non-recursive CTE from a typed relation. *)
+  (** Define a non-recursive CTE from a typed relation. A CTE handle describes
+      its columns, not the number of rows produced by its definition. *)
   val select
     :  ?materialization:materialization
     -> ('row, 'requirements) Derived_table.t
@@ -777,11 +805,12 @@ module Cte : sig
     -> ('row t, 'requirements) definition
 
   (** Attach a CTE to a SELECT or a DML statement with [RETURNING]. The
-      callback receives the CTE handle in lexical scope. *)
+      callback receives the CTE handle in lexical scope. The result cardinality
+      proof is preserved. *)
   val with_result
     :  ('handle, 'requirements) definition
-    -> f:('handle -> ('result, 'kind, 'requirements) Result_query.t)
-    -> ('result, 'kind, 'requirements) Result_query.t
+    -> f:('handle -> ('result, 'kind, 'cardinality, 'requirements) Result_query.t)
+    -> ('result, 'kind, 'cardinality, 'requirements) Result_query.t
 
   (** Attach a CTE to an INSERT, UPDATE, or DELETE command. *)
   val with_command
@@ -792,13 +821,16 @@ end
 
 (** Immutable SELECT builders. *)
 module Query : sig
-  (** An immutable SELECT builder. ['ctx] is the callback context of visible
-      table references. [select] finishes the builder and determines the result
-      type. *)
+  (** Marker for a SELECT without [GROUP BY]. *)
   type ungrouped
 
+  (** Marker for a SELECT with at least one [GROUP BY] expression. *)
   type grouped
-  type ('ctx, 'grouping, +'requirements) t
+
+  (** An immutable SELECT builder. ['ctx] is the callback context of visible
+      table references; ['grouping] tracks whether [GROUP BY] is present;
+      ['cardinality] is the current row-bound proof. *)
+  type ('ctx, 'grouping, +'cardinality, +'requirements) t
 
   (** Direction for one [ORDER BY] key. *)
   type direction =
@@ -807,52 +839,83 @@ module Query : sig
     ]
 
   (** Start a SELECT builder from one table. Subsequent callbacks receive the
-      only valid reference to this occurrence. *)
-  val from : 'row Table.t -> ('row Table_ref.t, ungrouped, 'requirements) t
+      only valid reference to this occurrence. A new source has cardinality
+      [Cardinality.many]. *)
+  val from
+    :  'row Table.t
+    -> ('row Table_ref.t, ungrouped, Cardinality.many, 'requirements) t
 
-  (** Start a SELECT builder from a typed derived relation. *)
+  (** Start a SELECT builder from a typed derived relation. The new outer
+      SELECT starts with [Cardinality.many] independently of the inner query. *)
   val from_derived
     :  ('row, 'requirements) Derived_table.t
-    -> ('row Table_ref.t, ungrouped, 'requirements) t
+    -> ('row Table_ref.t, ungrouped, Cardinality.many, 'requirements) t
 
   (** Start a SELECT from a relation built by [select_relation]. The context
-      has the same structural shape as its [Derived_table.Fields] value. *)
+      has the same structural shape as its [Derived_table.Fields] value. The
+      new outer SELECT starts with [Cardinality.many]. *)
   val from_relation
     :  ('fields, 'nullable_fields, 'requirements) Derived_table.inferred
-    -> ('fields, ungrouped, 'requirements) t
+    -> ('fields, ungrouped, Cardinality.many, 'requirements) t
 
-  (** Start a SELECT builder from a CTE handle in lexical scope. *)
-  val from_cte : 'row Cte.t -> ('row Table_ref.t, ungrouped, 'requirements) t
+  (** Start a SELECT builder from a CTE handle in lexical scope. The new outer
+      SELECT starts with [Cardinality.many]. *)
+  val from_cte
+    :  'row Cte.t
+    -> ('row Table_ref.t, ungrouped, Cardinality.many, 'requirements) t
 
   (** Finish the builder with a result projection. Keeping [select] last avoids
-      a temporary projection while filters and joins are assembled. *)
+      a temporary projection while filters and joins are assembled. The
+      builder's cardinality proof is preserved in the [Result_query]. *)
   val select
     :  ('ctx -> ('result, 'requirements) Projection.t)
-    -> ('ctx, 'grouping, 'requirements) t
-    -> ('result, Result_query.select, 'requirements) Result_query.t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('result, Result_query.select, 'cardinality, 'requirements) Result_query.t
+
+  (** Finish an ungrouped aggregate SELECT and establish cardinality
+      [Cardinality.exactly_one]. The compiler requires at least one local
+      aggregate and rejects [HAVING],
+      [OFFSET], a parameterized [LIMIT], and a literal [LIMIT] below one.
+      Use regular [select] when the query does not satisfy this contract. *)
+  val select_exactly_one
+    :  ('ctx -> ('result, 'requirements) Projection.t)
+    -> ('ctx, ungrouped, 'cardinality, 'requirements) t
+    -> ( 'result
+         , Result_query.select
+         , Cardinality.exactly_one
+         , 'requirements )
+         Result_query.t
 
   (** Finish the builder as a reusable derived relation. Only structural
       [Derived_table.Fields] values are accepted, so arbitrary decoding through
-      [Projection.map] cannot be exposed as SQL fields. *)
+      [Projection.map] cannot be exposed as SQL fields. The builder's
+      cardinality proof is intentionally absent from the resulting relation;
+      an outer SELECT starts with [Cardinality.many]. *)
   val select_relation
     :  ('ctx -> ('fields, 'nullable_fields, 'requirements) Derived_table.Fields.t)
-    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
     -> ('fields, 'nullable_fields, 'requirements) Derived_table.inferred
 
   (** Finish a builder as a one-expression query suitable for a scalar
-      subquery or [IN] predicate. *)
+      subquery or [IN] predicate. When embedded with [Expr.scalar], the
+      compiler checks the query's SQL shape for an at-most-one-row guarantee;
+      that check is independent of the public cardinality phantom. *)
   val select_scalar
     :  ('ctx -> ('value, 'requirements) Expr.t)
-    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
     -> ('value, 'requirements) Scalar_query.t
 
   (** Test whether an unfinished SELECT returns at least one row. Its
       projection is intentionally omitted and rendered as [SELECT 1]. The
       query may capture references from the enclosing callback. *)
-  val exists : ('inner_ctx, 'grouping, 'requirements) t -> 'requirements Condition.t
+  val exists
+    :  ('inner_ctx, 'grouping, 'cardinality, 'requirements) t
+    -> 'requirements Condition.t
 
   (** Negated [EXISTS]. *)
-  val not_exists : ('inner_ctx, 'grouping, 'requirements) t -> 'requirements Condition.t
+  val not_exists
+    :  ('inner_ctx, 'grouping, 'cardinality, 'requirements) t
+    -> 'requirements Condition.t
 
   (** Test membership in a typed one-column SELECT. *)
   val in_subquery
@@ -867,151 +930,185 @@ module Query : sig
     -> 'requirements Condition.t
 
   (** Append an [INNER JOIN]. The [on] callback sees the existing context and a
-      regular reference to the newly joined table. *)
+      regular reference to the newly joined table. Any existing cardinality
+      bound is preserved because [LIMIT] applies after joins. *)
   val inner_join
     :  'row Table.t
     -> on:('ctx -> 'row Table_ref.t -> 'requirements Condition.t)
-    -> ('ctx, 'grouping, 'requirements) t
-    -> ('ctx * 'row Table_ref.t, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx * 'row Table_ref.t, 'grouping, 'cardinality, 'requirements) t
 
   (** [on] sees the new table before null extension. Subsequent callbacks
-      receive a nullable reference and must use [Expr.nullable_column]. *)
+      receive a nullable reference and must use [Expr.nullable_column]. Any
+      existing cardinality bound is preserved. *)
   val left_join
     :  'row Table.t
     -> on:('ctx -> 'row Table_ref.t -> 'requirements Condition.t)
-    -> ('ctx, 'grouping, 'requirements) t
-    -> ('ctx * 'row Nullable_table_ref.t, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx * 'row Nullable_table_ref.t, 'grouping, 'cardinality, 'requirements) t
 
-  (** Join a typed derived relation. *)
+  (** Join a typed derived relation while preserving the current cardinality
+      bound. *)
   val inner_join_derived
     :  ('row, 'requirements) Derived_table.t
     -> on:('ctx -> 'row Table_ref.t -> 'requirements Condition.t)
-    -> ('ctx, 'grouping, 'requirements) t
-    -> ('ctx * 'row Table_ref.t, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx * 'row Table_ref.t, 'grouping, 'cardinality, 'requirements) t
 
-  (** Left join a typed derived relation. The appended reference is nullable. *)
+  (** Left join a typed derived relation. The appended reference is nullable;
+      the current cardinality bound is preserved. *)
   val left_join_derived
     :  ('row, 'requirements) Derived_table.t
     -> on:('ctx -> 'row Table_ref.t -> 'requirements Condition.t)
-    -> ('ctx, 'grouping, 'requirements) t
-    -> ('ctx * 'row Nullable_table_ref.t, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx * 'row Nullable_table_ref.t, 'grouping, 'cardinality, 'requirements) t
 
   (** Join a relation built by [select_relation]. The appended context has the
-      structural shape declared by its fields. *)
+      structural shape declared by its fields. The current cardinality bound
+      is preserved. *)
   val inner_join_relation
     :  ('fields, 'nullable_fields, 'requirements) Derived_table.inferred
     -> on:('ctx -> 'fields -> 'requirements Condition.t)
-    -> ('ctx, 'grouping, 'requirements) t
-    -> ('ctx * 'fields, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx * 'fields, 'grouping, 'cardinality, 'requirements) t
 
   (** Left join a relation built by [select_relation]. Its exposed expressions
-      are nullable after the join. *)
+      are nullable after the join. The current cardinality bound is preserved. *)
   val left_join_relation
     :  ('fields, 'nullable_fields, 'requirements) Derived_table.inferred
     -> on:('ctx -> 'fields -> 'requirements Condition.t)
-    -> ('ctx, 'grouping, 'requirements) t
-    -> ('ctx * 'nullable_fields, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx * 'nullable_fields, 'grouping, 'cardinality, 'requirements) t
 
-  (** Join a CTE handle in lexical scope. *)
+  (** Join a CTE handle in lexical scope while preserving the current
+      cardinality bound. *)
   val inner_join_cte
     :  'row Cte.t
     -> on:('ctx -> 'row Table_ref.t -> 'requirements Condition.t)
-    -> ('ctx, 'grouping, 'requirements) t
-    -> ('ctx * 'row Table_ref.t, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx * 'row Table_ref.t, 'grouping, 'cardinality, 'requirements) t
 
-  (** Left join a CTE handle. The appended reference is nullable. *)
+  (** Left join a CTE handle. The appended reference is nullable; the current
+      cardinality bound is preserved. *)
   val left_join_cte
     :  'row Cte.t
     -> on:('ctx -> 'row Table_ref.t -> 'requirements Condition.t)
-    -> ('ctx, 'grouping, 'requirements) t
-    -> ('ctx * 'row Nullable_table_ref.t, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx * 'row Nullable_table_ref.t, 'grouping, 'cardinality, 'requirements) t
 
-  (** Repeated calls combine predicates with SQL AND. *)
+  (** Repeated calls combine predicates with SQL AND. Filtering preserves any
+      existing upper bound on result rows. *)
   val where
     :  ('ctx -> 'requirements Condition.t)
-    -> ('ctx, 'grouping, 'requirements) t
-    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
 
   (** Add a predicate only when the optional value is [Some]. [None] returns
-      the same immutable query unchanged. *)
+      the same immutable query unchanged. The cardinality bound is preserved. *)
   val where_opt
     :  'value option
     -> f:('ctx -> 'value -> 'requirements Condition.t)
-    -> ('ctx, 'grouping, 'requirements) t
-    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
 
-  (** Remove duplicate result rows with portable SQL [DISTINCT]. *)
-  val distinct : ('ctx, 'grouping, 'requirements) t -> ('ctx, 'grouping, 'requirements) t
+  (** Remove duplicate result rows with portable SQL [DISTINCT]. The
+      cardinality bound is preserved. *)
+  val distinct
+    :  ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
 
-  (** Append one [GROUP BY] expression. Repeated calls preserve call order. *)
+  (** Append one [GROUP BY] expression. Repeated calls preserve call order and
+      any existing cardinality bound. *)
   val group_by
     :  ('ctx -> ('value, 'requirements) Expr.t)
-    -> ('ctx, 'grouping, 'requirements) t
-    -> ('ctx, grouped, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx, grouped, 'cardinality, 'requirements) t
 
   (** Add an aggregate-group predicate. Repeated calls combine predicates with
-      SQL [AND]. The compiler rejects ungrouped non-aggregate expressions. *)
+      SQL [AND]. The compiler rejects ungrouped non-aggregate expressions. The
+      current upper bound is preserved. *)
   val having
     :  ('ctx -> 'requirements Condition.t)
-    -> ('ctx, grouped, 'requirements) t
-    -> ('ctx, grouped, 'requirements) t
+    -> ('ctx, grouped, 'cardinality, 'requirements) t
+    -> ('ctx, grouped, 'cardinality, 'requirements) t
 
-  (** Append one ordering key. Repeated calls preserve call order. *)
+  (** Append one ordering key. Repeated calls preserve call order and the
+      current cardinality bound. *)
   val order_by
     :  ('ctx -> ('value, 'requirements) Expr.t)
     -> direction
-    -> ('ctx, 'grouping, 'requirements) t
-    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
 
   (** Set the maximum number of returned rows. The compiler rejects negative
-      values. A later call replaces the previous limit. *)
+      values. A later call replaces the previous limit. Because an arbitrary
+      integer may exceed one, this operation resets the proof to
+      [Cardinality.many], even when the supplied value happens to be zero or
+      one. *)
   val limit
     :  int
-    -> ('ctx, 'grouping, 'requirements) t
-    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx, 'grouping, Cardinality.many, 'requirements) t
+
+  (** Set [LIMIT 1]. This proves that the SELECT returns at most one row. A
+      later [limit] or [limit_param] replaces that proof. It does not prove
+      that a row exists, so the result is unsuitable for
+      [Statement.Portable.query_one]. *)
+  val limit_one
+    :  ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx, 'grouping, Cardinality.at_most_one, 'requirements) t
 
   (** Set the number of rows to skip. The compiler rejects negative values. A
-      later call replaces the previous offset. *)
+      later call replaces the previous offset. Skipping rows preserves an
+      existing upper bound. *)
   val offset
     :  int
-    -> ('ctx, 'grouping, 'requirements) t
-    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
 
   (** Set [LIMIT] from a runtime statement parameter validated as non-negative
-      before execution. *)
+      before execution. Since the value is unknown while the statement is
+      built, this resets the cardinality proof to [Cardinality.many]. *)
   val limit_param
     :  'requirements Pagination_parameter.t
-    -> ('ctx, 'grouping, 'requirements) t
-    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx, 'grouping, Cardinality.many, 'requirements) t
 
   (** Set [OFFSET] from a runtime statement parameter validated as
-      non-negative before execution. *)
+      non-negative before execution. Skipping rows preserves an existing upper
+      bound. *)
   val offset_param
     :  'requirements Pagination_parameter.t
-    -> ('ctx, 'grouping, 'requirements) t
-    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
 
   (** Combine two SELECT results using portable SQL set operations. The
-      compiler verifies that both projected database-type sequences match. *)
+      compiler verifies that both projected database-type sequences match.
+      Every set operation resets cardinality to [Cardinality.many], regardless
+      of operand proofs. The combined result uses the left projection's
+      decoder. *)
   val union
-    :  ('result, Result_query.select, 'requirements) Result_query.t
-    -> ('result, Result_query.select, 'requirements) Result_query.t
-    -> ('result, Result_query.select, 'requirements) Result_query.t
+    :  ('result, Result_query.select, 'left_cardinality, 'requirements) Result_query.t
+    -> ('result, Result_query.select, 'right_cardinality, 'requirements) Result_query.t
+    -> ('result, Result_query.select, Cardinality.many, 'requirements) Result_query.t
 
+  (** Combine results with duplicate-preserving [UNION ALL]. *)
   val union_all
-    :  ('result, Result_query.select, 'requirements) Result_query.t
-    -> ('result, Result_query.select, 'requirements) Result_query.t
-    -> ('result, Result_query.select, 'requirements) Result_query.t
+    :  ('result, Result_query.select, 'left_cardinality, 'requirements) Result_query.t
+    -> ('result, Result_query.select, 'right_cardinality, 'requirements) Result_query.t
+    -> ('result, Result_query.select, Cardinality.many, 'requirements) Result_query.t
 
+  (** Return distinct rows present in both operands with [INTERSECT]. *)
   val intersect
-    :  ('result, Result_query.select, 'requirements) Result_query.t
-    -> ('result, Result_query.select, 'requirements) Result_query.t
-    -> ('result, Result_query.select, 'requirements) Result_query.t
+    :  ('result, Result_query.select, 'left_cardinality, 'requirements) Result_query.t
+    -> ('result, Result_query.select, 'right_cardinality, 'requirements) Result_query.t
+    -> ('result, Result_query.select, Cardinality.many, 'requirements) Result_query.t
 
+  (** Return distinct left rows absent from the right operand with [EXCEPT]. *)
   val except
-    :  ('result, Result_query.select, 'requirements) Result_query.t
-    -> ('result, Result_query.select, 'requirements) Result_query.t
-    -> ('result, Result_query.select, 'requirements) Result_query.t
+    :  ('result, Result_query.select, 'left_cardinality, 'requirements) Result_query.t
+    -> ('result, Result_query.select, 'right_cardinality, 'requirements) Result_query.t
+    -> ('result, Result_query.select, Cardinality.many, 'requirements) Result_query.t
 end
 
 (** Immutable INSERT builders. *)
@@ -1159,11 +1256,15 @@ module Insert : sig
       duplicate assignment list. *)
   val command : ('row, 'requirements) t -> 'requirements Command.t
 
-  (** Finish an INSERT with a typed [RETURNING] projection. *)
+  (** Finish an INSERT with a typed [RETURNING] projection. DML does not carry
+      a row-count proof, so the result cardinality is [Cardinality.many]. Use
+      [Statement.Portable.expect_one] or
+      [Statement.Portable.expect_optional] when an application invariant
+      expects fewer rows. *)
   val returning
     :  ('row Table_ref.t -> ('result, 'requirements) Projection.t)
     -> ('row, 'requirements) t
-    -> ('result, Result_query.returning, 'requirements) Result_query.t
+    -> ('result, Result_query.returning, Cardinality.many, 'requirements) Result_query.t
 end
 
 (** Immutable UPDATE builders with type-level row-scope authorization. *)
@@ -1280,11 +1381,13 @@ module Update : sig
       empty or duplicate assignment list. *)
   val command : ('row, scoped, 'requirements) t -> 'requirements Command.t
 
-  (** Finish a scoped UPDATE with a typed [RETURNING] projection. *)
+  (** Finish a scoped UPDATE with a typed [RETURNING] projection. The result
+      cardinality is [Cardinality.many], even when the predicate is expected to
+      identify a unique row. *)
   val returning
     :  ('row Table_ref.t -> ('result, 'requirements) Projection.t)
     -> ('row, scoped, 'requirements) t
-    -> ('result, Result_query.returning, 'requirements) Result_query.t
+    -> ('result, Result_query.returning, Cardinality.many, 'requirements) Result_query.t
 end
 
 (** Immutable DELETE builders with type-level row-scope authorization. *)
@@ -1314,11 +1417,12 @@ module Delete : sig
   (** Finish a scoped DELETE without returned rows. *)
   val command : ('row, scoped, 'requirements) t -> 'requirements Command.t
 
-  (** Finish a scoped DELETE with a typed [RETURNING] projection. *)
+  (** Finish a scoped DELETE with a typed [RETURNING] projection. The result
+      cardinality is [Cardinality.many]. *)
   val returning
     :  ('row Table_ref.t -> ('result, 'requirements) Projection.t)
     -> ('row, scoped, 'requirements) t
-    -> ('result, Result_query.returning, 'requirements) Result_query.t
+    -> ('result, Result_query.returning, Cardinality.many, 'requirements) Result_query.t
 end
 
 (** Supported SQL dialects. *)
@@ -1353,34 +1457,52 @@ end
 module Postgresql : sig
   module Query : sig
     (** Add [HAVING] before [GROUP BY]. PostgreSQL treats the input as one
-        aggregate group; portable [Query.having] requires [Query.grouped]. *)
+        aggregate group; portable [Query.having] requires [Query.grouped]. The
+        existing cardinality bound is preserved, but
+        [Query.select_exactly_one] rejects ungrouped [HAVING] because it can
+        remove the aggregate row. *)
     val having
       :  ('ctx -> 'requirements Condition.t)
-      -> ('ctx, Query.ungrouped, ([> `Postgresql ] as 'requirements)) Query.t
-      -> ('ctx, Query.ungrouped, 'requirements) Query.t
+      -> ( 'ctx
+           , Query.ungrouped
+           , 'cardinality
+           , ([> `Postgresql ] as 'requirements) )
+           Query.t
+      -> ('ctx, Query.ungrouped, 'cardinality, 'requirements) Query.t
 
-    (** PostgreSQL's duplicate-preserving set operations. *)
+    (** PostgreSQL's duplicate-preserving set operations. Both reset result
+        cardinality to [Cardinality.many]. *)
     val intersect_all
-      :  ('result, Result_query.select, ([> `Postgresql ] as 'requirements)) Result_query.t
-      -> ('result, Result_query.select, 'requirements) Result_query.t
-      -> ('result, Result_query.select, 'requirements) Result_query.t
+      :  ( 'result
+           , Result_query.select
+           , 'left_cardinality
+           , ([> `Postgresql ] as 'requirements) )
+           Result_query.t
+      -> ('result, Result_query.select, 'right_cardinality, 'requirements) Result_query.t
+      -> ('result, Result_query.select, Cardinality.many, 'requirements) Result_query.t
 
+    (** Return duplicate-preserving left rows absent from the right operand. *)
     val except_all
-      :  ('result, Result_query.select, ([> `Postgresql ] as 'requirements)) Result_query.t
-      -> ('result, Result_query.select, 'requirements) Result_query.t
-      -> ('result, Result_query.select, 'requirements) Result_query.t
+      :  ( 'result
+           , Result_query.select
+           , 'left_cardinality
+           , ([> `Postgresql ] as 'requirements) )
+           Result_query.t
+      -> ('result, Result_query.select, 'right_cardinality, 'requirements) Result_query.t
+      -> ('result, Result_query.select, Cardinality.many, 'requirements) Result_query.t
   end
 
   module Cte : sig
     (** Define a data-modifying CTE with [RETURNING]. The CTE relation is
         described by [table] and [columns], and may be used by the enclosing
-        PostgreSQL statement. *)
+        PostgreSQL statement. The input result's cardinality is irrelevant to
+        the CTE relation and is not exposed by [Cte.t]. *)
     val returning
       :  table:'row Table.t
       -> columns:
            ('row Table_ref.t
             -> ('columns, ([> `Postgresql ] as 'requirements)) Projection.t)
-      -> ('result, Result_query.returning, 'requirements) Result_query.t
+      -> ('result, Result_query.returning, 'cardinality, 'requirements) Result_query.t
       -> ('row Cte.t, 'requirements) Cte.definition
 
     (** Define a data-modifying CTE used only for its effect. *)
@@ -1453,6 +1575,10 @@ module Compile_error : sig
     (** Scalar embedding requires an explicit [LIMIT 0/1] or an aggregate of
         the current SELECT without [GROUP BY]. Membership and existence
         subqueries are not subject to this restriction. *)
+    | Exactly_one_query_not_proven
+    (** [Query.select_exactly_one] requires an ungrouped aggregate without
+        [HAVING], [OFFSET], a parameterized [LIMIT], or a literal [LIMIT]
+        below one. *)
     | Invalid_relation_column of int
     (** A derived-table or CTE output descriptor is not a direct column. The
         integer is its one-based position. *)
@@ -1498,28 +1624,40 @@ end
     compile at definition time and use [parameters] for runtime values.
     [Dynamic.Portable] builds and compiles from input on each execution. *)
 module Statement : sig
+  (** A reusable statement from ['input] to ['output]. ['requirements]
+      constrains the dialects that may compile or execute it. Query output
+      shape includes the chosen execution cardinality; command output is
+      [Affected_rows.t]. *)
   type ('input, 'output, +'requirements) t =
     ('input, 'output, 'requirements) Typed_sql_private.Statement.t
 
+  (** A static statement definition that failed compilation for one dialect. *)
   type definition_error =
-    { dialect : Dialect.t
-    ; error : Compile_error.t
+    { dialect : Dialect.t (** Dialect whose compilation failed. *)
+    ; error : Compile_error.t (** Structural compilation error. *)
     }
 
+  (** Raised by static constructors ending in [_exn]. *)
   exception Definition_error of definition_error
 
+  (** A runtime input that could not be converted into bind parameters. *)
   type binding_error =
-    { name : string option
-    ; message : string
+    { name : string option (** Optional name assigned when declaring the slot. *)
+    ; message : string (** Human-readable validation failure. *)
     }
 
+  (** Failures produced while resolving or rendering a statement for one
+      concrete input and dialect. *)
   type sql_error =
     | Unsupported_dialect of Dialect.t
+    (** The statement has no precompiled plan for the requested dialect. *)
     | Dynamic_input_required
     (** The statement is dynamic or selects a branch from input, so its SQL
         shape cannot be chosen without [input]. *)
     | Invalid_parameter of binding_error
+    (** A runtime parameter failed validation before execution. *)
     | Compilation_error of definition_error
+    (** Building a dynamic statement for the supplied input failed. *)
 
   (** Runtime input slots for one statement. Each getter is retained in the
       compiled statement and applied to the input supplied to [sql] or an
@@ -1531,104 +1669,235 @@ module Statement : sig
         -> 'value Db_type.t
         -> get:('input -> 'value)
         -> ('value, 'requirements) Expr.t
+      (** Declare a typed bind slot read from ['input]. Reusing the returned
+          expression reuses the same slot and parameter index. *)
     ; column :
         'row 'base 'value.
         ?name:string
         -> ('row, 'base, 'value) Column.t
         -> get:('input -> 'value)
         -> ('value, 'requirements) Expr.t
+      (** Declare a bind slot using a column's database type. *)
     ; non_negative_int :
         name:string -> get:('input -> int) -> 'requirements Pagination_parameter.t
+      (** Declare a pagination slot. Binding fails before execution when the
+          getter returns a negative integer. *)
     }
 
+  (** Static statements compiled immediately for PostgreSQL and SQLite.
+      Constructors return definition errors; their [_exn] forms raise
+      [Definition_error] for the same failures. Runtime cardinality failures
+      remain adapter errors. *)
   module Portable : sig
+    (** Compile a row-returning statement for both portable dialects. Any
+        cardinality proof is accepted and execution returns every row. *)
     val query_many
       :  (('input, Dialect.portable) parameters
-          -> ('row, 'kind, Dialect.portable) Result_query.t)
+          -> ('row, 'kind, 'cardinality, Dialect.portable) Result_query.t)
       -> (('input, 'row list, Dialect.portable) t, definition_error) Result.t
 
+    (** Build a statement whose SELECT is statically known to return one row.
+        Only [Cardinality.exactly_one] is accepted. Adapters still reject an unexpected
+        zero-row or multi-row driver result. Use [expect_one] when the query has
+        no static proof. *)
     val query_one
       :  (('input, Dialect.portable) parameters
-          -> ('row, 'kind, Dialect.portable) Result_query.t)
+          -> ( 'row
+               , 'kind
+               , ([> `Exactly_one ] as 'cardinality)
+               , Dialect.portable )
+               Result_query.t)
       -> (('input, 'row, Dialect.portable) t, definition_error) Result.t
 
+    (** Build a statement whose SELECT is statically known to return at most
+        one row. [Cardinality.exactly_one] is also accepted. Execution returns
+        [None] for no row and adapters reject an unexpected multi-row result. *)
     val query_optional
       :  (('input, Dialect.portable) parameters
-          -> ('row, 'kind, Dialect.portable) Result_query.t)
+          -> ( 'row
+               , 'kind
+               , ([> `At_most_one ] as 'cardinality)
+               , Dialect.portable )
+               Result_query.t)
       -> (('input, 'row option, Dialect.portable) t, definition_error) Result.t
 
+    (** Compile any row-returning query with the runtime contract that exactly
+        one row must be returned. Adapters report an error for zero or multiple
+        rows. This is useful when uniqueness is a database or application
+        invariant not represented by the DSL. *)
+    val expect_one
+      :  (('input, Dialect.portable) parameters
+          -> ('row, 'kind, 'cardinality, Dialect.portable) Result_query.t)
+      -> (('input, 'row, Dialect.portable) t, definition_error) Result.t
+
+    (** Build an optional-row statement with an explicit runtime cardinality
+        check. Adapters return [None] for zero rows and report an error for more
+        than one row. *)
+    val expect_optional
+      :  (('input, Dialect.portable) parameters
+          -> ('row, 'kind, 'cardinality, Dialect.portable) Result_query.t)
+      -> (('input, 'row option, Dialect.portable) t, definition_error) Result.t
+
+    (** Compile a portable command returning its affected-row result. *)
     val command
       :  (('input, Dialect.portable) parameters -> Dialect.portable Command.t)
       -> (('input, Affected_rows.t, Dialect.portable) t, definition_error) Result.t
 
+    (** Raising form of [query_many]. *)
     val query_many_exn
       :  (('input, Dialect.portable) parameters
-          -> ('row, 'kind, Dialect.portable) Result_query.t)
+          -> ('row, 'kind, 'cardinality, Dialect.portable) Result_query.t)
       -> ('input, 'row list, Dialect.portable) t
 
+    (** Raising form of [query_one]. *)
     val query_one_exn
       :  (('input, Dialect.portable) parameters
-          -> ('row, 'kind, Dialect.portable) Result_query.t)
+          -> ( 'row
+               , 'kind
+               , ([> `Exactly_one ] as 'cardinality)
+               , Dialect.portable )
+               Result_query.t)
       -> ('input, 'row, Dialect.portable) t
 
+    (** Raising form of [query_optional]. *)
     val query_optional_exn
       :  (('input, Dialect.portable) parameters
-          -> ('row, 'kind, Dialect.portable) Result_query.t)
+          -> ( 'row
+               , 'kind
+               , ([> `At_most_one ] as 'cardinality)
+               , Dialect.portable )
+               Result_query.t)
       -> ('input, 'row option, Dialect.portable) t
 
+    (** Raising form of [expect_one]. *)
+    val expect_one_exn
+      :  (('input, Dialect.portable) parameters
+          -> ('row, 'kind, 'cardinality, Dialect.portable) Result_query.t)
+      -> ('input, 'row, Dialect.portable) t
+
+    (** Raising form of [expect_optional]. *)
+    val expect_optional_exn
+      :  (('input, Dialect.portable) parameters
+          -> ('row, 'kind, 'cardinality, Dialect.portable) Result_query.t)
+      -> ('input, 'row option, Dialect.portable) t
+
+    (** Raising form of [command]. *)
     val command_exn
       :  (('input, Dialect.portable) parameters -> Dialect.portable Command.t)
       -> ('input, Affected_rows.t, Dialect.portable) t
   end
 
+  (** Static statements compiled immediately for one dialect selected by its
+      typed witness. The callback may use operations required by that dialect.
+      Constructors return definition errors; their [_exn] forms raise
+      [Definition_error] for the same failures. *)
   module For_dialect : sig
+    (** Compile a row-returning statement for [dialect]. Any cardinality proof
+        is accepted and execution returns every row. *)
     val query_many
       :  dialect:'requirements Dialect.witness
       -> (('input, 'requirements) parameters
-          -> ('row, 'kind, 'requirements) Result_query.t)
+          -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t)
       -> (('input, 'row list, 'requirements) t, definition_error) Result.t
 
+    (** Compile a [Cardinality.exactly_one] query for [dialect]. Adapters retain
+        the defensive runtime cardinality check. *)
     val query_one
       :  dialect:'requirements Dialect.witness
       -> (('input, 'requirements) parameters
-          -> ('row, 'kind, 'requirements) Result_query.t)
+          -> ( 'row
+               , 'kind
+               , ([> `Exactly_one ] as 'cardinality)
+               , 'requirements )
+               Result_query.t)
       -> (('input, 'row, 'requirements) t, definition_error) Result.t
 
+    (** Build a statement whose SELECT is statically known to return at most
+        one row for [dialect]. [Cardinality.exactly_one] is also accepted. *)
     val query_optional
       :  dialect:'requirements Dialect.witness
       -> (('input, 'requirements) parameters
-          -> ('row, 'kind, 'requirements) Result_query.t)
+          -> ( 'row
+               , 'kind
+               , ([> `At_most_one ] as 'cardinality)
+               , 'requirements )
+               Result_query.t)
       -> (('input, 'row option, 'requirements) t, definition_error) Result.t
 
+    (** Compile any row-returning query for [dialect] and require exactly one
+        row at execution time. *)
+    val expect_one
+      :  dialect:'requirements Dialect.witness
+      -> (('input, 'requirements) parameters
+          -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t)
+      -> (('input, 'row, 'requirements) t, definition_error) Result.t
+
+    (** Compile any row-returning query for [dialect] and require at most one
+        row at execution time. *)
+    val expect_optional
+      :  dialect:'requirements Dialect.witness
+      -> (('input, 'requirements) parameters
+          -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t)
+      -> (('input, 'row option, 'requirements) t, definition_error) Result.t
+
+    (** Compile a command for [dialect]. *)
     val command
       :  dialect:'requirements Dialect.witness
       -> (('input, 'requirements) parameters -> 'requirements Command.t)
       -> (('input, Affected_rows.t, 'requirements) t, definition_error) Result.t
 
+    (** Raising form of [query_many]. *)
     val query_many_exn
       :  dialect:'requirements Dialect.witness
       -> (('input, 'requirements) parameters
-          -> ('row, 'kind, 'requirements) Result_query.t)
+          -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t)
       -> ('input, 'row list, 'requirements) t
 
+    (** Raising form of [query_one]. *)
     val query_one_exn
       :  dialect:'requirements Dialect.witness
       -> (('input, 'requirements) parameters
-          -> ('row, 'kind, 'requirements) Result_query.t)
+          -> ( 'row
+               , 'kind
+               , ([> `Exactly_one ] as 'cardinality)
+               , 'requirements )
+               Result_query.t)
       -> ('input, 'row, 'requirements) t
 
+    (** Raising form of [query_optional]. *)
     val query_optional_exn
       :  dialect:'requirements Dialect.witness
       -> (('input, 'requirements) parameters
-          -> ('row, 'kind, 'requirements) Result_query.t)
+          -> ( 'row
+               , 'kind
+               , ([> `At_most_one ] as 'cardinality)
+               , 'requirements )
+               Result_query.t)
       -> ('input, 'row option, 'requirements) t
 
+    (** Raising form of [expect_one]. *)
+    val expect_one_exn
+      :  dialect:'requirements Dialect.witness
+      -> (('input, 'requirements) parameters
+          -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t)
+      -> ('input, 'row, 'requirements) t
+
+    (** Raising form of [expect_optional]. *)
+    val expect_optional_exn
+      :  dialect:'requirements Dialect.witness
+      -> (('input, 'requirements) parameters
+          -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t)
+      -> ('input, 'row option, 'requirements) t
+
+    (** Raising form of [command]. *)
     val command_exn
       :  dialect:'requirements Dialect.witness
       -> (('input, 'requirements) parameters -> 'requirements Command.t)
       -> ('input, Affected_rows.t, 'requirements) t
   end
 
+  (** Statements whose SQL shape depends on the runtime input. Constructors do
+      not invoke the callback or compile a plan. *)
   module Dynamic : sig
     (** Constructors retain a pure callback without invoking it. Each [sql] or
         adapter [run] invokes it once and compiles for the selected dialect,
@@ -1638,18 +1907,47 @@ module Statement : sig
         by the callback propagate unchanged. Result cardinality is checked by
         the adapter. *)
     module Portable : sig
+      (** Build and compile a portable query from each runtime input. Any
+          cardinality proof is accepted and execution returns every row. *)
       val query_many
-        :  ('input -> ('row, 'kind, Dialect.portable) Result_query.t)
+        :  ('input -> ('row, 'kind, 'cardinality, Dialect.portable) Result_query.t)
         -> ('input, 'row list, Dialect.portable) t
 
+      (** Build a [Cardinality.exactly_one] query from each runtime input.
+          Compilation validates the proof before the adapter executes it. *)
       val query_one
-        :  ('input -> ('row, 'kind, Dialect.portable) Result_query.t)
+        :  ('input
+            -> ( 'row
+                 , 'kind
+                 , ([> `Exactly_one ] as 'cardinality)
+                 , Dialect.portable )
+                 Result_query.t)
         -> ('input, 'row, Dialect.portable) t
 
+      (** Build a [Cardinality.at_most_one] or [Cardinality.exactly_one] query
+          from each runtime input. *)
       val query_optional
-        :  ('input -> ('row, 'kind, Dialect.portable) Result_query.t)
+        :  ('input
+            -> ( 'row
+                 , 'kind
+                 , ([> `At_most_one ] as 'cardinality)
+                 , Dialect.portable )
+                 Result_query.t)
         -> ('input, 'row option, Dialect.portable) t
 
+      (** Build any row-returning query from the input and require exactly one
+          row at execution time. *)
+      val expect_one
+        :  ('input -> ('row, 'kind, 'cardinality, Dialect.portable) Result_query.t)
+        -> ('input, 'row, Dialect.portable) t
+
+      (** Build any row-returning query from the input and require at most one
+          row at execution time. *)
+      val expect_optional
+        :  ('input -> ('row, 'kind, 'cardinality, Dialect.portable) Result_query.t)
+        -> ('input, 'row option, Dialect.portable) t
+
+      (** Build and compile a portable command from each runtime input. *)
       val command
         :  ('input -> Dialect.portable Command.t)
         -> ('input, Affected_rows.t, Dialect.portable) t

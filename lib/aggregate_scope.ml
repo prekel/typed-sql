@@ -21,3 +21,15 @@ let at_most_one (select : Ast.select) =
     | Ast.Parameter _ -> false)
   || (List.is_empty select.group_by && projection_has_local_aggregate select)
 ;;
+
+let exactly_one (select : Ast.select) =
+  List.is_empty select.group_by
+  && Option.is_none select.having
+  && Option.is_none select.offset
+  && projection_has_local_aggregate select
+  &&
+  match select.limit with
+  | None -> true
+  | Some (Ast.Literal limit) -> Int.(limit > 0)
+  | Some (Ast.Parameter _) -> false
+;;

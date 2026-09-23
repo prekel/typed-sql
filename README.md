@@ -230,7 +230,7 @@ let upsert_person id name =
 `Conflict_update.where` ограничивает обновление при конфликте; обычную вставку
 он не фильтрует. Повторные условия объединяются через `AND`. Если условие
 ложно или равно SQL NULL, строка не обновляется и не попадает в `RETURNING` —
-для одной строки используйте `Statement.Portable.query_optional_exn`. Без
+для одной строки используйте `Statement.Portable.expect_optional_exn`. Без
 `where` обновляется каждая
 конфликтующая строка. `set_opt` и `set_expr_opt` пропускают `None`;
 `set_opt nullable_col (Some None)` записывает NULL.

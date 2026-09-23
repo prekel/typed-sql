@@ -791,3 +791,17 @@ let%test_unit
     Aggregate_scope.at_most_one
       { select with projection = [ A.Aggregate (A.Count_distinct parameter) ] })
 ;;
+
+let%test_unit "exactly-one proof rejects compound SELECTs" =
+  let table : unit Table.t = Table.v_exn "items" in
+  let id = Column.v_exn table "id" Db_type.int in
+  let selected =
+    Query.(from table |> select (fun row -> Projection.expr (Expr.column row id)))
+  in
+  let compound = Query.union selected selected in
+  let forged = { compound with Result_query.requires_exactly_one = true } in
+  match Compiler.compile ~dialect:Dialect.Sqlite forged with
+  | Error Compile_error.Exactly_one_query_not_proven -> ()
+  | Error error -> failwith (Compile_error.to_string error)
+  | Ok _ -> failwith "compound SELECT was accepted as exactly one row"
+;;

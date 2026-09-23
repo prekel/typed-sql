@@ -21,6 +21,7 @@ module Infix = struct
 end
 
 module Projection = Typed_sql_private.Projection
+module Cardinality = Typed_sql_private.Cardinality
 module Query = Typed_sql_private.Query
 module Result_query = Typed_sql_private.Result_query
 module Command = Typed_sql_private.Command

@@ -88,8 +88,11 @@ Typed_sql_caqti_lwt.run ~conn find_people input
 Cardinality входит в тип результата конструктора:
 
 - `query_many` возвращает список;
-- `query_one` возвращает одну строку и проверяет cardinality;
-- `query_optional` возвращает `option`;
+- `query_one` принимает только `exactly_one` SELECT и возвращает одну строку;
+- `query_optional` принимает `at_most_one` или `exactly_one` SELECT и возвращает
+  `option`;
+- `expect_one` и `expect_optional` выполняют runtime-проверку для запроса без
+  статического доказательства;
 - `command` возвращает `Affected_rows.t`.
 
 Выполнение выбирает готовый план по dialect соединения, применяет getters,

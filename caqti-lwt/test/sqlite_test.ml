@@ -13,12 +13,12 @@ module Typed_sql_caqti_lwt = struct
   ;;
 
   let fetch_one ?observer ?name ~conn query =
-    let statement = Statement.Portable.query_one_exn (fun _ -> query) in
+    let statement = Statement.Portable.expect_one_exn (fun _ -> query) in
     run ?observer ?name ~conn statement ()
   ;;
 
   let fetch_opt ?observer ?name ~conn query =
-    let statement = Statement.Portable.query_optional_exn (fun _ -> query) in
+    let statement = Statement.Portable.expect_optional_exn (fun _ -> query) in
     run ?observer ?name ~conn statement ()
   ;;
 
@@ -627,8 +627,8 @@ let run conn =
    | Error error -> failwith (Typed_sql_caqti_lwt.error_to_string error)
    | Ok _ -> failwith "negative runtime LIMIT reached SQLite");
   let many = Statement.Portable.query_many_exn (fun _ -> query) in
-  let one = Statement.Portable.query_one_exn (fun _ -> query) in
-  let optional = Statement.Portable.query_optional_exn (fun _ -> query) in
+  let one = Statement.Portable.expect_one_exn (fun _ -> query) in
+  let optional = Statement.Portable.expect_optional_exn (fun _ -> query) in
   let observed = ref None in
   let observer event = observed := Some event in
   let* profiled_rows =
@@ -657,7 +657,7 @@ let run conn =
    | None -> failwith "compiled fetch emitted no event");
   let* compiled_row = Typed_sql_caqti_lwt.run ~conn one () >>= adapter_or_fail in
   if Int64.(compiled_row.id <> 1L) then
-    failwith "query_one returned the wrong row";
+    failwith "expect_one returned the wrong row";
   let* compiled_row =
     Typed_sql_caqti_lwt.run
       ~observer:(fun _ -> failwith "ignored observer failure")
@@ -667,7 +667,7 @@ let run conn =
     >>= adapter_or_fail
   in
   if Option.is_none compiled_row then
-    failwith "query_optional returned no row";
+    failwith "expect_optional returned no row";
   let postgresql =
     Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun _ -> query)
   in
@@ -1606,8 +1606,8 @@ let dynamic_test conn =
           ~f:(fun value -> Int.to_string value ^ suffix)))
   in
   let many = Statement.Dynamic.Portable.query_many query in
-  let one = Statement.Dynamic.Portable.query_one query in
-  let optional = Statement.Dynamic.Portable.query_optional query in
+  let one = Statement.Dynamic.Portable.expect_one query in
+  let optional = Statement.Dynamic.Portable.expect_optional query in
   assert (Int.(!builds = 0));
   let* rows = Adapter.run ~conn many ([ 1; 2 ], "a") >>= adapter_or_fail in
   assert (List.equal String.equal rows [ "1a"; "2a" ]);

@@ -3,7 +3,7 @@ open! Base
 type ungrouped
 type grouped
 
-type ('ctx, 'grouping, +'requirements) t =
+type ('ctx, 'grouping, +'cardinality, +'requirements) t =
   { context : 'ctx
   ; ast : Ast.select
   }
@@ -234,6 +234,12 @@ let select make_projection query =
   Result_query.create_select (Ast.Simple ast) projection
 ;;
 
+let select_exactly_one make_projection query =
+  let projection = make_projection query.context in
+  let ast = { query.ast with projection = Projection.expressions projection } in
+  Result_query.create_select ~requires_exactly_one:true (Ast.Simple ast) projection
+;;
+
 let select_relation make_fields query =
   let fields = make_fields query.context in
   Derived_table.create_inferred fields query.ast
@@ -340,6 +346,8 @@ let order_by make_expression direction query =
 let limit limit query =
   { query with ast = { query.ast with limit = Some (Ast.Literal limit) } }
 ;;
+
+let limit_one query = { query with ast = { query.ast with limit = Some (Ast.Literal 1) } }
 
 let offset offset query =
   { query with ast = { query.ast with offset = Some (Ast.Literal offset) } }

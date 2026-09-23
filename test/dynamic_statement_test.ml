@@ -162,6 +162,20 @@ let%test_unit "callbacks are deferred, selected once, and exceptions propagate" 
   ignore (Statement.sql_exn ~dialect:Dialect.Sqlite ~input:() chosen);
   ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() chosen);
   assert (Int.(!calls = 2));
+  let strict_one =
+    Statement.Dynamic.Portable.query_one (fun () ->
+      Query.(
+        from Person.table |> select_exactly_one (fun _ -> Projection.expr Expr.count_all)))
+  in
+  let strict_optional =
+    Statement.Dynamic.Portable.query_optional (fun () ->
+      Query.(
+        from Person.table
+        |> limit_one
+        |> select (fun person -> Projection.expr (Person.id person))))
+  in
+  ignore (Statement.sql_exn ~dialect:Dialect.Sqlite ~input:() strict_one);
+  ignore (Statement.sql_exn ~dialect:Dialect.Sqlite ~input:() strict_optional);
   let raising = Statement.Dynamic.Portable.query_many (fun () -> raise Stdlib.Exit) in
   match Statement.sql ~dialect:Dialect.Sqlite ~input:() raising with
   | exception Stdlib.Exit -> ()
