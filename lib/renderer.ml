@@ -4,9 +4,19 @@ type state =
   { next_parameter : int
   ; parameters_rev : Ast.parameter list
   ; slot_indices : (int * int) list
+  ; next_cte : int
+  ; cte_names : (int * string) list
   }
 
-let initial_state = { next_parameter = 0; parameters_rev = []; slot_indices = [] }
+let initial_state =
+  { next_parameter = 0
+  ; parameters_rev = []
+  ; slot_indices = []
+  ; next_cte = 0
+  ; cte_names = []
+  }
+;;
+
 let text value = Template.Text value
 let break flat = Template.Break flat
 let concat templates = Template.concat templates
@@ -19,7 +29,7 @@ let quote_identifier identifier =
   concat [ text "\""; text escaped; text "\"" ]
 ;;
 
-let render_source source =
+let render_table_source source =
   let table = quote_identifier source.Ast.table in
   match source.schema with
   | None -> table
@@ -27,6 +37,7 @@ let render_source source =
 ;;
 
 let alias_for aliases source_id = List.Assoc.find_exn aliases source_id ~equal:Int.equal
+let cte_name state id = List.Assoc.find_exn state.cte_names id ~equal:Int.equal
 
 let arithmetic_sql = function
   | Ast.Add -> " + "
@@ -83,6 +94,8 @@ let render_parameter parameter state =
        , { next_parameter = index + 1
          ; parameters_rev = parameter :: state.parameters_rev
          ; slot_indices = (id, index) :: state.slot_indices
+         ; next_cte = state.next_cte
+         ; cte_names = state.cte_names
          } ))
 ;;
 
@@ -249,6 +262,25 @@ and render_expressions ~aliases ~separator expressions state =
     let rest, state = render_expressions ~aliases ~separator rest state in
     concat [ expression; separator; rest ], state
 
+and relation_column_names (relation : Ast.relation) =
+  List.map relation.Ast.columns ~f:(function
+    | Ast.Column { name; _ } -> name
+    | _ -> assert false)
+
+and render_source ~aliases (source : Ast.source) state =
+  match source.kind with
+  | Ast.Table table -> render_table_source table, state
+  | Ast.Cte id -> quote_identifier (Identifier.of_string_exn (cte_name state id)), state
+  | Ast.Derived relation ->
+    let query, state =
+      render_select_query
+        ~parent_aliases:aliases
+        ~output_names:(relation_column_names relation)
+        relation.query
+        state
+    in
+    concat [ text "("; nest (concat [ break ""; query ]); break ""; text ")" ], state
+
 and render_join ~aliases (join : Ast.join) state =
   let kind =
     match join.Ast.kind with
@@ -256,11 +288,12 @@ and render_join ~aliases (join : Ast.join) state =
     | Ast.Left -> text "LEFT JOIN "
   in
   let alias = alias_for aliases join.source.source_id in
+  let source, state = render_source ~aliases join.source state in
   let on, state = render_condition ~aliases join.on state in
   ( concat
       [ break " "
       ; kind
-      ; render_source join.source
+      ; source
       ; text " AS "
       ; text alias
       ; nest (concat [ break " "; text "ON "; on ])
@@ -292,87 +325,113 @@ and render_order_by ~aliases orders state =
        let rest, state = render_order_by ~aliases rest state in
        concat [ current; text ","; break " "; rest ], state)
 
-and render_select ~parent_aliases (select : Ast.select) state =
-  let aliases = aliases_for_select ~parent_aliases select in
-  let projection, state =
-    match select.Ast.projection with
-    | [] -> text "1", state
-    | projection ->
-      render_expressions
-        ~aliases
-        ~separator:(concat [ text ","; break " " ])
-        projection
-        state
-  in
-  let root_alias = alias_for aliases select.source.source_id in
-  let joins, state = render_joins ~aliases select.joins state in
-  let select_keyword =
-    if select.distinct then
-      text "SELECT DISTINCT"
-    else
-      text "SELECT"
-  in
-  let parts =
-    concat
-      [ select_keyword
-      ; nest (concat [ break " "; projection ])
-      ; break " "
-      ; text "FROM "
-      ; render_source select.source
-      ; text " AS "
-      ; text root_alias
-      ; joins
-      ]
-  in
-  let parts, state =
-    match select.where_ with
-    | None -> parts, state
-    | Some condition ->
-      let condition, state = render_condition ~aliases condition state in
-      ( concat [ parts; break " "; text "WHERE"; nest (concat [ break " "; condition ]) ]
-      , state )
-  in
-  let parts, state =
-    match select.group_by with
-    | [] -> parts, state
-    | expressions ->
-      let expressions, state =
-        render_expressions
-          ~aliases
-          ~separator:(concat [ text ","; break " " ])
-          expressions
-          state
-      in
-      ( concat
-          [ parts; break " "; text "GROUP BY"; nest (concat [ break " "; expressions ]) ]
-      , state )
-  in
-  let parts, state =
-    match select.having with
-    | None -> parts, state
-    | Some condition ->
-      let condition, state = render_condition ~aliases condition state in
-      ( concat [ parts; break " "; text "HAVING"; nest (concat [ break " "; condition ]) ]
-      , state )
-  in
-  let parts, state =
-    match select.order_by with
-    | [] -> parts, state
-    | orders ->
-      let orders, state = render_order_by ~aliases orders state in
-      ( concat [ parts; break " "; text "ORDER BY"; nest (concat [ break " "; orders ]) ]
-      , state )
-  in
-  let parts, state =
-    match select.limit with
-    | None -> parts, state
-    | Some (Ast.Literal n) ->
-      concat [ parts; break " "; text "LIMIT "; text (Int.to_string n) ], state
-    | Some (Ast.Parameter parameter) ->
-      let parameter, state = render_parameter parameter state in
-      concat [ parts; break " "; text "LIMIT "; parameter ], state
-  in
-  let parts, state =
+and render_projection ~aliases ~output_names expressions state =
+  match output_names with
+  | [] ->
+    render_expressions
+      ~aliases
+      ~separator:(concat [ text ","; break " " ])
+      expressions
+      state
+  | names ->
+    let pairs = List.zip_exn expressions names in
+    let rec loop pairs state =
+      match pairs with
+      | [] -> Template.Empty, state
+      | [ (expression, name) ] ->
+        let expression, state = render_expr ~aliases expression state in
+        concat [ expression; text " AS "; quote_identifier name ], state
+      | (expression, name) :: rest ->
+        let expression, state = render_expr ~aliases expression state in
+        let rest, state = loop rest state in
+        ( concat
+            [ expression; text " AS "; quote_identifier name; text ","; break " "; rest ]
+        , state )
+    in
+    loop pairs state
+
+and render_select ?(output_names = []) ~parent_aliases (select : Ast.select) state =
+  let render_body state =
+    let aliases = aliases_for_select ~parent_aliases select in
+    let projection, state =
+      match select.Ast.projection with
+      | [] -> text "1", state
+      | projection -> render_projection ~aliases ~output_names projection state
+    in
+    let root_alias = alias_for aliases select.source.source_id in
+    let root_source, state = render_source ~aliases select.source state in
+    let joins, state = render_joins ~aliases select.joins state in
+    let select_keyword =
+      if select.distinct then
+        text "SELECT DISTINCT"
+      else
+        text "SELECT"
+    in
+    let parts =
+      concat
+        [ select_keyword
+        ; nest (concat [ break " "; projection ])
+        ; break " "
+        ; text "FROM "
+        ; root_source
+        ; text " AS "
+        ; text root_alias
+        ; joins
+        ]
+    in
+    let parts, state =
+      match select.where_ with
+      | None -> parts, state
+      | Some condition ->
+        let condition, state = render_condition ~aliases condition state in
+        ( concat [ parts; break " "; text "WHERE"; nest (concat [ break " "; condition ]) ]
+        , state )
+    in
+    let parts, state =
+      match select.group_by with
+      | [] -> parts, state
+      | expressions ->
+        let expressions, state =
+          render_expressions
+            ~aliases
+            ~separator:(concat [ text ","; break " " ])
+            expressions
+            state
+        in
+        ( concat
+            [ parts
+            ; break " "
+            ; text "GROUP BY"
+            ; nest (concat [ break " "; expressions ])
+            ]
+        , state )
+    in
+    let parts, state =
+      match select.having with
+      | None -> parts, state
+      | Some condition ->
+        let condition, state = render_condition ~aliases condition state in
+        ( concat
+            [ parts; break " "; text "HAVING"; nest (concat [ break " "; condition ]) ]
+        , state )
+    in
+    let parts, state =
+      match select.order_by with
+      | [] -> parts, state
+      | orders ->
+        let orders, state = render_order_by ~aliases orders state in
+        ( concat [ parts; break " "; text "ORDER BY"; nest (concat [ break " "; orders ]) ]
+        , state )
+    in
+    let parts, state =
+      match select.limit with
+      | None -> parts, state
+      | Some (Ast.Literal n) ->
+        concat [ parts; break " "; text "LIMIT "; text (Int.to_string n) ], state
+      | Some (Ast.Parameter parameter) ->
+        let parameter, state = render_parameter parameter state in
+        concat [ parts; break " "; text "LIMIT "; parameter ], state
+    in
     match select.offset with
     | None -> parts, state
     | Some (Ast.Literal n) ->
@@ -381,21 +440,142 @@ and render_select ~parent_aliases (select : Ast.select) state =
       let parameter, state = render_parameter parameter state in
       concat [ parts; break " "; text "OFFSET "; parameter ], state
   in
-  parts, state
-;;
+  render_with select.ctes ~render_body state
 
-let render_assignment_value ~aliases value state =
+and set_operator = function
+  | Ast.Union -> "UNION"
+  | Ast.Union_all -> "UNION ALL"
+  | Ast.Intersect -> "INTERSECT"
+  | Ast.Intersect_all -> "INTERSECT ALL"
+  | Ast.Except -> "EXCEPT"
+  | Ast.Except_all -> "EXCEPT ALL"
+
+and render_compound_branch ~output_names query state =
+  let query, state = render_select_query ~parent_aliases:[] ~output_names query state in
+  ( concat
+      [ text "SELECT *"
+      ; break " "
+      ; text "FROM ("
+      ; nest (concat [ break ""; query ])
+      ; break ""
+      ; text ") AS s0"
+      ]
+  , state )
+
+and render_select_query ?(output_names = []) ~parent_aliases query state =
+  match query with
+  | Ast.Simple select -> render_select ~output_names ~parent_aliases select state
+  | Ast.Compound compound ->
+    let render_body state =
+      let left, state = render_compound_branch ~output_names compound.left state in
+      let right, state = render_compound_branch ~output_names compound.right state in
+      ( concat [ left; break " "; text (set_operator compound.operator); break " "; right ]
+      , state )
+    in
+    render_with compound.ctes ~render_body state
+
+and cte_column_names (cte : Ast.cte) =
+  List.map cte.Ast.columns ~f:(function
+    | Ast.Column { name; _ } -> name
+    | _ -> assert false)
+
+and allocate_cte_names ctes state =
+  List.fold ctes ~init:state ~f:(fun state (cte : Ast.cte) ->
+    let name = "c" ^ Int.to_string state.next_cte in
+    { state with
+      next_cte = state.next_cte + 1
+    ; cte_names = (cte.cte_id, name) :: state.cte_names
+    })
+
+and render_cte (cte : Ast.cte) state =
+  let name = quote_identifier (Identifier.of_string_exn (cte_name state cte.cte_id)) in
+  let columns =
+    match cte_column_names cte with
+    | [] -> Template.Empty
+    | columns ->
+      let columns =
+        List.map columns ~f:quote_identifier
+        |> separate ~by:(concat [ text ","; break " " ])
+      in
+      concat [ text " ("; nest (concat [ break ""; columns ]); break ""; text ")" ]
+  in
+  let materialization =
+    match cte.materialization with
+    | None -> Template.Empty
+    | Some Ast.Materialized -> text " MATERIALIZED"
+    | Some Ast.Not_materialized -> text " NOT MATERIALIZED"
+  in
+  let body, state =
+    match cte.body with
+    | Ast.Select_body query -> render_select_query ~parent_aliases:[] query state
+    | Ast.Recursive_body { union; anchor; step } ->
+      let anchor, state = render_select_query ~parent_aliases:[] anchor.query state in
+      let step, state = render_select_query ~parent_aliases:[] step.query state in
+      let union =
+        match union with
+        | Ast.Recursive_union -> "UNION"
+        | Ast.Recursive_union_all -> "UNION ALL"
+      in
+      concat [ anchor; break " "; text union; break " "; step ], state
+    | Ast.Returning_body returning -> render_returning returning state
+    | Ast.Command_body command -> render_command_ast command state
+  in
+  ( concat
+      [ name
+      ; columns
+      ; text " AS"
+      ; materialization
+      ; text " ("
+      ; nest (concat [ break ""; body ])
+      ; break ""
+      ; text ")"
+      ]
+  , state )
+
+and render_ctes ctes state =
+  let recursive =
+    List.exists ctes ~f:(fun (cte : Ast.cte) ->
+      match cte.body with
+      | Ast.Recursive_body _ -> true
+      | Ast.Select_body _ | Ast.Returning_body _ | Ast.Command_body _ -> false)
+  in
+  let state = allocate_cte_names ctes state in
+  let rec loop ctes state =
+    match ctes with
+    | [] -> Template.Empty, state
+    | [ cte ] -> render_cte cte state
+    | cte :: rest ->
+      let cte, state = render_cte cte state in
+      let rest, state = loop rest state in
+      concat [ cte; text ","; break " "; rest ], state
+  in
+  let rendered_ctes, state = loop ctes state in
+  let keyword =
+    if recursive then
+      text "WITH RECURSIVE"
+    else
+      text "WITH"
+  in
+  concat [ keyword; nest (concat [ break " "; rendered_ctes ]) ], state
+
+and render_with ctes ~render_body state =
+  match ctes with
+  | [] -> render_body state
+  | _ ->
+    let rendered_ctes, state = render_ctes ctes state in
+    let body, state = render_body state in
+    concat [ rendered_ctes; break " "; body ], state
+
+and render_assignment_value ~aliases value state =
   match value with
   | Ast.Expression expression -> render_expr ~aliases expression state
   | Ast.Default -> text "DEFAULT", state
-;;
 
-let render_assignment ~aliases assignment state =
+and render_assignment ~aliases assignment state =
   let value, state = render_assignment_value ~aliases assignment.Ast.value state in
   concat [ quote_identifier assignment.column; text " = "; value ], state
-;;
 
-let rec render_assignments ~aliases assignments state =
+and render_assignments ~aliases assignments state =
   match assignments with
   | [] -> Template.Empty, state
   | [ assignment ] -> render_assignment ~aliases assignment state
@@ -403,9 +583,8 @@ let rec render_assignments ~aliases assignments state =
     let assignment, state = render_assignment ~aliases assignment state in
     let rest, state = render_assignments ~aliases rest state in
     concat [ assignment; text ","; break " "; rest ], state
-;;
 
-let render_insert_row ~aliases ~columns assignments state =
+and render_insert_row ~aliases ~columns assignments state =
   let values =
     List.map columns ~f:(fun column ->
       List.find_exn assignments ~f:(fun assignment ->
@@ -423,9 +602,8 @@ let render_insert_row ~aliases ~columns assignments state =
   in
   let values, state = render_values values state in
   concat [ text "("; values; text ")" ], state
-;;
 
-let rec render_insert_rows ~aliases ~columns rows state =
+and render_insert_rows ~aliases ~columns rows state =
   match rows with
   | [] -> Template.Empty, state
   | [ row ] -> render_insert_row ~aliases ~columns row state
@@ -433,9 +611,8 @@ let rec render_insert_rows ~aliases ~columns rows state =
     let row, state = render_insert_row ~aliases ~columns row state in
     let rest, state = render_insert_rows ~aliases ~columns rest state in
     concat [ row; text ","; break " "; rest ], state
-;;
 
-let aliases_for_command (command : Ast.command) =
+and aliases_for_command (command : Ast.command) =
   match command.kind, command.from with
   | Ast.Insert, _ ->
     let target = command.source.source_id, "" in
@@ -448,23 +625,20 @@ let aliases_for_command (command : Ast.command) =
     List.mapi sources ~f:(fun index source ->
       source.Ast.source_id, Stdlib.Format.asprintf "t%d" index)
   | _ -> [ command.source.source_id, "" ]
-;;
 
-let render_conflict_target target =
+and render_conflict_target target =
   List.map target ~f:(fun target -> quote_identifier target.Ast.target_column)
   |> separate ~by:(concat [ text ","; break " " ])
-;;
 
-let where_clause ~aliases where_ parts state =
+and where_clause ~aliases where_ parts state =
   match where_ with
   | None -> parts, state
   | Some condition ->
     let condition, state = render_condition ~aliases condition state in
     ( concat [ parts; break " "; text "WHERE"; nest (concat [ break " "; condition ]) ]
     , state )
-;;
 
-let render_conflict ~aliases conflict parts state =
+and render_conflict ~aliases conflict parts state =
   match conflict with
   | Ast.Do_nothing None ->
     concat [ parts; break " "; text "ON CONFLICT DO NOTHING" ], state
@@ -500,104 +674,115 @@ let render_conflict ~aliases conflict parts state =
         ]
     in
     where_clause ~aliases where_ parts state
-;;
 
-let render_from_sources ~aliases sources =
-  List.map sources ~f:(fun (source : Ast.source) ->
+and render_target_source (source : Ast.source) =
+  match source.Ast.kind with
+  | Ast.Table table -> render_table_source table
+  | Ast.Derived _ | Ast.Cte _ -> assert false
+
+and render_from_sources ~aliases (sources : Ast.source list) state =
+  match sources with
+  | [] -> Template.Empty, state
+  | [ source ] ->
     let alias = alias_for aliases source.Ast.source_id in
-    concat [ render_source source; text " AS "; text alias ])
-  |> separate ~by:(concat [ text ","; break " " ])
-;;
+    let source, state = render_source ~aliases source state in
+    concat [ source; text " AS "; text alias ], state
+  | source :: rest ->
+    let alias = alias_for aliases source.Ast.source_id in
+    let source, state = render_source ~aliases source state in
+    let rest, state = render_from_sources ~aliases rest state in
+    concat [ source; text " AS "; text alias; text ","; break " "; rest ], state
 
-let render_command_ast (command : Ast.command) state =
-  let aliases = aliases_for_command command in
-  match command.kind with
-  | Ast.Insert ->
-    let first_row = List.hd_exn command.rows in
-    let columns = List.map first_row ~f:(fun assignment -> assignment.Ast.column) in
-    let rendered_columns =
-      List.map columns ~f:quote_identifier
-      |> separate ~by:(concat [ text ","; break " " ])
-    in
-    let rows, state = render_insert_rows ~aliases ~columns command.rows state in
-    let target_alias =
-      let alias = alias_for aliases command.source.source_id in
-      if String.is_empty alias then
-        Template.Empty
-      else
-        concat [ text " AS "; text alias ]
-    in
-    let parts =
-      concat
-        [ text "INSERT INTO "
-        ; render_source command.source
-        ; target_alias
-        ; text " ("
-        ; nest (concat [ break ""; rendered_columns ])
-        ; break ""
-        ; text ")"
-        ; break " "
-        ; text "VALUES"
-        ; nest (concat [ break " "; rows ])
-        ]
-    in
-    let parts, state =
-      match command.conflict with
-      | None -> parts, state
-      | Some conflict -> render_conflict ~aliases conflict parts state
-    in
-    parts, state
-  | Ast.Update ->
-    let assignments, state = render_assignments ~aliases command.assignments state in
-    let target_alias = alias_for aliases command.source.source_id in
-    let target_alias =
-      if String.is_empty target_alias then
-        Template.Empty
-      else
-        concat [ text " AS "; text target_alias ]
-    in
-    let parts =
-      concat
-        [ text "UPDATE "
-        ; render_source command.source
-        ; target_alias
-        ; break " "
-        ; text "SET"
-        ; nest (concat [ break " "; assignments ])
-        ]
-    in
-    let parts =
-      match command.from with
-      | [] -> parts
-      | sources ->
+and render_command_ast (command : Ast.command) state =
+  let render_body state =
+    let aliases = aliases_for_command command in
+    match command.kind with
+    | Ast.Insert ->
+      let first_row = List.hd_exn command.rows in
+      let columns = List.map first_row ~f:(fun assignment -> assignment.Ast.column) in
+      let rendered_columns =
+        List.map columns ~f:quote_identifier
+        |> separate ~by:(concat [ text ","; break " " ])
+      in
+      let rows, state = render_insert_rows ~aliases ~columns command.rows state in
+      let target_alias =
+        let alias = alias_for aliases command.source.source_id in
+        if String.is_empty alias then
+          Template.Empty
+        else
+          concat [ text " AS "; text alias ]
+      in
+      let parts =
         concat
-          [ parts; break " "; text "FROM "; nest (render_from_sources ~aliases sources) ]
-    in
-    where_clause ~aliases command.where_ parts state
-  | Ast.Delete ->
-    let parts = concat [ text "DELETE FROM "; render_source command.source ] in
-    where_clause ~aliases command.where_ parts state
+          [ text "INSERT INTO "
+          ; render_target_source command.source
+          ; target_alias
+          ; text " ("
+          ; nest (concat [ break ""; rendered_columns ])
+          ; break ""
+          ; text ")"
+          ; break " "
+          ; text "VALUES"
+          ; nest (concat [ break " "; rows ])
+          ]
+      in
+      (match command.conflict with
+       | None -> parts, state
+       | Some conflict -> render_conflict ~aliases conflict parts state)
+    | Ast.Update ->
+      let assignments, state = render_assignments ~aliases command.assignments state in
+      let target_alias = alias_for aliases command.source.source_id in
+      let target_alias =
+        if String.is_empty target_alias then
+          Template.Empty
+        else
+          concat [ text " AS "; text target_alias ]
+      in
+      let parts =
+        concat
+          [ text "UPDATE "
+          ; render_target_source command.source
+          ; target_alias
+          ; break " "
+          ; text "SET"
+          ; nest (concat [ break " "; assignments ])
+          ]
+      in
+      let parts, state =
+        match command.from with
+        | [] -> parts, state
+        | sources ->
+          let sources, state = render_from_sources ~aliases sources state in
+          concat [ parts; break " "; text "FROM "; nest sources ], state
+      in
+      where_clause ~aliases command.where_ parts state
+    | Ast.Delete ->
+      let parts = concat [ text "DELETE FROM "; render_target_source command.source ] in
+      where_clause ~aliases command.where_ parts state
+  in
+  render_with command.ctes ~render_body state
+
+and render_returning (returning : Ast.returning) state =
+  let parts, state = render_command_ast returning.command state in
+  let aliases = [ returning.command.source.source_id, "" ] in
+  let projection, state =
+    render_expressions
+      ~aliases
+      ~separator:(concat [ text ","; break " " ])
+      returning.projection
+      state
+  in
+  ( concat [ parts; break " "; text "RETURNING"; nest (concat [ break " "; projection ]) ]
+  , state )
 ;;
 
 let finish (template, state) = template, List.rev state.parameters_rev
 
 let result_query query =
   match Lower.result_query_ast query with
-  | Ast.Select select -> finish (render_select ~parent_aliases:[] select initial_state)
-  | Ast.Returning returning ->
-    let parts, state = render_command_ast returning.command initial_state in
-    let aliases = [ returning.command.source.source_id, "" ] in
-    let projection, state =
-      render_expressions
-        ~aliases
-        ~separator:(concat [ text ","; break " " ])
-        returning.projection
-        state
-    in
-    ( concat
-        [ parts; break " "; text "RETURNING"; nest (concat [ break " "; projection ]) ]
-    , state )
-    |> finish
+  | Ast.Select query ->
+    finish (render_select_query ~parent_aliases:[] query initial_state)
+  | Ast.Returning returning -> finish (render_returning returning initial_state)
 ;;
 
 let command command =

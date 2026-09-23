@@ -80,8 +80,7 @@ let into table =
   { reference
   ; source =
       { Ast.source_id = Table_ref.source_id reference
-      ; schema = Table.schema table
-      ; table = Table.name table
+      ; kind = Ast.Table { schema = Table.schema table; table = Table.name table }
       }
   ; rows = [ [] ]
   ; conflict = None
@@ -168,7 +167,8 @@ let do_update make_update conflict =
 ;;
 
 let ast insert =
-  { Ast.kind = Ast.Insert
+  { Ast.ctes = []
+  ; kind = Ast.Insert
   ; source = insert.source
   ; assignments = []
   ; rows = insert.rows
@@ -182,8 +182,7 @@ let command insert = Command.create (ast insert)
 
 let returning make_projection insert =
   let projection = make_projection insert.reference in
-  Result_query.create
-    (Ast.Returning
-       { command = ast insert; projection = Projection.expressions projection })
+  Result_query.create_returning
+    { Ast.command = ast insert; projection = Projection.expressions projection }
     projection
 ;;

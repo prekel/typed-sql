@@ -96,9 +96,13 @@ Callback конструктора вызывается при инициализ
 let sql =
   Statement.sql
     ~dialect:Dialect.Postgresql
-    ~input:{ Find_by_name.Input.name = "Ada"; maximum_rows = 100 }
     Find_by_name.statement
 ]}
+
+Для статического statement input при просмотре SQL не нужен: возвращается
+заранее скомпилированный template с placeholders. Переданный [~input] также
+запускает getters и validation параметров. Dynamic statements и
+[Statement.choose] требуют input, поскольку он определяет форму SQL.
 
 [Statement.Portable] проверяет одну форму для PostgreSQL и SQLite. Для
 dialect-specific SQL используется [Statement.For_dialect] с

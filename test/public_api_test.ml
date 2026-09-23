@@ -86,6 +86,14 @@ let%test_unit "statements compile once and bind one typed input" =
     Statement.sql_exn ~dialect:Dialect.Postgresql ~input filtered_statement
   in
   let sqlite = Statement.sql_exn ~dialect:Dialect.Sqlite ~input filtered_statement in
+  let postgresql_without_input =
+    Statement.sql_exn ~dialect:Dialect.Postgresql filtered_statement
+  in
+  let sqlite_without_input =
+    Statement.sql_exn ~dialect:Dialect.Sqlite filtered_statement
+  in
+  assert (String.equal postgresql postgresql_without_input);
+  assert (String.equal sqlite sqlite_without_input);
   assert (
     Int.(
       String.substr_index_all postgresql ~may_overlap:true ~pattern:"$1"
@@ -105,8 +113,31 @@ let%test_unit "command statements bind runtime expressions" =
     Statement.sql_exn ~dialect:Dialect.Postgresql ~input:42 insert_statement
   in
   let sqlite = Statement.sql_exn ~dialect:Dialect.Sqlite ~input:42 insert_statement in
+  let sqlite_without_input = Statement.sql_exn ~dialect:Dialect.Sqlite insert_statement in
   assert (String.is_substring postgresql ~substring:"$1");
-  assert (String.is_substring sqlite ~substring:"?1")
+  assert (String.is_substring sqlite ~substring:"?1");
+  assert (String.equal sqlite sqlite_without_input)
+;;
+
+let%test_unit "rendering static SQL without input does not evaluate getters" =
+  let getter_calls = ref 0 in
+  let statement =
+    Statement.Portable.query_many_exn (fun params ->
+      let runtime_id =
+        params.column id ~get:(fun input ->
+          Int.incr getter_calls;
+          input)
+      in
+      Query.(
+        from items
+        |> where (fun row -> Expr.column row id =. runtime_id)
+        |> select projection))
+  in
+  let sql = Statement.sql_exn ~dialect:Dialect.Sqlite statement in
+  assert (String.is_substring sql ~substring:"?1");
+  assert (Int.(!getter_calls = 0));
+  ignore (Statement.sql_exn ~dialect:Dialect.Sqlite ~input:7 statement);
+  assert (Int.(!getter_calls = 1))
 ;;
 
 let%test_unit "runtime pagination is validated before execution" =
@@ -166,6 +197,9 @@ let%test_unit "statement reports unsupported runtime dialects" =
   (match Statement.sql ~dialect:Dialect.Sqlite ~input:() query with
    | Error (Statement.Unsupported_dialect Dialect.Sqlite) -> ()
    | Error _ | Ok _ -> failwith "PostgreSQL statement accepted SQLite");
+  (match Statement.sql ~dialect:Dialect.Sqlite query with
+   | Error (Statement.Unsupported_dialect Dialect.Sqlite) -> ()
+   | Error _ | Ok _ -> failwith "inputless PostgreSQL statement accepted SQLite");
   (match Statement.sql_exn ~dialect:Dialect.Sqlite ~input:() query with
    | exception Failure _ -> ()
    | _ -> failwith "sql_exn accepted an unsupported dialect");
@@ -173,9 +207,12 @@ let%test_unit "statement reports unsupported runtime dialects" =
     Statement.For_dialect.command_exn ~dialect:Dialect.postgresql (fun _ ->
       Insert.(into items |> set id 1 |> command))
   in
-  match Statement.sql ~dialect:Dialect.Sqlite ~input:() command with
+  (match Statement.sql ~dialect:Dialect.Sqlite ~input:() command with
+   | Error (Statement.Unsupported_dialect Dialect.Sqlite) -> ()
+   | Error _ | Ok _ -> failwith "PostgreSQL command accepted SQLite");
+  match Statement.sql ~dialect:Dialect.Sqlite command with
   | Error (Statement.Unsupported_dialect Dialect.Sqlite) -> ()
-  | Error _ | Ok _ -> failwith "PostgreSQL command accepted SQLite"
+  | Error _ | Ok _ -> failwith "inputless PostgreSQL command accepted SQLite"
 ;;
 
 let%test_unit "statement exn constructors expose definition and binding failures" =

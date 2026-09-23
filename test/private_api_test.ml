@@ -34,7 +34,9 @@ module Compiler = struct
 end
 
 let source source_id : A.source =
-  { source_id; schema = None; table = Identifier.of_string_exn "items" }
+  { source_id
+  ; kind = A.Table { schema = None; table = Identifier.of_string_exn "items" }
+  }
 ;;
 
 let column source_id =
@@ -46,7 +48,8 @@ let column source_id =
 ;;
 
 let select : A.select =
-  { source = source 0
+  { ctes = []
+  ; source = source 0
   ; joins = []
   ; distinct = false
   ; projection = [ column 0 ]
@@ -77,7 +80,8 @@ let command kind assignments : A.command =
     | A.Update -> assignments, []
     | A.Delete -> [], []
   in
-  { kind
+  { ctes = []
+  ; kind
   ; source = source 0
   ; assignments
   ; rows
@@ -116,7 +120,7 @@ let%expect_test "private inspection preserves public query types and source iden
   in
   let projection = Result_query.projection original in
   let ast = { ast with A.projection = Projection.expressions projection } in
-  let rebuilt = Result_query.create (A.Select ast) projection in
+  let rebuilt = Result_query.create_select (A.Simple ast) projection in
   let compile query = Compiler.compile ~dialect:Dialect.sqlite query |> ok_exn in
   let original, rebuilt = compile original, compile rebuilt in
   assert (Shape.equal (Compiled_query.shape original) (Compiled_query.shape rebuilt));
@@ -161,7 +165,9 @@ let%test_unit "normalization identities and idempotence" =
 ;;
 
 let%expect_test "validator catches invalid select and JOIN scopes" =
-  let validate query = Validator.result_query (A.Select query) |> print_validation in
+  let validate query =
+    Validator.result_query (A.Select (A.Simple query)) |> print_validation
+  in
   validate { select with projection = [] };
   [%expect {| SELECT projection must contain at least one expression |}];
   validate { select with limit = Some (A.Literal (-1)) };
@@ -179,7 +185,8 @@ let%expect_test "validator catches invalid select and JOIN scopes" =
     { kind = A.Left; source = source 2; on = A.Compare (A.Eq, column 1, column 2) }
   in
   Validator.result_query
-    (A.Select { select with joins = [ first; second ]; projection = [ column 2 ] })
+    (A.Select
+       (A.Simple { select with joins = [ first; second ]; projection = [ column 2 ] }))
   |> ok_exn;
   validate
     { select with joins = [ { first with on = A.Is_not_null (column 2) }; second ] };
@@ -208,6 +215,137 @@ let%expect_test "validator catches invalid DML assignments and RETURNING" =
   |> print_validation;
   [%expect {| expression references source #99, but the visible sources are 0 |}];
   Validator.command insert |> ok_exn
+;;
+
+let cte_source ~cte_id source_id : A.source = { source_id; kind = A.Cte cte_id }
+
+let text_column source_id =
+  A.Column
+    { source_id
+    ; name = Identifier.of_string_exn "text_value"
+    ; db_type = Db_type.Pack Db_type.text
+    }
+;;
+
+let int_relation (source : A.source) : A.relation =
+  let output = column source.Ast.source_id in
+  { A.query = A.Simple { select with source; projection = [ output ] }
+  ; columns = [ output ]
+  ; column_types = [ Db_type.Pack Db_type.int ]
+  ; result_types = [ Db_type.Pack Db_type.int ]
+  }
+;;
+
+let text_relation (source : A.source) : A.relation =
+  let output = text_column source.Ast.source_id in
+  { A.query = A.Simple { select with source; projection = [ output ] }
+  ; columns = [ output ]
+  ; column_types = [ Db_type.Pack Db_type.text ]
+  ; result_types = [ Db_type.Pack Db_type.text ]
+  }
+;;
+
+let recursive_cte ~cte_id ~step : A.cte =
+  { cte_id
+  ; columns = [ column 100 ]
+  ; column_types = [ Db_type.Pack Db_type.int ]
+  ; result_types = [ Db_type.Pack Db_type.int ]
+  ; materialization = None
+  ; body =
+      A.Recursive_body
+        { union = A.Recursive_union_all; anchor = int_relation (source 1); step }
+  }
+;;
+
+let query_with_cte (cte : A.cte) : A.result_query =
+  let result_source = cte_source ~cte_id:cte.Ast.cte_id 50 in
+  A.Select
+    (A.Simple
+       { select with
+         ctes = [ cte ]
+       ; source = result_source
+       ; projection = [ column result_source.source_id ]
+       })
+;;
+
+let expect_unknown_cte expected = function
+  | Error (Compile_error.Unknown_cte actual) -> assert (Int.(actual = expected))
+  | Error error -> failwith ("expected Unknown_cte, got " ^ Compile_error.to_string error)
+  | Ok () -> failwith "unknown CTE was accepted"
+;;
+
+let expect_invalid_recursive_reference expected = function
+  | Error (Compile_error.Invalid_recursive_reference actual) ->
+    assert (Int.(actual = expected))
+  | Error error ->
+    failwith ("expected Invalid_recursive_reference, got " ^ Compile_error.to_string error)
+  | Ok () -> failwith "invalid recursive CTE was accepted"
+;;
+
+let%test_unit "validator rejects unavailable CTEs in nested scalar and EXISTS queries" =
+  let cte_id = 701 in
+  let nested_source = cte_source ~cte_id 1 in
+  let nested =
+    { select with
+      source = nested_source
+    ; projection = [ column nested_source.source_id ]
+    ; limit = Some (A.Literal 1)
+    }
+  in
+  let scalar =
+    A.Select (A.Simple { select with projection = [ A.Scalar_subquery nested ] })
+  in
+  expect_unknown_cte cte_id (Validator.result_query scalar);
+  let exists = A.Select (A.Simple { select with where_ = Some (A.Exists nested) }) in
+  expect_unknown_cte cte_id (Validator.result_query exists)
+;;
+
+let%test_unit "validator rejects incompatible recursive anchor and step types" =
+  let cte_id = 702 in
+  let step = text_relation (cte_source ~cte_id 2) in
+  let cte = recursive_cte ~cte_id ~step in
+  match Validator.result_query (query_with_cte cte) with
+  | Error (Compile_error.Mismatched_set_projection _) -> ()
+  | Error error ->
+    failwith ("expected Mismatched_set_projection, got " ^ Compile_error.to_string error)
+  | Ok () -> failwith "recursive CTE accepted incompatible type vectors"
+;;
+
+let%test_unit "validator rejects extra and nested recursive self-references" =
+  let cte_id = 703 in
+  let direct_self = cte_source ~cte_id 2 in
+  let extra_self = cte_source ~cte_id 3 in
+  let direct_step =
+    { (int_relation direct_self) with
+      query =
+        A.Simple
+          { select with
+            source = direct_self
+          ; joins = [ { kind = A.Inner; source = extra_self; on = A.True } ]
+          ; projection = [ column direct_self.source_id ]
+          }
+    }
+  in
+  expect_invalid_recursive_reference
+    cte_id
+    (Validator.result_query (query_with_cte (recursive_cte ~cte_id ~step:direct_step)));
+  let nested_self = cte_source ~cte_id 4 in
+  let nested_relation = int_relation nested_self in
+  let nested_source : A.source = { source_id = 3; kind = A.Derived nested_relation } in
+  let nested_step =
+    { (int_relation direct_self) with
+      query =
+        A.Simple
+          { select with
+            source = direct_self
+          ; joins = [ { kind = A.Inner; source = nested_source; on = A.True } ]
+          ; projection = [ column direct_self.source_id ]
+          }
+    }
+  in
+  expect_invalid_recursive_reference
+    cte_id
+    (Validator.result_query (query_with_cte (recursive_cte ~cte_id ~step:nested_step)))
 ;;
 
 let%expect_test "validator rejects malformed private conflict clauses" =
@@ -377,11 +515,11 @@ let%test_unit "renderer totality covers malformed private AST diagnostics" =
   in
   assert (
     String.equal
-      (render (A.Select { select with where_ = Some A.True }))
+      (render (A.Select (A.Simple { select with where_ = Some A.True })))
       "SELECT\n  t0.\"id\"\nFROM \"items\" AS t0\nWHERE\n  TRUE");
   assert (
     String.equal
-      (render (A.Select { select with where_ = Some (A.And []) }))
+      (render (A.Select (A.Simple { select with where_ = Some (A.And []) })))
       "SELECT\n  t0.\"id\"\nFROM \"items\" AS t0\nWHERE\n  ()");
   ignore
     (render (A.Returning { command = command A.Insert [ assignment ]; projection = [] }));
@@ -415,11 +553,16 @@ let%test_unit "internal helper boundary cases remain total" =
   assert (String.is_empty (Template.to_sql ~dialect:Dialect.Sqlite empty_conditions));
   assert (
     String.is_empty
-      (Renderer.render_from_sources ~aliases:[] []
+      (Renderer.render_from_sources ~aliases:[] [] Renderer.initial_state
+       |> fst
        |> Template.to_sql ~dialect:Dialect.Sqlite));
   let rendered_sources =
     let sources =
-      Renderer.render_from_sources ~aliases:[ 0, "t0"; 1, "t1" ] [ source 0; source 1 ]
+      Renderer.render_from_sources
+        ~aliases:[ 0, "t0"; 1, "t1" ]
+        [ source 0; source 1 ]
+        Renderer.initial_state
+      |> fst
     in
     Template.of_parts [ Template.Nest sources ] |> Template.to_sql ~dialect:Dialect.Sqlite
   in

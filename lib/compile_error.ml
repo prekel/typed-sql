@@ -35,6 +35,18 @@ type t =
   | Nested_aggregate
   | Ungrouped_expression
   | Scalar_subquery_may_return_many_rows
+  | Invalid_relation_column of int
+  | Duplicate_relation_column of Identifier.t
+  | Mismatched_relation_projection of
+      { expected : string list
+      ; actual : string list
+      }
+  | Mismatched_set_projection of
+      { expected : string list
+      ; actual : string list
+      }
+  | Unknown_cte of int
+  | Invalid_recursive_reference of int
 
 let to_string = function
   | Empty_projection -> "SELECT projection must contain at least one expression"
@@ -92,6 +104,27 @@ let to_string = function
   | Ungrouped_expression -> "non-aggregate expression must be present in GROUP BY"
   | Scalar_subquery_may_return_many_rows ->
     "scalar subquery requires LIMIT 0/1 or a local aggregate without GROUP BY"
+  | Invalid_relation_column position ->
+    "relation output #" ^ Int.to_string position ^ " must be a direct descriptor column"
+  | Duplicate_relation_column column ->
+    "relation output column " ^ Identifier.to_string column ^ " occurs more than once"
+  | Mismatched_relation_projection { expected; actual } ->
+    "relation output types ["
+    ^ String.concat ~sep:", " expected
+    ^ "] do not match SELECT types ["
+    ^ String.concat ~sep:", " actual
+    ^ "]"
+  | Mismatched_set_projection { expected; actual } ->
+    "set operation left types ["
+    ^ String.concat ~sep:", " expected
+    ^ "] do not match right types ["
+    ^ String.concat ~sep:", " actual
+    ^ "]"
+  | Unknown_cte id -> "query references unavailable CTE #" ^ Int.to_string id
+  | Invalid_recursive_reference id ->
+    "recursive term must reference CTE #"
+    ^ Int.to_string id
+    ^ " exactly once as a top-level source"
 ;;
 
 let pp formatter error = Stdlib.Format.pp_print_string formatter (to_string error)

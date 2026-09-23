@@ -1,6 +1,6 @@
 # Дорожная карта
 
-Состояние проекта на 17 сентября 2026 года. Документ сопоставляет текущую
+Состояние проекта на 23 сентября 2026 года. Документ сопоставляет текущую
 реализацию с исходным [first_plan.md](first_plan.md), фиксирует завершённый
 релизный срез и перечисляет следующую работу. Приложение RealWorld будет жить в
 отдельном репозитории и использовать `typed-sql` вместе с `../typed-endpoint`.
@@ -36,6 +36,10 @@ constructors, codec views, packed parameters, renderer helpers и decoder IR.
 - `CASE`, `LOWER`, `UPPER`, `LENGTH` и string concatenation;
 - `COUNT(*)`, `COUNT`, `COUNT DISTINCT`, `GROUP BY` и `HAVING`;
 - correlated `EXISTS`/`NOT EXISTS`, nullable scalar query и `IN (subquery)`;
+- derived tables в `FROM`/JOIN и `UPDATE ... FROM`;
+- portable `UNION`, `UNION ALL`, `INTERSECT` и `EXCEPT`, а также PostgreSQL
+  `INTERSECT ALL` и `EXCEPT ALL`;
+- non-recursive и recursive CTE с лексически ограниченными typed handles;
 - `Ptime.t` как timestamp with time zone, отдельный `Date.t` для SQL `DATE` и
   `CURRENT_TIMESTAMP`.
 
@@ -54,6 +58,65 @@ local aggregate без `GROUP BY`; иначе compiler возвращает
 
 Пустой `CASE` нормализуется в `else_`, поэтому не попадает в renderer как
 некорректный `CASE ELSE ... END`.
+
+### Derived tables, операции множеств и CTE
+
+`Query.select_relation` принимает отдельное структурное описание
+`Derived_table.Fields`: каждый leaf является SQL expression, поэтому типы
+полей выводятся без повторных column descriptors. SQL-имена назначаются
+детерминированно, а `Query.from_relation`, join-варианты и
+`Update.from_relation` получают expressions в той же структуре. У `Fields`
+нет произвольного `map`: декодирование в произвольный OCaml-тип остаётся
+возможностью `Projection`, но не может быть автоматически превращено обратно
+в SQL-поля.
+
+`Derived_table.create` остаётся явным вариантом для заданных вручную relation
+descriptors и SQL-имён. Compiler проверяет прямые output columns, отсутствие
+повторяющихся имён и совпадение последовательности database-типов relation с
+внутренней projection.
+
+`Query.union`, `union_all`, `intersect` и `except` принимают завершённые
+`SELECT` с одинаковым OCaml-типом результата. Compiler дополнительно требует
+совпадения последовательностей fingerprints database-типов, включая identity
+mapped codecs. Renderer оборачивает каждую ветвь set operation, поэтому её
+`ORDER BY`, `LIMIT` и `OFFSET` применяются до объединения.
+
+Текущий decoder set operation асимметричен: итоговый `Result_query` сохраняет
+`Projection` левой ветви и декодирует им все строки объединённого результата.
+Правая projection задаёт SQL expressions и проверяемую последовательность
+database-типов своей ветви, но её преобразования `Projection.map` после этого
+не используются. Поэтому одинаковый OCaml-тип результата и одинаковые
+database-типы не доказывают, что обе projections одинаково интерпретируют
+поля.
+
+Точный публичный контракт остаётся открытым решением. Нужно выбрать один из
+трёх вариантов:
+
+1. **Закрепить decoder левой ветви.** Сохранить текущий API и совместимость,
+   явно описав асимметрию в `typed_sql.mli`. Этот вариант самый простой, но
+   допускает незаметно отбросить отличающееся преобразование правой projection.
+2. **Объединять relations.** Выполнять set operation над структурными полями
+   relation, а единый `select` и decoder применять снаружи к объединённому
+   результату. Граница декодирования становится однозначной, но потребуется
+   новый relation-level API и путь миграции с операций над `Result_query`.
+3. **Передавать итоговый decoder явно.** Отделить projections SQL-ветвей от
+   projection объединённого результата. Семантика будет явной без обязательной
+   relation-обёртки, но вызов получит ещё один аргумент и потребует определить,
+   как итоговая projection ссылается на поля compound query.
+
+До подтверждённого прикладного сценария ни один вариант не выбран, а текущее
+поведение считается деталью реализации, которую нельзя обещать как стабильный
+контракт. Duplicate-preserving `INTERSECT ALL` и `EXCEPT ALL` находятся в
+`Postgresql.Query`; SQLite их capability check отклоняет до rendering.
+
+`Cte.select` и `Cte.recursive` дают handle, видимый только в callback
+`Cte.with_result` или `Cte.with_command`. Non-recursive CTE можно пометить
+`MATERIALIZED` или `NOT MATERIALIZED`; для SQLite необходима версия 3.35 или
+новее. Recursive CTE содержит typed anchor и step, а compiler допускает ровно
+одну top-level self-reference в step. `Postgresql.Cte.returning` и
+`Postgresql.Cte.command` создают data-modifying CTE для outer `SELECT`, DML с
+`RETURNING` или команды. `returning` открывает relation из `RETURNING`, а
+`command` выполняется только ради эффекта; SQLite такие CTE не поддерживает.
 
 ### DML
 
@@ -166,8 +229,9 @@ LRU cache на данном этапе.
 
 Исходный план описывает широкий jOOQ-подобный API. Реализация сначала закрыла
 portable вертикальные срезы PostgreSQL/SQLite и только затем добавила DML,
-подзапросы, aggregates и schema codegen. Derived tables, CTE, set operations,
-window functions, JSON и arrays не вводились без прикладного сценария.
+подзапросы, aggregates, schema codegen, derived tables, CTE и set operations.
+Window functions, JSON и arrays по-прежнему не вводятся без прикладного
+сценария.
 
 ### Source safety
 
@@ -222,42 +286,41 @@ idempotent inserts, count queries, correlated flags и batch loading tags чер
 через `IN` уже есть в DSL; их неиспользование приложением само по себе не
 означает пробел в `typed-sql`.
 
-1. **Derived tables и CTE.** Добавить `FROM (SELECT ...) AS page` и
-   `WITH page AS (...)`. Для read model статьи сначала выбирать страницу с
-   фильтрами, сортировкой и `LIMIT/OFFSET`, затем присоединять authors, tags и
-   favorites. Так размножение строк после JOIN не меняет границы страницы.
+Завершено: derived tables, CTE и set operations закрывают выбор страницы до
+последующих JOIN и позволяют выразить `FROM (SELECT ...) AS page`, `WITH page
+AS (...)` и объединение read-model ветвей без ручного SQL.
 
-2. **Агрегация коллекций.** Добавить aggregates вроде `array_agg`, `json_agg`
+1. **Агрегация коллекций.** Добавить aggregates вроде `array_agg`, `json_agg`
    и `json_group_array` с типизированным декодированием коллекций. Сейчас
    вложенный read model можно собирать несколькими batch-запросами; другой
    portable вариант — плоский JOIN и группировка строк в OCaml с сохранением
    корректной пагинации. JSON aggregation для PostgreSQL и SQLite должна
    иметь отдельные dialect namespaces.
 
-3. **Типизированные связи из схемы.** Генерировать FK descriptors и удобные
+2. **Типизированные связи из схемы.** Генерировать FK descriptors и удобные
    отношения вроде `Articles.author`, `Comments.article`, `Favorites.user`,
    пригодные для будущего `join_fk`. FK metadata уже сохраняется, arbitrary
    JOIN уже доступен; не хватает типизированного сокращения ручных сравнений
    колонок, включая составные ключи.
 
-4. **Дополнительные SQL-конструкции.** Добавлять по прикладной необходимости
-   `UNION`, `INTERSECT`, `EXCEPT`, window functions, `DISTINCT ON`, `LATERAL`,
-   `ILIKE` и `NULLS FIRST/LAST`. `COUNT(*) OVER ()` может вернуть страницу и
-   общее количество одним запросом; для пустой страницы потребуется отдельное
-   получение количества. PostgreSQL JSON и arrays требуют dialect API.
+3. **Дополнительные SQL-конструкции.** Добавлять по прикладной необходимости
+   window functions, `DISTINCT ON`, `LATERAL`, `ILIKE` и `NULLS FIRST/LAST`.
+   `COUNT(*) OVER ()` может вернуть страницу и общее количество одним запросом;
+   для пустой страницы потребуется отдельное получение количества. PostgreSQL
+   JSON и arrays требуют dialect API.
 
-5. **Больше типов.** Добавить корректные codecs и codegen mappings для
+4. **Больше типов.** Добавить корректные codecs и codegen mappings для
    decimal/numeric, enums, JSON, arrays и пользовательских PostgreSQL types.
    Неизвестные типы сейчас намеренно останавливают codegen; молчаливое
    преобразование в неточный базовый тип недопустимо.
 
-6. **Более полный schema snapshot.** Расширить IR, introspection и snapshot
+5. **Более полный schema snapshot.** Расширить IR, introspection и snapshot
    обычными, expression и partial indexes, CHECK constraints и triggers.
    Текущий snapshot сохраняет columns, PK, FK и UNIQUE, но этого недостаточно
    для полного обнаружения drift производственных индексов и ограничений.
 
-Первое расширение закрывает построение сложных paginated read models. Задача
-атомарного создания или получения tags закрыта portable UPSERT. Миграциями
+Эти завершённые расширения закрывают построение сложных paginated read models.
+Задача атомарного создания или получения tags закрыта portable UPSERT. Миграциями
 `typed-realworld` продолжает управлять dbmate:
 выполнение миграций остаётся отдельным слоем, вне query DSL.
 
@@ -321,8 +384,7 @@ runtime-checked контракт `query_one` следует отделить и 
 
 ### 5. Добавлять сложные запросы по прикладной необходимости
 
-Начать с derived tables и CTE согласно приоритетам RealWorld выше. Остальные
-конструкции вводить по прикладной необходимости. PostgreSQL extensions
+Оставшиеся конструкции вводить по прикладной необходимости. PostgreSQL extensions
 (`ILIKE`, `DISTINCT ON`, JSON, arrays)
 должны находиться в явно именованных namespaces. Все расширения должны
 проходить capability check до rendering; conflict targets и `DO UPDATE`
@@ -364,6 +426,8 @@ reconnect и eviction. Решение по core API и рассмотренны�
 
 - portable expression, aggregate, subquery, timestamp и DML API документированы
   в одном публичном `.mli`;
+- derived tables, set operations и CTE имеют portable SQL snapshots и
+  capability diagnostics для PostgreSQL-only вариантов;
 - PostgreSQL и SQLite имеют парные SQL snapshots, а portable semantics
   исполняются на SQLite;
 - mapped codec, transaction и constraint errors не выходят из adapter contract;

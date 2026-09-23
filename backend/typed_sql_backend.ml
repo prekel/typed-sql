@@ -91,6 +91,15 @@ module Statement = struct
     | P.Nested_aggregate -> Nested_aggregate
     | P.Ungrouped_expression -> Ungrouped_expression
     | P.Scalar_subquery_may_return_many_rows -> Scalar_subquery_may_return_many_rows
+    | P.Invalid_relation_column position -> Invalid_relation_column position
+    | P.Duplicate_relation_column column ->
+      Duplicate_relation_column (public_identifier column)
+    | P.Mismatched_relation_projection { expected; actual } ->
+      Mismatched_relation_projection { expected; actual }
+    | P.Mismatched_set_projection { expected; actual } ->
+      Mismatched_set_projection { expected; actual }
+    | P.Unknown_cte id -> Unknown_cte id
+    | P.Invalid_recursive_reference id -> Invalid_recursive_reference id
   ;;
 
   type ('row, 'output) cardinality =

@@ -11,6 +11,7 @@ execution adapter.
 - отдельные scalar expressions и SQL conditions;
 - applicative projections произвольного OCaml-типа;
 - [SELECT], joins, filtering, ordering, pagination, grouping и aggregates;
+- типизированные derived tables, portable set operations и non-recursive/recursive CTE;
 - portable lists, arithmetic, string functions, [CASE], date, UUID, timestamp и correlated
   subqueries;
 - multi-row [INSERT], conflict ignore, scoped [UPDATE]/[DELETE], [UPDATE FROM]
@@ -19,6 +20,25 @@ execution adapter.
 - PostgreSQL и SQLite compiler;
 - Lwt execution через [typed-sql-caqti-lwt] и PostgreSQL execution через
   [typed-sql-pgocaml-lwt].
+
+[Query.select_relation] вместе с [Derived_table.Fields] выводит типы полей
+промежуточной relation из expressions и автоматически назначает им SQL-имена;
+[Query.from_relation] возвращает expressions той же структуры. У
+[Derived_table.Fields] нет произвольного [Projection.map], поскольку результат
+OCaml-преобразования нельзя представить как SQL-поля. [Derived_table.create]
+остаётся API с явными descriptors и именами для [FROM], JOIN и [UPDATE FROM].
+[Query.union], [Query.union_all], [Query.intersect] и
+[Query.except] portable; [Postgresql.Query.intersect_all] и
+[Postgresql.Query.except_all] требуют PostgreSQL. Renderer оборачивает operand
+каждой set operation, поэтому локальные [ORDER BY], [LIMIT] и [OFFSET] не
+теряют семантику.
+
+[Cte.select] и [Cte.recursive] создают relation, доступную только в callback
+[Cte.with_result] или [Cte.with_command]. Hints [MATERIALIZED] и
+[NOT MATERIALIZED] для SELECT CTE требуют SQLite 3.35 или новее. Data-modifying
+CTE доступны только через [Postgresql.Cte]: [Postgresql.Cte.returning]
+открывает relation из [RETURNING], а [Postgresql.Cte.command] выполняется ради
+эффекта. SQLite-эквивалента нет.
 
 Начать работу можно с {!page-quickstart}. Варианты входного типа для statement
 с примерами собраны на странице {!page-statement_inputs}. Запросы, чья форма

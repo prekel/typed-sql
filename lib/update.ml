@@ -16,8 +16,7 @@ let table table =
   { reference
   ; source =
       { Ast.source_id = Table_ref.source_id reference
-      ; schema = Table.schema table
-      ; table = Table.name table
+      ; kind = Ast.Table { schema = Table.schema table; table = Table.name table }
       }
   ; assignments = []
   ; from = []
@@ -65,11 +64,48 @@ let from table ~f update =
   let reference = Table_ref.create table in
   let source : Ast.source =
     { source_id = Table_ref.source_id reference
-    ; schema = Table.schema table
-    ; table = Table.name table
+    ; kind = Ast.Table { schema = Table.schema table; table = Table.name table }
     }
   in
   f update.reference reference { update with from = update.from @ [ source ] }
+;;
+
+let from_source ~table ~source ~f update =
+  let reference = Table_ref.create table in
+  f update.reference reference { update with from = update.from @ [ source reference ] }
+;;
+
+let from_derived relation ~f update =
+  from_source
+    ~table:(Derived_table.table relation)
+    ~source:(fun reference ->
+      { Ast.source_id = Table_ref.source_id reference
+      ; kind = Ast.Derived (Derived_table.relation relation)
+      })
+    ~f
+    update
+;;
+
+let from_relation relation ~f update =
+  let reference = Derived_table.inferred_reference relation in
+  let source =
+    { Ast.source_id = Table_ref.source_id reference
+    ; kind = Ast.Derived (Derived_table.inferred_relation relation)
+    }
+  in
+  f
+    update.reference
+    (Derived_table.inferred_fields relation reference)
+    { update with from = update.from @ [ source ] }
+;;
+
+let from_cte cte ~f update =
+  from_source
+    ~table:(Cte.table cte)
+    ~source:(fun reference ->
+      { Ast.source_id = Table_ref.source_id reference; kind = Ast.Cte (Cte.id cte) })
+    ~f
+    update
 ;;
 
 let where make_condition update =
@@ -85,7 +121,8 @@ let where make_condition update =
 let all_rows update = { update with where_ = None }
 
 let ast update =
-  { Ast.kind = Ast.Update
+  { Ast.ctes = []
+  ; kind = Ast.Update
   ; source = update.source
   ; assignments = update.assignments
   ; rows = []
@@ -99,8 +136,7 @@ let command update = Command.create (ast update)
 
 let returning make_projection update =
   let projection = make_projection update.reference in
-  Result_query.create
-    (Ast.Returning
-       { command = ast update; projection = Projection.expressions projection })
+  Result_query.create_returning
+    { Ast.command = ast update; projection = Projection.expressions projection }
     projection
 ;;

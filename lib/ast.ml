@@ -76,10 +76,26 @@ and order =
   ; direction : direction
   }
 
+and table_source =
+  { schema : Identifier.t option
+  ; table : Identifier.t
+  }
+
+and relation =
+  { query : select_query
+  ; columns : expr list
+  ; column_types : Db_type.packed list
+  ; result_types : Db_type.packed list
+  }
+
+and source_kind =
+  | Table of table_source
+  | Derived of relation
+  | Cte of int
+
 and source =
   { source_id : int
-  ; schema : Identifier.t option
-  ; table : Identifier.t
+  ; kind : source_kind
   }
 
 and join_kind =
@@ -93,7 +109,8 @@ and join =
   }
 
 and select =
-  { source : source
+  { ctes : cte list
+  ; source : source
   ; joins : join list
   ; distinct : bool
   ; projection : expr list
@@ -105,11 +122,32 @@ and select =
   ; offset : pagination option
   }
 
+and select_query =
+  | Simple of select
+  | Compound of compound
+
+and set_operator =
+  | Union
+  | Union_all
+  | Intersect
+  | Intersect_all
+  | Except
+  | Except_all
+
+and compound =
+  { ctes : cte list
+  ; operator : set_operator
+  ; left : select_query
+  ; right : select_query
+  ; left_types : Db_type.packed list
+  ; right_types : Db_type.packed list
+  }
+
 and pagination =
   | Literal of int
   | Parameter of parameter
 
-type assignment =
+and assignment =
   { source_id : int
   ; column : Identifier.t
   ; value : assignment_value
@@ -119,17 +157,17 @@ and assignment_value =
   | Expression of expr
   | Default
 
-type command_kind =
+and command_kind =
   | Insert
   | Update
   | Delete
 
-type conflict_target_column =
+and conflict_target_column =
   { target_source_id : int
   ; target_column : Identifier.t
   }
 
-type conflict =
+and conflict =
   | Do_nothing of conflict_target_column list option
   | Do_update of
       { target : conflict_target_column list
@@ -138,8 +176,9 @@ type conflict =
       ; where_ : condition option
       }
 
-type command =
-  { kind : command_kind
+and command =
+  { ctes : cte list
+  ; kind : command_kind
   ; source : source
   ; assignments : assignment list
   ; rows : assignment list list
@@ -148,11 +187,38 @@ type command =
   ; where_ : condition option
   }
 
-type returning =
+and returning =
   { command : command
   ; projection : expr list
   }
 
+and materialization =
+  | Materialized
+  | Not_materialized
+
+and recursion =
+  | Recursive_union
+  | Recursive_union_all
+
+and cte_body =
+  | Select_body of select_query
+  | Recursive_body of
+      { union : recursion
+      ; anchor : relation
+      ; step : relation
+      }
+  | Returning_body of returning
+  | Command_body of command
+
+and cte =
+  { cte_id : int
+  ; columns : expr list
+  ; column_types : Db_type.packed list
+  ; result_types : Db_type.packed list
+  ; materialization : materialization option
+  ; body : cte_body
+  }
+
 type result_query =
-  | Select of select
+  | Select of select_query
   | Returning of returning

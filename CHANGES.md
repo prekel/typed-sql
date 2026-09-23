@@ -1,5 +1,27 @@
 # История изменений
 
+## Unreleased
+
+### Добавлено
+
+- Типизированные derived tables: завершённый `SELECT` с проверяемыми
+  table/column descriptors можно использовать в `FROM`, JOIN и `UPDATE ... FROM`.
+- Структурные поля промежуточной relation через `Query.select_relation` и
+  `Derived_table.Fields`: типы выводятся из expressions, SQL-имена назначаются
+  автоматически, а внешний запрос получает типизированные expressions без
+  повторного объявления phantom row, таблицы и колонок.
+- Portable `UNION`, `UNION ALL`, `INTERSECT` и `EXCEPT`; PostgreSQL получает
+  `INTERSECT ALL` и `EXCEPT ALL`. Renderer оборачивает каждую ветвь, сохраняя
+  её локальные `ORDER BY`, `LIMIT` и `OFFSET`.
+- Non-recursive и recursive typed CTE с лексически ограниченными handles для
+  `SELECT`, DML с `RETURNING` и команд.
+- Hints `MATERIALIZED` и `NOT MATERIALIZED` для SELECT CTE. В SQLite для них
+  требуется версия 3.35 или новее.
+- PostgreSQL-only data-modifying CTE через `Postgresql.Cte.returning` и
+  `Postgresql.Cte.command`.
+- `Statement.sql` и `Statement.sql_exn` позволяют получить SQL статического
+  statement без input и без запуска parameter getters.
+
 ## 0.2.0 — 17 сентября 2026
 
 ### Добавлено

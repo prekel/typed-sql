@@ -77,10 +77,15 @@ and condition ~dialect = function
 
 and select ~dialect (select : Ast.select) =
   { select with
-    Ast.projection = List.map select.projection ~f:(expression ~dialect)
+    Ast.ctes = List.map select.ctes ~f:(cte ~dialect)
+  ; source = source ~dialect select.source
+  ; projection = List.map select.projection ~f:(expression ~dialect)
   ; joins =
       List.map select.joins ~f:(fun (join : Ast.join) ->
-        { join with Ast.on = condition ~dialect join.on })
+        { join with
+          Ast.source = source ~dialect join.source
+        ; on = condition ~dialect join.on
+        })
   ; where_ = Option.map select.where_ ~f:(condition ~dialect)
   ; group_by = List.map select.group_by ~f:(expression ~dialect)
   ; having = Option.map select.having ~f:(condition ~dialect)
@@ -88,18 +93,56 @@ and select ~dialect (select : Ast.select) =
       List.map select.order_by ~f:(fun order ->
         { order with Ast.expr = expression ~dialect order.expr })
   }
-;;
 
-let assignment ~dialect (assignment : Ast.assignment) =
+and select_query ~dialect = function
+  | Ast.Simple select_ -> Ast.Simple (select ~dialect select_)
+  | Ast.Compound compound ->
+    Ast.Compound
+      { compound with
+        Ast.ctes = List.map compound.ctes ~f:(cte ~dialect)
+      ; left = select_query ~dialect compound.left
+      ; right = select_query ~dialect compound.right
+      }
+
+and relation ~dialect (relation : Ast.relation) =
+  { relation with
+    Ast.query = select_query ~dialect relation.query
+  ; columns = List.map relation.columns ~f:(expression ~dialect)
+  }
+
+and source ~dialect (source : Ast.source) =
+  let kind =
+    match source.Ast.kind with
+    | (Ast.Table _ | Ast.Cte _) as kind -> kind
+    | Ast.Derived relation_ -> Ast.Derived (relation ~dialect relation_)
+  in
+  { source with Ast.kind }
+
+and cte ~dialect (cte : Ast.cte) =
+  let body =
+    match cte.Ast.body with
+    | Ast.Select_body query -> Ast.Select_body (select_query ~dialect query)
+    | Ast.Recursive_body recursive ->
+      Ast.Recursive_body
+        { recursive with
+          anchor = relation ~dialect recursive.anchor
+        ; step = relation ~dialect recursive.step
+        }
+    | Ast.Returning_body returning ->
+      Ast.Returning_body (lower_returning ~dialect returning)
+    | Ast.Command_body command -> Ast.Command_body (lower_command ~dialect command)
+  in
+  { cte with Ast.columns = List.map cte.columns ~f:(expression ~dialect); body }
+
+and assignment ~dialect (assignment : Ast.assignment) =
   let value =
     match assignment.Ast.value with
     | Ast.Default -> Ast.Default
     | Ast.Expression value -> Ast.Expression (expression ~dialect value)
   in
   { assignment with Ast.value }
-;;
 
-let conflict ~dialect = function
+and conflict ~dialect = function
   | Ast.Do_nothing _ as conflict -> conflict
   | Ast.Do_update update ->
     Ast.Do_update
@@ -107,14 +150,21 @@ let conflict ~dialect = function
         assignments = List.map update.assignments ~f:(assignment ~dialect)
       ; where_ = Option.map update.where_ ~f:(condition ~dialect)
       }
-;;
 
-let lower_command ~dialect (command : Ast.command) =
+and lower_command ~dialect (command : Ast.command) =
   { command with
-    Ast.assignments = List.map command.assignments ~f:(assignment ~dialect)
+    Ast.ctes = List.map command.ctes ~f:(cte ~dialect)
+  ; source = source ~dialect command.source
+  ; from = List.map command.from ~f:(source ~dialect)
+  ; assignments = List.map command.assignments ~f:(assignment ~dialect)
   ; rows = List.map command.rows ~f:(List.map ~f:(assignment ~dialect))
   ; conflict = Option.map command.conflict ~f:(conflict ~dialect)
   ; where_ = Option.map command.where_ ~f:(condition ~dialect)
+  }
+
+and lower_returning ~dialect (returning : Ast.returning) =
+  { Ast.command = lower_command ~dialect returning.Ast.command
+  ; projection = List.map returning.projection ~f:(expression ~dialect)
   }
 ;;
 
@@ -179,15 +229,40 @@ and select_has_unsupported_having ~dialect (select : Ast.select) =
        ~f:(condition_has_unsupported_having ~dialect)
   || List.exists select.order_by ~f:(fun order ->
     expression_has_unsupported_having ~dialect order.expr)
-;;
+  || source_has_unsupported_having ~dialect select.source
+  || List.exists select.joins ~f:(fun join ->
+    source_has_unsupported_having ~dialect join.Ast.source)
+  || List.exists select.ctes ~f:(cte_has_unsupported_having ~dialect)
 
-let assignment_has_unsupported_having ~dialect assignment =
+and select_query_has_unsupported_having ~dialect = function
+  | Ast.Simple select -> select_has_unsupported_having ~dialect select
+  | Ast.Compound compound ->
+    List.exists compound.ctes ~f:(cte_has_unsupported_having ~dialect)
+    || select_query_has_unsupported_having ~dialect compound.left
+    || select_query_has_unsupported_having ~dialect compound.right
+
+and source_has_unsupported_having ~dialect source =
+  match source.Ast.kind with
+  | Ast.Table _ | Ast.Cte _ -> false
+  | Ast.Derived relation -> select_query_has_unsupported_having ~dialect relation.query
+
+and cte_has_unsupported_having ~dialect cte =
+  match cte.Ast.body with
+  | Ast.Select_body query -> select_query_has_unsupported_having ~dialect query
+  | Ast.Recursive_body { anchor; step; _ } ->
+    select_query_has_unsupported_having ~dialect anchor.query
+    || select_query_has_unsupported_having ~dialect step.query
+  | Ast.Returning_body returning ->
+    command_has_unsupported_having ~dialect returning.command
+    || List.exists returning.projection ~f:(expression_has_unsupported_having ~dialect)
+  | Ast.Command_body command -> command_has_unsupported_having ~dialect command
+
+and assignment_has_unsupported_having ~dialect assignment =
   match assignment.Ast.value with
   | Ast.Default -> false
   | Ast.Expression expression -> expression_has_unsupported_having ~dialect expression
-;;
 
-let command_has_unsupported_having ~dialect command =
+and command_has_unsupported_having ~dialect command =
   List.exists command.Ast.assignments ~f:(assignment_has_unsupported_having ~dialect)
   || List.exists command.rows ~f:(fun row ->
     List.exists row ~f:(assignment_has_unsupported_having ~dialect))
@@ -203,17 +278,145 @@ let command_has_unsupported_having ~dialect command =
        command.where_
        ~default:false
        ~f:(condition_has_unsupported_having ~dialect)
+  || List.exists command.ctes ~f:(cte_has_unsupported_having ~dialect)
+;;
+
+let first_unsupported values = List.find_map values ~f:Fn.id
+
+let rec sqlite_unsupported_expression = function
+  | Ast.Column _ | Ast.Param _ | Ast.Aggregate Ast.Count_all | Ast.Current_timestamp ->
+    None
+  | Ast.Arithmetic (_, left, right) | Ast.Concat (left, right) ->
+    first_unsupported
+      [ sqlite_unsupported_expression left; sqlite_unsupported_expression right ]
+  | Ast.String_function (_, expression)
+  | Ast.Aggregate (Ast.Count expression | Ast.Count_distinct expression) ->
+    sqlite_unsupported_expression expression
+  | Ast.Case (branches, else_) ->
+    List.concat_map branches ~f:(fun (condition, expression) ->
+      [ sqlite_unsupported_condition condition; sqlite_unsupported_expression expression ])
+    |> fun branches -> first_unsupported (sqlite_unsupported_expression else_ :: branches)
+  | Ast.Scalar_subquery select -> sqlite_unsupported_select select
+
+and sqlite_unsupported_condition = function
+  | Ast.True | Ast.False -> None
+  | Ast.Compare (_, left, right) ->
+    first_unsupported
+      [ sqlite_unsupported_expression left; sqlite_unsupported_expression right ]
+  | Ast.Is_null expression | Ast.Is_not_null expression ->
+    sqlite_unsupported_expression expression
+  | Ast.In (expression, values) | Ast.Not_in (expression, values) ->
+    first_unsupported
+      (sqlite_unsupported_expression expression
+       :: List.map values ~f:sqlite_unsupported_expression)
+  | Ast.Between (expression, lower, upper) ->
+    first_unsupported
+      [ sqlite_unsupported_expression expression
+      ; sqlite_unsupported_expression lower
+      ; sqlite_unsupported_expression upper
+      ]
+  | Ast.Exists select | Ast.Not_exists select -> sqlite_unsupported_select select
+  | Ast.In_subquery (expression, select) | Ast.Not_in_subquery (expression, select) ->
+    first_unsupported
+      [ sqlite_unsupported_expression expression; sqlite_unsupported_select select ]
+  | Ast.And conditions | Ast.Or conditions ->
+    List.map conditions ~f:sqlite_unsupported_condition |> first_unsupported
+  | Ast.Not condition -> sqlite_unsupported_condition condition
+
+and sqlite_unsupported_select (select : Ast.select) =
+  first_unsupported
+    [ List.find_map select.ctes ~f:sqlite_unsupported_cte
+    ; sqlite_unsupported_source select.source
+    ; List.find_map select.joins ~f:(fun join ->
+        first_unsupported
+          [ sqlite_unsupported_source join.Ast.source
+          ; sqlite_unsupported_condition join.Ast.on
+          ])
+    ; List.find_map select.projection ~f:sqlite_unsupported_expression
+    ; Option.bind select.where_ ~f:sqlite_unsupported_condition
+    ; List.find_map select.group_by ~f:sqlite_unsupported_expression
+    ; Option.bind select.having ~f:sqlite_unsupported_condition
+    ; List.find_map select.order_by ~f:(fun order ->
+        sqlite_unsupported_expression order.Ast.expr)
+    ]
+
+and sqlite_unsupported_query = function
+  | Ast.Simple select -> sqlite_unsupported_select select
+  | Ast.Compound compound ->
+    let operator =
+      match compound.operator with
+      | Ast.Intersect_all -> Some "INTERSECT ALL"
+      | Ast.Except_all -> Some "EXCEPT ALL"
+      | Ast.Union | Ast.Union_all | Ast.Intersect | Ast.Except -> None
+    in
+    first_unsupported
+      [ operator
+      ; List.find_map compound.ctes ~f:sqlite_unsupported_cte
+      ; sqlite_unsupported_query compound.left
+      ; sqlite_unsupported_query compound.right
+      ]
+
+and sqlite_unsupported_relation (relation : Ast.relation) =
+  first_unsupported
+    [ List.find_map relation.Ast.columns ~f:sqlite_unsupported_expression
+    ; sqlite_unsupported_query relation.query
+    ]
+
+and sqlite_unsupported_source source =
+  match source.Ast.kind with
+  | Ast.Table _ | Ast.Cte _ -> None
+  | Ast.Derived relation -> sqlite_unsupported_relation relation
+
+and sqlite_unsupported_cte cte =
+  match cte.Ast.body with
+  | Ast.Returning_body _ | Ast.Command_body _ -> Some "data-modifying CTE"
+  | Ast.Select_body query -> sqlite_unsupported_query query
+  | Ast.Recursive_body { anchor; step; _ } ->
+    first_unsupported
+      [ sqlite_unsupported_relation anchor; sqlite_unsupported_relation step ]
+
+and sqlite_unsupported_assignment assignment =
+  match assignment.Ast.value with
+  | Ast.Default -> None
+  | Ast.Expression expression -> sqlite_unsupported_expression expression
+
+and sqlite_unsupported_conflict = function
+  | Ast.Do_nothing _ -> None
+  | Ast.Do_update update ->
+    first_unsupported
+      [ List.find_map update.assignments ~f:sqlite_unsupported_assignment
+      ; Option.bind update.where_ ~f:sqlite_unsupported_condition
+      ]
+
+and sqlite_unsupported_command (command : Ast.command) =
+  first_unsupported
+    [ List.find_map command.Ast.ctes ~f:sqlite_unsupported_cte
+    ; sqlite_unsupported_source command.source
+    ; List.find_map command.from ~f:sqlite_unsupported_source
+    ; List.find_map command.assignments ~f:sqlite_unsupported_assignment
+    ; List.find_map command.rows ~f:(fun row ->
+        List.find_map row ~f:sqlite_unsupported_assignment)
+    ; Option.bind command.conflict ~f:sqlite_unsupported_conflict
+    ; Option.bind command.where_ ~f:sqlite_unsupported_condition
+    ]
+
+and sqlite_unsupported_returning returning =
+  first_unsupported
+    [ sqlite_unsupported_command returning.Ast.command
+    ; List.find_map returning.projection ~f:sqlite_unsupported_expression
+    ]
 ;;
 
 let command ~dialect command =
-  match dialect, command.Ast.kind with
-  | Dialect.Sqlite, _ when command_has_unsupported_having ~dialect command ->
+  match dialect, sqlite_unsupported_command command, command.Ast.kind with
+  | Dialect.Sqlite, Some operation, _ -> unsupported operation dialect
+  | Dialect.Sqlite, None, _ when command_has_unsupported_having ~dialect command ->
     unsupported "HAVING without GROUP BY or an aggregate projection" dialect
-  | Dialect.Sqlite, Ast.Insert when List.exists command.rows ~f:has_default ->
+  | Dialect.Sqlite, None, Ast.Insert when List.exists command.rows ~f:has_default ->
     unsupported "INSERT DEFAULT" dialect
-  | Dialect.Sqlite, Ast.Update when has_default command.assignments ->
+  | Dialect.Sqlite, None, Ast.Update when has_default command.assignments ->
     unsupported "UPDATE SET DEFAULT" dialect
-  | Dialect.Sqlite, Ast.Insert
+  | Dialect.Sqlite, None, Ast.Insert
     when Option.value_map command.conflict ~default:false ~f:(function
            | Ast.Do_nothing _ -> false
            | Ast.Do_update update -> has_default update.assignments) ->
@@ -222,10 +425,20 @@ let command ~dialect command =
 ;;
 
 let result_query ~dialect query =
+  let sqlite =
+    match dialect with
+    | Dialect.Sqlite -> true
+    | Dialect.Postgresql -> false
+  in
   match query with
-  | Ast.Select select_ when select_has_unsupported_having ~dialect select_ ->
+  | Ast.Select query when sqlite && Option.is_some (sqlite_unsupported_query query) ->
+    unsupported (Option.value_exn (sqlite_unsupported_query query)) dialect
+  | Ast.Select query when select_query_has_unsupported_having ~dialect query ->
     unsupported "HAVING without GROUP BY or an aggregate projection" dialect
-  | Ast.Select select_ -> Ok (Ast.Select (select ~dialect select_))
+  | Ast.Select query -> Ok (Ast.Select (select_query ~dialect query))
+  | Ast.Returning returning
+    when sqlite && Option.is_some (sqlite_unsupported_returning returning) ->
+    unsupported (Option.value_exn (sqlite_unsupported_returning returning)) dialect
   | Ast.Returning returning
     when List.exists returning.projection ~f:(expression_has_unsupported_having ~dialect)
     -> unsupported "HAVING without GROUP BY or an aggregate projection" dialect

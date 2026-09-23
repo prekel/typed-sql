@@ -212,7 +212,12 @@ let ensure_no_aggregate clause condition =
     Ok ()
 ;;
 
-let rec validate_select ~outer_visible ~allow_empty (select : Ast.select) =
+let validate_select_with
+      ~validate_subquery
+      ~outer_visible
+      ~allow_empty
+      (select : Ast.select)
+  =
   if (not allow_empty) && List.is_empty select.Ast.projection then
     Error Compile_error.Empty_projection
   else if
@@ -239,7 +244,7 @@ let rec validate_select ~outer_visible ~allow_empty (select : Ast.select) =
     let open Result.Let_syntax in
     let%bind visible =
       validate_joins
-        ~validate_subquery:validate_select
+        ~validate_subquery
         ~outer_visible
         select.source.source_id
         select.joins
@@ -249,21 +254,15 @@ let rec validate_select ~outer_visible ~allow_empty (select : Ast.select) =
         let%bind () = result in
         ensure_no_aggregate "JOIN ON" join.Ast.on)
     in
-    let%bind () =
-      validate_expressions ~validate_subquery:validate_select ~visible select.projection
-    in
+    let%bind () = validate_expressions ~validate_subquery ~visible select.projection in
     let%bind () =
       match select.where_ with
       | None -> Ok ()
       | Some condition ->
-        let%bind () =
-          validate_condition ~validate_subquery:validate_select ~visible condition
-        in
+        let%bind () = validate_condition ~validate_subquery ~visible condition in
         ensure_no_aggregate "WHERE" condition
     in
-    let%bind () =
-      validate_expressions ~validate_subquery:validate_select ~visible select.group_by
-    in
+    let%bind () = validate_expressions ~validate_subquery ~visible select.group_by in
     let%bind () =
       if
         List.exists select.group_by ~f:(fun expression ->
@@ -276,13 +275,10 @@ let rec validate_select ~outer_visible ~allow_empty (select : Ast.select) =
     let%bind () =
       match select.having with
       | None -> Ok ()
-      | Some condition ->
-        validate_condition ~validate_subquery:validate_select ~visible condition
+      | Some condition -> validate_condition ~validate_subquery ~visible condition
     in
     let order_by = List.map select.order_by ~f:(fun order -> order.Ast.expr) in
-    let%bind () =
-      validate_expressions ~validate_subquery:validate_select ~visible order_by
-    in
+    let%bind () = validate_expressions ~validate_subquery ~visible order_by in
     let expressions = select.projection @ order_by in
     let analyses =
       List.map expressions ~f:(fun expression ->
@@ -305,6 +301,14 @@ let rec validate_select ~outer_visible ~allow_empty (select : Ast.select) =
         Ok ())
 ;;
 
+let rec validate_select ~outer_visible ~allow_empty select =
+  validate_select_with
+    ~validate_subquery:validate_select
+    ~outer_visible
+    ~allow_empty
+    select
+;;
+
 let duplicate_assignment assignments =
   let rec loop seen = function
     | [] -> None
@@ -317,7 +321,7 @@ let duplicate_assignment assignments =
   loop [] assignments
 ;;
 
-let rec validate_assignments ~source_id ~visible = function
+let rec validate_assignments ~validate_subquery ~source_id ~visible = function
   | [] -> Ok ()
   | assignment :: rest ->
     if Int.(assignment.Ast.source_id <> source_id) then
@@ -330,9 +334,9 @@ let rec validate_assignments ~source_id ~visible = function
         match assignment.value with
         | Ast.Default -> Ok ()
         | Ast.Expression expression ->
-          validate_expr ~validate_subquery:validate_select ~visible expression
+          validate_expr ~validate_subquery ~visible expression
       in
-      validate_assignments ~source_id ~visible rest
+      validate_assignments ~validate_subquery ~source_id ~visible rest
 ;;
 
 let columns assignments =
@@ -344,7 +348,7 @@ let same_columns left right =
   && List.for_all left ~f:(fun column -> List.exists right ~f:(Identifier.equal column))
 ;;
 
-let validate_insert_rows ~source_id rows =
+let validate_insert_rows ~validate_subquery ~source_id rows =
   match rows with
   | [] | [ [] ] -> Error (Compile_error.Empty_assignments `Insert)
   | first :: rest ->
@@ -363,7 +367,7 @@ let validate_insert_rows ~source_id rows =
             Error
               (Compile_error.Mismatched_insert_columns { row = index; expected; actual })
           else
-            validate_assignments ~source_id ~visible:[] assignments)
+            validate_assignments ~validate_subquery ~source_id ~visible:[] assignments)
     in
     let open Result.Let_syntax in
     let%bind () = validate_row 1 first in
@@ -401,7 +405,7 @@ let validate_conflict_target ~source_id target =
        | Some column -> Error (Compile_error.Duplicate_conflict_target column)))
 ;;
 
-let validate_conflict ~source_id = function
+let validate_conflict ~validate_subquery ~source_id = function
   | Ast.Do_nothing None -> Ok ()
   | Ast.Do_nothing (Some target) -> validate_conflict_target ~source_id target
   | Ast.Do_update { target; excluded_source_id; assignments; where_ } ->
@@ -414,7 +418,9 @@ let validate_conflict ~source_id = function
          Error Compile_error.Empty_conflict_update
        else (
          let visible = [ source_id; excluded_source_id ] in
-         let%bind () = validate_assignments ~source_id ~visible assignments in
+         let%bind () =
+           validate_assignments ~validate_subquery ~source_id ~visible assignments
+         in
          let%bind () =
            List.fold assignments ~init:(Ok ()) ~f:(fun result assignment ->
              let%bind () = result in
@@ -432,21 +438,19 @@ let validate_conflict ~source_id = function
          match where_ with
          | None -> Ok ()
          | Some condition ->
-           let%bind () =
-             validate_condition ~validate_subquery:validate_select ~visible condition
-           in
+           let%bind () = validate_condition ~validate_subquery ~visible condition in
            ensure_no_aggregate "ON CONFLICT DO UPDATE WHERE" condition))
 ;;
 
-let validate_command (command : Ast.command) =
+let validate_command_with ~validate_subquery (command : Ast.command) =
   match command.Ast.kind with
   | Ast.Insert ->
     let open Result.Let_syntax in
     let source_id = command.source.source_id in
-    let%bind () = validate_insert_rows ~source_id command.rows in
+    let%bind () = validate_insert_rows ~validate_subquery ~source_id command.rows in
     (match command.conflict with
      | None -> Ok ()
-     | Some conflict -> validate_conflict ~source_id conflict)
+     | Some conflict -> validate_conflict ~validate_subquery ~source_id conflict)
   | Ast.Update ->
     if List.is_empty command.assignments then
       Error (Compile_error.Empty_assignments `Update)
@@ -461,33 +465,270 @@ let validate_command (command : Ast.command) =
           source_id :: List.map command.from ~f:(fun source -> source.Ast.source_id)
         in
         let open Result.Let_syntax in
-        let%bind () = validate_assignments ~source_id ~visible command.assignments in
+        let%bind () =
+          validate_assignments ~validate_subquery ~source_id ~visible command.assignments
+        in
         (match command.where_ with
          | None -> Ok ()
-         | Some condition ->
-           validate_condition ~validate_subquery:validate_select ~visible condition))
+         | Some condition -> validate_condition ~validate_subquery ~visible condition))
   | Ast.Delete ->
     (match command.where_ with
      | None -> Ok ()
      | Some condition ->
        let visible = [ command.source.source_id ] in
        let open Result.Let_syntax in
-       validate_condition ~validate_subquery:validate_select ~visible condition)
+       validate_condition ~validate_subquery ~visible condition)
+;;
+
+let fingerprints types =
+  List.map types ~f:(fun (Db_type.Pack db_type) -> Db_type.fingerprint db_type)
+;;
+
+let validate_output_schema columns ~column_types ~result_types =
+  let open Result.Let_syntax in
+  let%bind names =
+    List.mapi columns ~f:(fun index -> function
+      | Ast.Column { name; _ } -> Ok name
+      | _ -> Error (Compile_error.Invalid_relation_column (index + 1)))
+    |> Result.all
+  in
+  let rec duplicate seen = function
+    | [] -> None
+    | name :: rest ->
+      if List.mem seen name ~equal:Identifier.equal then
+        Some name
+      else
+        duplicate (name :: seen) rest
+  in
+  let%bind () =
+    match duplicate [] names with
+    | None -> Ok ()
+    | Some name -> Error (Compile_error.Duplicate_relation_column name)
+  in
+  let expected = fingerprints column_types in
+  let actual = fingerprints result_types in
+  if List.equal String.equal expected actual then
+    Ok ()
+  else
+    Error (Compile_error.Mismatched_relation_projection { expected; actual })
+;;
+
+let validate_type_vectors ~error left right =
+  let expected = fingerprints left in
+  let actual = fingerprints right in
+  if List.equal String.equal expected actual then
+    Ok ()
+  else
+    Error (error ~expected ~actual)
+;;
+
+let validate_relation_schema (relation : Ast.relation) =
+  validate_output_schema
+    relation.Ast.columns
+    ~column_types:relation.column_types
+    ~result_types:relation.result_types
+;;
+
+let rec validate_select_query_full ~forbidden_ctes ~available_ctes = function
+  | Ast.Simple select -> validate_select_full ~forbidden_ctes ~available_ctes select
+  | Ast.Compound compound ->
+    let open Result.Let_syntax in
+    let%bind available_ctes =
+      validate_ctes_full ~forbidden_ctes ~available_ctes compound.ctes
+    in
+    let%bind () =
+      validate_type_vectors
+        ~error:(fun ~expected ~actual ->
+          Compile_error.Mismatched_set_projection { expected; actual })
+        compound.left_types
+        compound.right_types
+    in
+    let%bind () =
+      validate_select_query_full ~forbidden_ctes ~available_ctes compound.left
+    in
+    validate_select_query_full ~forbidden_ctes ~available_ctes compound.right
+
+and validate_select_full
+      ?(outer_visible = [])
+      ?(allow_empty = false)
+      ~forbidden_ctes
+      ~available_ctes
+      select
+  =
+  let open Result.Let_syntax in
+  let%bind available_ctes =
+    validate_ctes_full ~forbidden_ctes ~available_ctes select.Ast.ctes
+  in
+  let%bind () = validate_source_full ~forbidden_ctes ~available_ctes select.source in
+  let%bind () =
+    List.fold select.joins ~init:(Ok ()) ~f:(fun result join ->
+      let%bind () = result in
+      validate_source_full ~forbidden_ctes ~available_ctes join.Ast.source)
+  in
+  let validate_subquery ~outer_visible ~allow_empty select =
+    validate_select_full
+      ~forbidden_ctes
+      ~available_ctes
+      ~outer_visible
+      ~allow_empty
+      select
+  in
+  validate_select_with ~validate_subquery ~outer_visible ~allow_empty select
+
+and validate_source_full ~forbidden_ctes ~available_ctes source =
+  match source.Ast.kind with
+  | Ast.Table _ -> Ok ()
+  | Ast.Cte id ->
+    if List.mem forbidden_ctes id ~equal:Int.equal then
+      Error (Compile_error.Invalid_recursive_reference id)
+    else if List.mem available_ctes id ~equal:Int.equal then
+      Ok ()
+    else
+      Error (Compile_error.Unknown_cte id)
+  | Ast.Derived relation ->
+    validate_relation_full ~forbidden_ctes ~available_ctes relation
+
+and validate_relation_full ~forbidden_ctes ~available_ctes relation =
+  let open Result.Let_syntax in
+  let%bind () = validate_relation_schema relation in
+  validate_select_query_full ~forbidden_ctes ~available_ctes relation.query
+
+and validate_ctes_full ~forbidden_ctes ~available_ctes ctes =
+  List.fold ctes ~init:(Ok available_ctes) ~f:(fun result cte ->
+    let open Result.Let_syntax in
+    let%bind available_ctes = result in
+    let%map () = validate_cte_full ~forbidden_ctes ~available_ctes cte in
+    available_ctes @ [ cte.Ast.cte_id ])
+
+and validate_cte_full ~forbidden_ctes ~available_ctes cte =
+  let open Result.Let_syntax in
+  let%bind () =
+    match cte.Ast.body with
+    | Ast.Command_body _ when List.is_empty cte.columns -> Ok ()
+    | _ ->
+      validate_output_schema
+        cte.columns
+        ~column_types:cte.column_types
+        ~result_types:cte.result_types
+  in
+  match cte.body with
+  | Ast.Select_body query ->
+    validate_select_query_full ~forbidden_ctes ~available_ctes query
+  | Ast.Recursive_body { anchor; step; _ } ->
+    let%bind () = validate_relation_full ~forbidden_ctes ~available_ctes anchor in
+    let%bind () =
+      validate_type_vectors
+        ~error:(fun ~expected ~actual ->
+          Compile_error.Mismatched_relation_projection { expected; actual })
+        cte.result_types
+        anchor.result_types
+    in
+    let%bind () =
+      validate_recursive_step ~forbidden_ctes ~available_ctes ~cte_id:cte.cte_id step
+    in
+    validate_type_vectors
+      ~error:(fun ~expected ~actual ->
+        Compile_error.Mismatched_set_projection { expected; actual })
+      anchor.result_types
+      step.result_types
+  | Ast.Returning_body returning ->
+    validate_returning_full ~forbidden_ctes ~available_ctes returning
+  | Ast.Command_body command ->
+    validate_command_full ~forbidden_ctes ~available_ctes command
+
+and validate_recursive_step ~forbidden_ctes ~available_ctes ~cte_id step =
+  let open Result.Let_syntax in
+  let%bind () = validate_relation_schema step in
+  match step.Ast.query with
+  | Ast.Compound _ -> Error (Compile_error.Invalid_recursive_reference cte_id)
+  | Ast.Simple select ->
+    let%bind available_ctes =
+      validate_ctes_full ~forbidden_ctes ~available_ctes select.ctes
+    in
+    let sources =
+      select.source :: List.map select.joins ~f:(fun join -> join.Ast.source)
+    in
+    let is_self (source : Ast.source) =
+      match source.Ast.kind with
+      | Ast.Cte id -> Int.equal id cte_id
+      | Ast.Table _ | Ast.Derived _ -> false
+    in
+    if not (Int.equal (List.count sources ~f:is_self) 1) then
+      Error (Compile_error.Invalid_recursive_reference cte_id)
+    else (
+      let forbidden_ctes = cte_id :: forbidden_ctes in
+      let validate_source result source =
+        let%bind () = result in
+        if is_self source then
+          Ok ()
+        else
+          validate_source_full ~forbidden_ctes ~available_ctes source
+      in
+      let%bind () = List.fold sources ~init:(Ok ()) ~f:validate_source in
+      let validate_subquery ~outer_visible ~allow_empty select =
+        validate_select_full
+          ~forbidden_ctes
+          ~available_ctes
+          ~outer_visible
+          ~allow_empty
+          select
+      in
+      validate_select_with ~validate_subquery ~outer_visible:[] ~allow_empty:false select)
+
+and validate_returning_full ~forbidden_ctes ~available_ctes returning =
+  let open Result.Let_syntax in
+  let%bind () =
+    validate_command_full ~forbidden_ctes ~available_ctes returning.Ast.command
+  in
+  let visible = [ returning.command.source.source_id ] in
+  let validate_subquery ~outer_visible ~allow_empty select =
+    validate_select_full
+      ~forbidden_ctes
+      ~available_ctes
+      ~outer_visible
+      ~allow_empty
+      select
+  in
+  validate_expressions ~validate_subquery ~visible returning.projection
+
+and validate_command_full ~forbidden_ctes ~available_ctes command =
+  let open Result.Let_syntax in
+  let%bind available_ctes =
+    validate_ctes_full ~forbidden_ctes ~available_ctes command.Ast.ctes
+  in
+  let%bind () = validate_source_full ~forbidden_ctes ~available_ctes command.source in
+  let%bind () =
+    List.fold command.from ~init:(Ok ()) ~f:(fun result source ->
+      let%bind () = result in
+      validate_source_full ~forbidden_ctes ~available_ctes source)
+  in
+  let validate_subquery ~outer_visible ~allow_empty select =
+    validate_select_full
+      ~forbidden_ctes
+      ~available_ctes
+      ~outer_visible
+      ~allow_empty
+      select
+  in
+  validate_command_with ~validate_subquery command
 ;;
 
 let result_query = function
-  | Ast.Select select -> validate_select ~outer_visible:[] ~allow_empty:false select
+  | Ast.Select query ->
+    validate_select_query_full ~forbidden_ctes:[] ~available_ctes:[] query
   | Ast.Returning returning ->
+    let open Result.Let_syntax in
+    let%bind () =
+      validate_returning_full ~forbidden_ctes:[] ~available_ctes:[] returning
+    in
     if List.is_empty returning.projection then
       Error Compile_error.Empty_projection
-    else
-      let open Result.Let_syntax in
-      let%bind () = validate_command returning.command in
+    else (
       let visible = [ returning.command.source.source_id ] in
       validate_expressions
         ~validate_subquery:validate_select
         ~visible
-        returning.projection
+        returning.projection)
 ;;
 
-let command = validate_command
+let command command = validate_command_full ~forbidden_ctes:[] ~available_ctes:[] command

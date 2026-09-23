@@ -92,6 +92,11 @@ execution adapter. [Statement.sql_exn] поднимает
 [Statement.Definition_error]. Исключение, выброшенное самим callback, проходит
 без изменения.
 
+В отличие от статического statement, dynamic statement нельзя отрендерить без
+input: [Statement.sql] возвращает [Statement.Dynamic_input_required], поскольку
+callback определяет форму SQL. То же ограничение действует для
+[Statement.choose], где input выбирает ветвь.
+
 Static [Statement.Portable] остаётся предпочтительным для фиксированной формы:
 он компилирует PostgreSQL и SQLite планы при создании модуля и выполняет только
 binding. Dynamic-вариант нужен, когда число возможных форм не ограничено или

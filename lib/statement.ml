@@ -14,6 +14,7 @@ type binding_error =
 
 type sql_error =
   | Unsupported_dialect of Dialect.t
+  | Dynamic_input_required
   | Invalid_parameter of binding_error
   | Compilation_error of definition_error
 
@@ -62,7 +63,7 @@ type 'input command_plan =
 type ('input, 'output, +'requirements) t =
   | Dynamic_query :
       { cardinality : ('row, 'output) cardinality
-      ; build : 'input -> ('row, 'requirements) Result_query.t
+      ; build : 'input -> ('row, 'kind, 'requirements) Result_query.t
       }
       -> ('input, 'output, 'requirements) t
   | Dynamic_command :
@@ -313,25 +314,41 @@ let rec resolve
 let sql
   : type input output requirements.
     dialect:Dialect.t
-    -> input:input
+    -> ?input:input
     -> (input, output, requirements) t
     -> (string, sql_error) Result.t
   =
-  fun ~dialect ~input statement ->
-  match resolve ~dialect input statement with
-  | Ok (Query_execution execution) -> Ok (Compiled_query.sql execution.compiled)
-  | Ok (Command_execution execution) -> Ok (Compiled_command.sql execution)
-  | Error Dialect_mismatch -> Error (Unsupported_dialect dialect)
-  | Error (Binding error) -> Error (Invalid_parameter error)
-  | Error (Compilation error) -> Error (Compilation_error error)
+  fun ~dialect ?input statement ->
+  match input with
+  | Some input ->
+    (match resolve ~dialect input statement with
+     | Ok (Query_execution execution) -> Ok (Compiled_query.sql execution.compiled)
+     | Ok (Command_execution execution) -> Ok (Compiled_command.sql execution)
+     | Error Dialect_mismatch -> Error (Unsupported_dialect dialect)
+     | Error (Binding error) -> Error (Invalid_parameter error)
+     | Error (Compilation error) -> Error (Compilation_error error))
+  | None ->
+    (match statement with
+     | Query { plans; _ } ->
+       (match find_query_plan dialect plans with
+        | None -> Error (Unsupported_dialect dialect)
+        | Some plan ->
+          Ok (Template.to_sql ~dialect:plan.compiled.dialect plan.compiled.template))
+     | Command { plans } ->
+       (match find_command_plan dialect plans with
+        | None -> Error (Unsupported_dialect dialect)
+        | Some plan ->
+          Ok (Template.to_sql ~dialect:plan.compiled.dialect plan.compiled.template))
+     | Dynamic_query _ | Dynamic_command _ | Choose _ -> Error Dynamic_input_required)
 ;;
 
-let sql_exn ~dialect ~input statement =
-  match sql ~dialect ~input statement with
+let sql_exn ~dialect ?input statement =
+  match sql ~dialect ?input statement with
   | Ok sql -> sql
   | Error (Compilation_error error) -> raise (Definition_error error)
   | Error (Unsupported_dialect _) ->
     failwith "statement does not support the selected dialect"
+  | Error Dynamic_input_required -> failwith "statement SQL shape requires input"
   | Error (Invalid_parameter error) ->
     let prefix = Option.value_map error.name ~default:"parameter" ~f:(fun name -> name) in
     failwith (prefix ^ " " ^ error.message)

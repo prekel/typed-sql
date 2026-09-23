@@ -108,7 +108,9 @@ and normalize_select (select : Ast.select) =
        | condition -> Some condition)
   in
   { select with
-    Ast.projection = List.map select.projection ~f:normalize_expr
+    Ast.ctes = List.map select.ctes ~f:normalize_cte
+  ; source = normalize_source select.source
+  ; projection = List.map select.projection ~f:normalize_expr
   ; where_ = optional select.where_
   ; group_by = List.map select.group_by ~f:normalize_expr
   ; having = Option.map select.having ~f:normalize_condition
@@ -117,28 +119,83 @@ and normalize_select (select : Ast.select) =
         { order with Ast.expr = normalize_expr order.expr })
   ; joins =
       List.map select.joins ~f:(fun (join : Ast.join) ->
-        { join with Ast.on = normalize_condition join.on })
+        { join with
+          Ast.source = normalize_source join.source
+        ; on = normalize_condition join.on
+        })
   }
-;;
 
-let optional_condition = function
+and normalize_select_query = function
+  | Ast.Simple select -> Ast.Simple (normalize_select select)
+  | Ast.Compound compound ->
+    Ast.Compound
+      { compound with
+        Ast.ctes = List.map compound.ctes ~f:normalize_cte
+      ; left = normalize_select_query compound.left
+      ; right = normalize_select_query compound.right
+      }
+
+and normalize_relation (relation : Ast.relation) =
+  { relation with
+    Ast.query = normalize_select_query relation.query
+  ; columns = List.map relation.columns ~f:normalize_expr
+  }
+
+and normalize_source (source : Ast.source) =
+  let kind =
+    match source.Ast.kind with
+    | (Ast.Table _ | Ast.Cte _) as kind -> kind
+    | Ast.Derived relation -> Ast.Derived (normalize_relation relation)
+  in
+  { source with Ast.kind }
+
+and normalize_cte (cte : Ast.cte) =
+  let body =
+    match cte.Ast.body with
+    | Ast.Select_body query -> Ast.Select_body (normalize_select_query query)
+    | Ast.Recursive_body recursive ->
+      Ast.Recursive_body
+        { recursive with
+          anchor = normalize_relation recursive.anchor
+        ; step = normalize_relation recursive.step
+        }
+    | Ast.Returning_body returning -> Ast.Returning_body (normalize_returning returning)
+    | Ast.Command_body command -> Ast.Command_body (normalize_command command)
+  in
+  { cte with Ast.columns = List.map cte.columns ~f:normalize_expr; body }
+
+and normalize_returning (returning : Ast.returning) =
+  { Ast.command = normalize_command returning.Ast.command
+  ; projection = List.map returning.projection ~f:normalize_expr
+  }
+
+and normalize_command (command : Ast.command) =
+  { command with
+    Ast.ctes = List.map command.ctes ~f:normalize_cte
+  ; source = normalize_source command.source
+  ; from = List.map command.from ~f:normalize_source
+  ; assignments = List.map command.assignments ~f:normalize_assignment
+  ; rows = List.map command.rows ~f:(List.map ~f:normalize_assignment)
+  ; conflict = Option.map command.conflict ~f:normalize_conflict
+  ; where_ = optional_condition command.where_
+  }
+
+and optional_condition = function
   | None -> None
   | Some value ->
     (match normalize_condition value with
      | Ast.True -> None
      | condition -> Some condition)
-;;
 
-let normalize_assignment assignment =
+and normalize_assignment assignment =
   let value =
     match assignment.Ast.value with
     | Ast.Default -> Ast.Default
     | Ast.Expression expression -> Ast.Expression (normalize_expr expression)
   in
   { assignment with Ast.value }
-;;
 
-let normalize_conflict = function
+and normalize_conflict = function
   | Ast.Do_nothing _ as conflict -> conflict
   | Ast.Do_update update ->
     Ast.Do_update
@@ -148,22 +205,11 @@ let normalize_conflict = function
       }
 ;;
 
-let command (command : Ast.command) =
-  { command with
-    Ast.assignments = List.map command.assignments ~f:normalize_assignment
-  ; rows = List.map command.rows ~f:(List.map ~f:normalize_assignment)
-  ; conflict = Option.map command.conflict ~f:normalize_conflict
-  ; where_ = optional_condition command.where_
-  }
-;;
-
 let select = normalize_select
+let select_query = normalize_select_query
+let command = normalize_command
 
 let result_query = function
-  | Ast.Select query -> Ast.Select (select query)
-  | Ast.Returning returning ->
-    Ast.Returning
-      { command = command returning.command
-      ; projection = List.map returning.projection ~f:normalize_expr
-      }
+  | Ast.Select query -> Ast.Select (select_query query)
+  | Ast.Returning returning -> Ast.Returning (normalize_returning returning)
 ;;

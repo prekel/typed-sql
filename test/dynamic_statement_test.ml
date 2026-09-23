@@ -133,10 +133,27 @@ let%test_unit "callbacks are deferred, selected once, and exceptions propagate" 
     Statement.Portable.query_many_exn (fun _ ->
       Query.(from Person.table |> select (fun row -> Projection.expr (Person.id row))))
   in
+  (match Statement.sql ~dialect:Dialect.Sqlite dynamic with
+   | Error Statement.Dynamic_input_required -> ()
+   | _ -> failwith "dynamic statement exposed SQL without input");
+  let dynamic_command =
+    Statement.Dynamic.Portable.command (fun () ->
+      Delete.(from Person.table |> all_rows |> command))
+  in
+  (match Statement.sql ~dialect:Dialect.Sqlite dynamic_command with
+   | Error Statement.Dynamic_input_required -> ()
+   | _ -> failwith "dynamic command exposed SQL without input");
   assert (Int.(!calls = 0));
   let chosen =
     Statement.choose ~when_:(fun () -> false) ~if_true:dynamic ~if_false:static
   in
+  (match Statement.sql ~dialect:Dialect.Sqlite chosen with
+   | Error Statement.Dynamic_input_required -> ()
+   | _ -> failwith "chosen statement exposed SQL without input");
+  (match Statement.sql_exn ~dialect:Dialect.Sqlite chosen with
+   | exception Failure message ->
+     assert (String.equal message "statement SQL shape requires input")
+   | _ -> failwith "chosen statement did not require input");
   ignore (Statement.sql_exn ~dialect:Dialect.Sqlite ~input:() chosen);
   assert (Int.(!calls = 0));
   let chosen =

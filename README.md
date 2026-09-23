@@ -5,11 +5,11 @@
 проверяется и компилируется при инициализации OCaml-модуля; динамическая форма
 может безопасно строиться из типизированного input при каждом вызове.
 
-Текущий срез поддерживает типизированные `SELECT` с joins, portable
-выражениями, aggregates, `GROUP BY`, correlated subqueries, calendar date,
-timestamp и UUID. DML
-включает multi-row `INSERT`, portable UPSERT, scoped
-`UPDATE`/`DELETE`, `DEFAULT`, `UPDATE FROM`, условные assignments и `RETURNING`.
+Текущий срез поддерживает типизированные `SELECT` с joins, derived tables,
+CTE, portable set operations, выражениями, aggregates, `GROUP BY`, correlated
+subqueries, calendar date, timestamp и UUID. DML включает multi-row `INSERT`,
+portable UPSERT, scoped `UPDATE`/`DELETE`, `DEFAULT`, `UPDATE FROM`, условные
+assignments и `RETURNING`.
 Пакет `typed-sql-caqti-lwt` выполняет запросы через Caqti для PostgreSQL и
 SQLite и умеет читать их схему; `typed-sql-pgocaml-lwt` выполняет PostgreSQL
 запросы через PG'OCaml.
@@ -56,9 +56,11 @@ builder в готовый `Result_query.t`.
 
 Callback `query_many_exn` вызывается один раз во время создания значения.
 `params.column` выводит SQL-тип из descriptor колонки, поэтому отдельный
-аппликативный список параметров не нужен. `Statement.sql` возвращает тот же
-канонический SQL, который adapter отправит в базу; значения не
-интерполируются:
+аппликативный список параметров не нужен. Для статического statement
+`Statement.sql` возвращает канонический SQL без input: он читает заранее
+скомпилированный template и не запускает parameter getters. Если передать
+`~input`, getters и проверки параметров выполняются так же, как перед запуском
+через adapter. Значения в SQL не интерполируются:
 
 Операторы с `$`, `Expr.constant`, `Insert.set` и `Update.set` захватывают
 константы времени создания statement. Меняющиеся между вызовами значения
@@ -77,7 +79,6 @@ Input может быть обычным кортежем, кортежем с �
 let sql =
   Statement.sql
     ~dialect:Dialect.Postgresql
-    ~input:{ name = "Ada"; maximum_rows = 100 }
     find_people
 ```
 
@@ -109,6 +110,64 @@ let department_name person =
 
 Для уже nullable expression есть `Expr.scalar_subquery_nullable`: SQL не
 различает отсутствие строки и строку с `NULL`, поэтому оба случая дают `None`.
+
+## Составные отношения, операции множеств и CTE
+
+Для промежуточной relation её SQL-поля можно описать прямо в завершающем
+`Query.select_relation`. Типы выводятся из expressions, SQL-имена назначаются
+детерминированно, а `Query.from_relation` возвращает expressions той же
+структуры:
+
+```ocaml
+let active_people =
+  Query.(
+    from Person.table
+    |> where (fun person -> Person.name person =$ "Ada")
+    |> select_relation (fun person ->
+      Derived_table.Fields.pair (Person.id person) (Person.name person)))
+
+let query =
+  Query.(
+    from_relation active_people
+    |> where (fun (id, _name) -> id >$ 10L)
+    |> select (fun (id, name) -> Projection.pair id name))
+```
+
+`Derived_table.Fields` намеренно не имеет аналога `Projection.map`: результат
+произвольного OCaml-преобразования нельзя снова представить как SQL-поля.
+`Fields.expr` и `Fields.both` позволяют собирать структурные описания большей
+глубины. Такие relation также принимают `Query.inner_join_relation`,
+`Query.left_join_relation` и `Update.from_relation`.
+
+Когда нужны заданные вручную SQL-имена и descriptors, низкоуровневый
+`Derived_table.create` связывает готовый `SELECT` с `Table.t` и `Column.t`.
+Такой результат передаётся в `Query.from_derived`, join-варианты или
+`Update.from_derived`. Компилятор проверяет прямые колонки descriptor,
+уникальность имён и совпадение database-типов с projection внутреннего
+`SELECT`.
+
+`Query.union`, `Query.union_all`, `Query.intersect` и `Query.except` работают
+для двух завершённых `SELECT` с одинаковой последовательностью database-типов.
+Операции portable для PostgreSQL и SQLite. PostgreSQL-варианты
+`Postgresql.Query.intersect_all` и `Postgresql.Query.except_all` добавляют
+требование PostgreSQL к statement. Каждый operand set operation renderer
+оборачивает в derived branch, поэтому локальные `ORDER BY`, `LIMIT` и `OFFSET`
+сохраняют семантику до объединения результатов.
+
+`Cte.select` создаёт именованную relation из derived table, а
+`Cte.with_result` и `Cte.with_command` делают её handle видимым только внутри
+callback внешнего `SELECT`, DML с `RETURNING` или команды. Handle используется
+через `Query.from_cte`/join-варианты и `Update.from_cte`. `Cte.recursive`
+задаёт anchor и recursive step с единственной типизированной self-reference;
+вариант рекурсии выбирается через `` `Union`` или `` `Union_all``.
+
+Для non-recursive SELECT CTE `Cte.select` принимает hints
+`` `Materialized`` и `` `Not_materialized``. Они доступны в PostgreSQL и в
+SQLite версии 3.35 или новее; более старый SQLite эти hints не поддерживает.
+Data-modifying CTE оформляются только через `Postgresql.Cte.returning` и
+`Postgresql.Cte.command`, поэтому требуют PostgreSQL уже в типе statement и не
+имеют SQLite-замены. Первый вариант открывает relation из `RETURNING` внешнему
+statement, второй выполняется только ради эффекта.
 
 DML строится так же через локальное открытие соответствующего builder:
 

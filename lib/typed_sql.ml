@@ -24,6 +24,8 @@ module Projection = Typed_sql_private.Projection
 module Query = Typed_sql_private.Query
 module Result_query = Typed_sql_private.Result_query
 module Command = Typed_sql_private.Command
+module Derived_table = Typed_sql_private.Derived_table
+module Cte = Typed_sql_private.Cte
 module Insert = Typed_sql_private.Insert
 module Update = Typed_sql_private.Update
 module Delete = Typed_sql_private.Delete
@@ -33,7 +35,11 @@ module Statement = Typed_sql_private.Statement
 module Postgresql = struct
   module Query = struct
     let having = Typed_sql_private.Query.having
+    let intersect_all = Typed_sql_private.Query.intersect_all
+    let except_all = Typed_sql_private.Query.except_all
   end
+
+  module Cte = Typed_sql_private.Cte.Postgresql
 end
 
 module Compile_error = Typed_sql_private.Compile_error

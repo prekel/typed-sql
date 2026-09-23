@@ -101,6 +101,25 @@ module Person = struct
   ;;
 end
 
+module Selected_person = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "selected_people"
+  let id_column = Column.v_exn table "id" Db_type.int64
+  let name_column = Column.v_exn table "name" Db_type.text
+  let id reference = Expr.column reference id_column
+  let name reference = Expr.column reference name_column
+  let projection reference = Projection.pair (id reference) (name reference)
+end
+
+module Number = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "numbers"
+  let value_column = Column.v_exn table "value" Db_type.int64
+  let value reference = Expr.column reference value_column
+end
+
 type person_lookup =
   { person_id : int64
   ; maximum_rows : int
@@ -470,6 +489,122 @@ let run conn =
     ~equal:Person.equal
     [ { Person.id = 1L; name = "Ada"; role = `Admin; nickname = None } ]
     rows;
+  let active_people =
+    Derived_table.create
+      ~table:Selected_person.table
+      ~columns:Selected_person.projection
+      Query.(
+        from Person.table
+        |> where (fun person -> Person.role person =$ `Admin)
+        |> select (fun person -> Projection.pair (Person.id person) (Person.name person)))
+  in
+  let derived_people =
+    Query.(
+      from_derived active_people
+      |> order_by (fun person -> Selected_person.id person) `Asc
+      |> select Selected_person.projection)
+  in
+  let* derived_people =
+    Typed_sql_caqti_lwt.fetch ~conn derived_people >>= adapter_or_fail
+  in
+  assert_equal
+    ~equal:(equal_pair Int64.equal String.equal)
+    [ 1L, "Ada"; 3L, "Linus" ]
+    derived_people;
+  let inferred_people =
+    Query.(
+      from Person.table
+      |> where (fun person -> Person.role person =$ `Admin)
+      |> select_relation (fun person ->
+        Derived_table.Fields.both
+          (Derived_table.Fields.expr (Person.id person))
+          (Derived_table.Fields.expr (Person.name person))))
+  in
+  let inferred_people =
+    Query.(
+      from_relation inferred_people
+      |> order_by (fun (id, _name) -> id) `Asc
+      |> select (fun (id, name) -> Projection.pair id name))
+  in
+  let* inferred_people =
+    Typed_sql_caqti_lwt.fetch ~conn inferred_people >>= adapter_or_fail
+  in
+  assert_equal
+    ~equal:(equal_pair Int64.equal String.equal)
+    [ 1L, "Ada"; 3L, "Linus" ]
+    inferred_people;
+  let largest_admin =
+    Query.(
+      from Person.table
+      |> where (fun person -> Person.role person =$ `Admin)
+      |> order_by (fun person -> Person.id person) `Desc
+      |> limit 1
+      |> select (fun person -> Projection.expr (Person.id person)))
+  in
+  let largest_guest =
+    Query.(
+      from Person.table
+      |> where (fun person -> Person.role person =$ `Guest)
+      |> order_by (fun person -> Person.id person) `Desc
+      |> limit 1
+      |> select (fun person -> Projection.expr (Person.id person)))
+  in
+  let* set_operation_rows =
+    Typed_sql_caqti_lwt.fetch ~conn (Query.union_all largest_admin largest_guest)
+    >>= adapter_or_fail
+  in
+  let set_operation_rows = List.sort set_operation_rows ~compare:Int64.compare in
+  if not (List.equal Int64.equal set_operation_rows [ 2L; 3L ]) then
+    failwith "UNION ALL did not preserve local branch limits";
+  let active_people_cte = Cte.select active_people in
+  let cte_people =
+    Cte.with_result active_people_cte ~f:(fun people ->
+      Query.(
+        from_cte people
+        |> order_by (fun person -> Selected_person.id person) `Asc
+        |> select Selected_person.projection))
+  in
+  let* cte_people = Typed_sql_caqti_lwt.fetch ~conn cte_people >>= adapter_or_fail in
+  assert_equal
+    ~equal:(equal_pair Int64.equal String.equal)
+    [ 1L, "Ada"; 3L, "Linus" ]
+    cte_people;
+  let numbers_relation query =
+    Derived_table.create
+      ~table:Number.table
+      ~columns:(fun number -> Projection.expr (Number.value number))
+      query
+  in
+  let recursive_numbers =
+    Cte.recursive
+      ~union:`Union_all
+      ~anchor:
+        (numbers_relation
+           Query.(
+             from Person.table
+             |> where (fun person -> Person.id person =$ 1L)
+             |> select (fun person -> Projection.expr (Person.id person))))
+      ~step:(fun numbers ->
+        numbers_relation
+          Query.(
+            from_cte numbers
+            |> where (fun number -> Number.value number <$ 4L)
+            |> select (fun number ->
+              let open Expr.Int64.Infix in
+              Projection.expr (Number.value number +. Expr.constant Db_type.int64 1L))))
+  in
+  let recursive_numbers =
+    Cte.with_result recursive_numbers ~f:(fun numbers ->
+      Query.(
+        from_cte numbers
+        |> order_by (fun number -> Number.value number) `Asc
+        |> select (fun number -> Projection.expr (Number.value number))))
+  in
+  let* recursive_numbers =
+    Typed_sql_caqti_lwt.fetch ~conn recursive_numbers >>= adapter_or_fail
+  in
+  if not (List.equal Int64.equal recursive_numbers [ 1L; 2L; 3L; 4L ]) then
+    failwith "recursive CTE returned unexpected rows";
   let* lookup =
     Typed_sql_caqti_lwt.run
       ~conn

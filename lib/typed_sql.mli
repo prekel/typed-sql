@@ -676,14 +676,118 @@ end
 
 (** Finished statements that decode returned rows. *)
 module Result_query : sig
+  type select
+  type returning
+
   (** A deferred statement that returns decoded rows. *)
-  type ('result, +'requirements) t
+  type ('result, 'kind, +'requirements) t
 end
 
 (** Finished statements that return only an affected-row result. *)
 module Command : sig
   (** A deferred INSERT, UPDATE, or DELETE statement without returned rows. *)
   type +'requirements t
+end
+
+(** A named, typed relation backed by a SELECT. The [table] and [columns]
+    descriptors define the relation exposed to its enclosing query; the
+    compiler verifies that they match the SELECT output. *)
+module Derived_table : sig
+  type ('row, +'requirements) t
+
+  (** A structural description of fields exposed by an inferred relation.
+      Unlike [Projection.t], this type has no [map]: every field remains a SQL
+      expression that can be referenced by an enclosing query. *)
+  module Fields : sig
+    type ('fields, 'nullable_fields, 'requirements) t
+
+    (** Expose one expression as a relation field. Its SQL name is assigned
+        deterministically. *)
+    val expr
+      :  ('value, 'requirements) Expr.t
+      -> ( ('value, 'requirements) Expr.t
+           , ('value option, 'requirements) Expr.t
+           , 'requirements )
+           t
+
+    (** Combine two structural field descriptions, preserving their shape. *)
+    val both
+      :  ('left, 'nullable_left, 'requirements) t
+      -> ('right, 'nullable_right, 'requirements) t
+      -> ('left * 'right, 'nullable_left * 'nullable_right, 'requirements) t
+
+    (** Expose two expressions as a pair of relation fields. *)
+    val pair
+      :  ('left, 'requirements) Expr.t
+      -> ('right, 'requirements) Expr.t
+      -> ( ('left, 'requirements) Expr.t * ('right, 'requirements) Expr.t
+           , ('left option, 'requirements) Expr.t * ('right option, 'requirements) Expr.t
+           , 'requirements )
+           t
+  end
+
+  (** A derived relation whose visible field accessors were inferred from the
+      expressions passed to [Query.select_relation]. *)
+  type ('fields, 'nullable_fields, 'requirements) inferred
+
+  (** Give a SELECT result a relation descriptor so it can be used as a FROM
+      source or JOIN target. [columns] must project direct columns from [table]
+      in the relation's declared order. *)
+  val create
+    :  table:'row Table.t
+    -> columns:('row Table_ref.t -> ('columns, 'requirements) Projection.t)
+    -> ('result, Result_query.select, 'requirements) Result_query.t
+    -> ('row, 'requirements) t
+end
+
+(** Common table expressions. A definition has a typed handle which is valid
+    only in the callback passed to [with_result] or [with_command]. *)
+module Cte : sig
+  (** A relation made available by a CTE definition. *)
+  type 'row t
+
+  (** A CTE definition and the handle through which it can be referenced. *)
+  type ('handle, +'requirements) definition
+
+  (** PostgreSQL and SQLite materialization hints for a non-recursive SELECT
+      CTE. SQLite requires version 3.35 or later. *)
+  type materialization =
+    [ `Materialized
+    | `Not_materialized
+    ]
+
+  (** Choose duplicate-eliminating or duplicate-preserving recursion. *)
+  type recursion =
+    [ `Union
+    | `Union_all
+    ]
+
+  (** Define a non-recursive CTE from a typed relation. *)
+  val select
+    :  ?materialization:materialization
+    -> ('row, 'requirements) Derived_table.t
+    -> ('row t, 'requirements) definition
+
+  (** Define one recursive CTE. [anchor] cannot reference the new CTE;
+      [step] receives its sole typed self-reference. *)
+  val recursive
+    :  union:recursion
+    -> anchor:('row, 'requirements) Derived_table.t
+    -> step:('row t -> ('row, 'requirements) Derived_table.t)
+    -> ('row t, 'requirements) definition
+
+  (** Attach a CTE to a SELECT or a DML statement with [RETURNING]. The
+      callback receives the CTE handle in lexical scope. *)
+  val with_result
+    :  ('handle, 'requirements) definition
+    -> f:('handle -> ('result, 'kind, 'requirements) Result_query.t)
+    -> ('result, 'kind, 'requirements) Result_query.t
+
+  (** Attach a CTE to an INSERT, UPDATE, or DELETE command. *)
+  val with_command
+    :  ('handle, 'requirements) definition
+    -> f:('handle -> 'requirements Command.t)
+    -> 'requirements Command.t
 end
 
 (** Immutable SELECT builders. *)
@@ -706,12 +810,34 @@ module Query : sig
       only valid reference to this occurrence. *)
   val from : 'row Table.t -> ('row Table_ref.t, ungrouped, 'requirements) t
 
+  (** Start a SELECT builder from a typed derived relation. *)
+  val from_derived
+    :  ('row, 'requirements) Derived_table.t
+    -> ('row Table_ref.t, ungrouped, 'requirements) t
+
+  (** Start a SELECT from a relation built by [select_relation]. The context
+      has the same structural shape as its [Derived_table.Fields] value. *)
+  val from_relation
+    :  ('fields, 'nullable_fields, 'requirements) Derived_table.inferred
+    -> ('fields, ungrouped, 'requirements) t
+
+  (** Start a SELECT builder from a CTE handle in lexical scope. *)
+  val from_cte : 'row Cte.t -> ('row Table_ref.t, ungrouped, 'requirements) t
+
   (** Finish the builder with a result projection. Keeping [select] last avoids
       a temporary projection while filters and joins are assembled. *)
   val select
     :  ('ctx -> ('result, 'requirements) Projection.t)
     -> ('ctx, 'grouping, 'requirements) t
-    -> ('result, 'requirements) Result_query.t
+    -> ('result, Result_query.select, 'requirements) Result_query.t
+
+  (** Finish the builder as a reusable derived relation. Only structural
+      [Derived_table.Fields] values are accepted, so arbitrary decoding through
+      [Projection.map] cannot be exposed as SQL fields. *)
+  val select_relation
+    :  ('ctx -> ('fields, 'nullable_fields, 'requirements) Derived_table.Fields.t)
+    -> ('ctx, 'grouping, 'requirements) t
+    -> ('fields, 'nullable_fields, 'requirements) Derived_table.inferred
 
   (** Finish a builder as a one-expression query suitable for a scalar
       subquery or [IN] predicate. *)
@@ -752,6 +878,50 @@ module Query : sig
       receive a nullable reference and must use [Expr.nullable_column]. *)
   val left_join
     :  'row Table.t
+    -> on:('ctx -> 'row Table_ref.t -> 'requirements Condition.t)
+    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx * 'row Nullable_table_ref.t, 'grouping, 'requirements) t
+
+  (** Join a typed derived relation. *)
+  val inner_join_derived
+    :  ('row, 'requirements) Derived_table.t
+    -> on:('ctx -> 'row Table_ref.t -> 'requirements Condition.t)
+    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx * 'row Table_ref.t, 'grouping, 'requirements) t
+
+  (** Left join a typed derived relation. The appended reference is nullable. *)
+  val left_join_derived
+    :  ('row, 'requirements) Derived_table.t
+    -> on:('ctx -> 'row Table_ref.t -> 'requirements Condition.t)
+    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx * 'row Nullable_table_ref.t, 'grouping, 'requirements) t
+
+  (** Join a relation built by [select_relation]. The appended context has the
+      structural shape declared by its fields. *)
+  val inner_join_relation
+    :  ('fields, 'nullable_fields, 'requirements) Derived_table.inferred
+    -> on:('ctx -> 'fields -> 'requirements Condition.t)
+    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx * 'fields, 'grouping, 'requirements) t
+
+  (** Left join a relation built by [select_relation]. Its exposed expressions
+      are nullable after the join. *)
+  val left_join_relation
+    :  ('fields, 'nullable_fields, 'requirements) Derived_table.inferred
+    -> on:('ctx -> 'fields -> 'requirements Condition.t)
+    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx * 'nullable_fields, 'grouping, 'requirements) t
+
+  (** Join a CTE handle in lexical scope. *)
+  val inner_join_cte
+    :  'row Cte.t
+    -> on:('ctx -> 'row Table_ref.t -> 'requirements Condition.t)
+    -> ('ctx, 'grouping, 'requirements) t
+    -> ('ctx * 'row Table_ref.t, 'grouping, 'requirements) t
+
+  (** Left join a CTE handle. The appended reference is nullable. *)
+  val left_join_cte
+    :  'row Cte.t
     -> on:('ctx -> 'row Table_ref.t -> 'requirements Condition.t)
     -> ('ctx, 'grouping, 'requirements) t
     -> ('ctx * 'row Nullable_table_ref.t, 'grouping, 'requirements) t
@@ -820,6 +990,28 @@ module Query : sig
     :  'requirements Pagination_parameter.t
     -> ('ctx, 'grouping, 'requirements) t
     -> ('ctx, 'grouping, 'requirements) t
+
+  (** Combine two SELECT results using portable SQL set operations. The
+      compiler verifies that both projected database-type sequences match. *)
+  val union
+    :  ('result, Result_query.select, 'requirements) Result_query.t
+    -> ('result, Result_query.select, 'requirements) Result_query.t
+    -> ('result, Result_query.select, 'requirements) Result_query.t
+
+  val union_all
+    :  ('result, Result_query.select, 'requirements) Result_query.t
+    -> ('result, Result_query.select, 'requirements) Result_query.t
+    -> ('result, Result_query.select, 'requirements) Result_query.t
+
+  val intersect
+    :  ('result, Result_query.select, 'requirements) Result_query.t
+    -> ('result, Result_query.select, 'requirements) Result_query.t
+    -> ('result, Result_query.select, 'requirements) Result_query.t
+
+  val except
+    :  ('result, Result_query.select, 'requirements) Result_query.t
+    -> ('result, Result_query.select, 'requirements) Result_query.t
+    -> ('result, Result_query.select, 'requirements) Result_query.t
 end
 
 (** Immutable INSERT builders. *)
@@ -971,7 +1163,7 @@ module Insert : sig
   val returning
     :  ('row Table_ref.t -> ('result, 'requirements) Projection.t)
     -> ('row, 'requirements) t
-    -> ('result, 'requirements) Result_query.t
+    -> ('result, Result_query.returning, 'requirements) Result_query.t
 end
 
 (** Immutable UPDATE builders with type-level row-scope authorization. *)
@@ -1041,6 +1233,39 @@ module Update : sig
     -> ('row, 'scope, 'requirements) t
     -> ('row, 'new_scope, 'requirements) t
 
+  (** Add a typed derived relation to [UPDATE ... FROM]. *)
+  val from_derived
+    :  ('source, 'requirements) Derived_table.t
+    -> f:
+         ('row Table_ref.t
+          -> 'source Table_ref.t
+          -> ('row, 'scope, 'requirements) t
+          -> ('row, 'new_scope, 'requirements) t)
+    -> ('row, 'scope, 'requirements) t
+    -> ('row, 'new_scope, 'requirements) t
+
+  (** Add a relation built by [Query.select_relation] to [UPDATE ... FROM]. *)
+  val from_relation
+    :  ('fields, 'nullable_fields, 'requirements) Derived_table.inferred
+    -> f:
+         ('row Table_ref.t
+          -> 'fields
+          -> ('row, 'scope, 'requirements) t
+          -> ('row, 'new_scope, 'requirements) t)
+    -> ('row, 'scope, 'requirements) t
+    -> ('row, 'new_scope, 'requirements) t
+
+  (** Add a CTE handle in lexical scope to [UPDATE ... FROM]. *)
+  val from_cte
+    :  'source Cte.t
+    -> f:
+         ('row Table_ref.t
+          -> 'source Table_ref.t
+          -> ('row, 'scope, 'requirements) t
+          -> ('row, 'new_scope, 'requirements) t)
+    -> ('row, 'scope, 'requirements) t
+    -> ('row, 'new_scope, 'requirements) t
+
   (** Add a row predicate and mark the UPDATE as scoped. Repeated calls combine
       predicates with SQL [AND]. *)
   val where
@@ -1059,7 +1284,7 @@ module Update : sig
   val returning
     :  ('row Table_ref.t -> ('result, 'requirements) Projection.t)
     -> ('row, scoped, 'requirements) t
-    -> ('result, 'requirements) Result_query.t
+    -> ('result, Result_query.returning, 'requirements) Result_query.t
 end
 
 (** Immutable DELETE builders with type-level row-scope authorization. *)
@@ -1093,7 +1318,7 @@ module Delete : sig
   val returning
     :  ('row Table_ref.t -> ('result, 'requirements) Projection.t)
     -> ('row, scoped, 'requirements) t
-    -> ('result, 'requirements) Result_query.t
+    -> ('result, Result_query.returning, 'requirements) Result_query.t
 end
 
 (** Supported SQL dialects. *)
@@ -1133,6 +1358,35 @@ module Postgresql : sig
       :  ('ctx -> 'requirements Condition.t)
       -> ('ctx, Query.ungrouped, ([> `Postgresql ] as 'requirements)) Query.t
       -> ('ctx, Query.ungrouped, 'requirements) Query.t
+
+    (** PostgreSQL's duplicate-preserving set operations. *)
+    val intersect_all
+      :  ('result, Result_query.select, ([> `Postgresql ] as 'requirements)) Result_query.t
+      -> ('result, Result_query.select, 'requirements) Result_query.t
+      -> ('result, Result_query.select, 'requirements) Result_query.t
+
+    val except_all
+      :  ('result, Result_query.select, ([> `Postgresql ] as 'requirements)) Result_query.t
+      -> ('result, Result_query.select, 'requirements) Result_query.t
+      -> ('result, Result_query.select, 'requirements) Result_query.t
+  end
+
+  module Cte : sig
+    (** Define a data-modifying CTE with [RETURNING]. The CTE relation is
+        described by [table] and [columns], and may be used by the enclosing
+        PostgreSQL statement. *)
+    val returning
+      :  table:'row Table.t
+      -> columns:
+           ('row Table_ref.t
+            -> ('columns, ([> `Postgresql ] as 'requirements)) Projection.t)
+      -> ('result, Result_query.returning, 'requirements) Result_query.t
+      -> ('row Cte.t, 'requirements) Cte.definition
+
+    (** Define a data-modifying CTE used only for its effect. *)
+    val command
+      :  ([> `Postgresql ] as 'requirements) Command.t
+      -> (unit, 'requirements) Cte.definition
   end
 end
 
@@ -1199,6 +1453,27 @@ module Compile_error : sig
     (** Scalar embedding requires an explicit [LIMIT 0/1] or an aggregate of
         the current SELECT without [GROUP BY]. Membership and existence
         subqueries are not subject to this restriction. *)
+    | Invalid_relation_column of int
+    (** A derived-table or CTE output descriptor is not a direct column. The
+        integer is its one-based position. *)
+    | Duplicate_relation_column of Identifier.t
+    (** A derived-table or CTE exposes one column name more than once. *)
+    | Mismatched_relation_projection of
+        { expected : string list
+        ; actual : string list
+        }
+    (** Relation descriptor and SELECT output have different database-type
+        sequences. *)
+    | Mismatched_set_projection of
+        { expected : string list
+        ; actual : string list
+        }
+    (** The two operands of a set operation have different database-type
+        sequences. *)
+    | Unknown_cte of int (** A source refers to a CTE outside its lexical scope. *)
+    | Invalid_recursive_reference of int
+    (** The recursive term must use its own CTE exactly once as a top-level
+        source. *)
 
   (** Format a compilation error for a user. *)
   val pp : Formatter.t -> t -> unit
@@ -1240,6 +1515,9 @@ module Statement : sig
 
   type sql_error =
     | Unsupported_dialect of Dialect.t
+    | Dynamic_input_required
+    (** The statement is dynamic or selects a branch from input, so its SQL
+        shape cannot be chosen without [input]. *)
     | Invalid_parameter of binding_error
     | Compilation_error of definition_error
 
@@ -1265,15 +1543,18 @@ module Statement : sig
 
   module Portable : sig
     val query_many
-      :  (('input, Dialect.portable) parameters -> ('row, Dialect.portable) Result_query.t)
+      :  (('input, Dialect.portable) parameters
+          -> ('row, 'kind, Dialect.portable) Result_query.t)
       -> (('input, 'row list, Dialect.portable) t, definition_error) Result.t
 
     val query_one
-      :  (('input, Dialect.portable) parameters -> ('row, Dialect.portable) Result_query.t)
+      :  (('input, Dialect.portable) parameters
+          -> ('row, 'kind, Dialect.portable) Result_query.t)
       -> (('input, 'row, Dialect.portable) t, definition_error) Result.t
 
     val query_optional
-      :  (('input, Dialect.portable) parameters -> ('row, Dialect.portable) Result_query.t)
+      :  (('input, Dialect.portable) parameters
+          -> ('row, 'kind, Dialect.portable) Result_query.t)
       -> (('input, 'row option, Dialect.portable) t, definition_error) Result.t
 
     val command
@@ -1281,15 +1562,18 @@ module Statement : sig
       -> (('input, Affected_rows.t, Dialect.portable) t, definition_error) Result.t
 
     val query_many_exn
-      :  (('input, Dialect.portable) parameters -> ('row, Dialect.portable) Result_query.t)
+      :  (('input, Dialect.portable) parameters
+          -> ('row, 'kind, Dialect.portable) Result_query.t)
       -> ('input, 'row list, Dialect.portable) t
 
     val query_one_exn
-      :  (('input, Dialect.portable) parameters -> ('row, Dialect.portable) Result_query.t)
+      :  (('input, Dialect.portable) parameters
+          -> ('row, 'kind, Dialect.portable) Result_query.t)
       -> ('input, 'row, Dialect.portable) t
 
     val query_optional_exn
-      :  (('input, Dialect.portable) parameters -> ('row, Dialect.portable) Result_query.t)
+      :  (('input, Dialect.portable) parameters
+          -> ('row, 'kind, Dialect.portable) Result_query.t)
       -> ('input, 'row option, Dialect.portable) t
 
     val command_exn
@@ -1300,17 +1584,20 @@ module Statement : sig
   module For_dialect : sig
     val query_many
       :  dialect:'requirements Dialect.witness
-      -> (('input, 'requirements) parameters -> ('row, 'requirements) Result_query.t)
+      -> (('input, 'requirements) parameters
+          -> ('row, 'kind, 'requirements) Result_query.t)
       -> (('input, 'row list, 'requirements) t, definition_error) Result.t
 
     val query_one
       :  dialect:'requirements Dialect.witness
-      -> (('input, 'requirements) parameters -> ('row, 'requirements) Result_query.t)
+      -> (('input, 'requirements) parameters
+          -> ('row, 'kind, 'requirements) Result_query.t)
       -> (('input, 'row, 'requirements) t, definition_error) Result.t
 
     val query_optional
       :  dialect:'requirements Dialect.witness
-      -> (('input, 'requirements) parameters -> ('row, 'requirements) Result_query.t)
+      -> (('input, 'requirements) parameters
+          -> ('row, 'kind, 'requirements) Result_query.t)
       -> (('input, 'row option, 'requirements) t, definition_error) Result.t
 
     val command
@@ -1320,17 +1607,20 @@ module Statement : sig
 
     val query_many_exn
       :  dialect:'requirements Dialect.witness
-      -> (('input, 'requirements) parameters -> ('row, 'requirements) Result_query.t)
+      -> (('input, 'requirements) parameters
+          -> ('row, 'kind, 'requirements) Result_query.t)
       -> ('input, 'row list, 'requirements) t
 
     val query_one_exn
       :  dialect:'requirements Dialect.witness
-      -> (('input, 'requirements) parameters -> ('row, 'requirements) Result_query.t)
+      -> (('input, 'requirements) parameters
+          -> ('row, 'kind, 'requirements) Result_query.t)
       -> ('input, 'row, 'requirements) t
 
     val query_optional_exn
       :  dialect:'requirements Dialect.witness
-      -> (('input, 'requirements) parameters -> ('row, 'requirements) Result_query.t)
+      -> (('input, 'requirements) parameters
+          -> ('row, 'kind, 'requirements) Result_query.t)
       -> ('input, 'row option, 'requirements) t
 
     val command_exn
@@ -1349,15 +1639,15 @@ module Statement : sig
         the adapter. *)
     module Portable : sig
       val query_many
-        :  ('input -> ('row, Dialect.portable) Result_query.t)
+        :  ('input -> ('row, 'kind, Dialect.portable) Result_query.t)
         -> ('input, 'row list, Dialect.portable) t
 
       val query_one
-        :  ('input -> ('row, Dialect.portable) Result_query.t)
+        :  ('input -> ('row, 'kind, Dialect.portable) Result_query.t)
         -> ('input, 'row, Dialect.portable) t
 
       val query_optional
-        :  ('input -> ('row, Dialect.portable) Result_query.t)
+        :  ('input -> ('row, 'kind, Dialect.portable) Result_query.t)
         -> ('input, 'row option, Dialect.portable) t
 
       val command
@@ -1376,20 +1666,23 @@ module Statement : sig
     -> if_false:('input, 'output, 'requirements) t
     -> ('input, 'output, 'requirements) t
 
-  (** Render the selected plan, building and compiling dynamic statements from
-      [input]. Static statements only select a plan and validate bindings. *)
+  (** Render the selected plan. For a static statement, [input] may be omitted:
+      the SQL template is read from the precompiled dialect plan without
+      evaluating parameter getters. Dynamic statements and [choose] require
+      [input] because it determines the SQL shape. When supplied, [input] is
+      also used to validate static parameter bindings. *)
   val sql
     :  dialect:Dialect.t
-    -> input:'input
+    -> ?input:'input
     -> ('input, 'output, 'requirements) t
     -> (string, sql_error) Result.t
 
-  (** Render as [sql], raising when the input fails parameter validation or the
-      statement does not support the selected dialect. Dynamic compilation
-      failures raise [Definition_error]. *)
+  (** Render as [sql], raising when required input is omitted, a supplied input
+      fails parameter validation, or the statement does not support the
+      selected dialect. Dynamic compilation failures raise [Definition_error]. *)
   val sql_exn
     :  dialect:Dialect.t
-    -> input:'input
+    -> ?input:'input
     -> ('input, 'output, 'requirements) t
     -> string
 end

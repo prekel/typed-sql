@@ -14,8 +14,7 @@ let from table =
   { reference
   ; source =
       { Ast.source_id = Table_ref.source_id reference
-      ; schema = Table.schema table
-      ; table = Table.name table
+      ; kind = Ast.Table { schema = Table.schema table; table = Table.name table }
       }
   ; where_ = None
   }
@@ -34,7 +33,8 @@ let where make_condition delete =
 let all_rows delete = { delete with where_ = None }
 
 let ast delete =
-  { Ast.kind = Ast.Delete
+  { Ast.ctes = []
+  ; kind = Ast.Delete
   ; source = delete.source
   ; assignments = []
   ; rows = []
@@ -48,8 +48,7 @@ let command delete = Command.create (ast delete)
 
 let returning make_projection delete =
   let projection = make_projection delete.reference in
-  Result_query.create
-    (Ast.Returning
-       { command = ast delete; projection = Projection.expressions projection })
+  Result_query.create_returning
+    { Ast.command = ast delete; projection = Projection.expressions projection }
     projection
 ;;
