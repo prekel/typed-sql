@@ -109,122 +109,6 @@ let tuple_statement =
       ~start_at)
 ;;
 
-type labeled_tuple_input =
-  name:string
-  * min_id:int64
-  * max_id:int64
-  * email:string
-  * min_age:int
-  * max_age:int
-  * city:string
-  * active:bool
-  * maximum_rows:int
-  * start_at:int
-
-let labeled_tuple_statement =
-  Statement.Portable.query_many_exn (fun params ->
-    let name =
-      params.column Person.name_column ~get:(fun ((~name, ..) : labeled_tuple_input) ->
-        name)
-    in
-    let min_id =
-      params.column Person.id_column ~get:(fun ((~min_id, ..) : labeled_tuple_input) ->
-        min_id)
-    in
-    let max_id =
-      params.column Person.id_column ~get:(fun ((~max_id, ..) : labeled_tuple_input) ->
-        max_id)
-    in
-    let email =
-      params.column Person.email_column ~get:(fun ((~email, ..) : labeled_tuple_input) ->
-        email)
-    in
-    let min_age =
-      params.column Person.age_column ~get:(fun ((~min_age, ..) : labeled_tuple_input) ->
-        min_age)
-    in
-    let max_age =
-      params.column Person.age_column ~get:(fun ((~max_age, ..) : labeled_tuple_input) ->
-        max_age)
-    in
-    let city =
-      params.column Person.city_column ~get:(fun ((~city, ..) : labeled_tuple_input) ->
-        city)
-    in
-    let active =
-      params.column
-        Person.active_column
-        ~get:(fun ((~active, ..) : labeled_tuple_input) -> active)
-    in
-    let maximum_rows =
-      params.non_negative_int
-        ~name:"maximum_rows"
-        ~get:(fun ((~maximum_rows, ..) : labeled_tuple_input) -> maximum_rows)
-    in
-    let start_at =
-      params.non_negative_int
-        ~name:"start_at"
-        ~get:(fun ((~start_at, ..) : labeled_tuple_input) -> start_at)
-    in
-    build_query
-      ~name
-      ~min_id
-      ~max_id
-      ~email
-      ~min_age
-      ~max_age
-      ~city
-      ~active
-      ~maximum_rows
-      ~start_at)
-;;
-
-let inferred_labeled_tuple_statement =
-  Statement.Portable.query_many_exn (fun params ->
-    let name =
-      params.column
-        Person.name_column
-        ~get:
-          (fun
-            ( ~name
-            , ~min_id:_
-            , ~max_id:_
-            , ~email:_
-            , ~min_age:_
-            , ~max_age:_
-            , ~city:_
-            , ~active:_
-            , ~maximum_rows:_
-            , ~start_at:_ )
-          -> name)
-    in
-    let min_id = params.column Person.id_column ~get:(fun (~min_id, ..) -> min_id) in
-    let max_id = params.column Person.id_column ~get:(fun (~max_id, ..) -> max_id) in
-    let email = params.column Person.email_column ~get:(fun (~email, ..) -> email) in
-    let min_age = params.column Person.age_column ~get:(fun (~min_age, ..) -> min_age) in
-    let max_age = params.column Person.age_column ~get:(fun (~max_age, ..) -> max_age) in
-    let city = params.column Person.city_column ~get:(fun (~city, ..) -> city) in
-    let active = params.column Person.active_column ~get:(fun (~active, ..) -> active) in
-    let maximum_rows =
-      params.non_negative_int ~name:"maximum_rows" ~get:(fun (~maximum_rows, ..) ->
-        maximum_rows)
-    in
-    let start_at =
-      params.non_negative_int ~name:"start_at" ~get:(fun (~start_at, ..) -> start_at)
-    in
-    build_query
-      ~name
-      ~min_id
-      ~max_id
-      ~email
-      ~min_age
-      ~max_age
-      ~city
-      ~active
-      ~maximum_rows
-      ~start_at)
-;;
-
 type record_input =
   { name : string
   ; min_id : int64
@@ -314,19 +198,6 @@ end
 
 let tuple_input = "Ada", 1L, 100L, "ada@example.test", 18, 120, "London", true, 50, 0
 
-let labeled_tuple_input =
-  ( ~name:"Ada"
-  , ~min_id:1L
-  , ~max_id:100L
-  , ~email:"ada@example.test"
-  , ~min_age:18
-  , ~max_age:120
-  , ~city:"London"
-  , ~active:true
-  , ~maximum_rows:50
-  , ~start_at:0 )
-;;
-
 let record_input =
   { name = "Ada"
   ; min_id = 1L
@@ -355,21 +226,13 @@ let ppx_record_input : Find_people.Input.t =
   }
 ;;
 
-let%test_unit
-    "tuple, labeled tuple, manual record, and PPX record describe the same statement"
-  =
+let%test_unit "tuple, manual record, and PPX record describe the same statement" =
   let sql statement input =
     Statement.sql_exn ~dialect:Dialect.Postgresql ~input statement
   in
   let tuple_sql = sql tuple_statement tuple_input in
-  let labeled_tuple_sql = sql labeled_tuple_statement labeled_tuple_input in
-  let inferred_labeled_tuple_sql =
-    sql inferred_labeled_tuple_statement labeled_tuple_input
-  in
   let record_sql = sql record_statement record_input in
   let ppx_record_sql = sql Find_people.statement ppx_record_input in
-  assert (String.equal tuple_sql labeled_tuple_sql);
-  assert (String.equal labeled_tuple_sql inferred_labeled_tuple_sql);
-  assert (String.equal labeled_tuple_sql record_sql);
+  assert (String.equal tuple_sql record_sql);
   assert (String.equal record_sql ppx_record_sql)
 ;;

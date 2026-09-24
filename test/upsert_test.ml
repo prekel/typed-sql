@@ -19,31 +19,34 @@ let compile dialect command = Compiler.compile_portable_command ~dialect command
 let insert () = Insert.(into table |> set id 1L |> set name "Ada")
 let update f = Insert.(insert () |> on_conflict target |> do_update f)
 
-let%expect_test "conditional composite multi-row UPSERT and RETURNING" =
-  let query =
-    Insert.(
-      rows
-        table
-        [ (fun row -> row |> set id 1L |> set name "Ada")
-        ; (fun row -> row |> set name "Grace" |> set id 2L)
-        ]
-      |> on_conflict target
-      |> do_update (fun ~existing ~excluded ->
-        Conflict_update.(
-          empty
-          |> set_expr name (Expr.upper (Expr.column excluded name))
-          |> set_opt nickname (Some None)
-          |> where (Expr.column existing id >$ 0L)
-          |> where (Expr.column existing name <>. Expr.column excluded name)))
-      |> returning (fun row ->
-        Projection.pair (Expr.column row name) (Expr.constant Db_type.int 9)))
-  in
-  Compiler.compile ~dialect:Dialect.postgresql query
-  |> ok
-  |> Compiled_query.sql
-  |> Stdlib.print_endline;
-  [%expect
-    {|
+let%test_module "conditional UPSERT rendering" =
+  (module struct
+    let conditional_upsert =
+      Insert.(
+        rows
+          table
+          [ (fun row -> row |> set id 1L |> set name "Ada")
+          ; (fun row -> row |> set name "Grace" |> set id 2L)
+          ]
+        |> on_conflict target
+        |> do_update (fun ~existing ~excluded ->
+          Conflict_update.(
+            empty
+            |> set_expr name (Expr.upper (Expr.column excluded name))
+            |> set_opt nickname (Some None)
+            |> where (Expr.column existing id >$ 0L)
+            |> where (Expr.column existing name <>. Expr.column excluded name)))
+        |> returning (fun row ->
+          Projection.pair (Expr.column row name) (Expr.constant Db_type.int 9)))
+    ;;
+
+    let%expect_test "conditional composite UPSERT renders in PostgreSQL" =
+      Compiler.compile ~dialect:Dialect.postgresql conditional_upsert
+      |> ok
+      |> Compiled_query.sql
+      |> Stdlib.print_endline;
+      [%expect
+        {|
     INSERT INTO "excluded" AS t0 (
       "id",
       "name"
@@ -67,13 +70,16 @@ let%expect_test "conditional composite multi-row UPSERT and RETURNING" =
     RETURNING
       "name",
       $7
-    |}];
-  Compiler.compile ~dialect:Dialect.sqlite query
-  |> ok
-  |> Compiled_query.sql
-  |> Stdlib.print_endline;
-  [%expect
-    {|
+    |}]
+    ;;
+
+    let%expect_test "conditional composite UPSERT renders in SQLite" =
+      Compiler.compile ~dialect:Dialect.sqlite conditional_upsert
+      |> ok
+      |> Compiled_query.sql
+      |> Stdlib.print_endline;
+      [%expect
+        {|
     INSERT INTO "excluded" AS t0 (
       "id",
       "name"
@@ -98,13 +104,23 @@ let%expect_test "conditional composite multi-row UPSERT and RETURNING" =
       "name",
       ?7
     |}]
+    ;;
+  end)
 ;;
 
-let%expect_test "target-specific DO NOTHING is portable" =
-  let command = Insert.(insert () |> on_conflict target |> do_nothing |> command) in
-  compile Dialect.Postgresql command |> ok |> Compiled_command.sql |> Stdlib.print_endline;
-  [%expect
-    {|
+let%test_module "targeted DO NOTHING rendering" =
+  (module struct
+    let target_do_nothing =
+      Insert.(insert () |> on_conflict target |> do_nothing |> command)
+    ;;
+
+    let%expect_test "target-specific DO NOTHING renders in PostgreSQL" =
+      compile Dialect.Postgresql target_do_nothing
+      |> ok
+      |> Compiled_command.sql
+      |> Stdlib.print_endline;
+      [%expect
+        {|
     INSERT INTO "excluded" (
       "id",
       "name"
@@ -116,10 +132,16 @@ let%expect_test "target-specific DO NOTHING is portable" =
       "name"
     )
     DO NOTHING
-    |}];
-  compile Dialect.Sqlite command |> ok |> Compiled_command.sql |> Stdlib.print_endline;
-  [%expect
-    {|
+    |}]
+    ;;
+
+    let%expect_test "target-specific DO NOTHING renders in SQLite" =
+      compile Dialect.Sqlite target_do_nothing
+      |> ok
+      |> Compiled_command.sql
+      |> Stdlib.print_endline;
+      [%expect
+        {|
     INSERT INTO "excluded" (
       "id",
       "name"
@@ -132,6 +154,8 @@ let%expect_test "target-specific DO NOTHING is portable" =
     )
     DO NOTHING
     |}]
+    ;;
+  end)
 ;;
 
 let%test_unit "optional fields and predicates preserve immutable actions" =
@@ -238,19 +262,26 @@ let%test_unit "escaped references cannot reach VALUES, RETURNING or other action
     | _ -> failwith "excluded escaped into RETURNING")
 ;;
 
-let%expect_test "invalid UPSERT assignments and local aggregates" =
-  let print action =
-    Insert.(update action |> command) |> compile Dialect.Sqlite |> function
-    | Error error -> Stdlib.print_endline (Compile_error.to_string error)
-    | Ok _ -> failwith "invalid action was accepted"
-  in
-  print (fun ~existing:_ ~excluded:_ ->
+let print_invalid_action action =
+  Insert.(update action |> command) |> compile Dialect.Sqlite |> function
+  | Error error -> Stdlib.print_endline (Compile_error.to_string error)
+  | Ok _ -> failwith "invalid action was accepted"
+;;
+
+let%expect_test "duplicate UPSERT assignment is rejected" =
+  print_invalid_action (fun ~existing:_ ~excluded:_ ->
     Insert.Conflict_update.(empty |> set name "one" |> set name "two"));
-  [%expect {| column name is assigned more than once |}];
-  print (fun ~existing:_ ~excluded:_ ->
+  [%expect {| column name is assigned more than once |}]
+;;
+
+let%expect_test "aggregate UPSERT assignment is rejected" =
+  print_invalid_action (fun ~existing:_ ~excluded:_ ->
     Insert.Conflict_update.(empty |> set_expr id Expr.count_all));
-  [%expect {| aggregate expressions are not allowed in ON CONFLICT DO UPDATE SET |}];
-  print (fun ~existing:_ ~excluded:_ ->
+  [%expect {| aggregate expressions are not allowed in ON CONFLICT DO UPDATE SET |}]
+;;
+
+let%expect_test "aggregate UPSERT predicate is rejected" =
+  print_invalid_action (fun ~existing:_ ~excluded:_ ->
     Insert.Conflict_update.(empty |> set name "one" |> where (Expr.count_all >$ 0L)));
   [%expect {| aggregate expressions are not allowed in ON CONFLICT DO UPDATE WHERE |}]
 ;;
@@ -309,20 +340,24 @@ let%test_unit "capability traversal includes conflict assignments and WHERE" =
       ignore (Compiler.compile_command ~dialect:Dialect.postgresql command |> ok))
 ;;
 
-let%expect_test "dialect lowering applies to the conflict predicate" =
-  let command =
-    Insert.(
-      update (fun ~existing ~excluded ->
-        Conflict_update.(
-          empty
-          |> set_expr name (Expr.case [] ~else_:(Expr.column excluded name))
-          |> where
-               (Expr.is_distinct_from
-                  (Expr.column existing nickname)
-                  (Expr.column excluded nickname))))
-      |> command)
-  in
-  compile Dialect.Postgresql command |> ok |> Compiled_command.sql |> Stdlib.print_endline;
+let lowered_conflict_command =
+  Insert.(
+    update (fun ~existing ~excluded ->
+      Conflict_update.(
+        empty
+        |> set_expr name (Expr.case [] ~else_:(Expr.column excluded name))
+        |> where
+             (Expr.is_distinct_from
+                (Expr.column existing nickname)
+                (Expr.column excluded nickname))))
+    |> command)
+;;
+
+let%expect_test "conflict predicate lowers for PostgreSQL" =
+  compile Dialect.Postgresql lowered_conflict_command
+  |> ok
+  |> Compiled_command.sql
+  |> Stdlib.print_endline;
   [%expect
     {|
     INSERT INTO "excluded" AS t0 (
@@ -340,8 +375,14 @@ let%expect_test "dialect lowering applies to the conflict predicate" =
       "name" = excluded."name"
     WHERE
       (t0."nickname" IS DISTINCT FROM excluded."nickname")
-    |}];
-  compile Dialect.Sqlite command |> ok |> Compiled_command.sql |> Stdlib.print_endline;
+    |}]
+;;
+
+let%expect_test "conflict predicate lowers for SQLite" =
+  compile Dialect.Sqlite lowered_conflict_command
+  |> ok
+  |> Compiled_command.sql
+  |> Stdlib.print_endline;
   [%expect
     {|
     INSERT INTO "excluded" AS t0 (

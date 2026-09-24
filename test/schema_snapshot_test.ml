@@ -196,21 +196,35 @@ let%expect_test "version 1 table and column wire format" =
     } |}]
 ;;
 
-let%expect_test "snapshot diagnostic paths" =
-  let print_error source =
-    match Schema_snapshot.of_string source with
-    | Error error -> Stdlib.print_endline (Schema_snapshot.error_to_string error)
-    | Ok _ -> failwith "expected invalid snapshot"
-  in
-  print_error {|{"version":2,"tables":[]}|};
-  [%expect {| $.version: unsupported snapshot version: 2 |}];
-  print_error {|{"version":1,"tables":[],"version":1}|};
-  [%expect {| $.version: duplicate field |}];
-  print_error {|{"version":1}|};
-  [%expect {| $.tables: missing field |}];
-  print_error
-    {|{"version":1,"tables":[{"schema":null,"name":"","columns":[],"foreign_keys":[],"unique_constraints":[]}]}|};
-  [%expect {| $.tables[0].name: SQL identifier must not be empty |}]
+let%test_module "snapshot diagnostic paths" =
+  (module struct
+    let print_error source =
+      match Schema_snapshot.of_string source with
+      | Error error -> Stdlib.print_endline (Schema_snapshot.error_to_string error)
+      | Ok _ -> failwith "expected invalid snapshot"
+    ;;
+
+    let%expect_test "unsupported version path" =
+      print_error {|{"version":2,"tables":[]}|};
+      [%expect {| $.version: unsupported snapshot version: 2 |}]
+    ;;
+
+    let%expect_test "snapshot reports a duplicate version field" =
+      print_error {|{"version":1,"tables":[],"version":1}|};
+      [%expect {| $.version: duplicate field |}]
+    ;;
+
+    let%expect_test "snapshot reports a missing tables field" =
+      print_error {|{"version":1}|};
+      [%expect {| $.tables: missing field |}]
+    ;;
+
+    let%expect_test "snapshot reports an invalid table name path" =
+      print_error
+        {|{"version":1,"tables":[{"schema":null,"name":"","columns":[],"foreign_keys":[],"unique_constraints":[]}]}|};
+      [%expect {| $.tables[0].name: SQL identifier must not be empty |}]
+    ;;
+  end)
 ;;
 
 let assert_rejected source =

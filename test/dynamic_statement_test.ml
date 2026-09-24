@@ -52,54 +52,63 @@ module Search_people = struct
   ;;
 end
 
-let%expect_test "dynamic comparisons render for both dialects" =
-  let sql dialect predicate =
-    Statement.sql_exn
-      ~dialect
-      ~input:{ Search_people.Input.predicate; maximum_rows = 10 }
-      Search_people.statement
-    |> Stdlib.print_endline
-  in
-  sql Dialect.Postgresql (At_least 3L);
+let sql dialect predicate =
+  Statement.sql_exn
+    ~dialect
+    ~input:{ Search_people.Input.predicate; maximum_rows = 10 }
+    Search_people.statement
+;;
+
+let%expect_test "at least comparison uses PostgreSQL syntax" =
+  Stdlib.print_endline (sql Dialect.Postgresql (At_least 3L));
   [%expect
     {|
-    SELECT
-      t0."id"
-    FROM "people" AS t0
-    WHERE
-      (t0."id" >= $1)
-    LIMIT 10
-    |}];
-  sql Dialect.Sqlite (At_least 3L);
+        SELECT
+          t0."id"
+        FROM "people" AS t0
+        WHERE
+          (t0."id" >= $1)
+        LIMIT 10
+        |}]
+;;
+
+let%expect_test "at least comparison uses SQLite syntax" =
+  Stdlib.print_endline (sql Dialect.Sqlite (At_least 3L));
   [%expect
     {|
-    SELECT
-      t0."id"
-    FROM "people" AS t0
-    WHERE
-      (t0."id" >= ?1)
-    LIMIT 10
-    |}];
-  sql Dialect.Postgresql (At_most 9L);
+        SELECT
+          t0."id"
+        FROM "people" AS t0
+        WHERE
+          (t0."id" >= ?1)
+        LIMIT 10
+        |}]
+;;
+
+let%expect_test "at most comparison uses PostgreSQL syntax" =
+  Stdlib.print_endline (sql Dialect.Postgresql (At_most 9L));
   [%expect
     {|
-    SELECT
-      t0."id"
-    FROM "people" AS t0
-    WHERE
-      (t0."id" <= $1)
-    LIMIT 10
-    |}];
-  sql Dialect.Sqlite (At_most 9L);
+        SELECT
+          t0."id"
+        FROM "people" AS t0
+        WHERE
+          (t0."id" <= $1)
+        LIMIT 10
+        |}]
+;;
+
+let%expect_test "at most comparison uses SQLite syntax" =
+  Stdlib.print_endline (sql Dialect.Sqlite (At_most 9L));
   [%expect
     {|
-    SELECT
-      t0."id"
-    FROM "people" AS t0
-    WHERE
-      (t0."id" <= ?1)
-    LIMIT 10
-    |}]
+        SELECT
+          t0."id"
+        FROM "people" AS t0
+        WHERE
+          (t0."id" <= ?1)
+        LIMIT 10
+        |}]
 ;;
 
 let%test_unit "nested predicates and variable IN preserve portable SQL" =

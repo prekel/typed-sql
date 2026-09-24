@@ -2,7 +2,7 @@
 
 (name typed-sql)
 
-(version 0.3.1)
+(version 0.3.2)
 
 (generate_opam_files true)
 
@@ -21,7 +21,7 @@
  (description
   "A backend-independent OCaml DSL for typed relational statements with static and dynamic compilation.")
  (depends
-  (ocaml (>= 5.5.1))
+  (ocaml (>= 5.1.1))
   base
   ptime
   yojson
@@ -41,7 +41,7 @@
  (description
   "An Lwt adapter that runs typed-sql statements through Caqti PostgreSQL and SQLite connections.")
  (depends
-  (ocaml (>= 5.5.1))
+  (ocaml (>= 5.1.1))
   (typed-sql (= :version))
   base
   ptime
@@ -61,7 +61,7 @@
  (description
   "An Lwt adapter that runs typed-sql statements through PG'OCaml on PostgreSQL.")
  (depends
-  (ocaml (>= 5.5.1))
+  (ocaml (>= 5.1.1))
   (typed-sql (= :version))
   base
   ptime

@@ -110,111 +110,200 @@ let ok_exn result =
   result |> Result.map_error ~f:Compile_error.to_string |> Result.ok_or_failwith
 ;;
 
-let%expect_test "private inspection preserves public query types and source identity" =
-  let table : unit Table.t = Table.v_exn "items" in
-  let id = Column.v_exn table "id" Db_type.int in
-  let builder = Query.(from table |> where (fun row -> Expr.column row id =$ 7)) in
-  let ast = Query.(ast builder) in
-  let original =
-    Query.(builder |> select (fun row -> Projection.expr (Expr.column row id)))
-  in
-  let projection = Result_query.projection original in
-  let ast = { ast with A.projection = Projection.expressions projection } in
-  let rebuilt = Result_query.create_select (A.Simple ast) projection in
-  let compile query = Compiler.compile ~dialect:Dialect.sqlite query |> ok_exn in
-  let original, rebuilt = compile original, compile rebuilt in
-  assert (Shape.equal (Compiled_query.shape original) (Compiled_query.shape rebuilt));
-  (match Projection.expressions projection with
-   | [ A.Column { source_id; _ } ] -> assert (Int.(source_id = ast.source.source_id))
-   | _ -> failwith "unexpected projection");
-  Stdlib.print_endline (Compiled_query.sql rebuilt);
-  [%expect
-    {|
+let%test_module "private query inspection" =
+  (module struct
+    let table : unit Table.t = Table.v_exn "items"
+    let id = Column.v_exn table "id" Db_type.int
+    let builder = Query.(from table |> where (fun row -> Expr.column row id =$ 7))
+    let ast = Query.(ast builder)
+
+    let original =
+      Query.(builder |> select (fun row -> Projection.expr (Expr.column row id)))
+    ;;
+
+    let projection = Result_query.projection original
+    let rebuilt_ast = { ast with A.projection = Projection.expressions projection }
+    let rebuilt = Result_query.create_select (A.Simple rebuilt_ast) projection
+    let compile query = Compiler.compile ~dialect:Dialect.sqlite query |> ok_exn
+    let compiled_original = compile original
+    let compiled_rebuilt = compile rebuilt
+
+    let%test "reconstructed query preserves shape" =
+      Shape.equal
+        (Compiled_query.shape compiled_original)
+        (Compiled_query.shape compiled_rebuilt)
+    ;;
+
+    let%test "projection keeps source identity" =
+      match Projection.expressions projection with
+      | [ A.Column { source_id; _ } ] -> Int.(source_id = rebuilt_ast.source.source_id)
+      | _ -> false
+    ;;
+
+    let%expect_test "reconstructed query SQL" =
+      Stdlib.print_endline (Compiled_query.sql compiled_rebuilt);
+      [%expect
+        {|
     SELECT
       t0."id"
     FROM "items" AS t0
     WHERE
       (t0."id" = ?1)
-    |}];
-  let reference = Table_ref.create table in
-  let nullable = Nullable_table_ref.of_table_ref reference in
-  assert (Int.(Table_ref.source_id reference = Nullable_table_ref.source_id nullable))
+    |}]
+    ;;
+
+    let%test "nullable table reference keeps source identity" =
+      let reference = Table_ref.create table in
+      let nullable = Nullable_table_ref.of_table_ref reference in
+      Int.(Table_ref.source_id reference = Nullable_table_ref.source_id nullable)
+    ;;
+  end)
 ;;
 
-let%test_unit "normalization identities and idempotence" =
-  let atom = A.Is_null (column 0) in
-  let cases =
-    [ A.And [], A.True
-    ; A.Or [], A.False
-    ; A.And [ A.True; atom; A.And [ A.True ] ], atom
-    ; A.Or [ A.False; atom; A.Or [ A.False ] ], atom
-    ; A.And [ atom; A.False ], A.False
-    ; A.Or [ atom; A.True ], A.True
-    ; A.Not A.True, A.False
-    ; A.Not A.False, A.True
-    ; A.Not (A.Not atom), atom
-    ; A.Not atom, A.Not atom
-    ; A.And [ atom; A.And [ atom; atom ] ], A.And [ atom; atom; atom ]
-    ; A.Or [ atom; A.Or [ atom; atom ] ], A.Or [ atom; atom; atom ]
-    ]
-  in
-  List.iter cases ~f:(fun (input, expected) ->
-    let normalized = Normalizer.normalize_condition input in
-    assert (equal_condition normalized expected);
-    assert (equal_condition (Normalizer.normalize_condition normalized) normalized))
+let%test_module "condition normalization" =
+  (module struct
+    let atom = A.Is_null (column 0)
+
+    let check input expected =
+      let normalized = Normalizer.normalize_condition input in
+      equal_condition normalized expected
+      && equal_condition (Normalizer.normalize_condition normalized) normalized
+    ;;
+
+    let%test "empty conjunction becomes TRUE" = check (A.And []) A.True
+    let%test "empty disjunction becomes FALSE" = check (A.Or []) A.False
+
+    let%test "TRUE identities flatten conjunctions" =
+      check (A.And [ A.True; atom; A.And [ A.True ] ]) atom
+    ;;
+
+    let%test "FALSE identities flatten disjunctions" =
+      check (A.Or [ A.False; atom; A.Or [ A.False ] ]) atom
+    ;;
+
+    let%test "FALSE absorbs conjunctions" = check (A.And [ atom; A.False ]) A.False
+    let%test "TRUE absorbs disjunctions" = check (A.Or [ atom; A.True ]) A.True
+    let%test "NOT TRUE becomes FALSE" = check (A.Not A.True) A.False
+    let%test "NOT FALSE becomes TRUE" = check (A.Not A.False) A.True
+    let%test "double negation is removed" = check (A.Not (A.Not atom)) atom
+    let%test "atomic negation is retained" = check (A.Not atom) (A.Not atom)
+
+    let%test "nested conjunctions flatten" =
+      check (A.And [ atom; A.And [ atom; atom ] ]) (A.And [ atom; atom; atom ])
+    ;;
+
+    let%test "nested disjunctions flatten" =
+      check (A.Or [ atom; A.Or [ atom; atom ] ]) (A.Or [ atom; atom; atom ])
+    ;;
+  end)
 ;;
 
-let%expect_test "validator catches invalid select and JOIN scopes" =
-  let validate query =
-    Validator.result_query (A.Select (A.Simple query)) |> print_validation
-  in
-  validate { select with projection = [] };
-  [%expect {| SELECT projection must contain at least one expression |}];
-  validate { select with limit = Some (A.Literal (-1)) };
-  [%expect {| LIMIT must be non-negative, got -1 |}];
-  validate { select with offset = Some (A.Literal (-2)) };
-  [%expect {| OFFSET must be non-negative, got -2 |}];
-  validate { select with projection = [ column 99 ] };
-  [%expect {| expression references source #99, but the visible sources are 0 |}];
-  validate { select with order_by = [ { expr = column 99; direction = A.Desc } ] };
-  [%expect {| expression references source #99, but the visible sources are 0 |}];
-  let first : A.join =
-    { kind = A.Inner; source = source 1; on = A.Compare (A.Eq, column 0, column 1) }
-  in
-  let second : A.join =
-    { kind = A.Left; source = source 2; on = A.Compare (A.Eq, column 1, column 2) }
-  in
-  Validator.result_query
-    (A.Select
-       (A.Simple { select with joins = [ first; second ]; projection = [ column 2 ] }))
-  |> ok_exn;
-  validate
-    { select with joins = [ { first with on = A.Is_not_null (column 2) }; second ] };
-  [%expect {| expression references source #2, but the visible sources are 0, 1 |}]
+let%test_module "SELECT validator diagnostics" =
+  (module struct
+    let validate query =
+      Validator.result_query (A.Select (A.Simple query)) |> print_validation
+    ;;
+
+    let%expect_test "empty projection" =
+      validate { select with projection = [] };
+      [%expect {| SELECT projection must contain at least one expression |}]
+    ;;
+
+    let%expect_test "negative limit" =
+      validate { select with limit = Some (A.Literal (-1)) };
+      [%expect {| LIMIT must be non-negative, got -1 |}]
+    ;;
+
+    let%expect_test "negative offset" =
+      validate { select with offset = Some (A.Literal (-2)) };
+      [%expect {| OFFSET must be non-negative, got -2 |}]
+    ;;
+
+    let%expect_test "invalid projection source" =
+      validate { select with projection = [ column 99 ] };
+      [%expect {| expression references source #99, but the visible sources are 0 |}]
+    ;;
+
+    let%expect_test "invalid order source" =
+      validate { select with order_by = [ { expr = column 99; direction = A.Desc } ] };
+      [%expect {| expression references source #99, but the visible sources are 0 |}]
+    ;;
+
+    let first : A.join =
+      { kind = A.Inner; source = source 1; on = A.Compare (A.Eq, column 0, column 1) }
+    ;;
+
+    let second : A.join =
+      { kind = A.Left; source = source 2; on = A.Compare (A.Eq, column 1, column 2) }
+    ;;
+
+    let%test_unit "valid multi-join scope" =
+      Validator.result_query
+        (A.Select
+           (A.Simple { select with joins = [ first; second ]; projection = [ column 2 ] }))
+      |> ok_exn
+    ;;
+
+    let%expect_test "invalid JOIN scope" =
+      validate
+        { select with joins = [ { first with on = A.Is_not_null (column 2) }; second ] };
+      [%expect {| expression references source #2, but the visible sources are 0, 1 |}]
+    ;;
+  end)
 ;;
 
-let%expect_test "validator catches invalid DML assignments and RETURNING" =
-  let validate command = Validator.command command |> print_validation in
-  validate (command A.Insert []);
-  [%expect {| INSERT must assign at least one column |}];
-  validate (command A.Update []);
-  [%expect {| UPDATE must assign at least one column |}];
-  validate (command A.Update [ assignment; assignment ]);
-  [%expect {| column id is assigned more than once |}];
-  validate (command A.Update [ { assignment with source_id = 99 } ]);
-  [%expect {| assignment belongs to source #99, but the command targets source #0 |}];
-  validate (command A.Update [ { assignment with value = A.Expression (column 99) } ]);
-  [%expect {| expression references source #99, but the visible sources are 0 |}];
-  validate { (command A.Delete []) with where_ = Some (A.Not (A.Is_null (column 99))) };
-  [%expect {| expression references source #99, but the visible sources are 0 |}];
-  let insert = command A.Insert [ assignment ] in
-  Validator.result_query (A.Returning { command = insert; projection = [] })
-  |> print_validation;
-  [%expect {| SELECT projection must contain at least one expression |}];
-  Validator.result_query (A.Returning { command = insert; projection = [ column 99 ] })
-  |> print_validation;
-  [%expect {| expression references source #99, but the visible sources are 0 |}];
-  Validator.command insert |> ok_exn
+let%test_module "DML validator diagnostics" =
+  (module struct
+    let validate command = Validator.command command |> print_validation
+
+    let%expect_test "empty INSERT assignments" =
+      validate (command A.Insert []);
+      [%expect {| INSERT must assign at least one column |}]
+    ;;
+
+    let%expect_test "empty UPDATE assignments" =
+      validate (command A.Update []);
+      [%expect {| UPDATE must assign at least one column |}]
+    ;;
+
+    let%expect_test "duplicate assignments" =
+      validate (command A.Update [ assignment; assignment ]);
+      [%expect {| column id is assigned more than once |}]
+    ;;
+
+    let%expect_test "foreign assignment source" =
+      validate (command A.Update [ { assignment with source_id = 99 } ]);
+      [%expect {| assignment belongs to source #99, but the command targets source #0 |}]
+    ;;
+
+    let%expect_test "foreign assignment expression" =
+      validate (command A.Update [ { assignment with value = A.Expression (column 99) } ]);
+      [%expect {| expression references source #99, but the visible sources are 0 |}]
+    ;;
+
+    let%expect_test "foreign DELETE predicate" =
+      validate
+        { (command A.Delete []) with where_ = Some (A.Not (A.Is_null (column 99))) };
+      [%expect {| expression references source #99, but the visible sources are 0 |}]
+    ;;
+
+    let insert = command A.Insert [ assignment ]
+
+    let%expect_test "empty RETURNING projection" =
+      Validator.result_query (A.Returning { command = insert; projection = [] })
+      |> print_validation;
+      [%expect {| SELECT projection must contain at least one expression |}]
+    ;;
+
+    let%expect_test "foreign RETURNING projection" =
+      Validator.result_query
+        (A.Returning { command = insert; projection = [ column 99 ] })
+      |> print_validation;
+      [%expect {| expression references source #99, but the visible sources are 0 |}]
+    ;;
+
+    let%test_unit "valid INSERT" = Validator.command insert |> ok_exn
+  end)
 ;;
 
 let cte_source ~cte_id source_id : A.source = { source_id; kind = A.Cte cte_id }
@@ -268,36 +357,38 @@ let query_with_cte (cte : A.cte) : A.result_query =
        })
 ;;
 
-let expect_unknown_cte expected = function
-  | Error (Compile_error.Unknown_cte actual) -> assert (Int.(actual = expected))
-  | Error error -> failwith ("expected Unknown_cte, got " ^ Compile_error.to_string error)
-  | Ok () -> failwith "unknown CTE was accepted"
-;;
+let%test_module "unavailable CTE diagnostics" =
+  (module struct
+    let cte_id = 701
+    let nested_source = cte_source ~cte_id 1
 
-let expect_invalid_recursive_reference expected = function
-  | Error (Compile_error.Invalid_recursive_reference actual) ->
-    assert (Int.(actual = expected))
-  | Error error ->
-    failwith ("expected Invalid_recursive_reference, got " ^ Compile_error.to_string error)
-  | Ok () -> failwith "invalid recursive CTE was accepted"
-;;
+    let nested =
+      { select with
+        source = nested_source
+      ; projection = [ column nested_source.source_id ]
+      ; limit = Some (A.Literal 1)
+      }
+    ;;
 
-let%test_unit "validator rejects unavailable CTEs in nested scalar and EXISTS queries" =
-  let cte_id = 701 in
-  let nested_source = cte_source ~cte_id 1 in
-  let nested =
-    { select with
-      source = nested_source
-    ; projection = [ column nested_source.source_id ]
-    ; limit = Some (A.Literal 1)
-    }
-  in
-  let scalar =
-    A.Select (A.Simple { select with projection = [ A.Scalar_subquery nested ] })
-  in
-  expect_unknown_cte cte_id (Validator.result_query scalar);
-  let exists = A.Select (A.Simple { select with where_ = Some (A.Exists nested) }) in
-  expect_unknown_cte cte_id (Validator.result_query exists)
+    let expect_unknown = function
+      | Error (Compile_error.Unknown_cte actual) -> assert (Int.(actual = cte_id))
+      | Error error ->
+        failwith ("expected Unknown_cte, got " ^ Compile_error.to_string error)
+      | Ok () -> failwith "unknown CTE was accepted"
+    ;;
+
+    let%test_unit "scalar subquery cannot access an unavailable CTE" =
+      let scalar =
+        A.Select (A.Simple { select with projection = [ A.Scalar_subquery nested ] })
+      in
+      expect_unknown (Validator.result_query scalar)
+    ;;
+
+    let%test_unit "EXISTS subquery cannot access an unavailable CTE" =
+      let exists = A.Select (A.Simple { select with where_ = Some (A.Exists nested) }) in
+      expect_unknown (Validator.result_query exists)
+    ;;
+  end)
 ;;
 
 let%test_unit "validator rejects incompatible recursive anchor and step types" =
@@ -311,77 +402,104 @@ let%test_unit "validator rejects incompatible recursive anchor and step types" =
   | Ok () -> failwith "recursive CTE accepted incompatible type vectors"
 ;;
 
-let%test_unit "validator rejects extra and nested recursive self-references" =
-  let cte_id = 703 in
-  let direct_self = cte_source ~cte_id 2 in
-  let extra_self = cte_source ~cte_id 3 in
-  let direct_step =
-    { (int_relation direct_self) with
-      query =
-        A.Simple
-          { select with
-            source = direct_self
-          ; joins = [ { kind = A.Inner; source = extra_self; on = A.True } ]
-          ; projection = [ column direct_self.source_id ]
-          }
-    }
-  in
-  expect_invalid_recursive_reference
-    cte_id
-    (Validator.result_query (query_with_cte (recursive_cte ~cte_id ~step:direct_step)));
-  let nested_self = cte_source ~cte_id 4 in
-  let nested_relation = int_relation nested_self in
-  let nested_source : A.source = { source_id = 3; kind = A.Derived nested_relation } in
-  let nested_step =
-    { (int_relation direct_self) with
-      query =
-        A.Simple
-          { select with
-            source = direct_self
-          ; joins = [ { kind = A.Inner; source = nested_source; on = A.True } ]
-          ; projection = [ column direct_self.source_id ]
-          }
-    }
-  in
-  expect_invalid_recursive_reference
-    cte_id
-    (Validator.result_query (query_with_cte (recursive_cte ~cte_id ~step:nested_step)))
+let%test_module "recursive CTE self-reference validation" =
+  (module struct
+    let cte_id = 703
+    let direct_self = cte_source ~cte_id 2
+
+    let direct_step source =
+      { (int_relation direct_self) with
+        query =
+          A.Simple
+            { select with
+              source = direct_self
+            ; joins = [ { kind = A.Inner; source; on = A.True } ]
+            ; projection = [ column direct_self.source_id ]
+            }
+      }
+    ;;
+
+    let expect_invalid = function
+      | Error (Compile_error.Invalid_recursive_reference actual) ->
+        assert (Int.(actual = cte_id))
+      | Error error ->
+        failwith
+          ("expected Invalid_recursive_reference, got " ^ Compile_error.to_string error)
+      | Ok () -> failwith "invalid recursive CTE was accepted"
+    ;;
+
+    let%test_unit "rejects an extra direct self-reference" =
+      let extra_self = cte_source ~cte_id 3 in
+      let step = direct_step extra_self in
+      expect_invalid
+        (Validator.result_query (query_with_cte (recursive_cte ~cte_id ~step)))
+    ;;
+
+    let%test_unit "rejects a self-reference inside a derived relation" =
+      let nested_self = cte_source ~cte_id 4 in
+      let nested_relation = int_relation nested_self in
+      let nested_source : A.source =
+        { source_id = 3; kind = A.Derived nested_relation }
+      in
+      let step = direct_step nested_source in
+      expect_invalid
+        (Validator.result_query (query_with_cte (recursive_cte ~cte_id ~step)))
+    ;;
+  end)
 ;;
 
-let%expect_test "validator rejects malformed private conflict clauses" =
-  let id = Identifier.of_string_exn "id" in
-  let insert = command A.Insert [ assignment ] in
-  let validate conflict =
-    Validator.command { insert with conflict = Some conflict } |> print_validation
-  in
-  validate (A.Do_nothing (Some []));
-  [%expect {| ON CONFLICT target must contain at least one column |}];
-  validate
-    (A.Do_update
-       { target = []
-       ; excluded_source_id = 1
-       ; where_ = None
-       ; assignments = [ assignment ]
-       });
-  [%expect {| ON CONFLICT target must contain at least one column |}];
-  validate
-    (A.Do_update
-       { target = [ conflict_column id; conflict_column id ]
-       ; excluded_source_id = 1
-       ; where_ = None
-       ; assignments = [ assignment ]
-       });
-  [%expect {| ON CONFLICT target contains column id more than once |}];
-  validate (A.Do_nothing (Some [ conflict_column ~source_id:99 id ]));
-  [%expect {| ON CONFLICT target column belongs to source #99, expected source #0 |}];
-  validate
-    (A.Do_update
-       { target = [ conflict_column id ]
-       ; excluded_source_id = 1
-       ; where_ = None
-       ; assignments = [ assignment; assignment ]
-       });
-  [%expect {| column id is assigned more than once |}]
+let%test_module "private conflict validator diagnostics" =
+  (module struct
+    let id = Identifier.of_string_exn "id"
+    let insert = command A.Insert [ assignment ]
+
+    let validate conflict =
+      Validator.command { insert with conflict = Some conflict } |> print_validation
+    ;;
+
+    let%expect_test "empty DO NOTHING target" =
+      validate (A.Do_nothing (Some []));
+      [%expect {| ON CONFLICT target must contain at least one column |}]
+    ;;
+
+    let%expect_test "empty DO UPDATE target" =
+      validate
+        (A.Do_update
+           { target = []
+           ; excluded_source_id = 1
+           ; where_ = None
+           ; assignments = [ assignment ]
+           });
+      [%expect {| ON CONFLICT target must contain at least one column |}]
+    ;;
+
+    let%expect_test "duplicate conflict target" =
+      validate
+        (A.Do_update
+           { target = [ conflict_column id; conflict_column id ]
+           ; excluded_source_id = 1
+           ; where_ = None
+           ; assignments = [ assignment ]
+           });
+      [%expect {| ON CONFLICT target contains column id more than once |}]
+    ;;
+
+    let%expect_test "foreign conflict target" =
+      validate (A.Do_nothing (Some [ conflict_column ~source_id:99 id ]));
+      [%expect {| ON CONFLICT target column belongs to source #99, expected source #0 |}]
+    ;;
+
+    let%expect_test "duplicate conflict assignments" =
+      validate
+        (A.Do_update
+           { target = [ conflict_column id ]
+           ; excluded_source_id = 1
+           ; where_ = None
+           ; assignments = [ assignment; assignment ]
+           });
+      [%expect {| column id is assigned more than once |}]
+    ;;
+  end)
 ;;
 
 let%test "private commands reach compiler validation" =
@@ -391,454 +509,648 @@ let%test "private commands reach compiler validation" =
   | _ -> false
 ;;
 
-let%test_unit "private UPSERT DEFAULT reaches dialect capability checking" =
-  let ast =
-    { (command A.Insert [ assignment ]) with
-      conflict =
-        Some
-          (A.Do_update
-             { target = [ conflict_column assignment.column ]
-             ; excluded_source_id = 1
-             ; assignments = [ { assignment with value = A.Default } ]
-             ; where_ = None
-             })
-    }
-  in
-  let command = Command.create ast in
-  ignore (Compiler.compile_command ~dialect:Dialect.postgresql command |> ok_exn);
-  match Compiler.compile_command ~dialect:Dialect.sqlite command with
-  | Error (Compile_error.Unsupported_operation { operation; dialect = Dialect.Sqlite }) ->
-    assert (String.equal operation "ON CONFLICT DO UPDATE SET DEFAULT")
-  | _ -> failwith "SQLite accepted an UPSERT DEFAULT assignment"
-;;
-
-let%expect_test "private constructors share opaque public types" =
-  let expression : (int, Dialect.portable) Expr.t =
-    Expr.create (A.Param (A.Value (Db_type.Value (Db_type.int, 42)))) Db_type.int
-  in
-  let condition : Dialect.portable Condition.t =
-    Condition.create (A.Is_not_null (Expr.node expression))
-  in
-  (match Condition.node condition with
-   | A.Is_not_null (A.Param _) -> ()
-   | _ -> failwith "condition representation changed");
-  let template : Template.t =
-    Template.of_parts [ Template.Text "SELECT "; Template.Param 0 ]
-  in
-  let projection = Projection.expr expression in
-  let shape : Shape.t = Shape.create (Template.shape_string template) in
-  let parameters = [ Db_type.Value (Db_type.int, 42) ] in
-  let compiled : int Compiled_query.t =
-    Compiled_query.create
-      ~dialect:Dialect.Sqlite
-      ~template
-      ~parameters
-      ~projection:(Projection.erase projection)
-      ~shape
-  in
-  assert (Shape.equal shape (Compiled_query.shape compiled));
-  Stdlib.print_endline (Compiled_query.sql compiled);
-  [%expect {| SELECT ?1 |}]
-;;
-
-let%test_unit "template layout does not affect shape identity" =
-  let compact = Template.of_parts [ Template.Text "SELECT "; Template.Param 0 ] in
-  let formatted =
-    Template.of_parts
-      [ Template.Text "SELECT"
-      ; Template.Nest (Template.of_parts [ Template.Break " "; Template.Param 0 ])
-      ]
-  in
-  assert (String.equal (Template.shape_string compact) (Template.shape_string formatted));
-  assert (
-    not
-      (String.equal
-         (Template.to_sql ~dialect:Dialect.Sqlite compact)
-         (Template.to_sql ~dialect:Dialect.Sqlite formatted)))
-;;
-
-let%expect_test "lowering and rendering preserve bind values for both dialects" =
-  let ast =
-    A.Returning
-      { command = command A.Insert [ assignment ]
-      ; projection =
-          [ column 0; A.Param (A.Value (Db_type.Value (Db_type.text, "returned"))) ]
-      }
-    |> Normalizer.result_query
-  in
-  Validator.result_query ast |> ok_exn;
-  let render dialect =
-    let lowered = Lower.result_query ~dialect ast |> ok_exn in
-    let template, parameters = Renderer.result_query ~dialect lowered in
-    (match parameters with
-     | [ A.Value (Db_type.Value (first_type, first))
-       ; A.Value (Db_type.Value (second_type, second))
-       ] ->
-       (match Db_type.view first_type, Db_type.view second_type with
-        | Db_type.Int, Db_type.Text ->
-          assert (Int.(first = 7));
-          assert (String.equal second "returned")
-        | _ -> failwith "parameter types changed")
-     | _ -> failwith "parameter count changed");
-    Template.to_sql ~dialect template
-  in
-  Stdlib.print_endline (render Dialect.Postgresql);
-  [%expect
-    {|
-    INSERT INTO "items" (
-      "id"
-    )
-    VALUES
-      ($1)
-    RETURNING
-      "id",
-      $2
-    |}];
-  Stdlib.print_endline (render Dialect.Sqlite);
-  [%expect
-    {|
-    INSERT INTO "items" (
-      "id"
-    )
-    VALUES
-      (?1)
-    RETURNING
-      "id",
-      ?2
-    |}]
-;;
-
-let%test_unit "renderer totality covers malformed private AST diagnostics" =
-  let render query =
-    let template, _ = Renderer.result_query ~dialect:Dialect.Sqlite query in
-    Template.to_sql ~dialect:Dialect.Sqlite template
-  in
-  assert (
-    String.equal
-      (render (A.Select (A.Simple { select with where_ = Some A.True })))
-      "SELECT\n  t0.\"id\"\nFROM \"items\" AS t0\nWHERE\n  TRUE");
-  assert (
-    String.equal
-      (render (A.Select (A.Simple { select with where_ = Some (A.And []) })))
-      "SELECT\n  t0.\"id\"\nFROM \"items\" AS t0\nWHERE\n  ()");
-  ignore
-    (render (A.Returning { command = command A.Insert [ assignment ]; projection = [] }));
-  ignore (Renderer.command ~dialect:Dialect.Postgresql (command A.Update []));
-  ignore (Renderer.command ~dialect:Dialect.Postgresql (command A.Insert []));
-  ignore
-    (Renderer.render_expr
-       ~aliases:[]
-       (A.Aggregate
-          (A.Multiset_agg { fields = []; field_types = []; filter = None; order_by = [] }))
-       Renderer.initial_state);
-  ignore (Renderer.render_ctes [] Renderer.initial_state);
-  ignore
-    (Renderer.render_insert_rows ~aliases:[ 0, "" ] ~columns:[] [] Renderer.initial_state)
-;;
-
-let%test_unit "internal helper boundary cases remain total" =
-  (match Lower.condition ~dialect:Dialect.Sqlite A.True with
-   | A.True -> ()
-   | _ -> failwith "lowering changed a true condition");
-  assert (Option.is_none (Normalizer.optional_condition (Some A.True)));
-  ignore (Renderer.render_order_by ~aliases:[ 0, "t0" ] [] Renderer.initial_state);
-  let single, _ =
-    Renderer.render_condition_list
-      ~aliases:[ 0, "t0" ]
-      ~operator:"AND"
-      [ A.True ]
-      Renderer.initial_state
-  in
-  assert (String.equal (Template.to_sql ~dialect:Dialect.Sqlite single) "(TRUE)");
-  let empty_conditions, _ =
-    Renderer.render_conditions
-      ~aliases:[ 0, "t0" ]
-      ~operator:"AND"
-      []
-      Renderer.initial_state
-  in
-  assert (String.is_empty (Template.to_sql ~dialect:Dialect.Sqlite empty_conditions));
-  assert (
-    String.is_empty
-      (Renderer.render_from_sources ~aliases:[] [] Renderer.initial_state
-       |> fst
-       |> Template.to_sql ~dialect:Dialect.Sqlite));
-  let rendered_sources =
-    let sources =
-      Renderer.render_from_sources
-        ~aliases:[ 0, "t0"; 1, "t1" ]
-        [ source 0; source 1 ]
-        Renderer.initial_state
-      |> fst
-    in
-    Template.of_parts [ Template.Nest sources ] |> Template.to_sql ~dialect:Dialect.Sqlite
-  in
-  assert (String.equal rendered_sources "\"items\" AS t0,\n  \"items\" AS t1");
-  assert (
-    not
-      (Validator.same_column
-         (column 0)
-         (A.Param (A.Value (Db_type.Value (Db_type.int, 0))))));
-  let arithmetic = A.Arithmetic (A.Add, column 0, column 0) in
-  assert (Validator.same_group_expression arithmetic arithmetic);
-  List.iter [ A.Add; A.Subtract; A.Multiply; A.Divide ] ~f:(fun operator ->
-    assert (Validator.same_arithmetic operator operator));
-  assert (not (Validator.same_arithmetic A.Add A.Subtract));
-  List.iter [ A.Lower; A.Upper; A.Length ] ~f:(fun function_ ->
-    assert (Validator.same_string_function function_ function_));
-  assert (not (Validator.same_string_function A.Lower A.Upper));
-  assert (not (Validator.same_string_function A.Sqlite_length A.Sqlite_length));
-  let concat = A.Concat (column 0, column 0) in
-  assert (Validator.same_group_expression concat concat);
-  let left : Validator.aggregate_analysis =
-    { has_aggregate = false; nested_aggregate = false; grouped = true }
-  in
-  let right : Validator.aggregate_analysis =
-    { has_aggregate = true; nested_aggregate = true; grouped = true }
-  in
-  assert (Validator.combine left right).nested_aggregate;
-  assert (Validator.combine right left).nested_aggregate;
-  let validate_subquery ~outer_visible:_ ~allow_empty:_ _ = Ok () in
-  Validator.validate_condition ~validate_subquery ~visible:[] A.True |> ok_exn;
-  ignore (Validator.analyze_condition ~groups:[] ~inside_aggregate:false A.True);
-  let nested_count = A.Aggregate (A.Count (A.Aggregate (A.Count (column 0)))) in
-  assert
-    (Validator.analyze_expression ~groups:[] ~inside_aggregate:false nested_count)
-      .nested_aggregate;
-  match Validator.command { (command A.Insert []) with rows = [] } with
-  | Error (Compile_error.Empty_assignments `Insert) -> ()
-  | _ -> failwith "empty private INSERT was accepted"
-;;
-
-let%test_unit
-    "lowering capability traversal and scalar aggregate proof cover private cases"
-  =
-  let parameter = A.Param (A.Value (Db_type.Value (Db_type.int, 1))) in
-  let local_aggregate = A.Aggregate (A.Count (column 0)) in
-  let nested_select = { select with having = Some A.True } in
-  let expression =
-    A.Case
-      ( [ ( A.Compare (A.Eq, column 0, parameter)
-          , A.Arithmetic (A.Add, A.String_function (A.Length, column 0), parameter) )
-        ]
-      , A.Concat (A.Aggregate (A.Count_distinct (column 0)), A.Scalar_subquery select) )
-  in
-  let condition =
-    A.And
-      [ A.Is_null expression
-      ; A.Is_not_null expression
-      ; A.In (expression, [ parameter ])
-      ; A.Not_in (expression, [ parameter ])
-      ; A.Between (expression, parameter, column 0)
-      ; A.Exists select
-      ; A.Not_exists select
-      ; A.In_subquery (expression, select)
-      ; A.Not_in_subquery (expression, select)
-      ; A.Or [ A.False ]
-      ; A.Not A.False
-      ]
-  in
-  let join = { A.kind = A.Inner; source = source 1; on = condition } in
-  let complete =
-    { select with
-      joins = [ join ]
-    ; projection = [ expression ]
-    ; where_ = Some condition
-    ; group_by = [ expression ]
-    ; having = Some condition
-    ; order_by = [ { A.expr = expression; direction = A.Asc } ]
-    }
-  in
-  assert (not (Lower.select_has_unsupported_having ~dialect:Dialect.Sqlite complete));
-  assert (
-    Lower.expression_has_unsupported_having
-      ~dialect:Dialect.Sqlite
-      (A.Scalar_subquery nested_select));
-  let bad_expression = A.Scalar_subquery nested_select in
-  let bad_multiset_aggregate =
-    A.Aggregate
-      (A.Multiset_agg
-         { fields = []
-         ; field_types = []
-         ; filter = Some (A.Exists nested_select)
-         ; order_by = []
-         })
-  in
-  assert (
-    Lower.expression_has_unsupported_having ~dialect:Dialect.Sqlite bad_multiset_aggregate);
-  let bad_ordered_multiset =
-    A.Aggregate
-      (A.Multiset_agg
-         { fields = []
-         ; field_types = []
-         ; filter = None
-         ; order_by = [ { A.expr = bad_expression; direction = A.Desc } ]
-         })
-  in
-  assert (
-    Lower.expression_has_unsupported_having ~dialect:Dialect.Sqlite bad_ordered_multiset);
-  assert (
-    Lower.expression_has_unsupported_having
-      ~dialect:Dialect.Sqlite
-      (A.Multiset_subquery
-         { query = A.Simple nested_select; field_types = [ Db_type.Pack Db_type.int ] }));
-  assert (
-    Lower.expression_has_unsupported_having
-      ~dialect:Dialect.Sqlite
-      (A.Arithmetic (A.Add, bad_expression, column 0)));
-  assert (
-    Lower.expression_has_unsupported_having
-      ~dialect:Dialect.Sqlite
-      (A.Case ([ A.True, column 0 ], bad_expression)));
-  assert (
-    Lower.expression_has_unsupported_having
-      ~dialect:Dialect.Sqlite
-      (A.Case ([ A.Exists nested_select, column 0 ], column 0)));
-  assert (
-    Lower.condition_has_unsupported_having
-      ~dialect:Dialect.Sqlite
-      (A.Exists nested_select));
-  assert (
-    Lower.condition_has_unsupported_having
-      ~dialect:Dialect.Sqlite
-      (A.Compare (A.Eq, bad_expression, column 0)));
-  assert (
-    Lower.condition_has_unsupported_having
-      ~dialect:Dialect.Sqlite
-      (A.In (bad_expression, [ column 0 ])));
-  assert (
-    Lower.condition_has_unsupported_having
-      ~dialect:Dialect.Sqlite
-      (A.In_subquery (parameter, nested_select)));
-  assert (
-    Lower.condition_has_unsupported_having
-      ~dialect:Dialect.Sqlite
-      (A.In_subquery (bad_expression, select)));
-  assert (
-    Lower.select_has_unsupported_having
-      ~dialect:Dialect.Sqlite
-      { select with projection = [ bad_expression ]; group_by = [ column 0 ] });
-  assert (
-    Lower.select_has_unsupported_having
-      ~dialect:Dialect.Sqlite
-      { select with
-        joins = [ { A.kind = A.Inner; source = source 1; on = A.Exists nested_select } ]
-      ; projection = []
-      });
-  assert (
-    Lower.select_has_unsupported_having
-      ~dialect:Dialect.Sqlite
-      { select with projection = []; where_ = Some (A.Exists nested_select) });
-  assert (
-    Lower.select_has_unsupported_having
-      ~dialect:Dialect.Sqlite
-      { select with projection = []; group_by = [ bad_expression ] });
-  assert (
-    Lower.select_has_unsupported_having
-      ~dialect:Dialect.Sqlite
-      { select with
-        projection = []
-      ; group_by = [ column 0 ]
-      ; having = Some (A.Exists nested_select)
-      });
-  let bad_assignment = { assignment with A.value = A.Expression bad_expression } in
-  assert (Lower.assignment_has_unsupported_having ~dialect:Dialect.Sqlite bad_assignment);
-  assert (
-    not
-      (Lower.assignment_has_unsupported_having
-         ~dialect:Dialect.Sqlite
-         { assignment with A.value = A.Default }));
-  assert (
-    Lower.command_has_unsupported_having
-      ~dialect:Dialect.Sqlite
-      (command A.Insert [ bad_assignment ]));
-  assert (
-    Lower.command_has_unsupported_having
-      ~dialect:Dialect.Sqlite
-      (command A.Update [ bad_assignment ]));
-  assert (
-    Lower.command_has_unsupported_having
-      ~dialect:Dialect.Sqlite
+let%test_module "private UPSERT DEFAULT capability" =
+  (module struct
+    let command =
       { (command A.Insert [ assignment ]) with
         conflict =
           Some
             (A.Do_update
-               { target = [ conflict_column (Identifier.of_string_exn "id") ]
+               { target = [ conflict_column assignment.column ]
                ; excluded_source_id = 1
+               ; assignments = [ { assignment with value = A.Default } ]
                ; where_ = None
-               ; assignments = [ bad_assignment ]
                })
-      });
-  assert (
-    Lower.command_has_unsupported_having
-      ~dialect:Dialect.Sqlite
-      { (command A.Update [ assignment ]) with where_ = Some (A.Exists nested_select) });
-  (match Lower.command ~dialect:Dialect.Sqlite (command A.Update [ bad_assignment ]) with
-   | Error (Compile_error.Unsupported_operation { dialect = Dialect.Sqlite; _ }) -> ()
-   | _ -> failwith "UPDATE did not reject a nested unsupported HAVING");
-  (match
-     Lower.command
-       ~dialect:Dialect.Sqlite
-       { (command A.Insert [ assignment ]) with
-         conflict =
-           Some
-             (A.Do_update
-                { target = [ conflict_column (Identifier.of_string_exn "id") ]
-                ; excluded_source_id = 1
-                ; where_ = None
-                ; assignments = [ { assignment with A.value = A.Default } ]
-                })
-       }
-   with
-   | Error (Compile_error.Unsupported_operation { dialect = Dialect.Sqlite; _ }) -> ()
-   | _ -> failwith "SQLite accepted DEFAULT in an UPSERT assignment");
-  (match
-     Lower.result_query
-       ~dialect:Dialect.Sqlite
-       (A.Returning
-          { command = command A.Insert [ assignment ]; projection = [ bad_expression ] })
-   with
-   | Error (Compile_error.Unsupported_operation { dialect = Dialect.Sqlite; _ }) -> ()
-   | _ -> failwith "RETURNING did not reject a nested unsupported HAVING");
-  let unsupported_set operator =
-    A.Select
-      (A.Compound
-         { ctes = []
-         ; operator
-         ; left = A.Simple select
-         ; right = A.Simple select
-         ; left_types = [ Db_type.Pack Db_type.int ]
-         ; right_types = [ Db_type.Pack Db_type.int ]
-         })
-  in
-  List.iter [ A.Intersect_all; A.Except_all ] ~f:(fun operator ->
-    match Lower.result_query ~dialect:Dialect.Sqlite (unsupported_set operator) with
-    | Error (Compile_error.Unsupported_operation { dialect = Dialect.Sqlite; _ }) -> ()
-    | _ -> failwith "SQLite accepted an unsupported set operation");
-  assert (
-    not (Lower.select_has_unsupported_having ~dialect:Dialect.Postgresql nested_select));
-  assert (Aggregate_scope.at_most_one { select with limit = Some (A.Literal 0) });
-  assert (Aggregate_scope.at_most_one { select with limit = Some (A.Literal 1) });
-  assert (not (Aggregate_scope.at_most_one { select with limit = Some (A.Literal 2) }));
-  assert (
-    Aggregate_scope.at_most_one { select with projection = [ A.Aggregate A.Count_all ] });
-  assert (Aggregate_scope.at_most_one { select with projection = [ local_aggregate ] });
-  assert (
-    Aggregate_scope.at_most_one
+      }
+      |> Command.create
+    ;;
+
+    let%test_unit "PostgreSQL accepts DEFAULT in UPSERT assignments" =
+      ignore (Compiler.compile_command ~dialect:Dialect.postgresql command |> ok_exn)
+    ;;
+
+    let%test_unit "SQLite rejects DEFAULT in UPSERT assignments" =
+      match Compiler.compile_command ~dialect:Dialect.sqlite command with
+      | Error
+          (Compile_error.Unsupported_operation { operation; dialect = Dialect.Sqlite }) ->
+        assert (String.equal operation "ON CONFLICT DO UPDATE SET DEFAULT")
+      | _ -> failwith "SQLite accepted an UPSERT DEFAULT assignment"
+    ;;
+  end)
+;;
+
+let%test_module "opaque public constructors" =
+  (module struct
+    let expression : (int, Dialect.portable) Expr.t =
+      Expr.create (A.Param (A.Value (Db_type.Value (Db_type.int, 42)))) Db_type.int
+    ;;
+
+    let condition : Dialect.portable Condition.t =
+      Condition.create (A.Is_not_null (Expr.node expression))
+    ;;
+
+    let template : Template.t =
+      Template.of_parts [ Template.Text "SELECT "; Template.Param 0 ]
+    ;;
+
+    let projection = Projection.expr expression
+    let shape : Shape.t = Shape.create (Template.shape_string template)
+
+    let compiled : int Compiled_query.t =
+      Compiled_query.create
+        ~dialect:Dialect.Sqlite
+        ~template
+        ~parameters:[ Db_type.Value (Db_type.int, 42) ]
+        ~projection:(Projection.erase projection)
+        ~shape
+    ;;
+
+    let%test "condition constructor preserves its opaque representation" =
+      match Condition.node condition with
+      | A.Is_not_null (A.Param _) -> true
+      | _ -> false
+    ;;
+
+    let%test "compiled query preserves its supplied shape" =
+      Shape.equal shape (Compiled_query.shape compiled)
+    ;;
+
+    let%expect_test "compiled query SQL" =
+      Stdlib.print_endline (Compiled_query.sql compiled);
+      [%expect {| SELECT ?1 |}]
+    ;;
+  end)
+;;
+
+let%test_module "template layout identity" =
+  (module struct
+    let compact = Template.of_parts [ Template.Text "SELECT "; Template.Param 0 ]
+
+    let formatted =
+      Template.of_parts
+        [ Template.Text "SELECT"
+        ; Template.Nest (Template.of_parts [ Template.Break " "; Template.Param 0 ])
+        ]
+    ;;
+
+    let%test "template whitespace does not affect query shape" =
+      String.equal (Template.shape_string compact) (Template.shape_string formatted)
+    ;;
+
+    let%test "template layout affects rendered SQL" =
+      not
+        (String.equal
+           (Template.to_sql ~dialect:Dialect.Sqlite compact)
+           (Template.to_sql ~dialect:Dialect.Sqlite formatted))
+    ;;
+  end)
+;;
+
+let%test_module "lowered DML rendering" =
+  (module struct
+    let ast =
+      A.Returning
+        { command = command A.Insert [ assignment ]
+        ; projection =
+            [ column 0; A.Param (A.Value (Db_type.Value (Db_type.text, "returned"))) ]
+        }
+      |> Normalizer.result_query
+    ;;
+
+    let render dialect =
+      Validator.result_query ast |> ok_exn;
+      let lowered = Lower.result_query ~dialect ast |> ok_exn in
+      let template, parameters = Renderer.result_query ~dialect lowered in
+      (match parameters with
+       | [ A.Value (Db_type.Value (first_type, first))
+         ; A.Value (Db_type.Value (second_type, second))
+         ] ->
+         (match Db_type.view first_type, Db_type.view second_type with
+          | Db_type.Int, Db_type.Text ->
+            assert (Int.(first = 7));
+            assert (String.equal second "returned")
+          | _ -> failwith "parameter types changed")
+       | _ -> failwith "parameter count changed");
+      Template.to_sql ~dialect template
+    ;;
+
+    let%expect_test "PostgreSQL" =
+      Stdlib.print_endline (render Dialect.Postgresql);
+      [%expect
+        {|
+        INSERT INTO "items" (
+          "id"
+        )
+        VALUES
+          ($1)
+        RETURNING
+          "id",
+          $2
+        |}]
+    ;;
+
+    let%expect_test "SQLite" =
+      Stdlib.print_endline (render Dialect.Sqlite);
+      [%expect
+        {|
+        INSERT INTO "items" (
+          "id"
+        )
+        VALUES
+          (?1)
+        RETURNING
+          "id",
+          ?2
+        |}]
+    ;;
+  end)
+;;
+
+let%test_module "renderer totality for malformed private AST" =
+  (module struct
+    let render query =
+      let template, _ = Renderer.result_query ~dialect:Dialect.Sqlite query in
+      Template.to_sql ~dialect:Dialect.Sqlite template
+    ;;
+
+    let%test_unit "renders TRUE predicates" =
+      assert (
+        String.equal
+          (render (A.Select (A.Simple { select with where_ = Some A.True })))
+          "SELECT\n  t0.\"id\"\nFROM \"items\" AS t0\nWHERE\n  TRUE")
+    ;;
+
+    let%test_unit "renders empty conjunctions" =
+      assert (
+        String.equal
+          (render (A.Select (A.Simple { select with where_ = Some (A.And []) })))
+          "SELECT\n  t0.\"id\"\nFROM \"items\" AS t0\nWHERE\n  ()")
+    ;;
+
+    let%test_unit "renders empty RETURNING projections" =
+      ignore
+        (render
+           (A.Returning { command = command A.Insert [ assignment ]; projection = [] }))
+    ;;
+
+    let%test_unit "renders empty UPDATE assignments" =
+      ignore (Renderer.command ~dialect:Dialect.Postgresql (command A.Update []))
+    ;;
+
+    let%test_unit "renders empty INSERT assignments" =
+      ignore (Renderer.command ~dialect:Dialect.Postgresql (command A.Insert []))
+    ;;
+
+    let%test_unit "renders empty multiset aggregates" =
+      ignore
+        (Renderer.render_expr
+           ~aliases:[]
+           (A.Aggregate
+              (A.Multiset_agg
+                 { fields = []; field_types = []; filter = None; order_by = [] }))
+           Renderer.initial_state)
+    ;;
+
+    let%test_unit "renders an empty CTE list" =
+      ignore (Renderer.render_ctes [] Renderer.initial_state)
+    ;;
+
+    let%test_unit "renders empty INSERT rows with an invalid alias" =
+      ignore
+        (Renderer.render_insert_rows
+           ~aliases:[ 0, "" ]
+           ~columns:[]
+           []
+           Renderer.initial_state)
+    ;;
+  end)
+;;
+
+let%test_module "private helper boundary cases" =
+  (module struct
+    let rendered_sources =
+      let sources =
+        Renderer.render_from_sources
+          ~aliases:[ 0, "t0"; 1, "t1" ]
+          [ source 0; source 1 ]
+          Renderer.initial_state
+        |> fst
+      in
+      Template.of_parts [ Template.Nest sources ]
+      |> Template.to_sql ~dialect:Dialect.Sqlite
+    ;;
+
+    let concat = A.Concat (column 0, column 0)
+
+    let left : Validator.aggregate_analysis =
+      { has_aggregate = false; nested_aggregate = false; grouped = true }
+    ;;
+
+    let right : Validator.aggregate_analysis =
+      { has_aggregate = true; nested_aggregate = true; grouped = true }
+    ;;
+
+    let nested_count = A.Aggregate (A.Count (A.Aggregate (A.Count (column 0))))
+
+    let%test_unit "lowers TRUE conditions" =
+      match Lower.condition ~dialect:Dialect.Sqlite A.True with
+      | A.True -> ()
+      | _ -> failwith "lowering changed a true condition"
+    ;;
+
+    let%test "normalizes optional TRUE conditions away" =
+      Option.is_none (Normalizer.optional_condition (Some A.True))
+    ;;
+
+    let%test_unit "renders an empty ORDER BY list" =
+      ignore (Renderer.render_order_by ~aliases:[ 0, "t0" ] [] Renderer.initial_state)
+    ;;
+
+    let%test "renders a single condition list" =
+      let single, _ =
+        Renderer.render_condition_list
+          ~aliases:[ 0, "t0" ]
+          ~operator:"AND"
+          [ A.True ]
+          Renderer.initial_state
+      in
+      String.equal (Template.to_sql ~dialect:Dialect.Sqlite single) "(TRUE)"
+    ;;
+
+    let%test "renders an empty condition list" =
+      let conditions, _ =
+        Renderer.render_conditions
+          ~aliases:[ 0, "t0" ]
+          ~operator:"AND"
+          []
+          Renderer.initial_state
+      in
+      String.is_empty (Template.to_sql ~dialect:Dialect.Sqlite conditions)
+    ;;
+
+    let%test "renders no FROM sources" =
+      let template, _ =
+        Renderer.render_from_sources ~aliases:[] [] Renderer.initial_state
+      in
+      String.is_empty (Template.to_sql ~dialect:Dialect.Sqlite template)
+    ;;
+
+    let%test "renders multiple FROM sources" =
+      String.equal rendered_sources "\"items\" AS t0,\n  \"items\" AS t1"
+    ;;
+
+    let%test "does not equate a column with a parameter" =
+      not
+        (Validator.same_column
+           (column 0)
+           (A.Param (A.Value (Db_type.Value (Db_type.int, 0)))))
+    ;;
+
+    let arithmetic = A.Arithmetic (A.Add, column 0, column 0)
+
+    let%test "compares arithmetic group expressions" =
+      Validator.same_group_expression arithmetic arithmetic
+    ;;
+
+    let%test "compares arithmetic operators with themselves" =
+      List.for_all [ A.Add; A.Subtract; A.Multiply; A.Divide ] ~f:(fun operator ->
+        Validator.same_arithmetic operator operator)
+    ;;
+
+    let%test "distinguishes different arithmetic operators" =
+      not (Validator.same_arithmetic A.Add A.Subtract)
+    ;;
+
+    let%test "compares string functions with themselves" =
+      List.for_all [ A.Lower; A.Upper; A.Length ] ~f:(fun function_ ->
+        Validator.same_string_function function_ function_)
+    ;;
+
+    let%test "distinguishes different string functions" =
+      not (Validator.same_string_function A.Lower A.Upper)
+    ;;
+
+    let%test "does not equate unsupported SQLite string functions" =
+      not (Validator.same_string_function A.Sqlite_length A.Sqlite_length)
+    ;;
+
+    let%test "compares concatenated group expressions" =
+      Validator.same_group_expression concat concat
+    ;;
+
+    let%test "combines aggregate analysis in either order" =
+      (Validator.combine left right).nested_aggregate
+      && (Validator.combine right left).nested_aggregate
+    ;;
+
+    let validate_subquery ~outer_visible:_ ~allow_empty:_ _ = Ok ()
+
+    let%test_unit "validates a TRUE condition without sources" =
+      Validator.validate_condition ~validate_subquery ~visible:[] A.True |> ok_exn
+    ;;
+
+    let%test_unit "analyzes a TRUE condition" =
+      ignore (Validator.analyze_condition ~groups:[] ~inside_aggregate:false A.True)
+    ;;
+
+    let%test "detects nested aggregate expressions" =
+      (Validator.analyze_expression ~groups:[] ~inside_aggregate:false nested_count)
+        .nested_aggregate
+    ;;
+
+    let%test "rejects INSERT with no rows" =
+      match Validator.command { (command A.Insert []) with rows = [] } with
+      | Error (Compile_error.Empty_assignments `Insert) -> true
+      | _ -> false
+    ;;
+  end)
+;;
+
+let%test_module "lowering capability traversal" =
+  (module struct
+    let parameter = A.Param (A.Value (Db_type.Value (Db_type.int, 1)))
+    let nested_select = { select with having = Some A.True }
+
+    let expression =
+      A.Case
+        ( [ ( A.Compare (A.Eq, column 0, parameter)
+            , A.Arithmetic (A.Add, A.String_function (A.Length, column 0), parameter) )
+          ]
+        , A.Concat (A.Aggregate (A.Count_distinct (column 0)), A.Scalar_subquery select)
+        )
+    ;;
+
+    let condition =
+      A.And
+        [ A.Is_null expression
+        ; A.Is_not_null expression
+        ; A.In (expression, [ parameter ])
+        ; A.Not_in (expression, [ parameter ])
+        ; A.Between (expression, parameter, column 0)
+        ; A.Exists select
+        ; A.Not_exists select
+        ; A.In_subquery (expression, select)
+        ; A.Not_in_subquery (expression, select)
+        ; A.Or [ A.False ]
+        ; A.Not A.False
+        ]
+    ;;
+
+    let complete_select =
       { select with
-        joins = [ { A.kind = A.Inner; source = source 1; on = A.True } ]
-      ; projection = [ A.Aggregate (A.Count_distinct (column 1)) ]
-      });
-  assert (
-    not
-      (Aggregate_scope.at_most_one
-         { select with projection = [ A.Aggregate (A.Count (column 1)) ] }));
-  assert (
-    Aggregate_scope.at_most_one
-      { select with projection = [ A.Aggregate (A.Count parameter) ] });
-  assert (
-    Aggregate_scope.at_most_one
-      { select with projection = [ A.Aggregate (A.Count_distinct parameter) ] })
+        joins = [ { A.kind = A.Inner; source = source 1; on = condition } ]
+      ; projection = [ expression ]
+      ; where_ = Some condition
+      ; group_by = [ expression ]
+      ; having = Some condition
+      ; order_by = [ { A.expr = expression; direction = A.Asc } ]
+      }
+    ;;
+
+    let bad_expression = A.Scalar_subquery nested_select
+
+    let bad_multiset_aggregate =
+      A.Aggregate
+        (A.Multiset_agg
+           { fields = []
+           ; field_types = []
+           ; filter = Some (A.Exists nested_select)
+           ; order_by = []
+           })
+    ;;
+
+    let bad_ordered_multiset =
+      A.Aggregate
+        (A.Multiset_agg
+           { fields = []
+           ; field_types = []
+           ; filter = None
+           ; order_by = [ { A.expr = bad_expression; direction = A.Desc } ]
+           })
+    ;;
+
+    let bad_multiset_subquery =
+      A.Multiset_subquery
+        { query = A.Simple nested_select; field_types = [ Db_type.Pack Db_type.int ] }
+    ;;
+
+    let bad_assignment = { assignment with A.value = A.Expression bad_expression }
+
+    let unsupported_set operator =
+      A.Select
+        (A.Compound
+           { ctes = []
+           ; operator
+           ; left = A.Simple select
+           ; right = A.Simple select
+           ; left_types = [ Db_type.Pack Db_type.int ]
+           ; right_types = [ Db_type.Pack Db_type.int ]
+           })
+    ;;
+
+    let is_sqlite_unsupported = function
+      | Error (Compile_error.Unsupported_operation { dialect = Dialect.Sqlite; _ }) ->
+        true
+      | Error _ | Ok _ -> false
+    ;;
+
+    let%test "supported SQLite SELECT has no unsupported HAVING" =
+      not (Lower.select_has_unsupported_having ~dialect:Dialect.Sqlite complete_select)
+    ;;
+
+    let%test "scalar subquery traversal finds unsupported HAVING" =
+      Lower.expression_has_unsupported_having ~dialect:Dialect.Sqlite bad_expression
+    ;;
+
+    let%test "multiset aggregate filter traversal finds unsupported HAVING" =
+      Lower.expression_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        bad_multiset_aggregate
+    ;;
+
+    let%test "ordered multiset traversal finds unsupported HAVING" =
+      Lower.expression_has_unsupported_having ~dialect:Dialect.Sqlite bad_ordered_multiset
+    ;;
+
+    let%test "multiset subquery traversal finds unsupported HAVING" =
+      Lower.expression_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        bad_multiset_subquery
+    ;;
+
+    let%test "arithmetic expression traversal finds unsupported HAVING" =
+      Lower.expression_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        (A.Arithmetic (A.Add, bad_expression, column 0))
+    ;;
+
+    let%test "CASE result traversal finds unsupported HAVING" =
+      Lower.expression_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        (A.Case ([ A.True, column 0 ], bad_expression))
+    ;;
+
+    let%test "CASE condition traversal finds unsupported HAVING" =
+      Lower.expression_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        (A.Case ([ A.Exists nested_select, column 0 ], column 0))
+    ;;
+
+    let%test "EXISTS traversal finds unsupported HAVING" =
+      Lower.condition_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        (A.Exists nested_select)
+    ;;
+
+    let%test "comparison traversal finds unsupported HAVING" =
+      Lower.condition_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        (A.Compare (A.Eq, bad_expression, column 0))
+    ;;
+
+    let%test "IN list traversal finds unsupported HAVING" =
+      Lower.condition_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        (A.In (bad_expression, [ column 0 ]))
+    ;;
+
+    let%test "IN subquery traverses the subquery" =
+      Lower.condition_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        (A.In_subquery (parameter, nested_select))
+    ;;
+
+    let%test "IN subquery traverses its expression" =
+      Lower.condition_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        (A.In_subquery (bad_expression, select))
+    ;;
+
+    let%test "projection traversal finds unsupported HAVING" =
+      Lower.select_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        { select with projection = [ bad_expression ]; group_by = [ column 0 ] }
+    ;;
+
+    let%test "JOIN predicate traversal finds unsupported HAVING" =
+      Lower.select_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        { select with
+          joins = [ { A.kind = A.Inner; source = source 1; on = A.Exists nested_select } ]
+        ; projection = []
+        }
+    ;;
+
+    let%test "WHERE traversal finds unsupported HAVING" =
+      Lower.select_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        { select with projection = []; where_ = Some (A.Exists nested_select) }
+    ;;
+
+    let%test "GROUP BY traversal finds unsupported HAVING" =
+      Lower.select_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        { select with projection = []; group_by = [ bad_expression ] }
+    ;;
+
+    let%test "HAVING traversal finds unsupported HAVING" =
+      Lower.select_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        { select with
+          projection = []
+        ; group_by = [ column 0 ]
+        ; having = Some (A.Exists nested_select)
+        }
+    ;;
+
+    let%test "assignment traversal finds unsupported HAVING" =
+      Lower.assignment_has_unsupported_having ~dialect:Dialect.Sqlite bad_assignment
+    ;;
+
+    let%test "DEFAULT assignment does not contain unsupported HAVING" =
+      not
+        (Lower.assignment_has_unsupported_having
+           ~dialect:Dialect.Sqlite
+           { assignment with A.value = A.Default })
+    ;;
+
+    let%test "INSERT assignment traversal finds unsupported HAVING" =
+      Lower.command_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        (command A.Insert [ bad_assignment ])
+    ;;
+
+    let%test "UPDATE assignment traversal finds unsupported HAVING" =
+      Lower.command_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        (command A.Update [ bad_assignment ])
+    ;;
+
+    let%test "UPSERT assignment traversal finds unsupported HAVING" =
+      Lower.command_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        { (command A.Insert [ assignment ]) with
+          conflict =
+            Some
+              (A.Do_update
+                 { target = [ conflict_column (Identifier.of_string_exn "id") ]
+                 ; excluded_source_id = 1
+                 ; where_ = None
+                 ; assignments = [ bad_assignment ]
+                 })
+        }
+    ;;
+
+    let%test "UPDATE predicate traversal finds unsupported HAVING" =
+      Lower.command_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        { (command A.Update [ assignment ]) with where_ = Some (A.Exists nested_select) }
+    ;;
+
+    let%test_unit "UPDATE lowering rejects nested unsupported HAVING" =
+      assert (
+        is_sqlite_unsupported
+          (Lower.command ~dialect:Dialect.Sqlite (command A.Update [ bad_assignment ])))
+    ;;
+
+    let%test_unit "UPSERT lowering rejects DEFAULT assignments on SQLite" =
+      let ast =
+        { (command A.Insert [ assignment ]) with
+          conflict =
+            Some
+              (A.Do_update
+                 { target = [ conflict_column (Identifier.of_string_exn "id") ]
+                 ; excluded_source_id = 1
+                 ; where_ = None
+                 ; assignments = [ { assignment with A.value = A.Default } ]
+                 })
+        }
+      in
+      assert (is_sqlite_unsupported (Lower.command ~dialect:Dialect.Sqlite ast))
+    ;;
+
+    let%test_unit "RETURNING lowering rejects nested unsupported HAVING" =
+      let query =
+        A.Returning
+          { command = command A.Insert [ assignment ]; projection = [ bad_expression ] }
+      in
+      assert (is_sqlite_unsupported (Lower.result_query ~dialect:Dialect.Sqlite query))
+    ;;
+
+    let%test "INTERSECT ALL is unsupported on SQLite" =
+      is_sqlite_unsupported
+        (Lower.result_query ~dialect:Dialect.Sqlite (unsupported_set A.Intersect_all))
+    ;;
+
+    let%test "EXCEPT ALL is unsupported on SQLite" =
+      is_sqlite_unsupported
+        (Lower.result_query ~dialect:Dialect.Sqlite (unsupported_set A.Except_all))
+    ;;
+
+    let%test "PostgreSQL accepts the nested HAVING query" =
+      not (Lower.select_has_unsupported_having ~dialect:Dialect.Postgresql nested_select)
+    ;;
+  end)
 ;;
 
 let%test_unit "exactly-one proof rejects compound SELECTs" =

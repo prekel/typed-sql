@@ -80,22 +80,74 @@ let compile_exn dialect query =
 
 (* Golden queries in this file use definition-time constants. [Statement_compile]
    routes compilation through the public [Statement] API. *)
-let%expect_test "PostgreSQL and SQLite rendering" =
-  let query =
-    Query.(
-      from Person.table
-      |> where (fun person ->
-        Condition.true_ &&. (Person.name person =$ "Ada") &&. (Person.id person >$ 10L))
-      |> order_by (fun person -> Person.id person) `Desc
-      |> limit 20
-      |> offset 5
-      |> select (fun person -> Projection.pair (Person.id person) (Person.name person)))
-  in
-  let postgres = compile_exn Dialect.Postgresql query in
-  let sqlite = compile_exn Dialect.Sqlite query in
-  Stdlib.print_endline (Compiled_query.sql postgres);
-  [%expect
-    {|
+let%test_module "portable query rendering" =
+  (module struct
+    let rendering_query =
+      Query.(
+        from Person.table
+        |> where (fun person ->
+          Condition.true_ &&. (Person.name person =$ "Ada") &&. (Person.id person >$ 10L))
+        |> order_by (fun person -> Person.id person) `Desc
+        |> limit 20
+        |> offset 5
+        |> select (fun person -> Projection.pair (Person.id person) (Person.name person)))
+    ;;
+
+    let nested_multiset_query =
+      Query.(
+        from Person.table
+        |> select (fun person ->
+          let departments =
+            Query.(
+              from Department.table
+              |> where (fun department ->
+                Department.person_id department =. Person.id person)
+              |> order_by Department.name `Asc
+              |> limit 3
+              |> select (fun department -> Projection.expr (Department.name department)))
+          in
+          Projection.both
+            (Projection.expr (Person.name person))
+            (Query.multiset departments)))
+    ;;
+
+    let aggregate_query =
+      Query.(
+        from Department.table
+        |> select_exactly_one (fun department ->
+          Projection.multiset_agg
+            ~filter:(Department.person_id department >$ 0L)
+            ~order_by:[ Aggregate_order.desc (Department.name department) ]
+            (Projection.pair
+               (Department.person_id department)
+               (Department.name department))))
+    ;;
+
+    let recursive_aggregate_query =
+      Query.(
+        from Person.table
+        |> select_exactly_one (fun person ->
+          let departments =
+            Query.(
+              from Department.table
+              |> where (fun department ->
+                Department.person_id department =. Person.id person)
+              |> select (fun department -> Projection.expr (Department.name department)))
+          in
+          Projection.multiset_agg
+            ~order_by:[ Aggregate_order.asc (Person.id person) ]
+            (Projection.both
+               (Projection.expr (Person.name person))
+               (Query.multiset departments))))
+    ;;
+
+    let%expect_test "PostgreSQL rendering" =
+      rendering_query
+      |> compile_exn Dialect.Postgresql
+      |> Compiled_query.sql
+      |> Stdlib.print_endline;
+      [%expect
+        {|
     SELECT
       t0."id",
       t0."name"
@@ -109,10 +161,16 @@ let%expect_test "PostgreSQL and SQLite rendering" =
       t0."id" DESC
     LIMIT 20
     OFFSET 5
-    |}];
-  Stdlib.print_endline (Compiled_query.sql sqlite);
-  [%expect
-    {|
+    |}]
+    ;;
+
+    let%expect_test "SQLite rendering" =
+      rendering_query
+      |> compile_exn Dialect.Sqlite
+      |> Compiled_query.sql
+      |> Stdlib.print_endline;
+      [%expect
+        {|
     SELECT
       t0."id",
       t0."name"
@@ -127,29 +185,15 @@ let%expect_test "PostgreSQL and SQLite rendering" =
     LIMIT 20
     OFFSET 5
     |}]
-;;
+    ;;
 
-let%expect_test "multiset subqueries and aggregates are portable" =
-  let nested =
-    Query.(
-      from Person.table
-      |> select (fun person ->
-        let departments =
-          Query.(
-            from Department.table
-            |> where (fun department ->
-              Department.person_id department =. Person.id person)
-            |> order_by Department.name `Asc
-            |> limit 3
-            |> select (fun department -> Projection.expr (Department.name department)))
-        in
-        Projection.both
-          (Projection.expr (Person.name person))
-          (Query.multiset departments)))
-  in
-  nested |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
-  [%expect
-    {|
+    let%expect_test "multiset subquery renders in PostgreSQL" =
+      nested_multiset_query
+      |> compile_exn Dialect.Postgresql
+      |> Compiled_query.sql
+      |> Stdlib.print_endline;
+      [%expect
+        {|
     SELECT
       t0."name",
       CAST((SELECT COALESCE(JSONB_AGG(JSONB_BUILD_ARRAY(m0."v0")), JSONB_BUILD_ARRAY())
@@ -164,10 +208,16 @@ let%expect_test "multiset subqueries and aggregates are portable" =
         LIMIT 3
       ) AS m0) AS TEXT)
     FROM "public"."people" AS t0
-    |}];
-  nested |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
-  [%expect
-    {|
+    |}]
+    ;;
+
+    let%expect_test "multiset subquery renders in SQLite" =
+      nested_multiset_query
+      |> compile_exn Dialect.Sqlite
+      |> Compiled_query.sql
+      |> Stdlib.print_endline;
+      [%expect
+        {|
     SELECT
       t0."name",
       (SELECT COALESCE(JSON_GROUP_ARRAY(JSON_ARRAY(m0."v0")), JSON_ARRAY())
@@ -182,22 +232,16 @@ let%expect_test "multiset subqueries and aggregates are portable" =
         LIMIT 3
       ) AS m0)
     FROM "public"."people" AS t0
-    |}];
-  let aggregate =
-    Query.(
-      from Department.table
-      |> select_exactly_one (fun department ->
-        Projection.multiset_agg
-          ~filter:(Department.person_id department >$ 0L)
-          ~order_by:[ Aggregate_order.desc (Department.name department) ]
-          (Projection.pair (Department.person_id department) (Department.name department))))
-  in
-  aggregate
-  |> compile_exn Dialect.Postgresql
-  |> Compiled_query.sql
-  |> Stdlib.print_endline;
-  [%expect
-    {|
+    |}]
+    ;;
+
+    let%expect_test "multiset aggregate renders in PostgreSQL" =
+      aggregate_query
+      |> compile_exn Dialect.Postgresql
+      |> Compiled_query.sql
+      |> Stdlib.print_endline;
+      [%expect
+        {|
     SELECT
       CAST(
         COALESCE(
@@ -215,10 +259,16 @@ let%expect_test "multiset subqueries and aggregates are portable" =
         AS TEXT
       )
     FROM "public"."departments" AS t0
-    |}];
-  aggregate |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
-  [%expect
-    {|
+    |}]
+    ;;
+
+    let%expect_test "multiset aggregate renders in SQLite" =
+      aggregate_query
+      |> compile_exn Dialect.Sqlite
+      |> Compiled_query.sql
+      |> Stdlib.print_endline;
+      [%expect
+        {|
     SELECT
       COALESCE(
         JSON_GROUP_ARRAY(
@@ -233,76 +283,70 @@ let%expect_test "multiset subqueries and aggregates are portable" =
         JSON_ARRAY()
       )
     FROM "public"."departments" AS t0
-    |}];
-  let recursive =
-    Query.(
-      from Person.table
-      |> select_exactly_one (fun person ->
-        let departments =
-          Query.(
-            from Department.table
-            |> where (fun department ->
-              Department.person_id department =. Person.id person)
-            |> select (fun department -> Projection.expr (Department.name department)))
-        in
-        Projection.multiset_agg
-          ~order_by:[ Aggregate_order.asc (Person.id person) ]
-          (Projection.both
-             (Projection.expr (Person.name person))
-             (Query.multiset departments))))
-  in
-  recursive
-  |> compile_exn Dialect.Postgresql
-  |> Compiled_query.sql
-  |> Stdlib.print_endline;
-  [%expect
-    {|
-    SELECT
-      CAST(
-        COALESCE(
-          JSONB_AGG(
-            JSONB_BUILD_ARRAY(
-              t0."name",
-              (SELECT COALESCE(JSONB_AGG(JSONB_BUILD_ARRAY(m0."v0")), JSONB_BUILD_ARRAY())
-          FROM LATERAL (
-            SELECT
-              t1."name" AS "v0"
-            FROM "public"."departments" AS t1
-            WHERE
-              (t1."person_id" = t0."id")
-          ) AS m0)
-            )
-            ORDER BY t0."id" ASC
-          ),
-          JSONB_BUILD_ARRAY()
-        )
-        AS TEXT
-      )
-    FROM "public"."people" AS t0
-    |}];
-  recursive |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
-  [%expect
-    {|
-    SELECT
-      COALESCE(
-        JSON_GROUP_ARRAY(
-          JSON_ARRAY(
-            t0."name",
-            JSON((SELECT COALESCE(JSON_GROUP_ARRAY(JSON_ARRAY(m0."v0")), JSON_ARRAY())
-          FROM (
-            SELECT
-              t1."name" AS "v0"
-            FROM "public"."departments" AS t1
-            WHERE
-              (t1."person_id" = t0."id")
-          ) AS m0))
-          )
-          ORDER BY t0."id" ASC
-        ),
-        JSON_ARRAY()
-      )
-    FROM "public"."people" AS t0
     |}]
+    ;;
+
+    let%expect_test "recursive multiset aggregate renders in PostgreSQL" =
+      recursive_aggregate_query
+      |> compile_exn Dialect.Postgresql
+      |> Compiled_query.sql
+      |> Stdlib.print_endline;
+      [%expect
+        {|
+        SELECT
+          CAST(
+            COALESCE(
+              JSONB_AGG(
+                JSONB_BUILD_ARRAY(
+                  t0."name",
+                  (SELECT COALESCE(JSONB_AGG(JSONB_BUILD_ARRAY(m0."v0")), JSONB_BUILD_ARRAY())
+                  FROM LATERAL (
+                    SELECT
+                      t1."name" AS "v0"
+                    FROM "public"."departments" AS t1
+                    WHERE
+                      (t1."person_id" = t0."id")
+                  ) AS m0)
+                )
+                ORDER BY t0."id" ASC
+              ),
+              JSONB_BUILD_ARRAY()
+            )
+            AS TEXT
+          )
+        FROM "public"."people" AS t0
+    |}]
+    ;;
+
+    let%expect_test "recursive multiset aggregate renders in SQLite" =
+      recursive_aggregate_query
+      |> compile_exn Dialect.Sqlite
+      |> Compiled_query.sql
+      |> Stdlib.print_endline;
+      [%expect
+        {|
+        SELECT
+          COALESCE(
+            JSON_GROUP_ARRAY(
+              JSON_ARRAY(
+                t0."name",
+                JSON((SELECT COALESCE(JSON_GROUP_ARRAY(JSON_ARRAY(m0."v0")), JSON_ARRAY())
+                FROM (
+                  SELECT
+                    t1."name" AS "v0"
+                  FROM "public"."departments" AS t1
+                  WHERE
+                    (t1."person_id" = t0."id")
+                ) AS m0))
+              )
+              ORDER BY t0."id" ASC
+            ),
+            JSON_ARRAY()
+          )
+        FROM "public"."people" AS t0
+    |}]
+    ;;
+  end)
 ;;
 
 let%test_unit "multiset validation rejects unsupported and empty fields" =
@@ -400,7 +444,8 @@ let%test_unit "multiset aggregate boundaries reject only same-level nesting" =
       from Person.table |> limit_one |> select (fun _ -> Query.multiset inner_aggregate))
   in
   let sql = across_select |> compile_exn Dialect.Sqlite |> Compiled_query.sql in
-  assert (String.is_substring sql ~substring:"JSON(COALESCE(JSON_GROUP_ARRAY")
+  assert (String.is_substring sql ~substring:"JSON(COALESCE(");
+  assert (String.is_substring sql ~substring:"JSON_GROUP_ARRAY")
 ;;
 
 let%test_unit "nested multiset fields retain JSON identity across a subquery" =
@@ -482,14 +527,23 @@ let%test "escaped table reference is rejected" =
   | _ -> false
 ;;
 
-let%expect_test "invalid limits and empty projections are validation errors" =
-  let empty = Query.(from Person.table |> select (fun _ -> Projection.return ())) in
-  let negative = Query.(from Person.table |> limit (-1) |> select Person.projection) in
-  (match Compiler.compile ~dialect:Dialect.sqlite empty with
+let empty_projection_query =
+  Query.(from Person.table |> select (fun _ -> Projection.return ()))
+;;
+
+let negative_limit_query =
+  Query.(from Person.table |> limit (-1) |> select Person.projection)
+;;
+
+let%expect_test "empty projections are rejected" =
+  (match Compiler.compile ~dialect:Dialect.sqlite empty_projection_query with
    | Ok _ -> failwith "unexpected success"
    | Error error -> Stdlib.print_endline (Compile_error.to_string error));
-  [%expect {| SELECT projection must contain at least one expression |}];
-  (match Compiler.compile ~dialect:Dialect.sqlite negative with
+  [%expect {| SELECT projection must contain at least one expression |}]
+;;
+
+let%expect_test "negative limits are rejected" =
+  (match Compiler.compile ~dialect:Dialect.sqlite negative_limit_query with
    | Ok _ -> failwith "unexpected success"
    | Error error -> Stdlib.print_endline (Compile_error.to_string error));
   [%expect {| LIMIT must be non-negative, got -1 |}]
@@ -512,30 +566,35 @@ let%expect_test "identifiers are always quoted" =
     |}]
 ;;
 
-let%expect_test "joins use deterministic aliases and LEFT JOIN makes its side nullable" =
-  let inner =
-    Query.(
-      from Person.table
-      |> inner_join Department.table ~on:(fun person department ->
-        Person.id person =. Department.person_id department)
-      |> select (fun (person, department) ->
-        Projection.map2
-          ~f:(fun person_id department_name -> person_id, department_name)
-          (Projection.expr (Person.id person))
-          (Projection.expr (Department.name department))))
-  in
-  let left =
-    Query.(
-      from Person.table
-      |> left_join Department.table ~on:(fun person department ->
-        Person.id person =. Department.person_id department)
-      |> select (fun (person, department) ->
-        Projection.map2
-          ~f:(fun person_id department_name -> person_id, department_name)
-          (Projection.expr (Person.id person))
-          (Projection.expr (Department.nullable_name department))))
-  in
-  inner |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
+let inner_join_query =
+  Query.(
+    from Person.table
+    |> inner_join Department.table ~on:(fun person department ->
+      Person.id person =. Department.person_id department)
+    |> select (fun (person, department) ->
+      Projection.map2
+        ~f:(fun person_id department_name -> person_id, department_name)
+        (Projection.expr (Person.id person))
+        (Projection.expr (Department.name department))))
+;;
+
+let left_join_query =
+  Query.(
+    from Person.table
+    |> left_join Department.table ~on:(fun person department ->
+      Person.id person =. Department.person_id department)
+    |> select (fun (person, department) ->
+      Projection.map2
+        ~f:(fun person_id department_name -> person_id, department_name)
+        (Projection.expr (Person.id person))
+        (Projection.expr (Department.nullable_name department))))
+;;
+
+let%expect_test "inner joins use deterministic aliases" =
+  inner_join_query
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
@@ -544,8 +603,14 @@ let%expect_test "joins use deterministic aliases and LEFT JOIN makes its side nu
     FROM "public"."people" AS t0
     INNER JOIN "public"."departments" AS t1
       ON (t0."id" = t1."person_id")
-    |}];
-  left |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
+    |}]
+;;
+
+let%expect_test "left joins make the nullable side explicit" =
+  left_join_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
@@ -569,12 +634,26 @@ let compile_command_exn dialect command =
   | Error error -> failwith (Compile_error.to_string error)
 ;;
 
-let%expect_test "portable DML and RETURNING" =
+let insert_returning_query =
   Insert.(
     into Person.table
     |> set Person.id_column 42L
     |> set Person.name_column "Ada"
     |> returning (fun person -> Projection.expr (Person.id person)))
+;;
+
+let update_command =
+  Update.(
+    table Person.table
+    |> set Person.name_column "Grace"
+    |> where (fun person -> Person.id person =$ 42L)
+    |> command)
+;;
+
+let delete_command = Delete.(from Person.table |> all_rows |> command)
+
+let%expect_test "INSERT RETURNING renders portably" =
+  insert_returning_query
   |> compile_result_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
@@ -588,12 +667,11 @@ let%expect_test "portable DML and RETURNING" =
       ($1, $2)
     RETURNING
       "id"
-    |}];
-  Update.(
-    table Person.table
-    |> set Person.name_column "Grace"
-    |> where (fun person -> Person.id person =$ 42L)
-    |> command)
+    |}]
+;;
+
+let%expect_test "UPDATE renders through the SQLite command path" =
+  update_command
   |> compile_command_exn Dialect.Sqlite
   |> Compiled_command.sql
   |> Stdlib.print_endline;
@@ -604,25 +682,91 @@ let%expect_test "portable DML and RETURNING" =
       "name" = ?1
     WHERE
       ("id" = ?2)
-    |}];
-  Delete.(from Person.table |> all_rows |> command)
+    |}]
+;;
+
+let%expect_test "DELETE renders through the PostgreSQL command path" =
+  delete_command
   |> compile_command_exn Dialect.Postgresql
   |> Compiled_command.sql
   |> Stdlib.print_endline;
   [%expect {| DELETE FROM "public"."people" |}]
 ;;
 
-let%expect_test "multi-row INSERT, DEFAULT, conflict policy, and UPDATE FROM" =
-  let multi_row =
-    Insert.(
-      rows
-        Person.table
-        [ (fun row -> row |> set Person.id_column 1L |> set Person.name_column "Ada")
-        ; (fun row -> row |> set Person.name_column "Grace" |> set Person.id_column 2L)
-        ]
-      |> command)
-  in
-  multi_row
+let multi_row_insert =
+  Insert.(
+    rows
+      Person.table
+      [ (fun row -> row |> set Person.id_column 1L |> set Person.name_column "Ada")
+      ; (fun row -> row |> set Person.name_column "Grace" |> set Person.id_column 2L)
+      ]
+    |> command)
+;;
+
+let default_insert =
+  Insert.(
+    into Person.table
+    |> default Person.id_column
+    |> set Person.name_column "Ada"
+    |> command)
+;;
+
+let insert_do_nothing =
+  Insert.(
+    into Person.table |> set Person.id_column 1L |> on_conflict_do_nothing |> command)
+;;
+
+let conflict_target = Insert.Conflict_target.column Person.id_column
+
+let targeted_do_nothing =
+  Insert.(
+    into Person.table
+    |> set Person.id_column 1L
+    |> on_conflict conflict_target
+    |> do_nothing
+    |> command)
+;;
+
+let do_update_insert =
+  Insert.(
+    into Person.table
+    |> set Person.id_column 1L
+    |> set Person.name_column "Ada"
+    |> on_conflict conflict_target
+    |> do_update (fun ~existing ~excluded ->
+      Conflict_update.(
+        empty
+        |> set_expr
+             Person.name_column
+             (Expr.concat
+                (Person.name existing)
+                (Expr.concat_value (Person.name excluded) "!"))
+        |> set Person.id_column 2L))
+    |> returning (fun person -> Projection.pair (Person.id person) (Person.name person)))
+;;
+
+let update_from_command =
+  Update.(
+    table Person.table
+    |> from Department.table ~f:(fun person department update ->
+      update
+      |> set_expr Person.name_column (Department.name department)
+      |> where (fun _ -> Person.id person =. Department.person_id department))
+    |> command)
+;;
+
+let default_update_command =
+  Update.(table Person.table |> default Person.name_column |> all_rows |> command)
+;;
+
+let compile_default_command_exn command =
+  Compiler.compile_command ~dialect:Dialect.postgresql command |> function
+  | Ok compiled -> compiled
+  | Error error -> failwith (Compile_error.to_string error)
+;;
+
+let%expect_test "multi-row INSERT renders in PostgreSQL" =
+  multi_row_insert
   |> compile_command_exn Dialect.Postgresql
   |> Compiled_command.sql
   |> Stdlib.print_endline;
@@ -635,8 +779,11 @@ let%expect_test "multi-row INSERT, DEFAULT, conflict policy, and UPDATE FROM" =
     VALUES
       ($1, $2),
       ($3, $4)
-    |}];
-  multi_row
+    |}]
+;;
+
+let%expect_test "multi-row INSERT renders in SQLite" =
+  multi_row_insert
   |> compile_command_exn Dialect.Sqlite
   |> Compiled_command.sql
   |> Stdlib.print_endline;
@@ -649,16 +796,12 @@ let%expect_test "multi-row INSERT, DEFAULT, conflict policy, and UPDATE FROM" =
     VALUES
       (?1, ?2),
       (?3, ?4)
-    |}];
-  Insert.(
-    into Person.table
-    |> default Person.id_column
-    |> set Person.name_column "Ada"
-    |> command)
-  |> Compiler.compile_command ~dialect:Dialect.postgresql
-  |> ( function
-   | Ok compiled -> compiled
-   | Error error -> failwith (Compile_error.to_string error) )
+    |}]
+;;
+
+let%expect_test "INSERT DEFAULT renders in PostgreSQL" =
+  default_insert
+  |> compile_default_command_exn
   |> Compiled_command.sql
   |> Stdlib.print_endline;
   [%expect
@@ -669,9 +812,11 @@ let%expect_test "multi-row INSERT, DEFAULT, conflict policy, and UPDATE FROM" =
     )
     VALUES
       (DEFAULT, $1)
-    |}];
-  Insert.(
-    into Person.table |> set Person.id_column 1L |> on_conflict_do_nothing |> command)
+    |}]
+;;
+
+let%expect_test "unscoped ON CONFLICT DO NOTHING renders in PostgreSQL" =
+  insert_do_nothing
   |> compile_command_exn Dialect.Postgresql
   |> Compiled_command.sql
   |> Stdlib.print_endline;
@@ -683,14 +828,11 @@ let%expect_test "multi-row INSERT, DEFAULT, conflict policy, and UPDATE FROM" =
     VALUES
       ($1)
     ON CONFLICT DO NOTHING
-    |}];
-  let conflict_target = Insert.Conflict_target.column Person.id_column in
-  Insert.(
-    into Person.table
-    |> set Person.id_column 1L
-    |> on_conflict conflict_target
-    |> do_nothing
-    |> command)
+    |}]
+;;
+
+let%expect_test "targeted ON CONFLICT DO NOTHING renders in PostgreSQL" =
+  targeted_do_nothing
   |> compile_command_exn Dialect.Postgresql
   |> Compiled_command.sql
   |> Stdlib.print_endline;
@@ -705,25 +847,11 @@ let%expect_test "multi-row INSERT, DEFAULT, conflict policy, and UPDATE FROM" =
       "id"
     )
     DO NOTHING
-    |}];
-  let upsert =
-    Insert.(
-      into Person.table
-      |> set Person.id_column 1L
-      |> set Person.name_column "Ada"
-      |> on_conflict conflict_target
-      |> do_update (fun ~existing ~excluded ->
-        Conflict_update.(
-          empty
-          |> set_expr
-               Person.name_column
-               (Expr.concat
-                  (Person.name existing)
-                  (Expr.concat_value (Person.name excluded) "!"))
-          |> set Person.id_column 2L))
-      |> returning (fun person -> Projection.pair (Person.id person) (Person.name person)))
-  in
-  upsert
+    |}]
+;;
+
+let%expect_test "UPDATE conflict action renders in PostgreSQL" =
+  do_update_insert
   |> compile_result_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
@@ -745,8 +873,11 @@ let%expect_test "multi-row INSERT, DEFAULT, conflict policy, and UPDATE FROM" =
     RETURNING
       "id",
       "name"
-    |}];
-  upsert
+    |}]
+;;
+
+let%expect_test "UPDATE conflict action renders in SQLite" =
+  do_update_insert
   |> compile_result_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
@@ -768,9 +899,11 @@ let%expect_test "multi-row INSERT, DEFAULT, conflict policy, and UPDATE FROM" =
     RETURNING
       "id",
       "name"
-    |}];
-  Insert.(
-    into Person.table |> set Person.id_column 1L |> on_conflict_do_nothing |> command)
+    |}]
+;;
+
+let%expect_test "unscoped ON CONFLICT DO NOTHING renders in SQLite" =
+  insert_do_nothing
   |> compile_command_exn Dialect.Sqlite
   |> Compiled_command.sql
   |> Stdlib.print_endline;
@@ -782,17 +915,11 @@ let%expect_test "multi-row INSERT, DEFAULT, conflict policy, and UPDATE FROM" =
     VALUES
       (?1)
     ON CONFLICT DO NOTHING
-    |}];
-  let update_from =
-    Update.(
-      table Person.table
-      |> from Department.table ~f:(fun person department update ->
-        update
-        |> set_expr Person.name_column (Department.name department)
-        |> where (fun _ -> Person.id person =. Department.person_id department))
-      |> command)
-  in
-  update_from
+    |}]
+;;
+
+let%expect_test "UPDATE FROM renders in PostgreSQL" =
+  update_from_command
   |> compile_command_exn Dialect.Postgresql
   |> Compiled_command.sql
   |> Stdlib.print_endline;
@@ -804,8 +931,11 @@ let%expect_test "multi-row INSERT, DEFAULT, conflict policy, and UPDATE FROM" =
     FROM "public"."departments" AS t1
     WHERE
       (t0."id" = t1."person_id")
-    |}];
-  update_from
+    |}]
+;;
+
+let%expect_test "UPDATE FROM renders in SQLite" =
+  update_from_command
   |> compile_command_exn Dialect.Sqlite
   |> Compiled_command.sql
   |> Stdlib.print_endline;
@@ -817,12 +947,12 @@ let%expect_test "multi-row INSERT, DEFAULT, conflict policy, and UPDATE FROM" =
     FROM "public"."departments" AS t1
     WHERE
       (t0."id" = t1."person_id")
-    |}];
-  Update.(table Person.table |> default Person.name_column |> all_rows |> command)
-  |> Compiler.compile_command ~dialect:Dialect.postgresql
-  |> ( function
-   | Ok compiled -> compiled
-   | Error error -> failwith (Compile_error.to_string error) )
+    |}]
+;;
+
+let%expect_test "UPDATE DEFAULT renders in PostgreSQL" =
+  default_update_command
+  |> compile_default_command_exn
   |> Compiled_command.sql
   |> Stdlib.print_endline;
   [%expect
@@ -833,12 +963,13 @@ let%expect_test "multi-row INSERT, DEFAULT, conflict policy, and UPDATE FROM" =
     |}]
 ;;
 
-let%expect_test "DML validation and capability diagnostics" =
-  let print_error result =
-    match result with
-    | Ok _ -> failwith "expected compilation error"
-    | Error error -> Stdlib.print_endline (Compile_error.to_string error)
-  in
+let print_compilation_error result =
+  match result with
+  | Ok _ -> failwith "expected compilation error"
+  | Error error -> Stdlib.print_endline (Compile_error.to_string error)
+;;
+
+let incomplete_insert_rows_error =
   Insert.(
     rows
       Person.table
@@ -847,12 +978,14 @@ let%expect_test "DML validation and capability diagnostics" =
       ]
     |> command)
   |> Compiler.compile_command ~dialect:Dialect.sqlite
-  |> print_error;
-  [%expect {| INSERT row 2 assigns columns [id], expected [id, name] |}];
+;;
+
+let empty_insert_row_error =
   Insert.(rows Person.table [ Fn.id; Fn.id ] |> command)
   |> Compiler.compile_command ~dialect:Dialect.sqlite
-  |> print_error;
-  [%expect {| INSERT row 1 has no assignments |}];
+;;
+
+let duplicate_conflict_target_error =
   let duplicate_target =
     Insert.Conflict_target.(column Person.id_column |> add Person.id_column)
   in
@@ -863,8 +996,9 @@ let%expect_test "DML validation and capability diagnostics" =
     |> do_nothing
     |> command)
   |> Compiler.compile_command ~dialect:Dialect.postgresql
-  |> print_error;
-  [%expect {| ON CONFLICT target contains column id more than once |}];
+;;
+
+let empty_conflict_update_error =
   Insert.(
     into Person.table
     |> set Person.id_column 1L
@@ -872,7 +1006,25 @@ let%expect_test "DML validation and capability diagnostics" =
     |> do_update (fun ~existing:_ ~excluded:_ -> Conflict_update.empty)
     |> command)
   |> Compiler.compile_command ~dialect:Dialect.sqlite
-  |> print_error;
+;;
+
+let%expect_test "incomplete multi-row INSERT diagnostic" =
+  print_compilation_error incomplete_insert_rows_error;
+  [%expect {| INSERT row 2 assigns columns [id], expected [id, name] |}]
+;;
+
+let%expect_test "empty INSERT row diagnostic" =
+  print_compilation_error empty_insert_row_error;
+  [%expect {| INSERT row 1 has no assignments |}]
+;;
+
+let%expect_test "duplicate conflict target diagnostic" =
+  print_compilation_error duplicate_conflict_target_error;
+  [%expect {| ON CONFLICT target contains column id more than once |}]
+;;
+
+let%expect_test "empty conflict update diagnostic" =
+  print_compilation_error empty_conflict_update_error;
   [%expect {| ON CONFLICT DO UPDATE must assign at least one column |}]
 ;;
 
@@ -899,25 +1051,29 @@ let%expect_test "conditional UPDATE assignments distinguish omission from NULL" 
     |}]
 ;;
 
-let%expect_test "portable predicates, CASE, and string expressions" =
-  let query =
-    Query.(
-      from Person.table
-      |> where (fun person ->
-        Expr.in_ (Person.id person) [ 1L; 2L ]
-        &&. Expr.not_in (Person.name person) [ "Linus" ]
-        &&. Expr.between (Person.id person) ~lower:1L ~upper:10L
-        &&. Expr.is_distinct_from_value (Person.nickname person) None)
-      |> select (fun person ->
-        Projection.pair
-          (Expr.case
-             [ Person.name person =$ "Ada", Expr.upper (Person.name person)
-             ; Person.name person =$ "Grace", Expr.lower (Person.name person)
-             ]
-             ~else_:(Expr.concat_value (Person.name person) "!"))
-          (Expr.length (Person.name person))))
-  in
-  query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
+let portable_predicates_query =
+  Query.(
+    from Person.table
+    |> where (fun person ->
+      Expr.in_ (Person.id person) [ 1L; 2L ]
+      &&. Expr.not_in (Person.name person) [ "Linus" ]
+      &&. Expr.between (Person.id person) ~lower:1L ~upper:10L
+      &&. Expr.is_distinct_from_value (Person.nickname person) None)
+    |> select (fun person ->
+      Projection.pair
+        (Expr.case
+           [ Person.name person =$ "Ada", Expr.upper (Person.name person)
+           ; Person.name person =$ "Grace", Expr.lower (Person.name person)
+           ]
+           ~else_:(Expr.concat_value (Person.name person) "!"))
+        (Expr.length (Person.name person))))
+;;
+
+let%expect_test "portable predicates and CASE render in PostgreSQL" =
+  portable_predicates_query
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
@@ -938,8 +1094,14 @@ let%expect_test "portable predicates, CASE, and string expressions" =
         AND (t0."id" BETWEEN $7 AND $8)
         AND (t0."nickname" IS DISTINCT FROM $9)
       )
-    |}];
-  query |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
+    |}]
+;;
+
+let%expect_test "portable predicates and CASE render in SQLite" =
+  portable_predicates_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
@@ -963,46 +1125,50 @@ let%expect_test "portable predicates, CASE, and string expressions" =
     |}]
 ;;
 
-let%expect_test "typed arithmetic renders for every numeric representation" =
-  let query =
-    Query.(
-      from Person.table
-      |> select (fun person ->
-        let int64 = Person.id person in
-        let int_ = Expr.constant Db_type.int 12 in
-        let float = Expr.constant Db_type.float 12.0 in
-        let int64_values =
-          let open Expr.Int64.Infix in
-          [ int64 +. Expr.constant Db_type.int64 1L
-          ; int64 -. Expr.constant Db_type.int64 2L
-          ; int64 *. Expr.constant Db_type.int64 3L
-          ; int64 /. Expr.constant Db_type.int64 4L
-          ]
-        in
-        let int_values =
-          let open Expr.Int.Infix in
-          [ int_ +. Expr.constant Db_type.int 1
-          ; int_ -. Expr.constant Db_type.int 2
-          ; int_ *. Expr.constant Db_type.int 3
-          ; int_ /. Expr.constant Db_type.int 4
-          ]
-        in
-        let float_values =
-          let open Expr.Float.Infix in
-          [ float +. Expr.constant Db_type.float 1.0
-          ; float -. Expr.constant Db_type.float 2.0
-          ; float *. Expr.constant Db_type.float 3.0
-          ; float /. Expr.constant Db_type.float 4.0
-          ]
-        in
-        Projection.map3
-          ~f:(fun int64_values int_values float_values ->
-            int64_values, int_values, float_values)
-          (Projection.all (List.map int64_values ~f:Projection.expr))
-          (Projection.all (List.map int_values ~f:Projection.expr))
-          (Projection.all (List.map float_values ~f:Projection.expr))))
-  in
-  query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
+let arithmetic_query =
+  Query.(
+    from Person.table
+    |> select (fun person ->
+      let int64 = Person.id person in
+      let int_ = Expr.constant Db_type.int 12 in
+      let float = Expr.constant Db_type.float 12.0 in
+      let int64_values =
+        let open Expr.Int64.Infix in
+        [ int64 +. Expr.constant Db_type.int64 1L
+        ; int64 -. Expr.constant Db_type.int64 2L
+        ; int64 *. Expr.constant Db_type.int64 3L
+        ; int64 /. Expr.constant Db_type.int64 4L
+        ]
+      in
+      let int_values =
+        let open Expr.Int.Infix in
+        [ int_ +. Expr.constant Db_type.int 1
+        ; int_ -. Expr.constant Db_type.int 2
+        ; int_ *. Expr.constant Db_type.int 3
+        ; int_ /. Expr.constant Db_type.int 4
+        ]
+      in
+      let float_values =
+        let open Expr.Float.Infix in
+        [ float +. Expr.constant Db_type.float 1.0
+        ; float -. Expr.constant Db_type.float 2.0
+        ; float *. Expr.constant Db_type.float 3.0
+        ; float /. Expr.constant Db_type.float 4.0
+        ]
+      in
+      Projection.map3
+        ~f:(fun int64_values int_values float_values ->
+          int64_values, int_values, float_values)
+        (Projection.all (List.map int64_values ~f:Projection.expr))
+        (Projection.all (List.map int_values ~f:Projection.expr))
+        (Projection.all (List.map float_values ~f:Projection.expr))))
+;;
+
+let%expect_test "typed arithmetic renders in PostgreSQL" =
+  arithmetic_query
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
@@ -1019,8 +1185,14 @@ let%expect_test "typed arithmetic renders for every numeric representation" =
       ($17 * $18),
       ($19 / $20)
     FROM "public"."people" AS t0
-    |}];
-  query |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
+    |}]
+;;
+
+let%expect_test "typed arithmetic renders in SQLite" =
+  arithmetic_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
@@ -1040,11 +1212,22 @@ let%expect_test "typed arithmetic renders for every numeric representation" =
     |}]
 ;;
 
-let%expect_test "empty membership lists normalize without invalid SQL" =
+let empty_in_query =
   Query.(
     from Person.table
     |> where (fun person -> Expr.in_ (Person.id person) [])
     |> select Person.projection)
+;;
+
+let empty_not_in_query =
+  Query.(
+    from Person.table
+    |> where (fun person -> Expr.not_in (Person.id person) [])
+    |> select Person.projection)
+;;
+
+let%expect_test "empty IN list normalizes to false" =
+  empty_in_query
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
@@ -1057,11 +1240,11 @@ let%expect_test "empty membership lists normalize without invalid SQL" =
     FROM "public"."people" AS t0
     WHERE
       FALSE
-    |}];
-  Query.(
-    from Person.table
-    |> where (fun person -> Expr.not_in (Person.id person) [])
-    |> select Person.projection)
+    |}]
+;;
+
+let%expect_test "empty NOT IN list removes its predicate" =
+  empty_not_in_query
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
@@ -1075,13 +1258,28 @@ let%expect_test "empty membership lists normalize without invalid SQL" =
     |}]
 ;;
 
-let%expect_test "DISTINCT and aggregate queries are portable" =
-  let distinct_query =
-    Query.(
-      from Person.table
-      |> distinct
-      |> select (fun person -> Projection.expr (Person.name person)))
-  in
+let distinct_query =
+  Query.(
+    from Person.table
+    |> distinct
+    |> select (fun person -> Projection.expr (Person.name person)))
+;;
+
+let grouped_aggregate_query =
+  Query.(
+    from Person.table
+    |> group_by (fun person -> Person.name person)
+    |> having (fun _ -> Expr.count_all >$ 0L)
+    |> order_by (fun person -> Person.name person) `Asc
+    |> select (fun person ->
+      Projection.map3
+        ~f:(fun name count distinct_count -> name, count, distinct_count)
+        (Projection.expr (Person.name person))
+        (Projection.expr (Expr.count (Person.id person)))
+        (Projection.expr (Expr.count_distinct (Person.nickname person)))))
+;;
+
+let%expect_test "DISTINCT renders in PostgreSQL" =
   distinct_query
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
@@ -1091,7 +1289,10 @@ let%expect_test "DISTINCT and aggregate queries are portable" =
     SELECT DISTINCT
       t0."name"
     FROM "public"."people" AS t0
-    |}];
+    |}]
+;;
+
+let%expect_test "DISTINCT renders in SQLite" =
   distinct_query
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
@@ -1101,21 +1302,14 @@ let%expect_test "DISTINCT and aggregate queries are portable" =
     SELECT DISTINCT
       t0."name"
     FROM "public"."people" AS t0
-    |}];
-  let grouped =
-    Query.(
-      from Person.table
-      |> group_by (fun person -> Person.name person)
-      |> having (fun _ -> Expr.count_all >$ 0L)
-      |> order_by (fun person -> Person.name person) `Asc
-      |> select (fun person ->
-        Projection.map3
-          ~f:(fun name count distinct_count -> name, count, distinct_count)
-          (Projection.expr (Person.name person))
-          (Projection.expr (Expr.count (Person.id person)))
-          (Projection.expr (Expr.count_distinct (Person.nickname person)))))
-  in
-  grouped |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
+    |}]
+;;
+
+let%expect_test "grouped aggregates render in PostgreSQL" =
+  grouped_aggregate_query
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
@@ -1129,8 +1323,14 @@ let%expect_test "DISTINCT and aggregate queries are portable" =
       (COUNT(*) > $1)
     ORDER BY
       t0."name" ASC
-    |}];
-  grouped |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
+    |}]
+;;
+
+let%expect_test "grouped aggregates render in SQLite" =
+  grouped_aggregate_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
@@ -1147,16 +1347,43 @@ let%expect_test "DISTINCT and aggregate queries are portable" =
     |}]
 ;;
 
-let%expect_test "GROUP BY accepts the same portable expression in projection" =
-  let query =
-    Query.(
-      from Person.table
-      |> group_by (fun person -> Expr.lower (Person.name person))
-      |> order_by (fun person -> Expr.lower (Person.name person)) `Asc
-      |> select (fun person ->
-        Projection.pair (Expr.lower (Person.name person)) Expr.count_all))
-  in
-  query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
+let lowered_group_query =
+  Query.(
+    from Person.table
+    |> group_by (fun person -> Expr.lower (Person.name person))
+    |> order_by (fun person -> Expr.lower (Person.name person)) `Asc
+    |> select (fun person ->
+      Projection.pair (Expr.lower (Person.name person)) Expr.count_all))
+;;
+
+let arithmetic_group_expression person =
+  let open Expr.Int64.Infix in
+  Person.id person +. Person.id person
+;;
+
+let arithmetic_group_query =
+  Query.(
+    from Person.table
+    |> group_by arithmetic_group_expression
+    |> select (fun person ->
+      Projection.pair (arithmetic_group_expression person) Expr.count_all))
+;;
+
+let concatenated_group_query =
+  Query.(
+    from Person.table
+    |> group_by (fun person -> Expr.concat (Person.name person) (Person.name person))
+    |> select (fun person ->
+      Projection.pair
+        (Expr.concat (Person.name person) (Person.name person))
+        Expr.count_all))
+;;
+
+let%expect_test "lowered GROUP BY expression is portable to PostgreSQL" =
+  lowered_group_query
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
@@ -1167,8 +1394,14 @@ let%expect_test "GROUP BY accepts the same portable expression in projection" =
       LOWER(t0."name")
     ORDER BY
       LOWER(t0."name") ASC
-    |}];
-  query |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
+    |}]
+;;
+
+let%expect_test "lowered GROUP BY expression is portable to SQLite" =
+  lowered_group_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
@@ -1179,19 +1412,11 @@ let%expect_test "GROUP BY accepts the same portable expression in projection" =
       LOWER(t0."name")
     ORDER BY
       LOWER(t0."name") ASC
-    |}];
-  let arithmetic =
-    let arithmetic_expression person =
-      let open Expr.Int64.Infix in
-      Person.id person +. Person.id person
-    in
-    Query.(
-      from Person.table
-      |> group_by arithmetic_expression
-      |> select (fun person ->
-        Projection.pair (arithmetic_expression person) Expr.count_all))
-  in
-  arithmetic
+    |}]
+;;
+
+let%expect_test "arithmetic GROUP BY expression is portable to PostgreSQL" =
+  arithmetic_group_query
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
@@ -1203,8 +1428,14 @@ let%expect_test "GROUP BY accepts the same portable expression in projection" =
     FROM "public"."people" AS t0
     GROUP BY
       (t0."id" + t0."id")
-    |}];
-  arithmetic |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
+    |}]
+;;
+
+let%expect_test "arithmetic GROUP BY expression is portable to SQLite" =
+  arithmetic_group_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
@@ -1213,17 +1444,11 @@ let%expect_test "GROUP BY accepts the same portable expression in projection" =
     FROM "public"."people" AS t0
     GROUP BY
       (t0."id" + t0."id")
-    |}];
-  let concatenated =
-    Query.(
-      from Person.table
-      |> group_by (fun person -> Expr.concat (Person.name person) (Person.name person))
-      |> select (fun person ->
-        Projection.pair
-          (Expr.concat (Person.name person) (Person.name person))
-          Expr.count_all))
-  in
-  concatenated
+    |}]
+;;
+
+let%expect_test "concatenated GROUP BY expression is portable to PostgreSQL" =
+  concatenated_group_query
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
@@ -1235,8 +1460,14 @@ let%expect_test "GROUP BY accepts the same portable expression in projection" =
     FROM "public"."people" AS t0
     GROUP BY
       (t0."name" || t0."name")
-    |}];
-  concatenated |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
+    |}]
+;;
+
+let%expect_test "concatenated GROUP BY expression is portable to SQLite" =
+  concatenated_group_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
@@ -1296,88 +1527,83 @@ let%test_unit "GROUP BY compares every public arithmetic and string function" =
     (fun person -> Expr.upper (Person.name person))
 ;;
 
-let%expect_test "aggregate validation rejects invalid SQL scopes" =
-  let print_error query =
-    match Compiler.compile ~dialect:Dialect.sqlite query with
-    | Ok _ -> failwith "expected aggregate validation error"
-    | Error error -> Stdlib.print_endline (Compile_error.to_string error)
-  in
+let print_aggregate_error query =
+  match Compiler.compile ~dialect:Dialect.sqlite query with
+  | Ok _ -> failwith "expected aggregate validation error"
+  | Error error -> Stdlib.print_endline (Compile_error.to_string error)
+;;
+
+let aggregate_in_where_query =
   Query.(
     from Person.table |> where (fun _ -> Expr.count_all >$ 0L) |> select Person.projection)
-  |> print_error;
-  [%expect {| aggregate expressions are not allowed in WHERE |}];
+;;
+
+let aggregate_in_group_query =
   Query.(
     from Person.table
     |> group_by (fun person -> Expr.count (Person.id person))
     |> select (fun _ -> Projection.expr Expr.count_all))
-  |> print_error;
-  [%expect {| aggregate expressions are not allowed in GROUP BY |}];
+;;
+
+let ungrouped_projection_query =
   Query.(
     from Person.table
     |> select (fun person ->
       Projection.pair (Person.name person) (Expr.count (Person.id person))))
-  |> print_error;
-  [%expect {| non-aggregate expression must be present in GROUP BY |}];
+;;
+
+let nested_aggregate_query =
   Query.(
     from Person.table |> select (fun _ -> Projection.expr (Expr.count Expr.count_all)))
-  |> print_error;
+;;
+
+let%expect_test "aggregate in WHERE is rejected" =
+  print_aggregate_error aggregate_in_where_query;
+  [%expect {| aggregate expressions are not allowed in WHERE |}]
+;;
+
+let%expect_test "aggregate in GROUP BY is rejected" =
+  print_aggregate_error aggregate_in_group_query;
+  [%expect {| aggregate expressions are not allowed in GROUP BY |}]
+;;
+
+let%expect_test "ungrouped projection is rejected" =
+  print_aggregate_error ungrouped_projection_query;
+  [%expect {| non-aggregate expression must be present in GROUP BY |}]
+;;
+
+let%expect_test "nested aggregate is rejected" =
+  print_aggregate_error nested_aggregate_query;
   [%expect {| aggregate expressions cannot be nested |}]
 ;;
 
-let%expect_test "correlated EXISTS, scalar subquery, and IN subquery" =
+let correlated_subquery_query =
   let departments = Query.(from Department.table |> select_scalar Department.person_id) in
-  let query =
-    Query.(
-      from Person.table
-      |> where (fun person ->
+  Query.(
+    from Person.table
+    |> where (fun person ->
+      Query.(
+        from Department.table
+        |> where (fun department -> Department.person_id department =. Person.id person)
+        |> exists)
+      &&. in_subquery (Person.id person) departments)
+    |> select (fun person ->
+      let department_name =
         Query.(
           from Department.table
           |> where (fun department -> Department.person_id department =. Person.id person)
-          |> exists)
-        &&. in_subquery (Person.id person) departments)
-      |> select (fun person ->
-        let department_name =
-          Query.(
-            from Department.table
-            |> where (fun department ->
-              Department.person_id department =. Person.id person)
-            |> limit 1
-            |> select_scalar Department.name)
-          |> Expr.scalar_subquery
-        in
-        Projection.pair (Person.name person) department_name))
-  in
-  query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
-  [%expect
-    {|
-    SELECT
-      t0."name",
-      (
-        SELECT
-          t1."name"
-        FROM "public"."departments" AS t1
-        WHERE
-          (t1."person_id" = t0."id")
-        LIMIT 1
-      )
-    FROM "public"."people" AS t0
-    WHERE
-      (
-        (EXISTS (
-          SELECT
-            1
-          FROM "public"."departments" AS t1
-          WHERE
-            (t1."person_id" = t0."id")
-        ))
-        AND (t0."id" IN (
-          SELECT
-            t1."person_id"
-          FROM "public"."departments" AS t1
-        ))
-      )
-    |}];
-  query |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
+          |> limit 1
+          |> select_scalar Department.name)
+        |> Expr.scalar_subquery
+      in
+      Projection.pair (Person.name person) department_name))
+;;
+
+let%expect_test "correlated subqueries render in PostgreSQL" =
+  correlated_subquery_query
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
@@ -1409,25 +1635,91 @@ let%expect_test "correlated EXISTS, scalar subquery, and IN subquery" =
     |}]
 ;;
 
-let%expect_test "scalar subqueries are nullable and require a cardinality proof" =
+let%expect_test "correlated subqueries render in SQLite" =
+  correlated_subquery_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      t0."name",
+      (
+        SELECT
+          t1."name"
+        FROM "public"."departments" AS t1
+        WHERE
+          (t1."person_id" = t0."id")
+        LIMIT 1
+      )
+    FROM "public"."people" AS t0
+    WHERE
+      (
+        (EXISTS (
+          SELECT
+            1
+          FROM "public"."departments" AS t1
+          WHERE
+            (t1."person_id" = t0."id")
+        ))
+        AND (t0."id" IN (
+          SELECT
+            t1."person_id"
+          FROM "public"."departments" AS t1
+        ))
+      )
+    |}]
+;;
+
+let unbounded_scalar_query =
   let scalar = Query.(from Department.table |> select_scalar Department.name) in
-  let query =
-    Query.(
-      from Person.table |> select (fun _ -> Projection.expr (Expr.scalar_subquery scalar)))
-  in
-  (match Compiler.compile ~dialect:Dialect.sqlite query with
+  Query.(
+    from Person.table |> select (fun _ -> Projection.expr (Expr.scalar_subquery scalar)))
+;;
+
+let zero_limit_scalar_query =
+  Query.(
+    from Person.table
+    |> select (fun _ ->
+      Projection.expr
+        (Expr.scalar_subquery
+           Query.(from Department.table |> limit 0 |> select_scalar Department.name))))
+;;
+
+let aggregate_scalar_query =
+  Query.(
+    from Person.table
+    |> select (fun _ ->
+      Projection.expr
+        (Expr.scalar_subquery
+           Query.(from Department.table |> select_scalar (fun _ -> Expr.count_all)))))
+;;
+
+let nullable_scalar_query =
+  Query.(
+    from Person.table
+    |> select (fun _ ->
+      Projection.expr
+        (Expr.scalar_subquery_nullable
+           Query.(
+             from Department.table
+             |> limit 1
+             |> select_scalar (fun department ->
+               Expr.to_nullable (Department.name department))))))
+;;
+
+let%expect_test "unbounded scalar subquery requires a cardinality proof" =
+  (match Compiler.compile ~dialect:Dialect.sqlite unbounded_scalar_query with
    | Ok _ -> failwith "unbounded scalar subquery unexpectedly compiled"
    | Error error -> Stdlib.print_endline (Compile_error.to_string error));
-  [%expect {| scalar subquery requires LIMIT 0/1 or a local aggregate without GROUP BY |}];
-  let query =
-    Query.(
-      from Person.table
-      |> select (fun _ ->
-        Projection.expr
-          (Expr.scalar_subquery
-             Query.(from Department.table |> limit 0 |> select_scalar Department.name))))
-  in
-  query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
+  [%expect {| scalar subquery requires LIMIT 0/1 or a local aggregate without GROUP BY |}]
+;;
+
+let%expect_test "zero-limit scalar subquery renders in PostgreSQL" =
+  zero_limit_scalar_query
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
@@ -1438,16 +1730,14 @@ let%expect_test "scalar subqueries are nullable and require a cardinality proof"
         LIMIT 0
       )
     FROM "public"."people" AS t0
-    |}];
-  let query =
-    Query.(
-      from Person.table
-      |> select (fun _ ->
-        Projection.expr
-          (Expr.scalar_subquery
-             Query.(from Department.table |> select_scalar (fun _ -> Expr.count_all)))))
-  in
-  query |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
+    |}]
+;;
+
+let%expect_test "aggregate scalar subquery renders in SQLite" =
+  aggregate_scalar_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
@@ -1457,20 +1747,11 @@ let%expect_test "scalar subqueries are nullable and require a cardinality proof"
         FROM "public"."departments" AS t1
       )
     FROM "public"."people" AS t0
-    |}];
-  let query =
-    Query.(
-      from Person.table
-      |> select (fun _ ->
-        Projection.expr
-          (Expr.scalar_subquery_nullable
-             Query.(
-               from Department.table
-               |> limit 1
-               |> select_scalar (fun department ->
-                 Expr.to_nullable (Department.name department))))))
-  in
-  query |> compile_exn Dialect.Sqlite |> ignore
+    |}]
+;;
+
+let%test_unit "nullable scalar subquery compiles with a bound" =
+  nullable_scalar_query |> compile_exn Dialect.Sqlite |> ignore
 ;;
 
 let%expect_test "empty CASE normalizes to its else expression" =
@@ -1488,14 +1769,22 @@ let%expect_test "empty CASE normalizes to its else expression" =
     |}]
 ;;
 
+let having_constant_query =
+  Query.(
+    from Person.table
+    |> Postgresql.Query.having (fun _ -> Condition.true_)
+    |> select (fun _ -> Projection.expr (Expr.constant Db_type.int 1)))
+;;
+
+let having_ungrouped_query =
+  Query.(
+    from Person.table
+    |> Postgresql.Query.having (fun person -> Person.id person >$ 0L)
+    |> select (fun _ -> Projection.expr Expr.count_all))
+;;
+
 let%expect_test "HAVING establishes aggregate context" =
-  let query =
-    Query.(
-      from Person.table
-      |> Postgresql.Query.having (fun _ -> Condition.true_)
-      |> select (fun _ -> Projection.expr (Expr.constant Db_type.int 1)))
-  in
-  query
+  having_constant_query
   |> Compiler.compile ~dialect:Dialect.postgresql
   |> ( function
    | Ok compiled -> compiled
@@ -1509,14 +1798,11 @@ let%expect_test "HAVING establishes aggregate context" =
     FROM "public"."people" AS t0
     HAVING
       TRUE
-    |}];
-  let query =
-    Query.(
-      from Person.table
-      |> Postgresql.Query.having (fun person -> Person.id person >$ 0L)
-      |> select (fun _ -> Projection.expr Expr.count_all))
-  in
-  match Compiler.compile ~dialect:Dialect.postgresql query with
+    |}]
+;;
+
+let%test_unit "HAVING rejects an ungrouped column in a local aggregate" =
+  match Compiler.compile ~dialect:Dialect.postgresql having_ungrouped_query with
   | Error Compile_error.Ungrouped_expression -> ()
   | Error error -> failwith (Compile_error.to_string error)
   | Ok _ -> failwith "ungrouped HAVING column unexpectedly compiled"
@@ -1614,35 +1900,52 @@ let%expect_test "negated subqueries render explicitly" =
     |}]
 ;;
 
-let%expect_test "typed current timestamp is portable" =
-  let query =
-    Query.(
-      from Event.table
-      |> where (fun event -> Event.occurred_at event <=. Expr.current_timestamp)
-      |> select (fun event -> Projection.expr (Event.occurred_at event)))
-  in
-  query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
-  [%expect
-    {|
-    SELECT
-      t0."occurred_at"
-    FROM "public"."events" AS t0
-    WHERE
-      (t0."occurred_at" <= CURRENT_TIMESTAMP)
-    |}];
-  query |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
-  [%expect
-    {|
-    SELECT
-      t0."occurred_at"
-    FROM "public"."events" AS t0
-    WHERE
-      (t0."occurred_at" <= CURRENT_TIMESTAMP)
-    |}];
+let current_timestamp_query =
+  Query.(
+    from Event.table
+    |> where (fun event -> Event.occurred_at event <=. Expr.current_timestamp)
+    |> select (fun event -> Projection.expr (Event.occurred_at event)))
+;;
+
+let current_timestamp_insert =
   Insert.(
     into Event.table
     |> set_expr Event.occurred_at_column Expr.current_timestamp
     |> command)
+;;
+
+let%expect_test "current timestamp renders in PostgreSQL SELECT" =
+  current_timestamp_query
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      t0."occurred_at"
+    FROM "public"."events" AS t0
+    WHERE
+      (t0."occurred_at" <= CURRENT_TIMESTAMP)
+    |}]
+;;
+
+let%expect_test "current timestamp renders in SQLite SELECT" =
+  current_timestamp_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      t0."occurred_at"
+    FROM "public"."events" AS t0
+    WHERE
+      (t0."occurred_at" <= CURRENT_TIMESTAMP)
+    |}]
+;;
+
+let%expect_test "current timestamp renders in PostgreSQL INSERT" =
+  current_timestamp_insert
   |> compile_command_exn Dialect.Postgresql
   |> Compiled_command.sql
   |> Stdlib.print_endline;
@@ -1656,15 +1959,20 @@ let%expect_test "typed current timestamp is portable" =
     |}]
 ;;
 
-let%expect_test "typed calendar date is portable" =
-  let date = Date.of_ymd_exn ~year:2026 ~month:9 ~day:12 in
-  let query =
-    Query.(
-      from Calendar_day.table
-      |> where (fun day -> Calendar_day.date day =$ date)
-      |> select (fun day -> Projection.expr (Calendar_day.date day)))
-  in
-  query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
+let calendar_date = Date.of_ymd_exn ~year:2026 ~month:9 ~day:12
+
+let calendar_date_query =
+  Query.(
+    from Calendar_day.table
+    |> where (fun day -> Calendar_day.date day =$ calendar_date)
+    |> select (fun day -> Projection.expr (Calendar_day.date day)))
+;;
+
+let%expect_test "calendar date renders in PostgreSQL" =
+  calendar_date_query
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
@@ -1672,8 +1980,14 @@ let%expect_test "typed calendar date is portable" =
     FROM "public"."calendar_days" AS t0
     WHERE
       (t0."calendar_date" = $1)
-    |}];
-  query |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
+    |}]
+;;
+
+let%expect_test "calendar date renders in SQLite" =
+  calendar_date_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
@@ -1684,15 +1998,20 @@ let%expect_test "typed calendar date is portable" =
     |}]
 ;;
 
-let%expect_test "typed UUID is portable" =
-  let uuid = Uuid.of_string_exn "550e8400-e29b-41d4-a716-446655440000" in
-  let query =
-    Query.(
-      from Resource.table
-      |> where (fun resource -> Resource.external_id resource =$ uuid)
-      |> select (fun resource -> Projection.expr (Resource.external_id resource)))
-  in
-  query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
+let external_uuid = Uuid.of_string_exn "550e8400-e29b-41d4-a716-446655440000"
+
+let uuid_query =
+  Query.(
+    from Resource.table
+    |> where (fun resource -> Resource.external_id resource =$ external_uuid)
+    |> select (fun resource -> Projection.expr (Resource.external_id resource)))
+;;
+
+let%expect_test "UUID renders in PostgreSQL" =
+  uuid_query
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
@@ -1700,8 +2019,11 @@ let%expect_test "typed UUID is portable" =
     FROM "public"."resources" AS t0
     WHERE
       (t0."external_id" = $1)
-    |}];
-  query |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
+    |}]
+;;
+
+let%expect_test "UUID renders in SQLite" =
+  uuid_query |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
     {|
     SELECT

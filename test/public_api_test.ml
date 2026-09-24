@@ -131,7 +131,7 @@ let%test_unit "command statements bind runtime expressions" =
   assert (String.equal sqlite sqlite_without_input)
 ;;
 
-let%expect_test "optional parameter predicates preserve one static SQL shape" =
+let%expect_test "optional parameter predicate renders in PostgreSQL" =
   Stdlib.print_endline
     (Statement.sql_exn ~dialect:Dialect.Postgresql optional_filter_statement);
   [%expect
@@ -144,7 +144,10 @@ let%expect_test "optional parameter predicates preserve one static SQL shape" =
         ($1 IS NULL)
         OR (t0."name" = $1)
       )
-    |}];
+    |}]
+;;
+
+let%expect_test "optional parameter predicate renders in SQLite" =
   Stdlib.print_endline
     (Statement.sql_exn ~dialect:Dialect.Sqlite optional_filter_statement);
   [%expect
@@ -450,22 +453,40 @@ let%test_unit "all public database types participate in query shapes" =
     1
 ;;
 
-let%expect_test "public diagnostic printers" =
+let%expect_test "identifier printer" =
   Stdlib.Format.printf "%a@." Identifier.pp (Identifier.of_string_exn "items");
-  [%expect {| items |}];
+  [%expect {| items |}]
+;;
+
+let%expect_test "empty identifier diagnostic" =
   Stdlib.print_endline (Identifier.error_to_string `Empty);
-  [%expect {| SQL identifier must not be empty |}];
+  [%expect {| SQL identifier must not be empty |}]
+;;
+
+let%expect_test "NUL identifier diagnostic" =
   Stdlib.print_endline (Identifier.error_to_string `Contains_nul);
-  [%expect {| SQL identifier must not contain a NUL byte |}];
+  [%expect {| SQL identifier must not contain a NUL byte |}]
+;;
+
+let%expect_test "known affected row count printer" =
   Stdlib.Format.printf "%a@." Affected_rows.pp (Affected_rows.Known 2);
-  [%expect {| 2 |}];
+  [%expect {| 2 |}]
+;;
+
+let%expect_test "unknown affected row count printer" =
   Stdlib.Format.printf "%a@." Affected_rows.pp Affected_rows.Unknown;
-  [%expect {| unknown |}];
+  [%expect {| unknown |}]
+;;
+
+let%expect_test "assignment source diagnostic" =
   Stdlib.Format.printf
     "%a@."
     Compile_error.pp
     (Compile_error.Invalid_assignment_source { expected = 1; actual = 2 });
-  [%expect {| assignment belongs to source #2, but the command targets source #1 |}];
+  [%expect {| assignment belongs to source #2, but the command targets source #1 |}]
+;;
+
+let%expect_test "foreign source diagnostic" =
   Stdlib.Format.printf
     "%a@."
     Compile_error.pp
@@ -514,20 +535,21 @@ let%test_unit "condition identities preserve compiled SQL for both dialects" =
     assert (String.equal (render Condition.true_) (sql dialect (query ()))))
 ;;
 
-let%expect_test "null checks, NOT, OR and multiple sort keys" =
-  let query =
-    Query.(
-      query ()
-      |> where (fun row ->
-        Expr.is_null (Expr.column row name)
-        ||. Condition.not_ (Expr.is_not_null (Expr.to_nullable (Expr.column row id))))
-      |> where_opt (Some 0) ~f:(fun row value -> Expr.column row id >$ value)
-      |> order_by (fun row -> Expr.column row name) `Asc
-      |> order_by (fun row -> Expr.column row id) `Desc
-      |> limit 3
-      |> offset 1)
-  in
-  Stdlib.print_endline (sql Dialect.Postgresql query);
+let null_and_sort_query =
+  Query.(
+    query ()
+    |> where (fun row ->
+      Expr.is_null (Expr.column row name)
+      ||. Condition.not_ (Expr.is_not_null (Expr.to_nullable (Expr.column row id))))
+    |> where_opt (Some 0) ~f:(fun row value -> Expr.column row id >$ value)
+    |> order_by (fun row -> Expr.column row name) `Asc
+    |> order_by (fun row -> Expr.column row id) `Desc
+    |> limit 3
+    |> offset 1)
+;;
+
+let%expect_test "null checks and multiple sort keys render in PostgreSQL" =
+  Stdlib.print_endline (sql Dialect.Postgresql null_and_sort_query);
   [%expect
     {|
     SELECT
@@ -546,8 +568,11 @@ let%expect_test "null checks, NOT, OR and multiple sort keys" =
       t0."id" DESC
     LIMIT 3
     OFFSET 1
-    |}];
-  Stdlib.print_endline (sql Dialect.Sqlite query);
+    |}]
+;;
+
+let%expect_test "null checks and multiple sort keys render in SQLite" =
+  Stdlib.print_endline (sql Dialect.Sqlite null_and_sort_query);
   [%expect
     {|
     SELECT
@@ -641,53 +666,69 @@ let%test_unit "foreign sources are rejected in projection, sorting, JOIN and DML
            into items |> set id 1 |> returning (fun _ -> Projection.expr expression))))
 ;;
 
-let%expect_test "invalid DML and pagination diagnostics" =
-  let print_result result =
-    Stdlib.Format.printf "%a@." Compile_error.pp (error_exn result)
-  in
-  print_result
+let print_compile_error result =
+  Stdlib.Format.printf "%a@." Compile_error.pp (error_exn result)
+;;
+
+let%expect_test "empty INSERT diagnostic" =
+  print_compile_error
     (Compiler.compile_command ~dialect:Dialect.sqlite Insert.(into items |> command));
-  [%expect {| INSERT must assign at least one column |}];
-  print_result
+  [%expect {| INSERT must assign at least one column |}]
+;;
+
+let%expect_test "empty UPDATE diagnostic" =
+  print_compile_error
     (Compiler.compile_command
        ~dialect:Dialect.sqlite
        Update.(table items |> all_rows |> command));
-  [%expect {| UPDATE must assign at least one column |}];
-  print_result
+  [%expect {| UPDATE must assign at least one column |}]
+;;
+
+let%expect_test "duplicate assignment diagnostic" =
+  print_compile_error
     (Compiler.compile_command
        ~dialect:Dialect.sqlite
        Insert.(into items |> set id 1 |> set id 2 |> command));
-  [%expect {| column id is assigned more than once |}];
-  print_result
+  [%expect {| column id is assigned more than once |}]
+;;
+
+let%expect_test "empty RETURNING projection diagnostic" =
+  print_compile_error
     (Compiler.compile
        ~dialect:Dialect.sqlite
        Delete.(from items |> all_rows |> returning (fun _ -> Projection.return ())));
-  [%expect {| SELECT projection must contain at least one expression |}];
-  print_result (compile Dialect.Sqlite Query.(query () |> offset (-1)));
+  [%expect {| SELECT projection must contain at least one expression |}]
+;;
+
+let%expect_test "negative offset diagnostic" =
+  print_compile_error (compile Dialect.Sqlite Query.(query () |> offset (-1)));
   [%expect {| OFFSET must be non-negative, got -1 |}]
 ;;
 
-let%expect_test "multi-assignment UPDATE and DELETE RETURNING" =
-  let updated =
-    Update.(
-      table items
-      |> set_expr id (Expr.constant Db_type.int 2)
-      |> set name (Some "updated")
-      |> where (fun row -> Expr.column row id >$ 0)
-      |> where (fun row -> Expr.column row id <$ 3)
-      |> returning projection)
-  in
-  let deleted =
-    Delete.(
-      from items
-      |> where (fun row -> Expr.column row id >=$ 0)
-      |> where (fun row -> Expr.column row id <=$ 3)
-      |> returning projection)
-  in
-  let render dialect query =
-    Compiler.compile_portable ~dialect query |> ok_exn |> Compiled_query.sql
-  in
-  Stdlib.print_endline (render Dialect.Postgresql updated);
+let updated_returning =
+  Update.(
+    table items
+    |> set_expr id (Expr.constant Db_type.int 2)
+    |> set name (Some "updated")
+    |> where (fun row -> Expr.column row id >$ 0)
+    |> where (fun row -> Expr.column row id <$ 3)
+    |> returning projection)
+;;
+
+let deleted_returning =
+  Delete.(
+    from items
+    |> where (fun row -> Expr.column row id >=$ 0)
+    |> where (fun row -> Expr.column row id <=$ 3)
+    |> returning projection)
+;;
+
+let render_returning dialect query =
+  Compiler.compile_portable ~dialect query |> ok_exn |> Compiled_query.sql
+;;
+
+let%expect_test "multi-assignment UPDATE RETURNING renders in PostgreSQL" =
+  Stdlib.print_endline (render_returning Dialect.Postgresql updated_returning);
   [%expect
     {|
     UPDATE "items"
@@ -701,8 +742,11 @@ let%expect_test "multi-assignment UPDATE and DELETE RETURNING" =
       )
     RETURNING
       "id"
-    |}];
-  Stdlib.print_endline (render Dialect.Sqlite updated);
+    |}]
+;;
+
+let%expect_test "multi-assignment UPDATE RETURNING renders in SQLite" =
+  Stdlib.print_endline (render_returning Dialect.Sqlite updated_returning);
   [%expect
     {|
     UPDATE "items"
@@ -716,8 +760,11 @@ let%expect_test "multi-assignment UPDATE and DELETE RETURNING" =
       )
     RETURNING
       "id"
-    |}];
-  Stdlib.print_endline (render Dialect.Postgresql deleted);
+    |}]
+;;
+
+let%expect_test "DELETE RETURNING renders in PostgreSQL" =
+  Stdlib.print_endline (render_returning Dialect.Postgresql deleted_returning);
   [%expect
     {|
     DELETE FROM "items"
@@ -728,8 +775,11 @@ let%expect_test "multi-assignment UPDATE and DELETE RETURNING" =
       )
     RETURNING
       "id"
-    |}];
-  Stdlib.print_endline (render Dialect.Sqlite deleted);
+    |}]
+;;
+
+let%expect_test "DELETE RETURNING renders in SQLite" =
+  Stdlib.print_endline (render_returning Dialect.Sqlite deleted_returning);
   [%expect
     {|
     DELETE FROM "items"

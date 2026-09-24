@@ -21,6 +21,16 @@
   (pps ppx_expect ppx_fields_conv ppx_let)))
 
 (library
+ (name typed_sql_named_tuple_expect_tests)
+ (modules named_tuple_test)
+ (libraries base typed-sql)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (>= %{ocaml_version} 5.5)))
+
+(library
  (name typed_sql_backend_expect_tests)
  (modules projection_test backend_test)
  (libraries base typed-sql typed-sql.backend)

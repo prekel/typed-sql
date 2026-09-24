@@ -3,6 +3,7 @@
  (mld_files
   index
   quickstart
+  named_tuples
   statement_inputs
   dynamic_statements
   architecture))

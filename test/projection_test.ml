@@ -24,47 +24,56 @@ let compile_exn
   | Error _ -> failwith "query resolution failed"
 ;;
 
-let%expect_test "applicative syntax preserves SELECT and bind order" =
-  let projection =
-    let open Projection.Let_syntax in
-    let%map label = Projection.return "label"
-    and values =
-      A.all
-        [ Projection.expr (Expr.constant Db_type.int 11)
-        ; A.apply (A.return Int.succ) (Projection.expr (Expr.constant Db_type.int 22))
-        ]
-    and empty = A.all [] in
-    label, values, empty
-  in
-  let compile dialect =
-    let compiled = compile_exn dialect projection in
-    let parameters =
-      List.map
-        (B.Compiled_query.parameters compiled)
-        ~f:(fun (B.Db_type.Value (typ, value)) ->
-          match B.Db_type.view typ with
-          | Int -> (value : int)
-          | _ -> failwith "unexpected parameter type")
-    in
-    assert (List.equal Int.equal parameters [ 11; 22 ]);
-    compiled
-  in
-  Stdlib.print_endline (B.Compiled_query.sql (compile Dialect.Postgresql));
-  [%expect
-    {|
-    SELECT
-      $1,
-      $2
-    FROM "items" AS t0
-    |}];
-  Stdlib.print_endline (B.Compiled_query.sql (compile Dialect.Sqlite));
-  [%expect
-    {|
-    SELECT
-      ?1,
-      ?2
-    FROM "items" AS t0
-    |}]
+let%test_module "applicative projection rendering" =
+  (module struct
+    let projection =
+      let open Projection.Let_syntax in
+      let%map label = Projection.return "label"
+      and values =
+        A.all
+          [ Projection.expr (Expr.constant Db_type.int 11)
+          ; A.apply (A.return Int.succ) (Projection.expr (Expr.constant Db_type.int 22))
+          ]
+      and empty = A.all [] in
+      label, values, empty
+    ;;
+
+    let compile dialect =
+      let compiled = compile_exn dialect projection in
+      let parameters =
+        List.map
+          (B.Compiled_query.parameters compiled)
+          ~f:(fun (B.Db_type.Value (typ, value)) ->
+            match B.Db_type.view typ with
+            | Int -> (value : int)
+            | _ -> failwith "unexpected parameter type")
+      in
+      assert (List.equal Int.equal parameters [ 11; 22 ]);
+      compiled
+    ;;
+
+    let%expect_test "PostgreSQL" =
+      Stdlib.print_endline (B.Compiled_query.sql (compile Dialect.Postgresql));
+      [%expect
+        {|
+        SELECT
+          $1,
+          $2
+        FROM "items" AS t0
+        |}]
+    ;;
+
+    let%expect_test "SQLite" =
+      Stdlib.print_endline (B.Compiled_query.sql (compile Dialect.Sqlite));
+      [%expect
+        {|
+        SELECT
+          ?1,
+          ?2
+        FROM "items" AS t0
+        |}]
+    ;;
+  end)
 ;;
 
 module Decoder = struct
@@ -183,17 +192,25 @@ let%test_unit "backend multiset codec rejects malformed transport values" =
   | Ok _ | Error _ -> failwith "timestamp multiset transport did not decode"
 ;;
 
-let%expect_test "multiset decoder errors identify root, row, and field locations" =
-  let decode = multiset_decoder (Projection.expr (Expr.constant Db_type.int 0)) in
-  let print_error raw =
-    match decode raw with
-    | Ok _ -> failwith "malformed multiset unexpectedly decoded"
-    | Error message -> Stdlib.print_endline message
-  in
+let decode = multiset_decoder (Projection.expr (Expr.constant Db_type.int 0))
+
+let print_error raw =
+  match decode raw with
+  | Ok _ -> failwith "malformed multiset unexpectedly decoded"
+  | Error message -> Stdlib.print_endline message
+;;
+
+let%expect_test "multiset decoder reports an invalid root" =
   print_error "{}";
-  [%expect {| multiset root: expected array, got compound |}];
+  [%expect {| multiset root: expected array, got compound |}]
+;;
+
+let%expect_test "multiset decoder reports an invalid row" =
   print_error "[{}]";
-  [%expect {| multiset element 1: expected row array, got compound |}];
+  [%expect {| multiset element 1: expected row array, got compound |}]
+;;
+
+let%expect_test "multiset decoder reports an invalid field" =
   print_error "[[true]]";
   [%expect {| multiset element 1.1: expected int, got boolean |}]
 ;;
