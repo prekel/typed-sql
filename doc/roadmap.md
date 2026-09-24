@@ -1,6 +1,6 @@
 # Дорожная карта
 
-Состояние проекта на 23 сентября 2026 года. Документ сопоставляет текущую
+Состояние проекта на 24 сентября 2026 года. Документ сопоставляет текущую
 реализацию с исходным [first_plan.md](first_plan.md), фиксирует завершённый
 релизный срез и перечисляет следующую работу. Приложение RealWorld будет жить в
 отдельном репозитории и использовать `typed-sql` вместе с `../typed-endpoint`.
@@ -162,6 +162,8 @@ assignments. `Statement.For_dialect` принимает статический w
 SQLite `:memory:` integration suite проверяет все codec, DML, expressions,
 aggregates, correlated subqueries, conflict ignore и транзакции. PostgreSQL
 compiler, Caqti branch и PG'OCaml adapter собираются без подключения к серверу.
+Это не подтверждает runtime-корректность: PostgreSQL сейчас нельзя считать
+поддерживаемой и проверенной базой до прохождения следующего этапа.
 
 ### Schema introspection и codegen
 
@@ -538,17 +540,20 @@ Compile-fail tests проверяют, что обычный SELECT нельзя
    строки. Для одного поля сочетание `scalar_subquery`, `Expr.coalesce` и
    `Query.select_one` короче, яснее и обычно порождает более простой SQL.
 
-### 3. Добавить PostgreSQL runtime infrastructure, когда подключение разрешат
+### 3. Полностью проверить PostgreSQL и довести dialect до runtime-поддержки
 
-- выполнить общую integration suite через Caqti PostgreSQL;
-- отдельно проверить PG'OCaml encode/decode, transaction lifecycle и SQLSTATE
-  classification;
-- проверить PostgreSQL schema introspection на identity/generated columns,
-  composite PK/FK и cross-schema references;
-- сравнить результаты portable запросов с SQLite.
+- подготовить воспроизводимую PostgreSQL test database и прогнать на ней
+  integration suite через Caqti и PG'OCaml, включая encode/decode,
+  transaction lifecycle и SQLSTATE classification;
+- выполнять каждый portable SQL golden case на сервере и сравнивать результат
+  с SQLite, а не считать успешную компиляцию SQL проверкой поддержки;
+- проверить коррелированные multiset и derived queries, set operations,
+  CTE, aggregate cardinality, bind parameters, timestamp/JSON transport,
+  conflict handling и schema introspection;
+- закрыть расхождения между generated SQL и PostgreSQL runtime, явно указать
+  проверенные major versions и ограничения API.
 
-Эти проверки сейчас заблокированы только запретом подключения; компилируемые
-ветки уже реализованы.
+До завершения этого этапа PostgreSQL остаётся экспериментальным backend.
 
 ### 4. Расширять schema tooling по результатам реальных схем
 

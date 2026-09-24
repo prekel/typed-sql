@@ -48,9 +48,26 @@ let json_kind = function
 let timestamp_of_string value =
   let value =
     if Int.(String.length value > 10) && Char.equal value.[10] ' ' then
-      String.sub value ~pos:0 ~len:10 ^ "T" ^ String.drop_prefix value 11 ^ "Z"
+      String.sub value ~pos:0 ~len:10 ^ "T" ^ String.drop_prefix value 11
     else
       value
+  in
+  let value =
+    if Int.(String.length value <= 10) || not (Char.equal value.[10] 'T') then
+      value
+    else (
+      let time = String.drop_prefix value 11 in
+      let has_timezone =
+        String.is_suffix time ~suffix:"Z"
+        || String.is_suffix time ~suffix:"z"
+        || String.exists time ~f:(function
+          | '+' | '-' -> true
+          | _ -> false)
+      in
+      if has_timezone then
+        value
+      else
+        value ^ "Z")
   in
   match Ptime.of_rfc3339 value with
   | Ok (timestamp, _, _) -> Some timestamp
@@ -71,7 +88,9 @@ let rec decode_db_type
   | Db_type.Int_type, `Int value -> Ok value
   | Db_type.Int_type, `Intlit value -> json_error ~path "int" value
   | Db_type.Int64_type, `Int value -> Ok (Int64.of_int value)
-  | Db_type.Int64_type, `Intlit value -> Ok (Int64.of_string value)
+  | Db_type.Int64_type, `Intlit value ->
+    (try Ok (Int64.of_string value) with
+     | Failure _ -> json_error ~path "int64" value)
   | Db_type.Float_type, `Float value -> Ok value
   | Db_type.Float_type, `Int value -> Ok (Float.of_int value)
   | Db_type.Float_type, `Intlit value -> Ok (Float.of_string value)

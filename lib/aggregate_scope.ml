@@ -1,19 +1,94 @@
 open! Base
 
+let rec expression_sources = function
+  | Ast.Column { source_id; _ } -> [ source_id ]
+  | Ast.Param _ | Ast.Current_timestamp | Ast.Scalar_subquery _ | Ast.Multiset_subquery _
+    -> []
+  | Ast.Arithmetic (_, left, right) | Ast.Concat (left, right) ->
+    expression_sources left @ expression_sources right
+  | Ast.String_function (_, expression) -> expression_sources expression
+  | Ast.Case (branches, else_) ->
+    List.concat_map branches ~f:(fun (condition, expression) ->
+      condition_sources condition @ expression_sources expression)
+    @ expression_sources else_
+  | Ast.Aggregate aggregate -> aggregate_sources aggregate
+
+and condition_sources = function
+  | Ast.True | Ast.False | Ast.Exists _ | Ast.Not_exists _ -> []
+  | Ast.Compare (_, left, right) -> expression_sources left @ expression_sources right
+  | Ast.Is_null expression | Ast.Is_not_null expression -> expression_sources expression
+  | Ast.In (expression, values) | Ast.Not_in (expression, values) ->
+    expression_sources expression @ List.concat_map values ~f:expression_sources
+  | Ast.Between (expression, lower, upper) ->
+    expression_sources expression @ expression_sources lower @ expression_sources upper
+  | Ast.In_subquery (expression, _) | Ast.Not_in_subquery (expression, _) ->
+    expression_sources expression
+  | Ast.And conditions | Ast.Or conditions ->
+    List.concat_map conditions ~f:condition_sources
+  | Ast.Not condition -> condition_sources condition
+
+and aggregate_sources = function
+  | Ast.Count_all -> []
+  | Ast.Count expression | Ast.Count_distinct expression -> expression_sources expression
+  | Ast.Multiset_agg multiset ->
+    List.concat_map multiset.fields ~f:expression_sources
+    @ List.concat_map multiset.order_by ~f:(fun order ->
+      expression_sources order.Ast.expr)
+    @ Option.value_map multiset.filter ~default:[] ~f:condition_sources
+;;
+
+let aggregate_is_local ~sources aggregate =
+  let referenced_sources = aggregate_sources aggregate in
+  List.is_empty referenced_sources
+  || List.exists referenced_sources ~f:(fun source_id ->
+    List.mem sources source_id ~equal:Int.equal)
+;;
+
+let rec expression_has_local_aggregate ~sources = function
+  | Ast.Aggregate aggregate -> aggregate_is_local ~sources aggregate
+  | Ast.Param _
+  | Ast.Column _
+  | Ast.Current_timestamp
+  | Ast.Scalar_subquery _
+  | Ast.Multiset_subquery _ -> false
+  | Ast.Arithmetic (_, left, right) | Ast.Concat (left, right) ->
+    expression_has_local_aggregate ~sources left
+    || expression_has_local_aggregate ~sources right
+  | Ast.String_function (_, expression) ->
+    expression_has_local_aggregate ~sources expression
+  | Ast.Case (branches, else_) ->
+    expression_has_local_aggregate ~sources else_
+    || List.exists branches ~f:(fun (condition, expression) ->
+      condition_has_local_aggregate ~sources condition
+      || expression_has_local_aggregate ~sources expression)
+
+and condition_has_local_aggregate ~sources = function
+  | Ast.True | Ast.False | Ast.Exists _ | Ast.Not_exists _ -> false
+  | Ast.Compare (_, left, right) ->
+    expression_has_local_aggregate ~sources left
+    || expression_has_local_aggregate ~sources right
+  | Ast.Is_null expression | Ast.Is_not_null expression ->
+    expression_has_local_aggregate ~sources expression
+  | Ast.In (expression, values) | Ast.Not_in (expression, values) ->
+    expression_has_local_aggregate ~sources expression
+    || List.exists values ~f:(expression_has_local_aggregate ~sources)
+  | Ast.Between (expression, lower, upper) ->
+    expression_has_local_aggregate ~sources expression
+    || expression_has_local_aggregate ~sources lower
+    || expression_has_local_aggregate ~sources upper
+  | Ast.In_subquery (expression, _) | Ast.Not_in_subquery (expression, _) ->
+    expression_has_local_aggregate ~sources expression
+  | Ast.And conditions | Ast.Or conditions ->
+    List.exists conditions ~f:(condition_has_local_aggregate ~sources)
+  | Ast.Not condition -> condition_has_local_aggregate ~sources condition
+;;
+
 let projection_has_local_aggregate (select : Ast.select) =
   let sources =
     select.source.source_id
     :: List.map select.joins ~f:(fun join -> join.Ast.source.source_id)
   in
-  List.exists select.projection ~f:(function
-    | Ast.Aggregate Ast.Count_all -> true
-    | Ast.Aggregate
-        ( Ast.Count (Ast.Column { source_id; _ })
-        | Ast.Count_distinct (Ast.Column { source_id; _ }) ) ->
-      List.mem sources source_id ~equal:Int.equal
-    | Ast.Aggregate (Ast.Count _ | Ast.Count_distinct _) -> true
-    | Ast.Aggregate (Ast.Multiset_agg _) -> true
-    | _ -> false)
+  List.exists select.projection ~f:(expression_has_local_aggregate ~sources)
 ;;
 
 let at_most_one (select : Ast.select) =

@@ -153,7 +153,7 @@ let%expect_test "multiset subqueries and aggregates are portable" =
     SELECT
       t0."name",
       CAST((SELECT COALESCE(JSONB_AGG(JSONB_BUILD_ARRAY(m0."v0")), JSONB_BUILD_ARRAY())
-      FROM (
+      FROM LATERAL (
         SELECT
           t1."name" AS "v0"
         FROM "public"."departments" AS t1
@@ -199,14 +199,39 @@ let%expect_test "multiset subqueries and aggregates are portable" =
   [%expect
     {|
     SELECT
-      CAST(COALESCE(JSONB_AGG(JSONB_BUILD_ARRAY(t0."person_id", t0."name") ORDER BY t0."name" DESC) FILTER (WHERE (t0."person_id" > $1)), JSONB_BUILD_ARRAY()) AS TEXT)
+      CAST(
+        COALESCE(
+          JSONB_AGG(
+            JSONB_BUILD_ARRAY(
+              t0."person_id",
+              t0."name"
+            )
+            ORDER BY t0."name" DESC
+          ) FILTER (
+            WHERE (t0."person_id" > $1)
+          ),
+          JSONB_BUILD_ARRAY()
+        )
+        AS TEXT
+      )
     FROM "public"."departments" AS t0
     |}];
   aggregate |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
-      COALESCE(JSON_GROUP_ARRAY(JSON_ARRAY(t0."person_id", t0."name") ORDER BY t0."name" DESC) FILTER (WHERE (t0."person_id" > ?1)), JSON_ARRAY())
+      COALESCE(
+        JSON_GROUP_ARRAY(
+          JSON_ARRAY(
+            t0."person_id",
+            t0."name"
+          )
+          ORDER BY t0."name" DESC
+        ) FILTER (
+          WHERE (t0."person_id" > ?1)
+        ),
+        JSON_ARRAY()
+      )
     FROM "public"."departments" AS t0
     |}];
   let recursive =
@@ -233,28 +258,49 @@ let%expect_test "multiset subqueries and aggregates are portable" =
   [%expect
     {|
     SELECT
-      CAST(COALESCE(JSONB_AGG(JSONB_BUILD_ARRAY(t0."name", (SELECT COALESCE(JSONB_AGG(JSONB_BUILD_ARRAY(m0."v0")), JSONB_BUILD_ARRAY())
-      FROM (
-        SELECT
-          t1."name" AS "v0"
-        FROM "public"."departments" AS t1
-        WHERE
-          (t1."person_id" = t0."id")
-      ) AS m0)) ORDER BY t0."id" ASC), JSONB_BUILD_ARRAY()) AS TEXT)
+      CAST(
+        COALESCE(
+          JSONB_AGG(
+            JSONB_BUILD_ARRAY(
+              t0."name",
+              (SELECT COALESCE(JSONB_AGG(JSONB_BUILD_ARRAY(m0."v0")), JSONB_BUILD_ARRAY())
+          FROM LATERAL (
+            SELECT
+              t1."name" AS "v0"
+            FROM "public"."departments" AS t1
+            WHERE
+              (t1."person_id" = t0."id")
+          ) AS m0)
+            )
+            ORDER BY t0."id" ASC
+          ),
+          JSONB_BUILD_ARRAY()
+        )
+        AS TEXT
+      )
     FROM "public"."people" AS t0
     |}];
   recursive |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
-      COALESCE(JSON_GROUP_ARRAY(JSON_ARRAY(t0."name", JSON((SELECT COALESCE(JSON_GROUP_ARRAY(JSON_ARRAY(m0."v0")), JSON_ARRAY())
-      FROM (
-        SELECT
-          t1."name" AS "v0"
-        FROM "public"."departments" AS t1
-        WHERE
-          (t1."person_id" = t0."id")
-      ) AS m0))) ORDER BY t0."id" ASC), JSON_ARRAY())
+      COALESCE(
+        JSON_GROUP_ARRAY(
+          JSON_ARRAY(
+            t0."name",
+            JSON((SELECT COALESCE(JSON_GROUP_ARRAY(JSON_ARRAY(m0."v0")), JSON_ARRAY())
+          FROM (
+            SELECT
+              t1."name" AS "v0"
+            FROM "public"."departments" AS t1
+            WHERE
+              (t1."person_id" = t0."id")
+          ) AS m0))
+          )
+          ORDER BY t0."id" ASC
+        ),
+        JSON_ARRAY()
+      )
     FROM "public"."people" AS t0
     |}]
 ;;

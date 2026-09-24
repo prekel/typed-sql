@@ -144,7 +144,7 @@ let rec render_expr ~aliases expression state =
     concat [ text "COUNT(DISTINCT "; expression; text ")" ], state
   | Ast.Aggregate (Ast.Multiset_agg multiset) ->
     let multiset, state = render_multiset_aggregate_raw ~aliases multiset state in
-    render_multiset_output multiset state
+    render_multiset_aggregate_output multiset state
   | Ast.Scalar_subquery select ->
     let select, state = render_select ~parent_aliases:aliases select state in
     concat [ text "("; nest (concat [ break ""; select ]); break ""; text ")" ], state
@@ -156,6 +156,18 @@ let rec render_expr ~aliases expression state =
 and render_multiset_output multiset state =
   match state.dialect with
   | Dialect.Postgresql -> concat [ text "CAST("; multiset; text " AS TEXT)" ], state
+  | Dialect.Sqlite -> multiset, state
+
+and render_multiset_aggregate_output multiset state =
+  match state.dialect with
+  | Dialect.Postgresql ->
+    ( concat
+        [ text "CAST("
+        ; nest (concat [ break ""; multiset; break " "; text "AS TEXT" ])
+        ; break ""
+        ; text ")"
+        ]
+    , state )
   | Dialect.Sqlite -> multiset, state
 
 and render_json_value ~aliases expression state =
@@ -173,23 +185,36 @@ and render_nested_json multiset state =
   | Dialect.Postgresql -> multiset, state
   | Dialect.Sqlite -> concat [ text "JSON("; multiset; text ")" ], state
 
-and render_json_values ~aliases expressions state =
+and render_json_values ~aliases ~separator expressions state =
   match expressions with
   | [] -> Template.Empty, state
   | [ expression ] -> render_json_value ~aliases expression state
   | expression :: rest ->
     let expression, state = render_json_value ~aliases expression state in
-    let rest, state = render_json_values ~aliases rest state in
-    concat [ expression; text ", "; rest ], state
+    let rest, state = render_json_values ~aliases ~separator rest state in
+    concat [ expression; separator; rest ], state
 
 and render_json_row ~aliases expressions state =
-  let expressions, state = render_json_values ~aliases expressions state in
+  let multiple = Int.(List.length expressions > 1) in
+  let values, state =
+    render_json_values
+      ~aliases
+      ~separator:(concat [ text ","; break " " ])
+      expressions
+      state
+  in
   let function_ =
     match state.dialect with
     | Dialect.Postgresql -> "JSONB_BUILD_ARRAY"
     | Dialect.Sqlite -> "JSON_ARRAY"
   in
-  concat [ text function_; text "("; expressions; text ")" ], state
+  let arguments =
+    if multiple then
+      concat [ text "("; nest (concat [ break ""; values ]); break ""; text ")" ]
+    else
+      concat [ text "("; values; text ")" ]
+  in
+  concat [ text function_; arguments ], state
 
 and render_multiset_aggregate_raw ~aliases multiset state =
   let row, state = render_json_row ~aliases multiset.Ast.fields state in
@@ -199,7 +224,13 @@ and render_multiset_aggregate_raw ~aliases multiset state =
     | None -> Template.Empty, state
     | Some condition ->
       let condition, state = render_condition ~aliases condition state in
-      concat [ text " FILTER (WHERE "; condition; text ")" ], state
+      ( concat
+          [ text " FILTER ("
+          ; nest (concat [ break ""; text "WHERE "; condition ])
+          ; break ""
+          ; text ")"
+          ]
+      , state )
   in
   let aggregate, empty =
     match state.dialect with
@@ -209,18 +240,22 @@ and render_multiset_aggregate_raw ~aliases multiset state =
   let order_by =
     match multiset.order_by with
     | [] -> Template.Empty
-    | _ -> concat [ text " ORDER BY "; order_by ]
+    | _ -> concat [ break " "; text "ORDER BY "; order_by ]
+  in
+  let aggregate_call =
+    concat
+      [ text aggregate
+      ; text "("
+      ; nest (concat [ break ""; row; order_by ])
+      ; break ""
+      ; text ")"
+      ; filter
+      ]
   in
   ( concat
       [ text "COALESCE("
-      ; text aggregate
-      ; text "("
-      ; row
-      ; order_by
-      ; text ")"
-      ; filter
-      ; text ", "
-      ; text empty
+      ; nest (concat [ break ""; aggregate_call; text ","; break " "; text empty ])
+      ; break ""
       ; text ")"
       ]
   , state )
@@ -256,6 +291,11 @@ and render_multiset_subquery_raw ~aliases multiset state =
     | Dialect.Postgresql -> "JSONB_BUILD_ARRAY", "JSONB_AGG", "JSONB_BUILD_ARRAY()"
     | Dialect.Sqlite -> "JSON_ARRAY", "JSON_GROUP_ARRAY", "JSON_ARRAY()"
   in
+  let lateral =
+    match state.dialect with
+    | Dialect.Postgresql -> text "LATERAL "
+    | Dialect.Sqlite -> Template.Empty
+  in
   ( concat
       [ text "(SELECT COALESCE("
       ; text aggregate
@@ -268,7 +308,9 @@ and render_multiset_subquery_raw ~aliases multiset state =
       ; text empty
       ; text ")"
       ; break " "
-      ; text "FROM ("
+      ; text "FROM "
+      ; lateral
+      ; text "("
       ; nest (concat [ break ""; query ])
       ; break ""
       ; text ") AS "
@@ -401,28 +443,35 @@ and relation_column_names (relation : Ast.relation) =
     | Ast.Column { name; _ } -> name
     | _ -> assert false)
 
-and render_source ~aliases (source : Ast.source) state =
+and render_source ?(lateral = false) ~aliases (source : Ast.source) state =
   match source.kind with
   | Ast.Table table -> render_table_source table, state
   | Ast.Cte id -> quote_identifier (Identifier.of_string_exn (cte_name state id)), state
   | Ast.Derived relation ->
     let query, state =
       render_select_query
+        ~json_projection:lateral
         ~parent_aliases:aliases
         ~output_names:(relation_column_names relation)
         relation.query
         state
     in
-    concat [ text "("; nest (concat [ break ""; query ]); break ""; text ")" ], state
+    let lateral =
+      match lateral, state.dialect with
+      | true, Dialect.Postgresql -> text "LATERAL "
+      | false, _ | true, Dialect.Sqlite -> Template.Empty
+    in
+    ( concat [ lateral; text "("; nest (concat [ break ""; query ]); break ""; text ")" ]
+    , state )
 
-and render_join ~aliases (join : Ast.join) state =
+and render_join ?(lateral = false) ~aliases (join : Ast.join) state =
   let kind =
     match join.Ast.kind with
     | Ast.Inner -> text "INNER JOIN "
     | Ast.Left -> text "LEFT JOIN "
   in
   let alias = alias_for aliases join.source.source_id in
-  let source, state = render_source ~aliases join.source state in
+  let source, state = render_source ~lateral ~aliases join.source state in
   let on, state = render_condition ~aliases join.on state in
   ( concat
       [ break " "
@@ -434,12 +483,12 @@ and render_join ~aliases (join : Ast.join) state =
       ]
   , state )
 
-and render_joins ~aliases joins state =
+and render_joins ?(lateral = false) ~aliases joins state =
   match joins with
   | [] -> Template.Empty, state
   | join :: rest ->
-    let join, state = render_join ~aliases join state in
-    let rest, state = render_joins ~aliases rest state in
+    let join, state = render_join ~lateral ~aliases join state in
+    let rest, state = render_joins ~lateral ~aliases rest state in
     concat [ join; rest ], state
 
 and render_order_by ~aliases orders state =
@@ -518,8 +567,12 @@ and render_select
         render_projection ~aliases ~json_projection ~output_names projection state
     in
     let root_alias = alias_for aliases select.source.source_id in
-    let root_source, state = render_source ~aliases select.source state in
-    let joins, state = render_joins ~aliases select.joins state in
+    let root_source, state =
+      render_source ~lateral:json_projection ~aliases select.source state
+    in
+    let joins, state =
+      render_joins ~lateral:json_projection ~aliases select.joins state
+    in
     let select_keyword =
       if select.distinct then
         text "SELECT DISTINCT"
@@ -613,10 +666,17 @@ and render_compound_branch ~json_projection ~parent_aliases ~output_names query 
   let query, state =
     render_select_query ~json_projection ~parent_aliases ~output_names query state
   in
+  let lateral =
+    match json_projection, state.dialect with
+    | true, Dialect.Postgresql -> text "LATERAL "
+    | false, _ | true, Dialect.Sqlite -> Template.Empty
+  in
   ( concat
       [ text "SELECT *"
       ; break " "
-      ; text "FROM ("
+      ; text "FROM "
+      ; lateral
+      ; text "("
       ; nest (concat [ break ""; query ])
       ; break ""
       ; text ") AS s0"

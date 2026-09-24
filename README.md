@@ -7,12 +7,13 @@
 
 Текущий срез поддерживает типизированные `SELECT` с joins, derived tables,
 CTE, portable set operations, выражениями, aggregates, `GROUP BY`, correlated
-subqueries, вложенными коллекциями, calendar date, timestamp и UUID. DML включает multi-row `INSERT`,
-portable UPSERT, scoped `UPDATE`/`DELETE`, `DEFAULT`, `UPDATE FROM`, условные
-assignments и `RETURNING`.
-Пакет `typed-sql-caqti-lwt` выполняет запросы через Caqti для PostgreSQL и
-SQLite и умеет читать их схему; `typed-sql-pgocaml-lwt` выполняет PostgreSQL
-запросы через PG'OCaml.
+subqueries и вложенными коллекциями, calendar date, timestamp и UUID. DML
+включает multi-row `INSERT`, portable UPSERT, scoped `UPDATE`/`DELETE`,
+`DEFAULT`, `UPDATE FROM`, условные assignments и `RETURNING`.
+Пакет `typed-sql-caqti-lwt` содержит адаптеры Caqti для PostgreSQL и SQLite и
+умеет читать их схему; `typed-sql-pgocaml-lwt` содержит PostgreSQL-адаптер для
+PG'OCaml. Runtime-совместимость PostgreSQL пока не проверена на сервере; из двух
+backend-ов полностью проверяется сейчас только SQLite.
 
 ```ocaml
 open Typed_sql
