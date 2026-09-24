@@ -346,6 +346,159 @@ Compile-fail tests проверяют, что обычный SELECT нельзя
 `query_optional`, запрос после `limit_one` можно, а последующий произвольный
 `limit` снова запрещает это.
 
+#### Следующие конструкторы кардинальности
+
+`Query.select_exactly_one` пока является проверяемым обещанием: пользователь
+выбирает combinator, а compiler при создании statement проверяет форму AST.
+Следующий шаг — сделать наиболее частые способы получить `exactly_one`
+конструктивными, чтобы некорректный запрос нельзя было собрать средствами
+публичного API. Приведённые ниже сигнатуры предварительные; они фиксируют
+семантику и необходимые phantom proofs, но не окончательные имена
+вспомогательных типов.
+
+1. **`Query.aggregate_one` для ungrouped aggregates.** Ungrouped aggregate без
+   отбрасывающих строку clauses возвращает ровно одну строку даже для пустого
+   input relation. Это позволяет статически доказать кардинальность запросов с
+   `COUNT`, `SUM`, `MIN`, `MAX` и составной aggregate projection. При этом
+   aggregate-признак выражения сам по себе не является кардинальностью запроса:
+   `GROUP BY` может вернуть ноль или много строк, `HAVING` и `OFFSET` могут
+   удалить единственную aggregate row, а `LIMIT 0` и runtime limit могут её
+   скрыть.
+
+   Для настоящей compile-time гарантии понадобятся два независимых proof:
+
+   - projection содержит local aggregate и не содержит недопустимое
+     row-dependent выражение;
+   - query остаётся ungrouped и aggregate-safe. `FROM`, `JOIN` и `WHERE`
+     сохраняют этот state, а `GROUP BY`, `HAVING`, `OFFSET` и произвольный
+     `LIMIT` переводят builder в state, который `aggregate_one` не принимает.
+
+   Предварительная форма API:
+
+   ```ocaml
+   module Aggregate_projection : sig
+     type ('result, +'requirements) t
+   end
+
+   module Query : sig
+     type aggregate_safe
+     type aggregate_unsafe
+
+     type
+       ( 'ctx
+       , 'grouping
+       , 'aggregate_safety
+       , +'cardinality
+       , +'requirements )
+       t
+
+     val aggregate_one
+       :  ('ctx -> ('result, 'requirements) Aggregate_projection.t)
+       -> ( 'ctx
+          , ungrouped
+          , aggregate_safe
+          , 'cardinality
+          , 'requirements )
+          t
+       -> ( 'result
+          , Result_query.select
+          , Cardinality.exactly_one
+          , 'requirements )
+          Result_query.t
+   end
+   ```
+
+   `Aggregate_projection.t` можно реализовать через дополнительный phantom
+   effect у `Expr.t`/`Projection.t` (`neutral`, `row_dependent`, `aggregate`) или
+   как отдельный закрытый builder. Первый вариант выразительнее для арифметики
+   над aggregates, но затрагивает почти весь expression API; второй сохраняет
+   совместимость, но рискует продублировать combinators. Перед реализацией нужно
+   сделать prototype обоих вариантов. `Query.select_exactly_one` после этого
+   останется explicit escape hatch для форм, которые типовая система ещё не
+   умеет доказать, либо будет deprecated.
+
+2. **`Expr.coalesce` и source-free `Query.select_one` для scalar default.**
+   Scalar subquery с кардинальностью zero-or-one даёт nullable expression.
+   `COALESCE` превращает отсутствие строки или SQL `NULL` в заданное значение,
+   а `SELECT` без `FROM` в PostgreSQL и SQLite всегда создаёт одну строку.
+   Вместе эти combinators выражают частый запрос «верни scalar либо default» с
+   `Cardinality.exactly_one` без aggregate validator:
+
+   ```ocaml
+   module Expr : sig
+     val coalesce
+       :  ('a option, 'requirements) t
+       -> default:('a, 'requirements) t
+       -> ('a, 'requirements) t
+   end
+
+   module Query : sig
+     val select_one
+       :  ('a, 'requirements) Expr.t
+       -> ( 'a
+          , Result_query.select
+          , Cardinality.exactly_one
+          , 'requirements )
+          Result_query.t
+   end
+   ```
+
+   Ожидаемое использование:
+
+   ```ocaml
+   Query.select_one
+     (Expr.coalesce
+        (Expr.scalar_subquery candidate)
+        ~default:(Expr.constant Db_type.int64 0L))
+   ```
+
+   `select_one` принимает одно expression, а не произвольную projection: его
+   назначение — ровно один scalar column и одна source-free row. Это сохраняет
+   простой proof и не смешивает scalar fallback с подстановкой составной
+   записи. Для nullable scalar, где нужно отличать «строки нет» от «строка есть,
+   значение NULL», одного `COALESCE` недостаточно — эти состояния SQL scalar
+   subquery намеренно объединяет.
+
+3. **`Query.default_if_empty` только для составных строк.** Этот combinator
+   нужен, когда fallback состоит из нескольких полей или когда SQL `NULL`
+   внутри существующей строки не должен считаться отсутствием строки. Он
+   принимает candidate с доказательством `at_most_one` и отдельный fallback с
+   доказательством `exactly_one`, поэтому результат статически имеет
+   `exactly_one`:
+
+   ```ocaml
+   module Query : sig
+     val default_if_empty
+       :  default:
+            ( 'result
+            , Result_query.select
+            , Cardinality.exactly_one
+            , 'requirements )
+            Result_query.t
+       -> ( 'result
+          , Result_query.select
+          , Cardinality.at_most_one
+          , 'requirements )
+          Result_query.t
+       -> ( 'result
+          , Result_query.select
+          , Cardinality.exactly_one
+          , 'requirements )
+          Result_query.t
+   end
+   ```
+
+   Реализация не должна полагаться на порядок ветвей `UNION ALL ... LIMIT 1`.
+   Нужна семантика «добавить fallback только при `NOT EXISTS candidate`», скорее
+   всего через CTE, чтобы candidate не вычислялся и не дублировался дважды.
+   Как и set operations, compiler обязан проверить одинаковые число, порядок и
+   database types полей обеих ветвей. Если текущего runtime shape check окажется
+   недостаточно, в `Result_query.t` потребуется отдельный phantom layout.
+
+   Этот API стоит добавлять только после реального use case для составной
+   строки. Для одного поля сочетание `scalar_subquery`, `Expr.coalesce` и
+   `Query.select_one` короче, яснее и обычно порождает более простой SQL.
+
 ### 3. Добавить PostgreSQL runtime infrastructure, когда подключение разрешат
 
 - выполнить общую integration suite через Caqti PostgreSQL;
