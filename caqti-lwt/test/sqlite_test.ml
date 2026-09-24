@@ -188,6 +188,14 @@ module Resource = struct
   let external_id reference = Expr.column reference external_id_column
 end
 
+module Large_number = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "multiset_numbers"
+  let value_column = Column.v_exn table "value" Db_type.int64
+  let value reference = Expr.column reference value_column
+end
+
 module Codec_value = struct
   type row
 
@@ -383,6 +391,10 @@ let run conn =
     |> caqti_or_fail
   in
   let* () =
+    Connection.exec (direct "CREATE TABLE multiset_numbers (value INTEGER NOT NULL)") ()
+    |> caqti_or_fail
+  in
+  let* () =
     Connection.exec
       (direct
          "CREATE TABLE departments (person_id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
@@ -473,6 +485,12 @@ let run conn =
       ()
     |> caqti_or_fail
   in
+  let* () =
+    Connection.exec
+      (direct "INSERT INTO multiset_numbers (value) VALUES (9223372036854775807)")
+      ()
+    |> caqti_or_fail
+  in
   let query =
     Query.(
       from Person.table
@@ -489,6 +507,245 @@ let run conn =
     ~equal:Person.equal
     [ { Person.id = 1L; name = "Ada"; role = `Admin; nickname = None } ]
     rows;
+  let all_people =
+    Query.(from Person.table |> order_by Person.id `Asc |> select Person.projection)
+  in
+  let collected_people =
+    Query.(
+      from Person.table
+      |> where (fun person -> Person.id person =$ 1L)
+      |> limit_one
+      |> select (fun _ -> Query.multiset all_people))
+  in
+  let* collected_people =
+    Typed_sql_caqti_lwt.fetch_opt ~conn collected_people >>= adapter_or_fail
+  in
+  (match collected_people with
+   | Some people ->
+     assert_equal
+       ~equal:Person.equal
+       [ { Person.id = 1L; name = "Ada"; role = `Admin; nickname = None }
+       ; { Person.id = 2L
+         ; name = "Grace"
+         ; role = `Guest
+         ; nickname = Some "Amazing Grace"
+         }
+       ; { Person.id = 3L; name = "Linus"; role = `Admin; nickname = Some "Lin" }
+       ]
+       people
+   | None -> failwith "multiset wrapper returned no row");
+  let empty_people =
+    Query.(
+      from Person.table
+      |> where (fun person -> Person.id person =$ 99L)
+      |> select Person.projection)
+  in
+  let collected_empty =
+    Query.(
+      from Person.table
+      |> where (fun person -> Person.id person =$ 1L)
+      |> limit_one
+      |> select (fun _ -> Query.multiset empty_people))
+  in
+  let* collected_empty =
+    Typed_sql_caqti_lwt.fetch_opt ~conn collected_empty >>= adapter_or_fail
+  in
+  (match collected_empty with
+   | Some [] -> ()
+   | Some _ -> failwith "empty multiset returned elements"
+   | None -> failwith "empty multiset wrapper returned no row");
+  let aggregated_people =
+    Query.(
+      from Person.table
+      |> select_exactly_one (fun person ->
+        Projection.multiset_agg
+          ~filter:(Person.id person >$ 1L)
+          ~order_by:[ Aggregate_order.desc (Person.id person) ]
+          (Person.projection person)))
+  in
+  let* aggregated_people =
+    Typed_sql_caqti_lwt.fetch_one ~conn aggregated_people >>= adapter_or_fail
+  in
+  assert_equal
+    ~equal:Person.equal
+    [ { Person.id = 3L; name = "Linus"; role = `Admin; nickname = Some "Lin" }
+    ; { Person.id = 2L; name = "Grace"; role = `Guest; nickname = Some "Amazing Grace" }
+    ]
+    aggregated_people;
+  let nested_collections =
+    Query.(
+      from Person.table
+      |> select_exactly_one (fun person ->
+        let departments =
+          Query.(
+            from Department.table
+            |> where (fun department ->
+              Department.person_id department =. Person.id person)
+            |> order_by Department.name `Asc
+            |> select (fun department -> Projection.expr (Department.name department)))
+        in
+        Projection.multiset_agg
+          ~order_by:[ Aggregate_order.asc (Person.id person) ]
+          (Projection.both
+             (Projection.expr (Person.name person))
+             (Query.multiset departments))))
+  in
+  let* nested_collections =
+    Typed_sql_caqti_lwt.fetch_one ~conn nested_collections >>= adapter_or_fail
+  in
+  assert_equal
+    ~equal:(equal_pair String.equal (List.equal String.equal))
+    [ "Ada", [ "Mathematics" ]; "Grace", []; "Linus", [] ]
+    nested_collections;
+  let expect_multiset_codec_error column expected =
+    let query =
+      Query.(
+        from Person.table
+        |> select_exactly_one (fun person ->
+          Projection.multiset_agg (Projection.expr (Expr.column person column))))
+    in
+    let* result = Typed_sql_caqti_lwt.fetch_one ~conn query in
+    assert_codec_error ("multiset element 1.1: " ^ expected) result;
+    Lwt.return_unit
+  in
+  let* () =
+    expect_multiset_codec_error
+      (Column.v_exn Person.table "name" Db_type.bool)
+      "expected bool, got string"
+  in
+  let* () =
+    expect_multiset_codec_error
+      (Column.v_exn Person.table "nickname" Db_type.bool)
+      "expected bool, got null"
+  in
+  let* () =
+    expect_multiset_codec_error
+      (Column.v_exn Person.table "name" Db_type.int)
+      "expected int, got string"
+  in
+  let* () =
+    expect_multiset_codec_error
+      (Column.v_exn Person.table "name" Db_type.int64)
+      "expected int64, got string"
+  in
+  let* () =
+    expect_multiset_codec_error
+      (Column.v_exn Person.table "name" Db_type.float)
+      "expected float, got string"
+  in
+  let* () =
+    expect_multiset_codec_error
+      (Column.v_exn Person.table "id" Db_type.text)
+      "expected text, got number"
+  in
+  let* () =
+    expect_multiset_codec_error
+      (Column.v_exn Person.table "name" Db_type.date)
+      "expected date, got Ada"
+  in
+  let* () =
+    expect_multiset_codec_error
+      (Column.v_exn Person.table "name" Db_type.timestamp)
+      "expected timestamp, got Ada"
+  in
+  let* () =
+    expect_multiset_codec_error
+      (Column.v_exn Person.table "name" Db_type.uuid)
+      "expected uuid, got Ada"
+  in
+  let* () =
+    expect_multiset_codec_error
+      (Column.v_exn Person.table "id" Db_type.date)
+      "expected date, got number"
+  in
+  let* () =
+    expect_multiset_codec_error
+      (Column.v_exn Person.table "id" Db_type.timestamp)
+      "expected timestamp, got number"
+  in
+  let* () =
+    expect_multiset_codec_error
+      (Column.v_exn Person.table "id" Db_type.uuid)
+      "expected uuid, got number"
+  in
+  let constant_collection =
+    Query.(
+      from Person.table
+      |> select_exactly_one (fun person ->
+        Projection.multiset_agg
+          ~order_by:[ Aggregate_order.asc (Person.id person) ]
+          (Projection.map2
+             (Projection.return "person")
+             (Projection.expr (Person.name person))
+             ~f:(fun label name -> label, name))))
+  in
+  let* constant_collection =
+    Typed_sql_caqti_lwt.fetch_one ~conn constant_collection >>= adapter_or_fail
+  in
+  assert_equal
+    ~equal:(equal_pair String.equal String.equal)
+    [ "person", "Ada"; "person", "Grace"; "person", "Linus" ]
+    constant_collection;
+  let false_collection =
+    Query.(
+      from Person.table
+      |> select_exactly_one (fun _ ->
+        Projection.multiset_agg (Projection.expr (Expr.constant Db_type.bool false))))
+  in
+  let* false_collection =
+    Typed_sql_caqti_lwt.fetch_one ~conn false_collection >>= adapter_or_fail
+  in
+  if not (List.equal Bool.equal false_collection [ false; false; false ]) then
+    failwith "false multiset values changed";
+  let large_numbers =
+    Query.(
+      from Large_number.table
+      |> select_exactly_one (fun number ->
+        Projection.multiset_agg (Projection.expr (Large_number.value number))))
+  in
+  let* large_numbers =
+    Typed_sql_caqti_lwt.fetch_one ~conn large_numbers >>= adapter_or_fail
+  in
+  if not (List.equal Int64.equal large_numbers [ Int64.max_value ]) then
+    failwith "large int64 multiset value changed";
+  let large_int = Column.v_exn Large_number.table "value" Db_type.int in
+  let large_int_query =
+    Query.(
+      from Large_number.table
+      |> select_exactly_one (fun number ->
+        Projection.multiset_agg (Projection.expr (Expr.column number large_int))))
+  in
+  let* large_int_error = Typed_sql_caqti_lwt.fetch_one ~conn large_int_query in
+  (match large_int_error with
+   | Error (Typed_sql_caqti_lwt.Codec _) -> ()
+   | Error error -> failwith (Typed_sql_caqti_lwt.error_to_string error)
+   | Ok _ -> failwith "oversized int unexpectedly decoded");
+  let large_float = Column.v_exn Large_number.table "value" Db_type.float in
+  let large_float_query =
+    Query.(
+      from Large_number.table
+      |> select_exactly_one (fun number ->
+        Projection.multiset_agg (Projection.expr (Expr.column number large_float))))
+  in
+  let* large_floats =
+    Typed_sql_caqti_lwt.fetch_one ~conn large_float_query >>= adapter_or_fail
+  in
+  if Int.(List.length large_floats <> 1) then
+    failwith "large float multiset returned the wrong row count";
+  let integer_float = Column.v_exn Person.table "id" Db_type.float in
+  let integer_float_query =
+    Query.(
+      from Person.table
+      |> select_exactly_one (fun person ->
+        Projection.multiset_agg
+          ~order_by:[ Aggregate_order.asc (Person.id person) ]
+          (Projection.expr (Expr.column person integer_float))))
+  in
+  let* integer_floats =
+    Typed_sql_caqti_lwt.fetch_one ~conn integer_float_query >>= adapter_or_fail
+  in
+  if not (List.equal Float.equal integer_floats [ 1.; 2.; 3. ]) then
+    failwith "integer JSON values did not decode as floats";
   let active_people =
     Derived_table.create
       ~table:Selected_person.table
@@ -882,6 +1139,40 @@ let run conn =
   in
   if not (Codec_value.equal codec_value decoded_codec) then
     failwith "database type round-trip changed a value";
+  let primitive_collection =
+    Query.(
+      from Codec_value.table
+      |> select_exactly_one (fun value ->
+        let open Projection.Let_syntax in
+        Projection.multiset_agg
+          (let%map boolean =
+             Projection.expr (Expr.column value Codec_value.boolean_column)
+           and integer = Projection.expr (Expr.column value Codec_value.integer_column)
+           and integer_64 =
+             Projection.expr (Expr.column value Codec_value.integer_64_column)
+           and floating = Projection.expr (Expr.column value Codec_value.floating_column)
+           and text = Projection.expr (Expr.column value Codec_value.text_column)
+           and nullable_text =
+             Projection.expr (Expr.column value Codec_value.nullable_text_column)
+           in
+           boolean, integer, integer_64, floating, text, nullable_text)))
+  in
+  let* primitive_collection =
+    Typed_sql_caqti_lwt.fetch_one ~conn primitive_collection >>= adapter_or_fail
+  in
+  (match primitive_collection with
+   | [ (boolean, integer, integer_64, floating, text, nullable_text) ] ->
+     if
+       not
+         (Bool.equal boolean true
+          && Int.equal integer 7
+          && Int64.equal integer_64 8L
+          && Float.equal floating 1.25
+          && String.equal text "typed"
+          && Option.is_none nullable_text)
+     then
+       failwith "primitive multiset codecs changed values"
+   | _ -> failwith "primitive multiset returned the wrong row count");
   let inserted =
     Insert.(
       into Person.table
@@ -965,6 +1256,14 @@ let run conn =
   assert_codec_error "decode rejected by test codec" decode_failure;
   let* decode_failure = Typed_sql_caqti_lwt.fetch_opt ~conn codec_decode_failure in
   assert_codec_error "decode rejected by test codec" decode_failure;
+  let multiset_decode_failure =
+    Query.(
+      from Mapped_failure.table
+      |> select_exactly_one (fun row ->
+        Projection.multiset_agg (Projection.expr (Mapped_failure.decoded row))))
+  in
+  let* decode_failure = Typed_sql_caqti_lwt.fetch_one ~conn multiset_decode_failure in
+  assert_codec_error "multiset element 1.1: decode rejected by test codec" decode_failure;
   let query_after_codec_failure =
     Query.(
       from Person.table
@@ -1351,6 +1650,38 @@ let run conn =
   in
   if not (Uuid.equal uuid decoded_uuid) then
     failwith "UUID codec changed a bound value";
+  let temporal_collection =
+    Query.(
+      from Event.table
+      |> select_exactly_one (fun event ->
+        Projection.multiset_agg
+          ~order_by:[ Aggregate_order.asc (Event.id event) ]
+          (Projection.expr (Event.occurred_at event))))
+  in
+  let* temporal_collection =
+    Typed_sql_caqti_lwt.fetch_one ~conn temporal_collection >>= adapter_or_fail
+  in
+  (match temporal_collection with
+   | first :: [ _ ] when Ptime.equal first timestamp -> ()
+   | _ -> failwith "timestamp multiset codec changed values");
+  let date_collection =
+    Query.(
+      from Calendar_day.table
+      |> select_exactly_one (fun day ->
+        Projection.multiset_agg (Projection.expr (Calendar_day.date day))))
+  in
+  let* dates = Typed_sql_caqti_lwt.fetch_one ~conn date_collection >>= adapter_or_fail in
+  if not (List.equal Date.equal dates [ calendar_date ]) then
+    failwith "date multiset codec changed values";
+  let uuid_collection =
+    Query.(
+      from Resource.table
+      |> select_exactly_one (fun resource ->
+        Projection.multiset_agg (Projection.expr (Resource.external_id resource))))
+  in
+  let* uuids = Typed_sql_caqti_lwt.fetch_one ~conn uuid_collection >>= adapter_or_fail in
+  if not (List.equal Uuid.equal uuids [ uuid ]) then
+    failwith "UUID multiset codec changed values";
   let* schema = Typed_sql_caqti_lwt.Schema.introspect ~conn >>= adapter_or_fail in
   let find_table name =
     List.find_exn (Schema_ir.tables schema) ~f:(fun table ->

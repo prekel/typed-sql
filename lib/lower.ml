@@ -45,7 +45,20 @@ let rec expression ~dialect = function
     Ast.Aggregate (Ast.Count (expression ~dialect value))
   | Ast.Aggregate (Ast.Count_distinct value) ->
     Ast.Aggregate (Ast.Count_distinct (expression ~dialect value))
+  | Ast.Aggregate (Ast.Multiset_agg multiset) ->
+    Ast.Aggregate
+      (Ast.Multiset_agg
+         { multiset with
+           Ast.fields = List.map multiset.fields ~f:(expression ~dialect)
+         ; filter = Option.map multiset.filter ~f:(condition ~dialect)
+         ; order_by =
+             List.map multiset.order_by ~f:(fun order ->
+               { order with Ast.expr = expression ~dialect order.expr })
+         })
   | Ast.Scalar_subquery select_ -> Ast.Scalar_subquery (select ~dialect select_)
+  | Ast.Multiset_subquery multiset ->
+    Ast.Multiset_subquery
+      { multiset with Ast.query = select_query ~dialect multiset.query }
   | Ast.Current_timestamp as value -> value
 
 and condition ~dialect = function
@@ -177,12 +190,22 @@ let rec expression_has_unsupported_having ~dialect = function
   | Ast.String_function (_, value)
   | Ast.Aggregate (Ast.Count value | Ast.Count_distinct value) ->
     expression_has_unsupported_having ~dialect value
+  | Ast.Aggregate (Ast.Multiset_agg multiset) ->
+    List.exists multiset.fields ~f:(expression_has_unsupported_having ~dialect)
+    || Option.value_map
+         multiset.filter
+         ~default:false
+         ~f:(condition_has_unsupported_having ~dialect)
+    || List.exists multiset.order_by ~f:(fun order ->
+      expression_has_unsupported_having ~dialect order.Ast.expr)
   | Ast.Case (branches, else_) ->
     expression_has_unsupported_having ~dialect else_
     || List.exists branches ~f:(fun (condition_, value) ->
       condition_has_unsupported_having ~dialect condition_
       || expression_has_unsupported_having ~dialect value)
   | Ast.Scalar_subquery select_ -> select_has_unsupported_having ~dialect select_
+  | Ast.Multiset_subquery multiset ->
+    select_query_has_unsupported_having ~dialect multiset.query
 
 and condition_has_unsupported_having ~dialect = function
   | Ast.True | Ast.False -> false
@@ -292,11 +315,19 @@ let rec sqlite_unsupported_expression = function
   | Ast.String_function (_, expression)
   | Ast.Aggregate (Ast.Count expression | Ast.Count_distinct expression) ->
     sqlite_unsupported_expression expression
+  | Ast.Aggregate (Ast.Multiset_agg multiset) ->
+    first_unsupported
+      (List.map multiset.fields ~f:sqlite_unsupported_expression
+       @ List.map multiset.order_by ~f:(fun order ->
+         sqlite_unsupported_expression order.Ast.expr)
+       @ Option.value_map multiset.filter ~default:[] ~f:(fun filter ->
+         [ sqlite_unsupported_condition filter ]))
   | Ast.Case (branches, else_) ->
     List.concat_map branches ~f:(fun (condition, expression) ->
       [ sqlite_unsupported_condition condition; sqlite_unsupported_expression expression ])
     |> fun branches -> first_unsupported (sqlite_unsupported_expression else_ :: branches)
   | Ast.Scalar_subquery select -> sqlite_unsupported_select select
+  | Ast.Multiset_subquery multiset -> sqlite_unsupported_query multiset.query
 
 and sqlite_unsupported_condition = function
   | Ast.True | Ast.False -> None

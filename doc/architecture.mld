@@ -96,6 +96,13 @@ portable query или command, поэтому dialect requirement по-преж�
 views и packed values объявлены [private]: адаптеры могут их разбирать, но не
 создавать. Варианты ошибок, dialect и affected rows остаются в API приложения.
 
+Коллекции из [Query.multiset] и [Projection.multiset_agg] занимают одно поле
+SQL-результата. Compiler кодирует строки позиционными JSON-массивами через
+[jsonb_agg] в PostgreSQL и [json_group_array] в SQLite. Внутренний result-only
+codec рекурсивно восстанавливает типизированные строки и применяет исходные
+[Projection.map]. Благодаря представлению codec как mapped [text] существующий
+backend contract не получает отдельной зависимости от JSON.
+
 Адаптеры интерпретируют результат через [Typed_sql_backend.Projection.Make],
 предоставляя свой аппликатив и обработчик codec одного поля. SQL-выражения при
 этом им не нужны. [Typed_sql_backend.Template.map] позволяет преобразовать

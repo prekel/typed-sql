@@ -631,6 +631,18 @@ module Infix : sig
   include module type of Condition.Infix
 end
 
+(** Ordering keys local to a collection aggregate. *)
+module Aggregate_order : sig
+  (** One typed aggregate-local ordering key. *)
+  type +'requirements t
+
+  (** Sort collection elements by an expression in ascending order. *)
+  val asc : ('a, 'requirements) Expr.t -> 'requirements t
+
+  (** Sort collection elements by an expression in descending order. *)
+  val desc : ('a, 'requirements) Expr.t -> 'requirements t
+end
+
 (** Applicative result projections. *)
 module Projection : sig
   (** An applicative description of SELECT expressions and their result
@@ -651,6 +663,20 @@ module Projection : sig
     :  ('a, 'requirements) Expr.t
     -> ('b, 'requirements) Expr.t
     -> ('a * 'b, 'requirements) t
+
+  (** Aggregate the projected fields over the current SQL group and decode
+      them as a list. [order_by] is aggregate-local and therefore determines
+      list order; without it the order is unspecified. [filter] excludes rows
+      before aggregation, which is useful for nullable sides of outer joins.
+
+      Rows are represented internally as positional JSON arrays, but JSON is
+      not part of the public result type. Empty groups decode as the empty
+      list. Binary fields are rejected during compilation. *)
+  val multiset_agg
+    :  ?filter:'requirements Condition.t
+    -> ?order_by:'requirements Aggregate_order.t list
+    -> ('a, 'requirements) t
+    -> ('a list, 'requirements) t
 
   (** Syntax support for applicative [let%map] and parallel [and] bindings. *)
   module Let_syntax : sig
@@ -871,6 +897,18 @@ module Query : sig
     :  ('ctx -> ('result, 'requirements) Projection.t)
     -> ('ctx, 'grouping, 'cardinality, 'requirements) t
     -> ('result, Result_query.select, 'cardinality, 'requirements) Result_query.t
+
+  (** Collect every row of a finished SELECT into one projected list. The
+      nested SELECT may be correlated with sources visible where this value is
+      constructed, and retains its filters, grouping, set operations,
+      ordering and pagination. Empty results decode as the empty list.
+
+      As with SQL multisets, element order is not a semantic guarantee even
+      when the nested query has [ORDER BY]. Use [Projection.multiset_agg] with
+      aggregate-local [order_by] when list order is part of the contract. *)
+  val multiset
+    :  ('result, Result_query.select, 'cardinality, 'requirements) Result_query.t
+    -> ('result list, 'requirements) Projection.t
 
   (** Finish an ungrouped aggregate SELECT and establish cardinality
       [Cardinality.exactly_one]. The compiler requires at least one local
@@ -1612,6 +1650,12 @@ module Compile_error : sig
     | Invalid_recursive_reference of int
     (** The recursive term must use its own CTE exactly once as a top-level
         source. *)
+    | Unsupported_multiset_field_type of
+        { path : int list (** One-based field positions through nested collections. *)
+        ; type_name : string (** Unsupported database representation. *)
+        }
+    (** A collection contains a field which cannot be represented by the
+        portable JSON transport. *)
 
   (** Format a compilation error for a user. *)
   val pp : Formatter.t -> t -> unit

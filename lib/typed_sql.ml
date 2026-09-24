@@ -14,6 +14,7 @@ module Condition = Typed_sql_private.Condition
 module Expr = Typed_sql_private.Expr
 module Scalar_query = Typed_sql_private.Scalar_query
 module Pagination_parameter = Typed_sql_private.Pagination_parameter
+module Aggregate_order = Typed_sql_private.Aggregate_order
 
 module Infix = struct
   include Expr.Infix

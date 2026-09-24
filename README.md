@@ -7,7 +7,7 @@
 
 Текущий срез поддерживает типизированные `SELECT` с joins, derived tables,
 CTE, portable set operations, выражениями, aggregates, `GROUP BY`, correlated
-subqueries, calendar date, timestamp и UUID. DML включает multi-row `INSERT`,
+subqueries, вложенными коллекциями, calendar date, timestamp и UUID. DML включает multi-row `INSERT`,
 portable UPSERT, scoped `UPDATE`/`DELETE`, `DEFAULT`, `UPDATE FROM`, условные
 assignments и `RETURNING`.
 Пакет `typed-sql-caqti-lwt` выполняет запросы через Caqti для PostgreSQL и
@@ -110,6 +110,47 @@ let department_name person =
 
 Для уже nullable expression есть `Expr.scalar_subquery_nullable`: SQL не
 различает отсутствие строки и строку с `NULL`, поэтому оба случая дают `None`.
+
+## Вложенные коллекции
+
+`Query.multiset` превращает завершённый SELECT в одну типизированную
+projection со списком строк. Вложенный запрос может ссылаться на источники
+внешнего запроса, а `Projection.map` продолжает декодировать каждый элемент:
+
+```ocaml
+let people_with_departments =
+  Query.(
+    from Person.table
+    |> select (fun person ->
+      let departments =
+        Query.(
+          from Department.table
+          |> where (fun department ->
+            Department.person_id department =. Person.id person)
+          |> order_by Department.name `Asc
+          |> select (fun department -> Projection.expr (Department.name department)))
+      in
+      Projection.both
+        (Projection.expr (Person.name person))
+        (Query.multiset departments)))
+```
+
+`Projection.multiset_agg` собирает строки текущей aggregate-группы. Его
+`order_by` задаёт гарантированный порядок списка, а `filter` позволяет убрать
+пустую сторону `LEFT JOIN`:
+
+```ocaml
+Projection.multiset_agg
+  ~filter:(Comment.article_id comment =. Article.id article)
+  ~order_by:[ Aggregate_order.asc (Comment.created_at comment) ]
+  (Comment.projection comment)
+```
+
+Обе операции возвращают пустой список при отсутствии строк и поддерживают
+рекурсивные коллекции. JSON-массивы используются только как переносимый
+внутренний формат между PostgreSQL или SQLite и decoder. Для ordered
+`multiset_agg` требуется SQLite 3.45 или новее. Бинарные поля пока не
+поддерживаются внутри коллекций.
 
 ## Составные отношения, операции множеств и CTE
 

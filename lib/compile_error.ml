@@ -48,6 +48,10 @@ type t =
       }
   | Unknown_cte of int
   | Invalid_recursive_reference of int
+  | Unsupported_multiset_field_type of
+      { path : int list
+      ; type_name : string
+      }
 
 let to_string = function
   | Empty_projection -> "SELECT projection must contain at least one expression"
@@ -128,6 +132,11 @@ let to_string = function
     "recursive term must reference CTE #"
     ^ Int.to_string id
     ^ " exactly once as a top-level source"
+  | Unsupported_multiset_field_type { path; type_name } ->
+    "multiset field "
+    ^ (List.map path ~f:Int.to_string |> String.concat ~sep:".")
+    ^ " has unsupported database type "
+    ^ type_name
 ;;
 
 let pp formatter error = Stdlib.Format.pp_print_string formatter (to_string error)

@@ -469,7 +469,7 @@ let%expect_test "lowering and rendering preserve bind values for both dialects" 
   Validator.result_query ast |> ok_exn;
   let render dialect =
     let lowered = Lower.result_query ~dialect ast |> ok_exn in
-    let template, parameters = Renderer.result_query lowered in
+    let template, parameters = Renderer.result_query ~dialect lowered in
     (match parameters with
      | [ A.Value (Db_type.Value (first_type, first))
        ; A.Value (Db_type.Value (second_type, second))
@@ -510,7 +510,7 @@ let%expect_test "lowering and rendering preserve bind values for both dialects" 
 
 let%test_unit "renderer totality covers malformed private AST diagnostics" =
   let render query =
-    let template, _ = Renderer.result_query query in
+    let template, _ = Renderer.result_query ~dialect:Dialect.Sqlite query in
     Template.to_sql ~dialect:Dialect.Sqlite template
   in
   assert (
@@ -523,8 +523,15 @@ let%test_unit "renderer totality covers malformed private AST diagnostics" =
       "SELECT\n  t0.\"id\"\nFROM \"items\" AS t0\nWHERE\n  ()");
   ignore
     (render (A.Returning { command = command A.Insert [ assignment ]; projection = [] }));
-  ignore (Renderer.command (command A.Update []));
-  ignore (Renderer.command (command A.Insert []));
+  ignore (Renderer.command ~dialect:Dialect.Postgresql (command A.Update []));
+  ignore (Renderer.command ~dialect:Dialect.Postgresql (command A.Insert []));
+  ignore
+    (Renderer.render_expr
+       ~aliases:[]
+       (A.Aggregate
+          (A.Multiset_agg { fields = []; field_types = []; filter = None; order_by = [] }))
+       Renderer.initial_state);
+  ignore (Renderer.render_ctes [] Renderer.initial_state);
   ignore
     (Renderer.render_insert_rows ~aliases:[ 0, "" ] ~columns:[] [] Renderer.initial_state)
 ;;
@@ -648,6 +655,33 @@ let%test_unit
       ~dialect:Dialect.Sqlite
       (A.Scalar_subquery nested_select));
   let bad_expression = A.Scalar_subquery nested_select in
+  let bad_multiset_aggregate =
+    A.Aggregate
+      (A.Multiset_agg
+         { fields = []
+         ; field_types = []
+         ; filter = Some (A.Exists nested_select)
+         ; order_by = []
+         })
+  in
+  assert (
+    Lower.expression_has_unsupported_having ~dialect:Dialect.Sqlite bad_multiset_aggregate);
+  let bad_ordered_multiset =
+    A.Aggregate
+      (A.Multiset_agg
+         { fields = []
+         ; field_types = []
+         ; filter = None
+         ; order_by = [ { A.expr = bad_expression; direction = A.Desc } ]
+         })
+  in
+  assert (
+    Lower.expression_has_unsupported_having ~dialect:Dialect.Sqlite bad_ordered_multiset);
+  assert (
+    Lower.expression_has_unsupported_having
+      ~dialect:Dialect.Sqlite
+      (A.Multiset_subquery
+         { query = A.Simple nested_select; field_types = [ Db_type.Pack Db_type.int ] }));
   assert (
     Lower.expression_has_unsupported_having
       ~dialect:Dialect.Sqlite
@@ -766,6 +800,21 @@ let%test_unit
    with
    | Error (Compile_error.Unsupported_operation { dialect = Dialect.Sqlite; _ }) -> ()
    | _ -> failwith "RETURNING did not reject a nested unsupported HAVING");
+  let unsupported_set operator =
+    A.Select
+      (A.Compound
+         { ctes = []
+         ; operator
+         ; left = A.Simple select
+         ; right = A.Simple select
+         ; left_types = [ Db_type.Pack Db_type.int ]
+         ; right_types = [ Db_type.Pack Db_type.int ]
+         })
+  in
+  List.iter [ A.Intersect_all; A.Except_all ] ~f:(fun operator ->
+    match Lower.result_query ~dialect:Dialect.Sqlite (unsupported_set operator) with
+    | Error (Compile_error.Unsupported_operation { dialect = Dialect.Sqlite; _ }) -> ()
+    | _ -> failwith "SQLite accepted an unsupported set operation");
   assert (
     not (Lower.select_has_unsupported_having ~dialect:Dialect.Postgresql nested_select));
   assert (Aggregate_scope.at_most_one { select with limit = Some (A.Literal 0) });

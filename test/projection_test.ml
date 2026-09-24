@@ -96,6 +96,48 @@ end
 
 module Interpreter = B.Projection.Make (Decoder)
 
+module Json_decoder = struct
+  type 'a t = string -> ('a, string) Result.t
+
+  include Applicative.Make_using_map2 (struct
+      type nonrec 'a t = 'a t
+
+      let return value _ = Ok value
+      let map decoder ~f raw = Result.map (decoder raw) ~f
+
+      let map2 left right ~f raw =
+        let open Result.Let_syntax in
+        let%bind left = left raw in
+        let%map right = right raw in
+        f left right
+      ;;
+
+      let map = `Custom map
+    end)
+
+  let field : type a. a B.Db_type.t -> a t =
+    fun db_type raw ->
+    ignore (B.Db_type.name db_type : string);
+    match B.Db_type.view db_type with
+    | Map { repr; encode; decode; _ } ->
+      (match B.Db_type.view repr with
+       | Text ->
+         let result = decode raw in
+         Result.iter result ~f:(fun value -> ignore (encode value : (_, string) Result.t));
+         result
+       | _ -> Error "expected text transport")
+    | _ -> Error "expected mapped multiset codec"
+  ;;
+end
+
+module Json_interpreter = B.Projection.Make (Json_decoder)
+
+let multiset_decoder projection =
+  let inner = Query.(from (Table.v_exn "nested_items") |> select (fun _ -> projection)) in
+  let compiled = compile_exn Dialect.Sqlite (Query.multiset inner) in
+  Json_interpreter.run (B.Compiled_query.projection compiled)
+;;
+
 let%test_unit "backend interpreter defers maps until decoding" =
   let mapped = ref 0 in
   let projection =
@@ -111,4 +153,47 @@ let%test_unit "backend interpreter defers maps until decoding" =
   assert (Int.(!mapped = 0));
   assert (String.equal (decode ()) "7: Ada!");
   assert (Int.(!mapped = 1))
+;;
+
+let%test_unit "backend multiset codec rejects malformed transport values" =
+  let int_decoder = multiset_decoder (Projection.expr (Expr.constant Db_type.int 0)) in
+  assert (
+    Result.equal (List.equal Int.equal) String.equal (int_decoder "[[1]]") (Ok [ 1 ]));
+  List.iter [ "not JSON"; "{}"; "[{}]"; "[[]]"; "[[1,2]]"; "[[true]]" ] ~f:(fun raw ->
+    assert (Result.is_error (int_decoder raw)));
+  let bool_decoder =
+    multiset_decoder (Projection.expr (Expr.constant Db_type.bool false))
+  in
+  assert (
+    Result.equal
+      (List.equal Bool.equal)
+      String.equal
+      (bool_decoder "[[true],[false]]")
+      (Ok [ true; false ]));
+  let timestamp =
+    match Ptime.of_rfc3339 "2024-01-02T03:04:05Z" with
+    | Ok (value, _, _) -> value
+    | Error _ -> failwith "invalid timestamp fixture"
+  in
+  let timestamp_decoder =
+    multiset_decoder (Projection.expr (Expr.constant Db_type.timestamp timestamp))
+  in
+  match timestamp_decoder "[[\"2024-01-02T03:04:05Z\"]]" with
+  | Ok [ decoded ] -> assert (Ptime.equal decoded timestamp)
+  | Ok _ | Error _ -> failwith "timestamp multiset transport did not decode"
+;;
+
+let%expect_test "multiset decoder errors identify root, row, and field locations" =
+  let decode = multiset_decoder (Projection.expr (Expr.constant Db_type.int 0)) in
+  let print_error raw =
+    match decode raw with
+    | Ok _ -> failwith "malformed multiset unexpectedly decoded"
+    | Error message -> Stdlib.print_endline message
+  in
+  print_error "{}";
+  [%expect {| multiset root: expected array, got compound |}];
+  print_error "[{}]";
+  [%expect {| multiset element 1: expected row array, got compound |}];
+  print_error "[[true]]";
+  [%expect {| multiset element 1.1: expected int, got boolean |}]
 ;;

@@ -40,6 +40,13 @@ let projection row =
 [Projection.return] добавляет OCaml-значение без SQL-колонки. В итоговой
 projection должно быть хотя бы одно выражение [Projection.expr].
 
+Вложенный read model собирается через [Query.multiset] из завершённого SELECT.
+Каждая его строка декодируется исходной projection, включая [Projection.map],
+а отсутствие строк даёт пустой список. [Projection.multiset_agg] собирает
+строки текущей aggregate-группы; аргументы [filter] и [order_by] соответствуют
+SQL [FILTER] и aggregate-local [ORDER BY]. Порядок списка гарантируется только
+при явном [order_by]. Коллекции можно вкладывать друг в друга.
+
 Статический statement строится без connection и эффекта:
 
 {[

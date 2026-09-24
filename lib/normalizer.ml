@@ -19,7 +19,20 @@ let rec normalize_expr = function
     Ast.Aggregate (Ast.Count (normalize_expr expression))
   | Ast.Aggregate (Ast.Count_distinct expression) ->
     Ast.Aggregate (Ast.Count_distinct (normalize_expr expression))
+  | Ast.Aggregate (Ast.Multiset_agg multiset) ->
+    Ast.Aggregate
+      (Ast.Multiset_agg
+         { multiset with
+           Ast.fields = List.map multiset.fields ~f:normalize_expr
+         ; filter = Option.map multiset.filter ~f:normalize_condition
+         ; order_by =
+             List.map multiset.order_by ~f:(fun order ->
+               { order with Ast.expr = normalize_expr order.expr })
+         })
   | Ast.Scalar_subquery select -> Ast.Scalar_subquery (normalize_select select)
+  | Ast.Multiset_subquery multiset ->
+    Ast.Multiset_subquery
+      { multiset with Ast.query = normalize_select_query multiset.query }
   | Ast.Current_timestamp as expression -> expression
 
 and normalize_condition condition =

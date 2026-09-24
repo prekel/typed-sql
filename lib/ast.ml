@@ -16,6 +16,7 @@ type aggregate =
   | Count_all
   | Count of expr
   | Count_distinct of expr
+  | Multiset_agg of multiset_aggregate
 
 and expr =
   | Column of
@@ -30,7 +31,20 @@ and expr =
   | Case of (condition * expr) list * expr
   | Aggregate of aggregate
   | Scalar_subquery of select
+  | Multiset_subquery of multiset_subquery
   | Current_timestamp
+
+and multiset_aggregate =
+  { fields : expr list
+  ; field_types : Db_type.packed list
+  ; filter : condition option
+  ; order_by : order list
+  }
+
+and multiset_subquery =
+  { query : select_query
+  ; field_types : Db_type.packed list
+  }
 
 and parameter =
   | Value of Db_type.packed_value

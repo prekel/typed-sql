@@ -290,34 +290,73 @@ idempotent inserts, count queries, correlated flags и batch loading tags чер
 последующих JOIN и позволяют выразить `FROM (SELECT ...) AS page`, `WITH page
 AS (...)` и объединение read-model ветвей без ручного SQL.
 
-1. **Агрегация коллекций.** Добавить aggregates вроде `array_agg`, `json_agg`
-   и `json_group_array` с типизированным декодированием коллекций. Сейчас
-   вложенный read model можно собирать несколькими batch-запросами; другой
-   portable вариант — плоский JOIN и группировка строк в OCaml с сохранением
-   корректной пагинации. JSON aggregation для PostgreSQL и SQLite должна
-   иметь отдельные dialect namespaces.
+Завершено: portable `Query.multiset` собирает результат коррелированного
+SELECT, а `Projection.multiset_agg` — строки текущей aggregate-группы. Оба API
+сохраняют `Projection.map`, возвращают типизированный OCaml-список,
+нормализуют пустой результат и поддерживают рекурсивные коллекции. PostgreSQL
+и SQLite используют позиционные JSON-массивы только как внутренний transport;
+JSON не выходит в публичный тип. Aggregate-local ordering и filtering доступны
+через `Aggregate_order` и именованные аргументы `multiset_agg`.
 
-2. **Типизированные связи из схемы.** Генерировать FK descriptors и удобные
+Низкоуровневые `array_agg`, `json_agg` и `json_group_array` остаются будущими
+dialect API для случаев, когда приложению нужен сам database JSON или native
+PostgreSQL array.
+
+1. **Типизированные связи из схемы.** Генерировать FK descriptors и удобные
    отношения вроде `Articles.author`, `Comments.article`, `Favorites.user`,
    пригодные для будущего `join_fk`. FK metadata уже сохраняется, arbitrary
    JOIN уже доступен; не хватает типизированного сокращения ручных сравнений
    колонок, включая составные ключи.
 
-3. **Дополнительные SQL-конструкции.** Добавлять по прикладной необходимости
+2. **Дополнительные SQL-конструкции.** Добавлять по прикладной необходимости
    window functions, `DISTINCT ON`, `LATERAL`, `ILIKE` и `NULLS FIRST/LAST`.
    `COUNT(*) OVER ()` может вернуть страницу и общее количество одним запросом;
    для пустой страницы потребуется отдельное получение количества. PostgreSQL
    JSON и arrays требуют dialect API.
 
-4. **Больше типов.** Добавить корректные codecs и codegen mappings для
+3. **Больше типов.** Добавить корректные codecs и codegen mappings для
    decimal/numeric, enums, JSON, arrays и пользовательских PostgreSQL types.
    Неизвестные типы сейчас намеренно останавливают codegen; молчаливое
    преобразование в неточный базовый тип недопустимо.
 
-5. **Более полный schema snapshot.** Расширить IR, introspection и snapshot
+4. **Более полный schema snapshot.** Расширить IR, introspection и snapshot
    обычными, expression и partial indexes, CHECK constraints и triggers.
    Текущий snapshot сохраняет columns, PK, FK и UNIQUE, но этого недостаточно
    для полного обнаружения drift производственных индексов и ограничений.
+
+5. **PostgreSQL array parameters для batch lookup.** Добавить отдельный
+   PostgreSQL-specific API для native array codec и предиката
+   `column = ANY (?1)`, например `Db_type.Postgresql.array` и
+   `Postgresql.Expr.equals_any`. Это не `IN ?1`: placeholder кодирует одно
+   native PostgreSQL array-значение, а `ANY` применяет сравнение к его
+   элементам.
+
+   API нужен для запросов с непредсказуемым числом идентификаторов, которым в
+   PostgreSQL полезны одна статическая SQL shape, один bind parameter и
+   переиспользуемый prepared statement:
+
+   ```ocaml
+   let ids =
+     params.expr
+       (Db_type.Postgresql.array Db_type.int64)
+       ~get:Input.ids
+   in
+   Query.(
+     from Users.table
+     |> where (fun user ->
+       Postgresql.Expr.equals_any (Users.id user) ids)
+     |> select Users.projection)
+   ```
+
+   Предварительно `array` должен связывать element codec с OCaml
+   `array`/`list`, а `equals_any` — требовать одинаковый тип элементов с левой
+   expression. Операция несёт requirement [`Postgresql], поэтому
+   `Statement.Portable` и SQLite adapter должны отвергать её до rendering.
+   Нужны golden tests SQL и PostgreSQL execution tests для кодирования,
+   пустого массива (`ANY ('{}')` даёт `false`) и SQL three-valued semantics при
+   `NULL`-элементах. Portable batch-loading остаётся случаем для
+   `Statement.Dynamic`: SQLite не получает этот API и не должен эмулировать
+   PostgreSQL array через небезопасное разворачивание SQL.
 
 Эти завершённые расширения закрывают построение сложных paginated read models.
 Задача атомарного создания или получения tags закрыта portable UPSERT. Миграциями

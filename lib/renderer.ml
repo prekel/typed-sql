@@ -1,7 +1,8 @@
 open! Base
 
 type state =
-  { next_parameter : int
+  { dialect : Dialect.t
+  ; next_parameter : int
   ; parameters_rev : Ast.parameter list
   ; slot_indices : (int * int) list
   ; next_cte : int
@@ -9,7 +10,8 @@ type state =
   }
 
 let initial_state =
-  { next_parameter = 0
+  { dialect = Dialect.Postgresql
+  ; next_parameter = 0
   ; parameters_rev = []
   ; slot_indices = []
   ; next_cte = 0
@@ -17,6 +19,7 @@ let initial_state =
   }
 ;;
 
+let initial_state_for dialect = { initial_state with dialect }
 let text value = Template.Text value
 let break flat = Template.Break flat
 let concat templates = Template.concat templates
@@ -92,6 +95,7 @@ let render_parameter parameter state =
        let index = state.next_parameter in
        ( Template.Param index
        , { next_parameter = index + 1
+         ; dialect = state.dialect
          ; parameters_rev = parameter :: state.parameters_rev
          ; slot_indices = (id, index) :: state.slot_indices
          ; next_cte = state.next_cte
@@ -138,10 +142,140 @@ let rec render_expr ~aliases expression state =
   | Ast.Aggregate (Ast.Count_distinct expression) ->
     let expression, state = render_expr ~aliases expression state in
     concat [ text "COUNT(DISTINCT "; expression; text ")" ], state
+  | Ast.Aggregate (Ast.Multiset_agg multiset) ->
+    let multiset, state = render_multiset_aggregate_raw ~aliases multiset state in
+    render_multiset_output multiset state
   | Ast.Scalar_subquery select ->
     let select, state = render_select ~parent_aliases:aliases select state in
     concat [ text "("; nest (concat [ break ""; select ]); break ""; text ")" ], state
+  | Ast.Multiset_subquery multiset ->
+    let multiset, state = render_multiset_subquery_raw ~aliases multiset state in
+    render_multiset_output multiset state
   | Ast.Current_timestamp -> text "CURRENT_TIMESTAMP", state
+
+and render_multiset_output multiset state =
+  match state.dialect with
+  | Dialect.Postgresql -> concat [ text "CAST("; multiset; text " AS TEXT)" ], state
+  | Dialect.Sqlite -> multiset, state
+
+and render_json_value ~aliases expression state =
+  match expression with
+  | Ast.Aggregate (Ast.Multiset_agg multiset) ->
+    let multiset, state = render_multiset_aggregate_raw ~aliases multiset state in
+    render_nested_json multiset state
+  | Ast.Multiset_subquery multiset ->
+    let multiset, state = render_multiset_subquery_raw ~aliases multiset state in
+    render_nested_json multiset state
+  | _ -> render_expr ~aliases expression state
+
+and render_nested_json multiset state =
+  match state.dialect with
+  | Dialect.Postgresql -> multiset, state
+  | Dialect.Sqlite -> concat [ text "JSON("; multiset; text ")" ], state
+
+and render_json_values ~aliases expressions state =
+  match expressions with
+  | [] -> Template.Empty, state
+  | [ expression ] -> render_json_value ~aliases expression state
+  | expression :: rest ->
+    let expression, state = render_json_value ~aliases expression state in
+    let rest, state = render_json_values ~aliases rest state in
+    concat [ expression; text ", "; rest ], state
+
+and render_json_row ~aliases expressions state =
+  let expressions, state = render_json_values ~aliases expressions state in
+  let function_ =
+    match state.dialect with
+    | Dialect.Postgresql -> "JSONB_BUILD_ARRAY"
+    | Dialect.Sqlite -> "JSON_ARRAY"
+  in
+  concat [ text function_; text "("; expressions; text ")" ], state
+
+and render_multiset_aggregate_raw ~aliases multiset state =
+  let row, state = render_json_row ~aliases multiset.Ast.fields state in
+  let order_by, state = render_order_by ~aliases multiset.order_by state in
+  let filter, state =
+    match multiset.filter with
+    | None -> Template.Empty, state
+    | Some condition ->
+      let condition, state = render_condition ~aliases condition state in
+      concat [ text " FILTER (WHERE "; condition; text ")" ], state
+  in
+  let aggregate, empty =
+    match state.dialect with
+    | Dialect.Postgresql -> "JSONB_AGG", "JSONB_BUILD_ARRAY()"
+    | Dialect.Sqlite -> "JSON_GROUP_ARRAY", "JSON_ARRAY()"
+  in
+  let order_by =
+    match multiset.order_by with
+    | [] -> Template.Empty
+    | _ -> concat [ text " ORDER BY "; order_by ]
+  in
+  ( concat
+      [ text "COALESCE("
+      ; text aggregate
+      ; text "("
+      ; row
+      ; order_by
+      ; text ")"
+      ; filter
+      ; text ", "
+      ; text empty
+      ; text ")"
+      ]
+  , state )
+
+and render_multiset_columns alias names types state =
+  let columns = List.zip_exn names types in
+  let render (name, Db_type.Pack db_type) =
+    let column = concat [ text alias; text "."; quote_identifier name ] in
+    match state.dialect with
+    | Dialect.Sqlite when Db_type.is_json_result db_type ->
+      concat [ text "JSON("; column; text ")" ]
+    | Dialect.Sqlite | Dialect.Postgresql -> column
+  in
+  List.map columns ~f:render |> separate ~by:(text ", ")
+
+and render_multiset_subquery_raw ~aliases multiset state =
+  let names =
+    List.mapi multiset.Ast.field_types ~f:(fun index _ ->
+      Identifier.of_string_exn ("v" ^ Int.to_string index))
+  in
+  let query, state =
+    render_select_query
+      ~json_projection:true
+      ~parent_aliases:aliases
+      ~output_names:names
+      multiset.query
+      state
+  in
+  let alias = "m0" in
+  let fields = render_multiset_columns alias names multiset.field_types state in
+  let row_function, aggregate, empty =
+    match state.dialect with
+    | Dialect.Postgresql -> "JSONB_BUILD_ARRAY", "JSONB_AGG", "JSONB_BUILD_ARRAY()"
+    | Dialect.Sqlite -> "JSON_ARRAY", "JSON_GROUP_ARRAY", "JSON_ARRAY()"
+  in
+  ( concat
+      [ text "(SELECT COALESCE("
+      ; text aggregate
+      ; text "("
+      ; text row_function
+      ; text "("
+      ; fields
+      ; text "))"
+      ; text ", "
+      ; text empty
+      ; text ")"
+      ; break " "
+      ; text "FROM ("
+      ; nest (concat [ break ""; query ])
+      ; break ""
+      ; text ") AS "
+      ; text alias
+      ; text ")"
+      ]
+  , state )
 
 and render_case_branches ~aliases branches state =
   match branches with
@@ -325,24 +459,42 @@ and render_order_by ~aliases orders state =
        let rest, state = render_order_by ~aliases rest state in
        concat [ current; text ","; break " "; rest ], state)
 
-and render_projection ~aliases ~output_names expressions state =
+and render_projection_expression ~aliases ~json_projection expression state =
+  if json_projection then
+    render_json_value ~aliases expression state
+  else
+    render_expr ~aliases expression state
+
+and render_projection ~aliases ~json_projection ~output_names expressions state =
   match output_names with
   | [] ->
-    render_expressions
-      ~aliases
-      ~separator:(concat [ text ","; break " " ])
-      expressions
-      state
+    let rec loop expressions state =
+      match expressions with
+      | [] -> Template.Empty, state
+      | [ expression ] ->
+        render_projection_expression ~aliases ~json_projection expression state
+      | expression :: rest ->
+        let expression, state =
+          render_projection_expression ~aliases ~json_projection expression state
+        in
+        let rest, state = loop rest state in
+        concat [ expression; text ","; break " "; rest ], state
+    in
+    loop expressions state
   | names ->
     let pairs = List.zip_exn expressions names in
     let rec loop pairs state =
       match pairs with
       | [] -> Template.Empty, state
       | [ (expression, name) ] ->
-        let expression, state = render_expr ~aliases expression state in
+        let expression, state =
+          render_projection_expression ~aliases ~json_projection expression state
+        in
         concat [ expression; text " AS "; quote_identifier name ], state
       | (expression, name) :: rest ->
-        let expression, state = render_expr ~aliases expression state in
+        let expression, state =
+          render_projection_expression ~aliases ~json_projection expression state
+        in
         let rest, state = loop rest state in
         ( concat
             [ expression; text " AS "; quote_identifier name; text ","; break " "; rest ]
@@ -350,13 +502,20 @@ and render_projection ~aliases ~output_names expressions state =
     in
     loop pairs state
 
-and render_select ?(output_names = []) ~parent_aliases (select : Ast.select) state =
+and render_select
+      ?(json_projection = false)
+      ?(output_names = [])
+      ~parent_aliases
+      (select : Ast.select)
+      state
+  =
   let render_body state =
     let aliases = aliases_for_select ~parent_aliases select in
     let projection, state =
       match select.Ast.projection with
       | [] -> text "1", state
-      | projection -> render_projection ~aliases ~output_names projection state
+      | projection ->
+        render_projection ~aliases ~json_projection ~output_names projection state
     in
     let root_alias = alias_for aliases select.source.source_id in
     let root_source, state = render_source ~aliases select.source state in
@@ -450,8 +609,10 @@ and set_operator = function
   | Ast.Except -> "EXCEPT"
   | Ast.Except_all -> "EXCEPT ALL"
 
-and render_compound_branch ~output_names query state =
-  let query, state = render_select_query ~parent_aliases:[] ~output_names query state in
+and render_compound_branch ~json_projection ~parent_aliases ~output_names query state =
+  let query, state =
+    render_select_query ~json_projection ~parent_aliases ~output_names query state
+  in
   ( concat
       [ text "SELECT *"
       ; break " "
@@ -462,13 +623,34 @@ and render_compound_branch ~output_names query state =
       ]
   , state )
 
-and render_select_query ?(output_names = []) ~parent_aliases query state =
+and render_select_query
+      ?(json_projection = false)
+      ?(output_names = [])
+      ~parent_aliases
+      query
+      state
+  =
   match query with
-  | Ast.Simple select -> render_select ~output_names ~parent_aliases select state
+  | Ast.Simple select ->
+    render_select ~json_projection ~output_names ~parent_aliases select state
   | Ast.Compound compound ->
     let render_body state =
-      let left, state = render_compound_branch ~output_names compound.left state in
-      let right, state = render_compound_branch ~output_names compound.right state in
+      let left, state =
+        render_compound_branch
+          ~json_projection
+          ~parent_aliases
+          ~output_names
+          compound.left
+          state
+      in
+      let right, state =
+        render_compound_branch
+          ~json_projection
+          ~parent_aliases
+          ~output_names
+          compound.right
+          state
+      in
       ( concat [ left; break " "; text (set_operator compound.operator); break " "; right ]
       , state )
     in
@@ -778,13 +960,14 @@ and render_returning (returning : Ast.returning) state =
 
 let finish (template, state) = template, List.rev state.parameters_rev
 
-let result_query query =
+let result_query ~dialect query =
+  let initial_state = initial_state_for dialect in
   match Lower.result_query_ast query with
   | Ast.Select query ->
     finish (render_select_query ~parent_aliases:[] query initial_state)
   | Ast.Returning returning -> finish (render_returning returning initial_state)
 ;;
 
-let command command =
-  finish (render_command_ast (Lower.command_ast command) initial_state)
+let command ~dialect command =
+  finish (render_command_ast (Lower.command_ast command) (initial_state_for dialect))
 ;;

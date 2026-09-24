@@ -64,6 +64,14 @@ module Resource = struct
   let external_id reference = Expr.column reference external_id_column
 end
 
+module Blob = struct
+  type row
+
+  let table : row Table.t = Table.v_exn ~schema:"public" "blobs"
+  let value_column = Column.v_exn table "value" Db_type.bytes
+  let value reference = Expr.column reference value_column
+end
+
 let compile_exn dialect query =
   match Compiler.compile_portable ~dialect query with
   | Ok compiled -> compiled
@@ -119,6 +127,258 @@ let%expect_test "PostgreSQL and SQLite rendering" =
     LIMIT 20
     OFFSET 5
     |}]
+;;
+
+let%expect_test "multiset subqueries and aggregates are portable" =
+  let nested =
+    Query.(
+      from Person.table
+      |> select (fun person ->
+        let departments =
+          Query.(
+            from Department.table
+            |> where (fun department ->
+              Department.person_id department =. Person.id person)
+            |> order_by Department.name `Asc
+            |> limit 3
+            |> select (fun department -> Projection.expr (Department.name department)))
+        in
+        Projection.both
+          (Projection.expr (Person.name person))
+          (Query.multiset departments)))
+  in
+  nested |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      t0."name",
+      CAST((SELECT COALESCE(JSONB_AGG(JSONB_BUILD_ARRAY(m0."v0")), JSONB_BUILD_ARRAY())
+      FROM (
+        SELECT
+          t1."name" AS "v0"
+        FROM "public"."departments" AS t1
+        WHERE
+          (t1."person_id" = t0."id")
+        ORDER BY
+          t1."name" ASC
+        LIMIT 3
+      ) AS m0) AS TEXT)
+    FROM "public"."people" AS t0
+    |}];
+  nested |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      t0."name",
+      (SELECT COALESCE(JSON_GROUP_ARRAY(JSON_ARRAY(m0."v0")), JSON_ARRAY())
+      FROM (
+        SELECT
+          t1."name" AS "v0"
+        FROM "public"."departments" AS t1
+        WHERE
+          (t1."person_id" = t0."id")
+        ORDER BY
+          t1."name" ASC
+        LIMIT 3
+      ) AS m0)
+    FROM "public"."people" AS t0
+    |}];
+  let aggregate =
+    Query.(
+      from Department.table
+      |> select_exactly_one (fun department ->
+        Projection.multiset_agg
+          ~filter:(Department.person_id department >$ 0L)
+          ~order_by:[ Aggregate_order.desc (Department.name department) ]
+          (Projection.pair (Department.person_id department) (Department.name department))))
+  in
+  aggregate
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      CAST(COALESCE(JSONB_AGG(JSONB_BUILD_ARRAY(t0."person_id", t0."name") ORDER BY t0."name" DESC) FILTER (WHERE (t0."person_id" > $1)), JSONB_BUILD_ARRAY()) AS TEXT)
+    FROM "public"."departments" AS t0
+    |}];
+  aggregate |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      COALESCE(JSON_GROUP_ARRAY(JSON_ARRAY(t0."person_id", t0."name") ORDER BY t0."name" DESC) FILTER (WHERE (t0."person_id" > ?1)), JSON_ARRAY())
+    FROM "public"."departments" AS t0
+    |}];
+  let recursive =
+    Query.(
+      from Person.table
+      |> select_exactly_one (fun person ->
+        let departments =
+          Query.(
+            from Department.table
+            |> where (fun department ->
+              Department.person_id department =. Person.id person)
+            |> select (fun department -> Projection.expr (Department.name department)))
+        in
+        Projection.multiset_agg
+          ~order_by:[ Aggregate_order.asc (Person.id person) ]
+          (Projection.both
+             (Projection.expr (Person.name person))
+             (Query.multiset departments))))
+  in
+  recursive
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      CAST(COALESCE(JSONB_AGG(JSONB_BUILD_ARRAY(t0."name", (SELECT COALESCE(JSONB_AGG(JSONB_BUILD_ARRAY(m0."v0")), JSONB_BUILD_ARRAY())
+      FROM (
+        SELECT
+          t1."name" AS "v0"
+        FROM "public"."departments" AS t1
+        WHERE
+          (t1."person_id" = t0."id")
+      ) AS m0)) ORDER BY t0."id" ASC), JSONB_BUILD_ARRAY()) AS TEXT)
+    FROM "public"."people" AS t0
+    |}];
+  recursive |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      COALESCE(JSON_GROUP_ARRAY(JSON_ARRAY(t0."name", JSON((SELECT COALESCE(JSON_GROUP_ARRAY(JSON_ARRAY(m0."v0")), JSON_ARRAY())
+      FROM (
+        SELECT
+          t1."name" AS "v0"
+        FROM "public"."departments" AS t1
+        WHERE
+          (t1."person_id" = t0."id")
+      ) AS m0))) ORDER BY t0."id" ASC), JSON_ARRAY())
+    FROM "public"."people" AS t0
+    |}]
+;;
+
+let%test_unit "multiset validation rejects unsupported and empty fields" =
+  let bytes =
+    Query.(
+      from Blob.table
+      |> select_exactly_one (fun blob ->
+        Projection.multiset_agg (Projection.expr (Blob.value blob))))
+  in
+  (match Compiler.compile ~dialect:Dialect.sqlite bytes with
+   | Error
+       (Compile_error.Unsupported_multiset_field_type
+          ({ path = [ 1 ]; type_name = "bytes" } as detail)) ->
+     let message =
+       Compile_error.to_string (Compile_error.Unsupported_multiset_field_type detail)
+     in
+     assert (String.equal message "multiset field 1 has unsupported database type bytes")
+   | Error error -> failwith (Compile_error.to_string error)
+   | Ok _ -> failwith "bytes multiset unexpectedly compiled");
+  let mapped_bytes =
+    Db_type.map
+      ~name:"mapped_bytes"
+      ~encode:Result.return
+      ~decode:Result.return
+      Db_type.bytes
+  in
+  let mapped_column = Column.v_exn Blob.table "value" mapped_bytes in
+  let mapped =
+    Query.(
+      from Blob.table
+      |> select_exactly_one (fun blob ->
+        Projection.multiset_agg (Projection.expr (Expr.column blob mapped_column))))
+  in
+  (match Compiler.compile ~dialect:Dialect.sqlite mapped with
+   | Error (Compile_error.Unsupported_multiset_field_type _) -> ()
+   | Error error -> failwith (Compile_error.to_string error)
+   | Ok _ -> failwith "mapped bytes multiset unexpectedly compiled");
+  let nullable_column = Column.nullable_v_exn Blob.table "value" Db_type.bytes in
+  let nullable =
+    Query.(
+      from Blob.table
+      |> select_exactly_one (fun blob ->
+        Projection.multiset_agg (Projection.expr (Expr.column blob nullable_column))))
+  in
+  (match Compiler.compile ~dialect:Dialect.sqlite nullable with
+   | Error (Compile_error.Unsupported_multiset_field_type _) -> ()
+   | Error error -> failwith (Compile_error.to_string error)
+   | Ok _ -> failwith "nullable bytes multiset unexpectedly compiled");
+  let empty =
+    Query.(
+      from Person.table
+      |> select_exactly_one (fun _ -> Projection.multiset_agg (Projection.return 1)))
+  in
+  match Compiler.compile ~dialect:Dialect.sqlite empty with
+  | Error Compile_error.Empty_projection -> ()
+  | Error error -> failwith (Compile_error.to_string error)
+  | Ok _ -> failwith "empty multiset projection unexpectedly compiled"
+;;
+
+let%test_unit "multiset keeps compound SELECT semantics" =
+  let branch name =
+    Query.(
+      from Person.table
+      |> where (fun person -> Person.name person =$ name)
+      |> select (fun person -> Projection.expr (Person.name person)))
+  in
+  let names = Query.union_all (branch "Ada") (branch "Grace") in
+  let query =
+    Query.(from Person.table |> limit_one |> select (fun _ -> Query.multiset names))
+  in
+  let sql = query |> compile_exn Dialect.Sqlite |> Compiled_query.sql in
+  assert (String.is_substring sql ~substring:"UNION ALL");
+  assert (String.is_substring sql ~substring:"AS \"v0\"")
+;;
+
+let%test_unit "multiset aggregate boundaries reject only same-level nesting" =
+  let nested_aggregate =
+    Query.(
+      from Person.table
+      |> select_exactly_one (fun _ ->
+        Projection.multiset_agg (Projection.expr Expr.count_all)))
+  in
+  (match Compiler.compile ~dialect:Dialect.sqlite nested_aggregate with
+   | Error Compile_error.Nested_aggregate -> ()
+   | Error error -> failwith (Compile_error.to_string error)
+   | Ok _ -> failwith "same-level nested aggregate unexpectedly compiled");
+  let inner_aggregate =
+    Query.(
+      from Department.table
+      |> select_exactly_one (fun department ->
+        Projection.multiset_agg (Projection.expr (Department.name department))))
+  in
+  let across_select =
+    Query.(
+      from Person.table |> limit_one |> select (fun _ -> Query.multiset inner_aggregate))
+  in
+  let sql = across_select |> compile_exn Dialect.Sqlite |> Compiled_query.sql in
+  assert (String.is_substring sql ~substring:"JSON(COALESCE(JSON_GROUP_ARRAY")
+;;
+
+let%test_unit "nested multiset fields retain JSON identity across a subquery" =
+  let departments person =
+    Query.(
+      from Department.table
+      |> where (fun department -> Department.person_id department =. Person.id person)
+      |> select (fun department -> Projection.expr (Department.name department)))
+  in
+  let people =
+    Query.(
+      from Person.table
+      |> select (fun person ->
+        Projection.both
+          (Projection.expr (Person.name person))
+          (Query.multiset (departments person))))
+  in
+  let query =
+    Query.(from Person.table |> limit_one |> select (fun _ -> Query.multiset people))
+  in
+  let sqlite = query |> compile_exn Dialect.Sqlite |> Compiled_query.sql in
+  let postgres = query |> compile_exn Dialect.Postgresql |> Compiled_query.sql in
+  assert (String.is_substring sqlite ~substring:"JSON(m0.\"v1\")");
+  assert (String.is_substring postgres ~substring:"m0.\"v1\"")
 ;;
 
 let%expect_test "infix comparison operators render in source order" =

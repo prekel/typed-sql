@@ -101,6 +101,8 @@ module Statement = struct
       Mismatched_set_projection { expected; actual }
     | P.Unknown_cte id -> Unknown_cte id
     | P.Invalid_recursive_reference id -> Invalid_recursive_reference id
+    | P.Unsupported_multiset_field_type { path; type_name } ->
+      Unsupported_multiset_field_type { path; type_name }
   ;;
 
   type ('row, 'output) cardinality =

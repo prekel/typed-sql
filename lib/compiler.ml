@@ -76,7 +76,7 @@ let compile_query_plan ~dialect query =
       Ok ()
   in
   let%map lowered = Lower.result_query ~dialect ast in
-  let template, parameters = Renderer.result_query lowered in
+  let template, parameters = Renderer.result_query ~dialect lowered in
   let projection = Result_query.projection query in
   let shape = shape ~dialect ~template ~parameters ~projection in
   let projection = Projection.erase projection in
@@ -88,7 +88,7 @@ let compile_command_plan ~dialect command =
   let open Result.Let_syntax in
   let%bind () = Validator.command ast in
   let%map lowered = Lower.command ~dialect ast in
-  let template, parameters = Renderer.command lowered in
+  let template, parameters = Renderer.command ~dialect lowered in
   let shape = command_shape ~dialect ~template ~parameters in
   { dialect; template; parameters; shape }
 ;;

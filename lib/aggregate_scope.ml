@@ -12,6 +12,7 @@ let projection_has_local_aggregate (select : Ast.select) =
         | Ast.Count_distinct (Ast.Column { source_id; _ }) ) ->
       List.mem sources source_id ~equal:Int.equal
     | Ast.Aggregate (Ast.Count _ | Ast.Count_distinct _) -> true
+    | Ast.Aggregate (Ast.Multiset_agg _) -> true
     | _ -> false)
 ;;
 

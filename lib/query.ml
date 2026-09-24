@@ -234,6 +234,13 @@ let select make_projection query =
   Result_query.create_select (Ast.Simple ast) projection
 ;;
 
+let multiset query =
+  match Result_query.ast query with
+  | Ast.Select select ->
+    Projection.multiset_subquery select (Result_query.projection query)
+  | Ast.Returning _ -> assert false
+;;
+
 let select_exactly_one make_projection query =
   let projection = make_projection query.context in
   let ast = { query.ast with projection = Projection.expressions projection } in

@@ -25,13 +25,34 @@ let rec validate_expr ~validate_subquery ~visible = function
   | Ast.Aggregate Ast.Count_all -> Ok ()
   | Ast.Aggregate (Ast.Count expression | Ast.Count_distinct expression) ->
     validate_expr ~validate_subquery ~visible expression
+  | Ast.Aggregate (Ast.Multiset_agg multiset) ->
+    let open Result.Let_syntax in
+    let%bind () = validate_expressions ~validate_subquery ~visible multiset.fields in
+    let%bind () =
+      match multiset.filter with
+      | None -> Ok ()
+      | Some filter -> validate_condition ~validate_subquery ~visible filter
+    in
+    let%bind () =
+      List.map multiset.order_by ~f:(fun order -> order.Ast.expr)
+      |> validate_expressions ~validate_subquery ~visible
+    in
+    validate_multiset_types multiset.field_types
   | Ast.Scalar_subquery select ->
     let open Result.Let_syntax in
-    let%bind () = validate_subquery ~outer_visible:visible ~allow_empty:false select in
+    let%bind () =
+      validate_subquery ~outer_visible:visible ~allow_empty:false (Ast.Simple select)
+    in
     if Aggregate_scope.at_most_one select then
       Ok ()
     else
       Error Compile_error.Scalar_subquery_may_return_many_rows
+  | Ast.Multiset_subquery multiset ->
+    let open Result.Let_syntax in
+    let%bind () =
+      validate_subquery ~outer_visible:visible ~allow_empty:false multiset.query
+    in
+    validate_multiset_types multiset.field_types
   | Ast.Current_timestamp -> Ok ()
 
 and validate_condition ~validate_subquery ~visible = function
@@ -52,14 +73,26 @@ and validate_condition ~validate_subquery ~visible = function
     let%bind () = validate_expr ~validate_subquery ~visible lower in
     validate_expr ~validate_subquery ~visible upper
   | Ast.Exists select | Ast.Not_exists select ->
-    validate_subquery ~outer_visible:visible ~allow_empty:true select
+    validate_subquery ~outer_visible:visible ~allow_empty:true (Ast.Simple select)
   | Ast.In_subquery (expression, select) | Ast.Not_in_subquery (expression, select) ->
     let open Result.Let_syntax in
     let%bind () = validate_expr ~validate_subquery ~visible expression in
-    validate_subquery ~outer_visible:visible ~allow_empty:false select
+    validate_subquery ~outer_visible:visible ~allow_empty:false (Ast.Simple select)
   | Ast.And conditions | Ast.Or conditions ->
     validate_conditions ~validate_subquery ~visible conditions
   | Ast.Not condition -> validate_condition ~validate_subquery ~visible condition
+
+and validate_multiset_types types =
+  if List.is_empty types then
+    Error Compile_error.Empty_projection
+  else (
+    match
+      List.find_mapi types ~f:(fun index (Db_type.Pack db_type) ->
+        Db_type.unsupported_multiset_type ~path:[ index + 1 ] db_type)
+    with
+    | None -> Ok ()
+    | Some (path, type_name) ->
+      Error (Compile_error.Unsupported_multiset_field_type { path; type_name }))
 
 and validate_conditions ~validate_subquery ~visible = function
   | [] -> Ok ()
@@ -157,7 +190,10 @@ let rec analyze_expression ~groups ~inside_aggregate expression =
       expression
     with
     | Ast.Column _ -> plain ~grouped:false
-    | Ast.Param _ | Ast.Current_timestamp | Ast.Scalar_subquery _ -> plain ~grouped:true
+    | Ast.Param _
+    | Ast.Current_timestamp
+    | Ast.Scalar_subquery _
+    | Ast.Multiset_subquery _ -> plain ~grouped:true
     | Ast.Arithmetic (_, left, right) | Ast.Concat (left, right) ->
       combine
         (analyze_expression ~groups ~inside_aggregate left)
@@ -178,6 +214,20 @@ let rec analyze_expression ~groups ~inside_aggregate expression =
       let nested = analyze_expression ~groups ~inside_aggregate:true expression in
       { has_aggregate = true
       ; nested_aggregate = inside_aggregate || nested.nested_aggregate
+      ; grouped = true
+      }
+    | Ast.Aggregate (Ast.Multiset_agg multiset) ->
+      let values =
+        List.map multiset.fields ~f:(analyze_expression ~groups ~inside_aggregate:true)
+        @ List.map multiset.order_by ~f:(fun order ->
+          analyze_expression ~groups ~inside_aggregate:true order.Ast.expr)
+        @ Option.value_map multiset.filter ~default:[] ~f:(fun filter ->
+          [ analyze_condition ~groups ~inside_aggregate:true filter ])
+      in
+      let nested = combine_all values in
+      { has_aggregate = true
+      ; nested_aggregate =
+          inside_aggregate || nested.has_aggregate || nested.nested_aggregate
       ; grouped = true
       })
 
@@ -299,14 +349,6 @@ let validate_select_with
         Error Compile_error.Ungrouped_expression
       else
         Ok ())
-;;
-
-let rec validate_select ~outer_visible ~allow_empty select =
-  validate_select_with
-    ~validate_subquery:validate_select
-    ~outer_visible
-    ~allow_empty
-    select
 ;;
 
 let duplicate_assignment assignments =
@@ -529,8 +571,19 @@ let validate_relation_schema (relation : Ast.relation) =
     ~result_types:relation.result_types
 ;;
 
-let rec validate_select_query_full ~forbidden_ctes ~available_ctes = function
-  | Ast.Simple select -> validate_select_full ~forbidden_ctes ~available_ctes select
+let rec validate_select_query_full
+          ?(outer_visible = [])
+          ?(allow_empty = false)
+          ~forbidden_ctes
+          ~available_ctes
+  = function
+  | Ast.Simple select ->
+    validate_select_full
+      ~outer_visible
+      ~allow_empty
+      ~forbidden_ctes
+      ~available_ctes
+      select
   | Ast.Compound compound ->
     let open Result.Let_syntax in
     let%bind available_ctes =
@@ -544,13 +597,21 @@ let rec validate_select_query_full ~forbidden_ctes ~available_ctes = function
         compound.right_types
     in
     let%bind () =
-      validate_select_query_full ~forbidden_ctes ~available_ctes compound.left
+      validate_select_query_full
+        ~outer_visible
+        ~forbidden_ctes
+        ~available_ctes
+        compound.left
     in
-    validate_select_query_full ~forbidden_ctes ~available_ctes compound.right
+    validate_select_query_full
+      ~outer_visible
+      ~forbidden_ctes
+      ~available_ctes
+      compound.right
 
 and validate_select_full
-      ?(outer_visible = [])
-      ?(allow_empty = false)
+      ~outer_visible
+      ~allow_empty
       ~forbidden_ctes
       ~available_ctes
       select
@@ -565,13 +626,13 @@ and validate_select_full
       let%bind () = result in
       validate_source_full ~forbidden_ctes ~available_ctes join.Ast.source)
   in
-  let validate_subquery ~outer_visible ~allow_empty select =
-    validate_select_full
+  let validate_subquery ~outer_visible ~allow_empty query =
+    validate_select_query_full
       ~forbidden_ctes
       ~available_ctes
       ~outer_visible
       ~allow_empty
-      select
+      query
   in
   validate_select_with ~validate_subquery ~outer_visible ~allow_empty select
 
@@ -665,13 +726,13 @@ and validate_recursive_step ~forbidden_ctes ~available_ctes ~cte_id step =
           validate_source_full ~forbidden_ctes ~available_ctes source
       in
       let%bind () = List.fold sources ~init:(Ok ()) ~f:validate_source in
-      let validate_subquery ~outer_visible ~allow_empty select =
-        validate_select_full
+      let validate_subquery ~outer_visible ~allow_empty query =
+        validate_select_query_full
           ~forbidden_ctes
           ~available_ctes
           ~outer_visible
           ~allow_empty
-          select
+          query
       in
       validate_select_with ~validate_subquery ~outer_visible:[] ~allow_empty:false select)
 
@@ -681,13 +742,13 @@ and validate_returning_full ~forbidden_ctes ~available_ctes returning =
     validate_command_full ~forbidden_ctes ~available_ctes returning.Ast.command
   in
   let visible = [ returning.command.source.source_id ] in
-  let validate_subquery ~outer_visible ~allow_empty select =
-    validate_select_full
+  let validate_subquery ~outer_visible ~allow_empty query =
+    validate_select_query_full
       ~forbidden_ctes
       ~available_ctes
       ~outer_visible
       ~allow_empty
-      select
+      query
   in
   validate_expressions ~validate_subquery ~visible returning.projection
 
@@ -702,13 +763,13 @@ and validate_command_full ~forbidden_ctes ~available_ctes command =
       let%bind () = result in
       validate_source_full ~forbidden_ctes ~available_ctes source)
   in
-  let validate_subquery ~outer_visible ~allow_empty select =
-    validate_select_full
+  let validate_subquery ~outer_visible ~allow_empty query =
+    validate_select_query_full
       ~forbidden_ctes
       ~available_ctes
       ~outer_visible
       ~allow_empty
-      select
+      query
   in
   validate_command_with ~validate_subquery command
 ;;
@@ -723,12 +784,8 @@ let result_query = function
     in
     if List.is_empty returning.projection then
       Error Compile_error.Empty_projection
-    else (
-      let visible = [ returning.command.source.source_id ] in
-      validate_expressions
-        ~validate_subquery:validate_select
-        ~visible
-        returning.projection)
+    else
+      Ok ()
 ;;
 
 let command command = validate_command_full ~forbidden_ctes:[] ~available_ctes:[] command

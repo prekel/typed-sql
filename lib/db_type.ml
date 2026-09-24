@@ -19,8 +19,14 @@ type _ t =
       ; id : int
       }
       -> 'b t
+  | Json_result_type :
+      { fields : packed list
+      ; decode_json : path:int list -> Yojson.Safe.t -> ('a, string) Result.t
+      }
+      -> 'a t
 
-type packed = Pack : 'a t -> packed
+and packed = Pack : 'a t -> packed
+
 type packed_value = Value : 'a t * 'a -> packed_value
 
 type _ view =
@@ -66,6 +72,7 @@ let rec name : type a. a t -> string = function
   | Uuid_type -> "uuid"
   | Option_type typ -> "option(" ^ name typ ^ ")"
   | Map_type mapping -> mapping.name
+  | Json_result_type _ -> "multiset"
 ;;
 
 let map ?name:custom_name ~encode ~decode repr =
@@ -86,6 +93,39 @@ let rec fingerprint : type a. a t -> string = function
   | Uuid_type -> "uuid"
   | Option_type typ -> "option(" ^ fingerprint typ ^ ")"
   | Map_type { repr; id; _ } -> "map#" ^ Int.to_string id ^ "(" ^ fingerprint repr ^ ")"
+  | Json_result_type { fields; _ } ->
+    let fields =
+      List.map fields ~f:(fun (Pack field) -> fingerprint field) |> String.concat ~sep:","
+    in
+    "multiset(" ^ fields ^ ")"
+;;
+
+let json_error message = Error ("invalid multiset JSON: " ^ message)
+let json_result ~fields ~decode_json = Json_result_type { fields; decode_json }
+
+let is_json_result : type a. a t -> bool = function
+  | Json_result_type _ -> true
+  | _ -> false
+;;
+
+let rec unsupported_multiset_type
+  : type a. path:int list -> a t -> (int list * string) option
+  =
+  fun ~path -> function
+  | Bytes_type -> Some (path, "bytes")
+  | Option_type typ -> unsupported_multiset_type ~path typ
+  | Map_type { repr; _ } -> unsupported_multiset_type ~path repr
+  | Json_result_type { fields; _ } ->
+    List.find_mapi fields ~f:(fun index (Pack field) ->
+      unsupported_multiset_type ~path:(path @ [ index + 1 ]) field)
+  | Bool_type
+  | Int_type
+  | Int64_type
+  | Float_type
+  | Text_type
+  | Date_type
+  | Timestamp_type
+  | Uuid_type -> None
 ;;
 
 let view : type a. a t -> a view = function
@@ -100,4 +140,14 @@ let view : type a. a t -> a view = function
   | Uuid_type -> Uuid
   | Option_type typ -> Option typ
   | Map_type { repr; encode; decode; name; _ } -> Map { repr; encode; decode; name }
+  | Json_result_type { decode_json; _ } ->
+    Map
+      { repr = Text_type
+      ; encode = (fun _ -> Error "multiset values are result-only")
+      ; decode =
+          (fun value ->
+            try Yojson.Safe.from_string value |> decode_json ~path:[] with
+            | Yojson.Json_error message -> json_error message)
+      ; name = "multiset"
+      }
 ;;
