@@ -575,8 +575,11 @@ PostgreSQL-возможностями. Portable approximation с другой с
 
 - [ ] Измерить execution overhead на SQLite и PostgreSQL отдельно от уже
   измеренного compiler overhead;
-- [ ] Добавить server-side prepared cache в adapters только при подтверждённом
-  выигрыше и с явным lifecycle на connection;
+- [x] Проверить server-side prepared cache в adapters: Caqti уже кэширует
+  `Request.Dynamic` на connection для PostgreSQL и SQLite; PG'OCaml получил
+  явный ограниченный кэш с `close`. Замер PostgreSQL 18.6 для 2000 повторов
+  показал 1,96× через adapter (0,510 с против 0,260 с). Результат зависит от
+  запроса и окружения;
 - [ ] Определить отдельный `Unsafe`/`Raw_sql` API с typed bind fragments, когда
   появится запрос, который нельзя выразить descriptors. Выбранные рамки и
   открытые решения записаны в [ADR 0002](adr/0002-raw-sql-escape-hatch.md);

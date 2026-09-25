@@ -52,6 +52,8 @@ type error =
       { kind : constraint_kind
       ; message : string
       }
+  | Invalid_cache_capacity of int
+  | Prepared_cache_closed
   | Pgocaml of exn
 
 let error_to_string = function
@@ -80,6 +82,9 @@ let error_to_string = function
       | Other -> "integrity"
     in
     kind ^ " constraint violation: " ^ message
+  | Invalid_cache_capacity capacity ->
+    "prepared cache capacity must be positive, got " ^ Int.to_string capacity
+  | Prepared_cache_closed -> "prepared cache is closed"
   | Pgocaml error -> Exn.to_string error
 ;;
 
@@ -263,28 +268,143 @@ let decode_row projection row =
     Error ("row has " ^ Int.to_string (List.length remaining) ^ " unexpected column(s)")
 ;;
 
-let run_sql ~conn ~sql ~parameters =
+module Prepared_cache_internal = struct
+  type entry =
+    { key : string
+    ; name : string
+    }
+
+  type 'connection t =
+    { conn : 'connection Pgocaml.t
+    ; capacity : int
+    ; id : int
+    ; mutable next_name : int
+    ; mutable entries : entry list
+    ; mutable closed : bool
+    ; mutex : Lwt_mutex.t
+    }
+
+  let next_id = Stdlib.Atomic.make 0
+
+  let create ?(capacity = 32) ~conn () =
+    if capacity <= 0 then
+      Error (Invalid_cache_capacity capacity)
+    else
+      Ok
+        { conn
+        ; capacity
+        ; id = Stdlib.Atomic.fetch_and_add next_id 1
+        ; next_name = 0
+        ; entries = []
+        ; closed = false
+        ; mutex = Lwt_mutex.create ()
+        }
+  ;;
+
+  let key sql types =
+    Int.to_string (String.length sql)
+    ^ ":"
+    ^ sql
+    ^ String.concat ~sep:"," (List.map types ~f:(fun oid -> Int32.to_string oid))
+  ;;
+
+  let rec find_and_promote key before = function
+    | [] -> None
+    | entry :: after when String.equal entry.key key ->
+      Some (entry, entry :: List.rev_append before after)
+    | entry :: after -> find_and_promote key (entry :: before) after
+  ;;
+
+  let evict_lru cache =
+    match List.rev cache.entries with
+    | [] -> Lwt.return_unit
+    | last :: rest ->
+      let open Lwt.Syntax in
+      let* () = Pgocaml.close_statement cache.conn ~name:last.name () in
+      cache.entries <- List.rev rest;
+      Lwt.return_unit
+  ;;
+
+  let execute cache ~sql ~types ~params =
+    Lwt_mutex.with_lock cache.mutex (fun () ->
+      if cache.closed then
+        Lwt.return (Error Prepared_cache_closed)
+      else
+        Lwt.catch
+          (fun () ->
+             let open Lwt.Syntax in
+             let key = key sql types in
+             let* name =
+               match find_and_promote key [] cache.entries with
+               | Some (entry, entries) ->
+                 cache.entries <- entries;
+                 Lwt.return entry.name
+               | None ->
+                 let* () =
+                   if List.length cache.entries >= cache.capacity then
+                     evict_lru cache
+                   else
+                     Lwt.return_unit
+                 in
+                 let name =
+                   Stdlib.Printf.sprintf "typed_sql_%d_%d" cache.id cache.next_name
+                 in
+                 cache.next_name <- cache.next_name + 1;
+                 let* () = Pgocaml.prepare cache.conn ~name ~query:sql ~types () in
+                 cache.entries <- { key; name } :: cache.entries;
+                 Lwt.return name
+             in
+             let* rows = Pgocaml.execute cache.conn ~name ~params () in
+             Lwt.return (Ok rows))
+          (fun exn -> Lwt.return (Error (error_of_exn exn))))
+  ;;
+
+  let close cache =
+    Lwt_mutex.with_lock cache.mutex (fun () ->
+      let rec loop () =
+        match cache.entries with
+        | [] ->
+          cache.closed <- true;
+          Lwt.return (Ok ())
+        | entry :: rest ->
+          Lwt.catch
+            (fun () ->
+               let open Lwt.Syntax in
+               let* () = Pgocaml.close_statement cache.conn ~name:entry.name () in
+               cache.entries <- rest;
+               loop ())
+            (fun exn -> Lwt.return (Error (error_of_exn exn)))
+      in
+      loop ())
+  ;;
+end
+
+let run_sql ?prepared_cache ~conn ~sql ~parameters () =
   match encode_parameters parameters with
   | Error message -> Lwt.return (Error (Encode message))
   | Ok params ->
-    Lwt.catch
-      (fun () ->
-         let open Lwt.Syntax in
-         let* () =
-           Pgocaml.prepare conn ~query:sql ~types:(parameter_oids parameters) ()
-         in
-         let* rows = Pgocaml.execute conn ~params () in
-         Lwt.return (Ok rows))
-      (fun error -> Lwt.return (Error (error_of_exn error)))
+    let types = parameter_oids parameters in
+    (match prepared_cache with
+     | Some cache -> Prepared_cache_internal.execute cache ~sql ~types ~params
+     | None ->
+       Lwt.catch
+         (fun () ->
+            let open Lwt.Syntax in
+            let* () = Pgocaml.prepare conn ~query:sql ~types () in
+            let* rows = Pgocaml.execute conn ~params () in
+            Lwt.return (Ok rows))
+         (fun error -> Lwt.return (Error (error_of_exn error))))
 ;;
 
-let fetch_compiled ~conn compiled =
+let fetch_compiled ?prepared_cache ~conn compiled =
   let open Lwt.Syntax in
   let* rows =
     run_sql
+      ?prepared_cache
       ~conn
       ~sql:(Typed_sql_backend.Compiled_query.sql compiled)
       ~parameters:(Typed_sql_backend.Compiled_query.parameters compiled)
+      ()
   in
   match rows with
   | Error error -> Lwt.return (Error error)
@@ -295,13 +415,15 @@ let fetch_compiled ~conn compiled =
     |> Lwt.return
 ;;
 
-let execute_compiled ~conn compiled =
+let execute_compiled ?prepared_cache ~conn compiled =
   let open Lwt.Syntax in
   let* rows =
     run_sql
+      ?prepared_cache
       ~conn
       ~sql:(Typed_sql_backend.Compiled_command.sql compiled)
       ~parameters:(Typed_sql_backend.Compiled_command.parameters compiled)
+      ()
   in
   match rows with
   | Error error -> Lwt.return (Error error)
@@ -330,14 +452,15 @@ let apply_cardinality
      | rows -> Error (Cardinality { expected = "at most one"; actual = List.length rows }))
 ;;
 
-let run
+let run_with_cache
   : type input output requirements connection.
-    conn:connection Pgocaml.t
+    ?prepared_cache:connection Prepared_cache_internal.t
+    -> conn:connection Pgocaml.t
     -> (input, output, requirements) Typed_sql.Statement.t
     -> input
     -> (output, error) Result.t Lwt.t
   =
-  fun ~conn statement input ->
+  fun ?prepared_cache ~conn statement input ->
   match
     Typed_sql_backend.Statement.resolve
       ~dialect:Typed_sql.Dialect.Postgresql
@@ -354,13 +477,23 @@ let run
     Lwt.return (Error (Compile error))
   | Ok (Typed_sql_backend.Statement.Query_execution { cardinality; compiled }) ->
     let open Lwt.Syntax in
-    let* result = fetch_compiled ~conn compiled in
+    let* result = fetch_compiled ?prepared_cache ~conn compiled in
     (match result with
      | Error error -> Lwt.return (Error error)
      | Ok rows -> Lwt.return (apply_cardinality cardinality rows))
   | Ok (Typed_sql_backend.Statement.Command_execution compiled) ->
-    execute_compiled ~conn compiled
+    execute_compiled ?prepared_cache ~conn compiled
 ;;
+
+let run ~conn statement input = run_with_cache ~conn statement input
+
+module Prepared_cache = struct
+  include Prepared_cache_internal
+
+  let run cache statement input =
+    run_with_cache ~prepared_cache:cache ~conn:cache.conn statement input
+  ;;
+end
 
 let transaction ~conn ~f =
   let open Lwt.Syntax in

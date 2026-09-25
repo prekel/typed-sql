@@ -427,6 +427,123 @@ let test_transactions conn =
   Lwt.return_unit
 ;;
 
+let prepared_count conn =
+  let* rows =
+    Pgocaml.inject
+      conn
+      "SELECT count(*)::bigint FROM pg_prepared_statements WHERE name LIKE 'typed_sql_%'"
+  in
+  match rows with
+  | [ [ Some count ] ] -> Lwt.return (Int.of_string count)
+  | _ -> failwith "unexpected pg_prepared_statements result"
+;;
+
+let test_prepared_cache conn =
+  (match Adapter.Prepared_cache.create ~capacity:0 ~conn () with
+   | Error (Adapter.Invalid_cache_capacity 0) -> ()
+   | _ -> failwith "invalid prepared cache capacity was accepted");
+  let* cache = Adapter.Prepared_cache.create ~capacity:2 ~conn () |> or_fail in
+  let int_statement =
+    Statement.For_dialect.query_one_exn ~dialect:Dialect.postgresql (fun params ->
+      Query.select_one (params.expr ~name:"value" Db_type.int64 ~get:Fn.id))
+  in
+  let text_statement =
+    Statement.For_dialect.query_one_exn ~dialect:Dialect.postgresql (fun params ->
+      Query.select_one (params.expr ~name:"value" Db_type.text ~get:Fn.id))
+  in
+  let upper_statement =
+    Statement.For_dialect.query_one_exn ~dialect:Dialect.postgresql (fun params ->
+      Query.select_one (Expr.upper (params.expr ~name:"value" Db_type.text ~get:Fn.id)))
+  in
+  let* first = Adapter.Prepared_cache.run cache int_statement 11L >>= or_fail in
+  let* second = Adapter.Prepared_cache.run cache int_statement 12L >>= or_fail in
+  if not (Int64.(first = 11L) && Int64.(second = 12L)) then
+    failwith "cached int64 parameters were reused incorrectly";
+  let* concurrent_left, concurrent_right =
+    Lwt.both
+      (Adapter.Prepared_cache.run cache int_statement 21L >>= or_fail)
+      (Adapter.Prepared_cache.run cache int_statement 22L >>= or_fail)
+  in
+  if not (Int64.(concurrent_left = 21L) && Int64.(concurrent_right = 22L)) then
+    failwith "concurrent cached calls mixed parameter values";
+  let* count = prepared_count conn in
+  if not (Int.equal count 1) then
+    failwith "cache did not reuse a prepared statement";
+  let* text = Adapter.Prepared_cache.run cache text_statement "text" >>= or_fail in
+  if not (String.equal text "text") then
+    failwith "cache mixed parameter types";
+  let* count = prepared_count conn in
+  if not (Int.equal count 2) then
+    failwith "cache did not distinguish parameter OIDs";
+  let* _ = Adapter.Prepared_cache.run cache int_statement 13L >>= or_fail in
+  let* upper = Adapter.Prepared_cache.run cache upper_statement "abc" >>= or_fail in
+  if not (String.equal upper "ABC") then
+    failwith "cached SQL changed semantics";
+  let* count = prepared_count conn in
+  if not (Int.equal count 2) then
+    failwith "cache exceeded its capacity";
+  let* () = Adapter.Prepared_cache.close cache >>= or_fail in
+  let* () = Adapter.Prepared_cache.close cache >>= or_fail in
+  let* count = prepared_count conn in
+  if not (Int.equal count 0) then
+    failwith "cache close left server-side statements";
+  let* result = Adapter.Prepared_cache.run cache int_statement 14L in
+  (match result with
+   | Error Adapter.Prepared_cache_closed -> ()
+   | _ -> failwith "closed prepared cache accepted an execution");
+  let* transaction_cache =
+    Adapter.Prepared_cache.create ~capacity:1 ~conn () |> or_fail
+  in
+  let* rolled_back =
+    Adapter.transaction ~conn ~f:(fun _ ->
+      let* _ =
+        Adapter.Prepared_cache.run transaction_cache int_statement 51L >>= or_fail
+      in
+      Lwt.return (Error (Adapter.Cardinality { expected = "rollback probe"; actual = 0 })))
+  in
+  (match rolled_back with
+   | Error (Adapter.Cardinality { expected = "rollback probe"; _ }) -> ()
+   | _ -> failwith "transaction rollback probe failed");
+  let* after_rollback =
+    Adapter.Prepared_cache.run transaction_cache int_statement 52L >>= or_fail
+  in
+  if not Int64.(after_rollback = 52L) then
+    failwith "cached statement failed after rollback";
+  let* () = exec_sql conn "CREATE TABLE pgocaml_cached_items (id BIGINT PRIMARY KEY)" in
+  let cached_items : unit Table.t = Table.v_exn "pgocaml_cached_items" in
+  let cached_id = Column.v_exn cached_items "id" Db_type.int64 in
+  let insert =
+    Statement.For_dialect.command_exn ~dialect:Dialect.postgresql (fun params ->
+      let id = params.column ~name:"id" cached_id ~get:Fn.id in
+      Insert.(into cached_items |> set_expr cached_id id |> command))
+  in
+  let* _ = Adapter.Prepared_cache.run transaction_cache insert 1L >>= or_fail in
+  let* duplicate = Adapter.Prepared_cache.run transaction_cache insert 1L in
+  (match duplicate with
+   | Error (Adapter.Constraint_violation { kind = Adapter.Unique; _ }) -> ()
+   | _ -> failwith "cached command lost SQLSTATE classification");
+  let* () = Adapter.Prepared_cache.close transaction_cache >>= or_fail in
+  let* other_conn = Pgocaml.connect () in
+  Lwt.finalize
+    (fun () ->
+       let* count = prepared_count other_conn in
+       if not (Int.equal count 0) then
+         failwith "prepared statements leaked to another connection";
+       let* other_cache =
+         Adapter.Prepared_cache.create ~capacity:1 ~conn:other_conn () |> or_fail
+       in
+       let* value =
+         Adapter.Prepared_cache.run other_cache int_statement 33L >>= or_fail
+       in
+       if not Int64.(value = 33L) then
+         failwith "second connection cache failed";
+       let* count = prepared_count other_conn in
+       if not (Int.equal count 1) then
+         failwith "second connection did not retain its statement";
+       Adapter.Prepared_cache.close other_cache >>= or_fail)
+    (fun () -> Pgocaml.close other_conn)
+;;
+
 let main () =
   let* conn = Pgocaml.connect () in
   Lwt.finalize
@@ -447,6 +564,7 @@ let main () =
        let* () = test_transactions conn in
        let* () = test_queries conn in
        let* () = test_sqlstates conn in
+       let* () = test_prepared_cache conn in
        Lwt.return_unit)
     (fun () -> Pgocaml.close conn)
 ;;

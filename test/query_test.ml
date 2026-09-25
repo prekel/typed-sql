@@ -162,7 +162,8 @@ let%test_module "portable query rendering" =
       |> compile_exn Dialect.Postgresql
       |> Compiled_query.sql
       |> Stdlib.print_endline;
-      [%expect {|
+      [%expect
+        {|
         SELECT
           t0."id",
           t0."name"
@@ -184,7 +185,8 @@ let%test_module "portable query rendering" =
       |> compile_exn Dialect.Sqlite
       |> Compiled_query.sql
       |> Stdlib.print_endline;
-      [%expect {|
+      [%expect
+        {|
         SELECT
           t0."id",
           t0."name"
@@ -206,7 +208,8 @@ let%test_module "portable query rendering" =
       |> compile_exn Dialect.Postgresql
       |> Compiled_query.sql
       |> Stdlib.print_endline;
-      [%expect {|
+      [%expect
+        {|
         SELECT
           t0."name",
           CAST((SELECT COALESCE(JSONB_AGG(JSONB_BUILD_ARRAY(m0."v0")), JSONB_BUILD_ARRAY())
@@ -229,7 +232,8 @@ let%test_module "portable query rendering" =
       |> compile_exn Dialect.Sqlite
       |> Compiled_query.sql
       |> Stdlib.print_endline;
-      [%expect {|
+      [%expect
+        {|
         SELECT
           t0."name",
           (SELECT COALESCE(JSON_GROUP_ARRAY(JSON_ARRAY(m0."v0")), JSON_ARRAY())
@@ -252,7 +256,8 @@ let%test_module "portable query rendering" =
       |> compile_exn Dialect.Postgresql
       |> Compiled_query.sql
       |> Stdlib.print_endline;
-      [%expect {|
+      [%expect
+        {|
         SELECT
           CAST(
             COALESCE(
@@ -278,7 +283,8 @@ let%test_module "portable query rendering" =
       |> compile_exn Dialect.Sqlite
       |> Compiled_query.sql
       |> Stdlib.print_endline;
-      [%expect {|
+      [%expect
+        {|
         SELECT
           COALESCE(
             JSON_GROUP_ARRAY(
@@ -301,7 +307,8 @@ let%test_module "portable query rendering" =
       |> compile_exn Dialect.Postgresql
       |> Compiled_query.sql
       |> Stdlib.print_endline;
-      [%expect {|
+      [%expect
+        {|
         SELECT
           CAST(
             COALESCE(
@@ -332,7 +339,8 @@ let%test_module "portable query rendering" =
       |> compile_exn Dialect.Sqlite
       |> Compiled_query.sql
       |> Stdlib.print_endline;
-      [%expect {|
+      [%expect
+        {|
         SELECT
           COALESCE(
             JSON_GROUP_ARRAY(
@@ -495,7 +503,8 @@ let%expect_test "infix comparison operators render in source order" =
       |> select Person.projection)
   in
   query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."id",
       t0."name",
@@ -565,7 +574,8 @@ let%expect_test "identifiers are always quoted" =
       |> select (fun reference -> Projection.expr (Expr.column reference column)))
   in
   query |> compile_exn Dialect.Postgresql |> Compiled_query.sql |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."quoted""name"
     FROM "select" AS t0
@@ -601,7 +611,8 @@ let%expect_test "inner joins use deterministic aliases" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."id",
       t1."name"
@@ -616,7 +627,8 @@ let%expect_test "left joins make the nullable side explicit" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."id",
       t1."name"
@@ -661,7 +673,8 @@ let%expect_test "INSERT RETURNING renders portably" =
   |> compile_result_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     INSERT INTO "public"."people" (
       "id",
       "name"
@@ -678,7 +691,8 @@ let%expect_test "UPDATE renders through the SQLite command path" =
   |> compile_command_exn Dialect.Sqlite
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     UPDATE "public"."people"
     SET
       "name" = ?1
@@ -772,7 +786,8 @@ let%expect_test "multi-row INSERT renders in PostgreSQL" =
   |> compile_command_exn Dialect.Postgresql
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     INSERT INTO "public"."people" (
       "id",
       "name"
@@ -788,7 +803,8 @@ let%expect_test "multi-row INSERT renders in SQLite" =
   |> compile_command_exn Dialect.Sqlite
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     INSERT INTO "public"."people" (
       "id",
       "name"
@@ -804,7 +820,8 @@ let%expect_test "INSERT DEFAULT renders in PostgreSQL" =
   |> compile_default_command_exn
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     INSERT INTO "public"."people" (
       "id",
       "name"
@@ -819,7 +836,8 @@ let%expect_test "unscoped ON CONFLICT DO NOTHING renders in PostgreSQL" =
   |> compile_command_exn Dialect.Postgresql
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     INSERT INTO "public"."people" (
       "id"
     )
@@ -834,7 +852,8 @@ let%expect_test "targeted ON CONFLICT DO NOTHING renders in PostgreSQL" =
   |> compile_command_exn Dialect.Postgresql
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     INSERT INTO "public"."people" (
       "id"
     )
@@ -852,7 +871,8 @@ let%expect_test "UPDATE conflict action renders in PostgreSQL" =
   |> compile_result_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     INSERT INTO "public"."people" AS t0 (
       "id",
       "name"
@@ -877,7 +897,8 @@ let%expect_test "UPDATE conflict action renders in SQLite" =
   |> compile_result_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     INSERT INTO "public"."people" AS t0 (
       "id",
       "name"
@@ -902,7 +923,8 @@ let%expect_test "unscoped ON CONFLICT DO NOTHING renders in SQLite" =
   |> compile_command_exn Dialect.Sqlite
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     INSERT INTO "public"."people" (
       "id"
     )
@@ -917,7 +939,8 @@ let%expect_test "UPDATE FROM renders in PostgreSQL" =
   |> compile_command_exn Dialect.Postgresql
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     UPDATE "public"."people" AS t0
     SET
       "name" = t1."name"
@@ -932,7 +955,8 @@ let%expect_test "UPDATE FROM renders in SQLite" =
   |> compile_command_exn Dialect.Sqlite
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     UPDATE "public"."people" AS t0
     SET
       "name" = t1."name"
@@ -947,7 +971,8 @@ let%expect_test "UPDATE DEFAULT renders in PostgreSQL" =
   |> compile_default_command_exn
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     UPDATE "public"."people"
     SET
       "name" = DEFAULT
@@ -1031,7 +1056,8 @@ let%expect_test "conditional UPDATE assignments distinguish omission from NULL" 
   |> compile_command_exn Dialect.Sqlite
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     UPDATE "public"."people"
     SET
       "nickname" = ?1,
@@ -1064,7 +1090,8 @@ let%expect_test "portable predicates and CASE render in PostgreSQL" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       (CASE
         WHEN (t0."name" = $1) THEN UPPER(t0."name")
@@ -1091,7 +1118,8 @@ let%expect_test "portable predicates and CASE render in SQLite" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       (CASE
         WHEN (t0."name" = ?1) THEN UPPER(t0."name")
@@ -1157,7 +1185,8 @@ let%expect_test "typed arithmetic renders in PostgreSQL" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       (t0."id" + $1),
       (t0."id" - $2),
@@ -1180,7 +1209,8 @@ let%expect_test "typed arithmetic renders in SQLite" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       (t0."id" + ?1),
       (t0."id" - ?2),
@@ -1217,7 +1247,8 @@ let%expect_test "empty IN list normalizes to false" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."id",
       t0."name",
@@ -1233,7 +1264,8 @@ let%expect_test "empty NOT IN list removes its predicate" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."id",
       t0."name",
@@ -1268,7 +1300,8 @@ let%expect_test "DISTINCT renders in PostgreSQL" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT DISTINCT
       t0."name"
     FROM "public"."people" AS t0
@@ -1280,7 +1313,8 @@ let%expect_test "DISTINCT renders in SQLite" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT DISTINCT
       t0."name"
     FROM "public"."people" AS t0
@@ -1292,7 +1326,8 @@ let%expect_test "grouped aggregates render in PostgreSQL" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."name",
       COUNT(t0."id"),
@@ -1312,7 +1347,8 @@ let%expect_test "grouped aggregates render in SQLite" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."name",
       COUNT(t0."id"),
@@ -1376,7 +1412,8 @@ let%expect_test "aggregate_one summarizes filtered rows in PostgreSQL" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       COUNT(*),
       SUM(t0."quantity"),
@@ -1392,7 +1429,8 @@ let%expect_test "aggregate_one summarizes filtered rows in SQLite" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       COUNT(*),
       SUM(t0."quantity"),
@@ -1408,7 +1446,8 @@ let%expect_test "grouped SUM and MIN render in PostgreSQL" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."region",
       SUM(t0."unit_price"),
@@ -1424,7 +1463,8 @@ let%expect_test "grouped SUM and MIN render in SQLite" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."region",
       SUM(t0."unit_price"),
@@ -1440,7 +1480,8 @@ let%expect_test "PostgreSQL numeric SUM and MAX preserve numeric SQL" =
   |> compile_postgresql_exn
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       SUM(t0."amount"),
       MAX(t0."amount")
@@ -1453,7 +1494,8 @@ let%expect_test "correlated SUM subquery renders in SQLite" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."name",
       (
@@ -1496,7 +1538,8 @@ let%expect_test "scalar fallback renders without FROM in PostgreSQL" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       COALESCE((
         SELECT
@@ -1514,7 +1557,8 @@ let%expect_test "scalar fallback renders without FROM in SQLite" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       COALESCE((
         SELECT
@@ -1538,7 +1582,8 @@ let%expect_test "source-free UNION ALL renders in PostgreSQL" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT *
     FROM (
       SELECT
@@ -1558,7 +1603,8 @@ let%expect_test "source-free UNION ALL renders in SQLite" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT *
     FROM (
       SELECT
@@ -1594,7 +1640,8 @@ let%expect_test "source-free SELECT with CTE renders in PostgreSQL" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     WITH
       "c0" (
         "id"
@@ -1617,7 +1664,8 @@ let%expect_test "source-free SELECT with CTE renders in SQLite" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     WITH
       "c0" (
         "id"
@@ -1675,7 +1723,8 @@ let%expect_test "aggregate COALESCE renders in PostgreSQL" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       COALESCE(COUNT(*), $1)
     FROM "public"."people" AS t0
@@ -1687,7 +1736,8 @@ let%expect_test "aggregate COALESCE renders in SQLite" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       COALESCE(COUNT(*), ?1)
     FROM "public"."people" AS t0
@@ -1708,7 +1758,8 @@ let%expect_test "COALESCE inside an aggregate renders in PostgreSQL" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       COUNT(COALESCE(t0."nickname", $1))
     FROM "public"."people" AS t0
@@ -1720,7 +1771,8 @@ let%expect_test "COALESCE inside an aggregate renders in SQLite" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       COUNT(COALESCE(t0."nickname", ?1))
     FROM "public"."people" AS t0
@@ -1742,7 +1794,8 @@ let%expect_test "grouped COALESCE renders in PostgreSQL" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       COALESCE(t0."nickname", t0."name")
     FROM "public"."people" AS t0
@@ -1756,7 +1809,8 @@ let%expect_test "grouped COALESCE renders in SQLite" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       COALESCE(t0."nickname", t0."name")
     FROM "public"."people" AS t0
@@ -1816,7 +1870,8 @@ let%expect_test "lowered GROUP BY expression is portable to PostgreSQL" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       LOWER(t0."name"),
       COUNT(*)
@@ -1833,7 +1888,8 @@ let%expect_test "lowered GROUP BY expression is portable to SQLite" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       LOWER(t0."name"),
       COUNT(*)
@@ -1850,7 +1906,8 @@ let%expect_test "arithmetic GROUP BY expression is portable to PostgreSQL" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       (t0."id" + t0."id"),
       COUNT(*)
@@ -1865,7 +1922,8 @@ let%expect_test "arithmetic GROUP BY expression is portable to SQLite" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       (t0."id" + t0."id"),
       COUNT(*)
@@ -1880,7 +1938,8 @@ let%expect_test "concatenated GROUP BY expression is portable to PostgreSQL" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       (t0."name" || t0."name"),
       COUNT(*)
@@ -1895,7 +1954,8 @@ let%expect_test "concatenated GROUP BY expression is portable to SQLite" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       (t0."name" || t0."name"),
       COUNT(*)
@@ -2030,7 +2090,8 @@ let%expect_test "correlated subqueries render in PostgreSQL" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."name",
       (
@@ -2065,7 +2126,8 @@ let%expect_test "correlated subqueries render in SQLite" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."name",
       (
@@ -2144,7 +2206,8 @@ let%expect_test "zero-limit scalar subquery renders in PostgreSQL" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       (
         SELECT
@@ -2161,7 +2224,8 @@ let%expect_test "aggregate scalar subquery renders in SQLite" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       (
         SELECT
@@ -2183,7 +2247,8 @@ let%expect_test "empty CASE normalizes to its else expression" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."name"
     FROM "public"."people" AS t0
@@ -2212,7 +2277,8 @@ let%expect_test "HAVING establishes aggregate context" =
    | Error error -> failwith (Compile_error.to_string error) )
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       $1
     FROM "public"."people" AS t0
@@ -2297,7 +2363,8 @@ let%expect_test "negated subqueries render explicitly" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."id",
       t0."name",
@@ -2338,7 +2405,8 @@ let%expect_test "current timestamp renders in PostgreSQL SELECT" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."occurred_at"
     FROM "public"."events" AS t0
@@ -2352,7 +2420,8 @@ let%expect_test "current timestamp renders in SQLite SELECT" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."occurred_at"
     FROM "public"."events" AS t0
@@ -2366,7 +2435,8 @@ let%expect_test "current timestamp renders in PostgreSQL INSERT" =
   |> compile_command_exn Dialect.Postgresql
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     INSERT INTO "public"."events" (
       "occurred_at"
     )
@@ -2389,7 +2459,8 @@ let%expect_test "calendar date renders in PostgreSQL" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."calendar_date"
     FROM "public"."calendar_days" AS t0
@@ -2403,7 +2474,8 @@ let%expect_test "calendar date renders in SQLite" =
   |> compile_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."calendar_date"
     FROM "public"."calendar_days" AS t0
@@ -2426,7 +2498,8 @@ let%expect_test "UUID renders in PostgreSQL" =
   |> compile_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."external_id"
     FROM "public"."resources" AS t0
@@ -2437,7 +2510,8 @@ let%expect_test "UUID renders in PostgreSQL" =
 
 let%expect_test "UUID renders in SQLite" =
   uuid_query |> compile_exn Dialect.Sqlite |> Compiled_query.sql |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."external_id"
     FROM "public"."resources" AS t0

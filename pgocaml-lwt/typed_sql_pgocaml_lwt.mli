@@ -36,6 +36,9 @@ type error =
       { kind : constraint_kind
       ; message : string
       } (** PostgreSQL reported an integrity-constraint SQLSTATE. *)
+  | Invalid_cache_capacity of int
+  (** [Prepared_cache.create] requires a positive capacity. *)
+  | Prepared_cache_closed (** A closed prepared cache cannot execute more statements. *)
   | Pgocaml of exn
   (** PG'OCaml raised an exception while communicating with PostgreSQL. *)
 
@@ -52,6 +55,33 @@ val run
   -> ('input, 'output, [< `Postgresql ]) Typed_sql.Statement.t
   -> 'input
   -> ('output, error) Result.t Lwt.t
+
+(** An opt-in cache of named PostgreSQL prepared statements. It belongs to one
+    PG'OCaml connection and is bounded by [capacity]. Create a new cache for a
+    new connection; call [close] before closing the connection. Closing is
+    idempotent and releases cached statements on the server. *)
+module Prepared_cache : sig
+  type 'connection t
+
+  val create
+    :  ?capacity:int
+    -> conn:'connection Pgocaml.t
+    -> unit
+    -> ('connection t, error) Result.t
+
+  (** Execute a statement using a prepared handle keyed by its SQL and ordered
+      PostgreSQL parameter types. An LRU entry is closed before replacement.
+      Reusing a cache after schema changes may require closing it and creating
+      a new one. *)
+  val run
+    :  'connection t
+    -> ('input, 'output, [< `Postgresql ]) Typed_sql.Statement.t
+    -> 'input
+    -> ('output, error) Result.t Lwt.t
+
+  (** Release prepared handles without closing the underlying connection. *)
+  val close : 'connection t -> (unit, error) Result.t Lwt.t
+end
 
 (** Run [f] in a PostgreSQL transaction. [Ok] commits and [Error] rolls back.
     Raised PostgreSQL errors are classified after rollback. *)

@@ -173,7 +173,8 @@ let%expect_test "version 1 table and column wire format" =
       ]
   in
   Stdlib.print_string (Schema_snapshot.to_string schema);
-  [%expect {|
+  [%expect
+    {|
     {
       "version": 1,
       "tables": [

@@ -47,7 +47,8 @@ let%test_module "conditional UPSERT rendering" =
       |> ok
       |> Compiled_query.sql
       |> Stdlib.print_endline;
-      [%expect {|
+      [%expect
+        {|
         INSERT INTO "excluded" AS t0 (
           "id",
           "name"
@@ -79,7 +80,8 @@ let%test_module "conditional UPSERT rendering" =
       |> ok
       |> Compiled_query.sql
       |> Stdlib.print_endline;
-      [%expect {|
+      [%expect
+        {|
         INSERT INTO "excluded" AS t0 (
           "id",
           "name"
@@ -115,7 +117,8 @@ let%test_module "targeted DO NOTHING rendering" =
       |> ok
       |> Compiled_command.sql
       |> Stdlib.print_endline;
-      [%expect {|
+      [%expect
+        {|
         INSERT INTO "excluded" (
           "id",
           "name"
@@ -135,7 +138,8 @@ let%test_module "targeted DO NOTHING rendering" =
       |> ok
       |> Compiled_command.sql
       |> Stdlib.print_endline;
-      [%expect {|
+      [%expect
+        {|
         INSERT INTO "excluded" (
           "id",
           "name"
@@ -352,7 +356,8 @@ let%expect_test "conflict predicate lowers for PostgreSQL" =
   |> ok
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     INSERT INTO "excluded" AS t0 (
       "id",
       "name"
@@ -376,7 +381,8 @@ let%expect_test "conflict predicate lowers for SQLite" =
   |> ok
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     INSERT INTO "excluded" AS t0 (
       "id",
       "name"

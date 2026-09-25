@@ -61,7 +61,8 @@ let sql dialect predicate =
 
 let%expect_test "at least comparison uses PostgreSQL syntax" =
   Stdlib.print_endline (sql Dialect.Postgresql (At_least 3L));
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."id"
     FROM "people" AS t0
@@ -73,7 +74,8 @@ let%expect_test "at least comparison uses PostgreSQL syntax" =
 
 let%expect_test "at least comparison uses SQLite syntax" =
   Stdlib.print_endline (sql Dialect.Sqlite (At_least 3L));
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."id"
     FROM "people" AS t0
@@ -85,7 +87,8 @@ let%expect_test "at least comparison uses SQLite syntax" =
 
 let%expect_test "at most comparison uses PostgreSQL syntax" =
   Stdlib.print_endline (sql Dialect.Postgresql (At_most 9L));
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."id"
     FROM "people" AS t0
@@ -97,7 +100,8 @@ let%expect_test "at most comparison uses PostgreSQL syntax" =
 
 let%expect_test "at most comparison uses SQLite syntax" =
   Stdlib.print_endline (sql Dialect.Sqlite (At_most 9L));
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."id"
     FROM "people" AS t0

@@ -102,7 +102,8 @@ let%test "aggregate inside arithmetic retains exactly-one cardinality" =
 
 let%expect_test "portable scalar aggregates render in PostgreSQL" =
   Stdlib.print_endline (compile_sql Dialect.postgresql portable_aggregate);
-  [%expect {|
+  [%expect
+    {|
     SELECT
       SUM(t0."int_value"),
       SUM(t0."float_value"),
@@ -114,7 +115,8 @@ let%expect_test "portable scalar aggregates render in PostgreSQL" =
 
 let%expect_test "portable scalar aggregates render in SQLite" =
   Stdlib.print_endline (compile_sql Dialect.sqlite portable_aggregate);
-  [%expect {|
+  [%expect
+    {|
     SELECT
       SUM(t0."int_value"),
       SUM(t0."float_value"),
@@ -126,7 +128,8 @@ let%expect_test "portable scalar aggregates render in SQLite" =
 
 let%expect_test "PostgreSQL numeric aggregates keep their exact SQL types" =
   Stdlib.print_endline (compile_sql Dialect.postgresql numeric_aggregate);
-  [%expect {|
+  [%expect
+    {|
     SELECT
       SUM(t0."int64_value"),
       SUM(t0."numeric_value"),

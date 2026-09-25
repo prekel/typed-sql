@@ -134,7 +134,8 @@ let%test_unit "command statements bind runtime expressions" =
 let%expect_test "optional parameter predicate renders in PostgreSQL" =
   Stdlib.print_endline
     (Statement.sql_exn ~dialect:Dialect.Postgresql optional_filter_statement);
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."id"
     FROM "items" AS t0
@@ -149,7 +150,8 @@ let%expect_test "optional parameter predicate renders in PostgreSQL" =
 let%expect_test "optional parameter predicate renders in SQLite" =
   Stdlib.print_endline
     (Statement.sql_exn ~dialect:Dialect.Sqlite optional_filter_statement);
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."id"
     FROM "items" AS t0
@@ -570,7 +572,8 @@ let null_and_sort_query =
 
 let%expect_test "null checks and multiple sort keys render in PostgreSQL" =
   Stdlib.print_endline (sql Dialect.Postgresql null_and_sort_query);
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."id"
     FROM "items" AS t0
@@ -592,7 +595,8 @@ let%expect_test "null checks and multiple sort keys render in PostgreSQL" =
 
 let%expect_test "null checks and multiple sort keys render in SQLite" =
   Stdlib.print_endline (sql Dialect.Sqlite null_and_sort_query);
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."id"
     FROM "items" AS t0
@@ -747,7 +751,8 @@ let render_returning dialect query =
 
 let%expect_test "multi-assignment UPDATE RETURNING renders in PostgreSQL" =
   Stdlib.print_endline (render_returning Dialect.Postgresql updated_returning);
-  [%expect {|
+  [%expect
+    {|
     UPDATE "items"
     SET
       "id" = $1,
@@ -764,7 +769,8 @@ let%expect_test "multi-assignment UPDATE RETURNING renders in PostgreSQL" =
 
 let%expect_test "multi-assignment UPDATE RETURNING renders in SQLite" =
   Stdlib.print_endline (render_returning Dialect.Sqlite updated_returning);
-  [%expect {|
+  [%expect
+    {|
     UPDATE "items"
     SET
       "id" = ?1,
@@ -781,7 +787,8 @@ let%expect_test "multi-assignment UPDATE RETURNING renders in SQLite" =
 
 let%expect_test "DELETE RETURNING renders in PostgreSQL" =
   Stdlib.print_endline (render_returning Dialect.Postgresql deleted_returning);
-  [%expect {|
+  [%expect
+    {|
     DELETE FROM "items"
     WHERE
       (
@@ -795,7 +802,8 @@ let%expect_test "DELETE RETURNING renders in PostgreSQL" =
 
 let%expect_test "DELETE RETURNING renders in SQLite" =
   Stdlib.print_endline (render_returning Dialect.Sqlite deleted_returning);
-  [%expect {|
+  [%expect
+    {|
     DELETE FROM "items"
     WHERE
       (

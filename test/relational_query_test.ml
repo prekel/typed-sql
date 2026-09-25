@@ -78,7 +78,8 @@ let%expect_test "relation fields infer descriptors and stable SQL names" =
   |> compile_portable_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."field_1",
       t0."field_2"
@@ -127,7 +128,8 @@ let%expect_test "derived tables preserve relation columns and parameter order" =
   |> compile_portable_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT
       t0."id",
       t0."name"
@@ -190,7 +192,8 @@ let%expect_test "UNION ALL wraps branches with local ordering and limits" =
   |> compile_portable_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     SELECT *
     FROM (
       SELECT
@@ -358,7 +361,8 @@ let%expect_test "materialized CTEs expose typed relations" =
   |> compile_portable_exn Dialect.Postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     WITH
       "c0" (
         "id",
@@ -549,7 +553,8 @@ let%expect_test "PostgreSQL data-modifying CTEs can feed a SELECT" =
   |> compile_dialect_exn Dialect.postgresql
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     WITH
       "c0" (
         "id",
@@ -587,7 +592,8 @@ let%expect_test "PostgreSQL data-modifying CTE commands precede outer DML" =
   |> compile_dialect_command_exn Dialect.postgresql
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     WITH
       "c0" AS (
         UPDATE "public"."people"
@@ -783,7 +789,8 @@ let%expect_test "recursive CTEs render their typed self-reference" =
   |> compile_portable_exn Dialect.Sqlite
   |> Compiled_query.sql
   |> Stdlib.print_endline;
-  [%expect {|
+  [%expect
+    {|
     WITH RECURSIVE
       "c0" (
         "value"

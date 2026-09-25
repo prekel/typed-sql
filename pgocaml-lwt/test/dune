@@ -4,3 +4,8 @@
  (libraries base lwt.unix pgocaml typed-sql typed-sql-pgocaml-lwt)
  (preprocess
   (pps ppx_let)))
+
+(executable
+ (name prepare_bench)
+ (modules prepare_bench)
+ (libraries base lwt.unix pgocaml typed-sql typed-sql-pgocaml-lwt))

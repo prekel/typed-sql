@@ -429,6 +429,43 @@ PostgreSQL 18 (`pg_config`, `initdb`, `pg_ctl`, `createdb`, `psql`), opam-пак
 array codecs остаются за пределами portable API; вложенные коллекции проходят
 через JSON transport адаптера.
 
+### Prepared statements
+
+`Statement.t` хранит скомпилированную форму SQL в OCaml; подготовленный запрос
+базы данных живёт отдельно на конкретном connection. Caqti adapter создаёт
+`Request.Dynamic`: драйвер PostgreSQL подготавливает SQL при первом вызове и
+повторно использует его через кэш connection. Драйвер SQLite аналогично
+сохраняет `sqlite3_stmt` и выполняет его повторно после reset. Кэш Caqti
+ограничен: его стандартная ёмкость для dynamic requests — 32, она настраивается
+через `Caqti.Connect.Config.dynamic_prepare_capacity`.
+
+PG'OCaml `run` по умолчанию вызывает `prepare` для каждого выполнения.
+Для часто вызываемого statement можно создать явный кэш на одном connection:
+
+```ocaml
+let open Lwt.Syntax in
+let module Adapter = Typed_sql_pgocaml_lwt in
+let cache =
+  match Adapter.Prepared_cache.create ~capacity:32 ~conn () with
+  | Ok cache -> cache
+  | Error error -> failwith (Adapter.error_to_string error)
+in
+Lwt.finalize
+  (fun () -> Adapter.Prepared_cache.run cache statement input)
+  (fun () ->
+    let* closed = Adapter.Prepared_cache.close cache in
+    match closed with
+    | Ok () -> Lwt.return_unit
+    | Error error -> Lwt.fail_with (Adapter.error_to_string error))
+```
+
+Ключ кэша включает SQL и упорядоченные PostgreSQL-типы параметров. При
+вытеснении и `close` адаптер закрывает именованные statements на сервере.
+После изменения схемы создайте новый кэш; для нового connection также нужен
+новый кэш. Временный PostgreSQL 18.6 дал 1,96× для 2000 повторов простого
+запроса через PG'OCaml adapter (0,510 с без кэша, 0,260 с с кэшем). Повторить
+замер можно командой `TYPED_SQL_PREPARE_BENCH=1 make test-postgres`.
+
 `make coverage` измеряет реализацию `Typed_sql` через публичный API приложения:
 запускает public inline tests, QCheck properties и SQLite `:memory:` integration
 test. White-box tests и `typed-sql.backend` в этот прогон не входят. Порог равен

@@ -142,7 +142,8 @@ let%test_module "private query inspection" =
 
     let%expect_test "reconstructed query SQL" =
       Stdlib.print_endline (Compiled_query.sql compiled_rebuilt);
-      [%expect {|
+      [%expect
+        {|
         SELECT
           t0."id"
         FROM "items" AS t0
@@ -635,7 +636,8 @@ let%test_module "lowered DML rendering" =
 
     let%expect_test "PostgreSQL" =
       Stdlib.print_endline (render Dialect.Postgresql);
-      [%expect {|
+      [%expect
+        {|
         INSERT INTO "items" (
           "id"
         )
@@ -649,7 +651,8 @@ let%test_module "lowered DML rendering" =
 
     let%expect_test "SQLite" =
       Stdlib.print_endline (render Dialect.Sqlite);
-      [%expect {|
+      [%expect
+        {|
         INSERT INTO "items" (
           "id"
         )

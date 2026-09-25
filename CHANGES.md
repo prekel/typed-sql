@@ -1,12 +1,25 @@
 # История изменений
 
-## Не выпущено
+## 0.3.4 — 25 сентября 2026
 
 ### Добавлено
 
 - `Expr.coalesce` для замены SQL `NULL` значением по умолчанию и
   `Query.select_one` для scalar `SELECT` без `FROM` с кардинальностью
   `exactly_one`.
+- Воспроизводимый PostgreSQL 18 integration suite через Caqti и PG’OCaml;
+  portable SQL cases выполняются и сравниваются на PostgreSQL и SQLite.
+- Ограниченный PG’OCaml `Prepared_cache` с ключом по SQL и типам параметров,
+  LRU-вытеснением и явным освобождением statements на connection.
+- Привязка типа параметра в PostgreSQL `IS NULL`, устраняющая ошибку
+  `could not determine data type of parameter`.
+
+### Изменено
+
+- PostgreSQL 18.6 runtime-проверки и ограничения API задокументированы;
+  остальные major versions PostgreSQL пока не проверялись.
+- Повторное выполнение простого запроса через PG’OCaml `Prepared_cache` на
+  PostgreSQL 18.6 показало 1,96× ускорение в локальном benchmark.
 
 ## 0.3.3 — 25 сентября 2026
 

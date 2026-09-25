@@ -1436,10 +1436,38 @@ let with_connection uri f =
   Lwt.finalize (fun () -> f conn) (fun () -> Connection.disconnect ())
 ;;
 
+let test_caqti_prepared conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let request =
+    T.Request.create
+      T.Request.Direct
+      T.Request_type.Infix.(T.Row_type.unit -->! T.Row_type.int64)
+      (fun _ -> T.Query.parse "SELECT count(*)::bigint FROM pg_prepared_statements")
+  in
+  let count () = Connection.find request () |> or_fail in
+  let* existing = count () in
+  if Int64.(existing <= 0L) then
+    failwith "Caqti did not retain server-side prepared statements";
+  let statement =
+    Statement.Portable.query_one_exn (fun params ->
+      Query.select_one (params.expr ~name:"value" Db_type.int64 ~get:Fn.id))
+  in
+  let* first = Adapter.run ~conn statement 11L >>= adapter_or_fail in
+  let* after_first = count () in
+  let* second = Adapter.run ~conn statement 12L >>= adapter_or_fail in
+  let* after_second = count () in
+  if
+    not (Int64.(first = 11L) && Int64.(second = 12L) && Int64.(after_first = after_second))
+  then
+    failwith "Caqti did not reuse its connection-local prepared request";
+  Lwt.return_unit
+;;
+
 let main () =
   let* () =
     with_connection "postgresql://" (fun conn ->
       let* () = run conn in
+      let* () = test_caqti_prepared conn in
       let* () = postgres_only conn in
       run_goldens ~postgresql:true conn)
   in
