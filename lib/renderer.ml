@@ -103,6 +103,28 @@ let render_parameter parameter state =
          } ))
 ;;
 
+let rec postgresql_type_name : type a. a Db_type.t -> string =
+  fun db_type ->
+  match Db_type.view db_type with
+  | Bool -> "boolean"
+  | Int -> "integer"
+  | Int64 -> "bigint"
+  | Float -> "double precision"
+  | Numeric -> "numeric"
+  | Text -> "text"
+  | Bytes -> "bytea"
+  | Date -> "date"
+  | Timestamp -> "timestamp with time zone"
+  | Uuid -> "uuid"
+  | Option inner -> postgresql_type_name inner
+  | Map { repr; _ } -> postgresql_type_name repr
+;;
+
+let parameter_type_name = function
+  | Ast.Value (Db_type.Value (db_type, _)) -> postgresql_type_name db_type
+  | Ast.Slot { db_type = Db_type.Pack db_type; _ } -> postgresql_type_name db_type
+;;
+
 let rec render_expr ~aliases expression state =
   match expression with
   | Ast.Column { source_id; name; _ } ->
@@ -359,10 +381,10 @@ and render_condition ~aliases condition state =
     let right, state = render_expr ~aliases right state in
     concat [ text "("; left; text (comparison_sql comparison); right; text ")" ], state
   | Ast.Is_null expression ->
-    let expression, state = render_expr ~aliases expression state in
+    let expression, state = render_null_operand ~aliases expression state in
     concat [ text "("; expression; text " IS NULL)" ], state
   | Ast.Is_not_null expression ->
-    let expression, state = render_expr ~aliases expression state in
+    let expression, state = render_null_operand ~aliases expression state in
     concat [ text "("; expression; text " IS NOT NULL)" ], state
   | Ast.In (expression, values) ->
     render_membership ~aliases ~operator:" IN " expression values state
@@ -386,6 +408,20 @@ and render_condition ~aliases condition state =
     concat [ text "(NOT "; condition; text ")" ], state
   | Ast.And conditions -> render_condition_list ~aliases ~operator:"AND" conditions state
   | Ast.Or conditions -> render_condition_list ~aliases ~operator:"OR" conditions state
+
+and render_null_operand ~aliases expression state =
+  let rendered, state = render_expr ~aliases expression state in
+  match state.dialect, expression with
+  | Dialect.Postgresql, Ast.Param parameter ->
+    ( concat
+        [ text "CAST("
+        ; rendered
+        ; text " AS "
+        ; text (parameter_type_name parameter)
+        ; text ")"
+        ]
+    , state )
+  | Dialect.Postgresql, _ | Dialect.Sqlite, _ -> rendered, state
 
 and render_condition_list ~aliases ~operator conditions state =
   match conditions with

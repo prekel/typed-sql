@@ -27,6 +27,10 @@ build:
 test:
 	opam exec -- dune runtest --root .
 
+.PHONY: test-postgres
+test-postgres:
+	opam exec -- bash test/postgresql.sh
+
 .PHONY: fmt
 fmt:
 	opam exec -- dune build --root . @fmt

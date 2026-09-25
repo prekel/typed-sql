@@ -19,58 +19,59 @@ let compile dialect command = Compiler.compile_portable_command ~dialect command
 let insert () = Insert.(into table |> set id 1L |> set name "Ada")
 let update f = Insert.(insert () |> on_conflict target |> do_update f)
 
+let conditional_upsert =
+  Insert.(
+    rows
+      table
+      [ (fun row -> row |> set id 1L |> set name "Ada")
+      ; (fun row -> row |> set name "Grace" |> set id 2L)
+      ]
+    |> on_conflict target
+    |> do_update (fun ~existing ~excluded ->
+      Conflict_update.(
+        empty
+        |> set_expr name (Expr.upper (Expr.column excluded name))
+        |> set_opt nickname (Some None)
+        |> where (Expr.column existing id >$ 0L)
+        |> where (Expr.column existing name <>. Expr.column excluded name)))
+    |> returning (fun row ->
+      Projection.pair (Expr.column row name) (Expr.constant Db_type.int 9)))
+;;
+
+let target_do_nothing = Insert.(insert () |> on_conflict target |> do_nothing |> command)
+
 let%test_module "conditional UPSERT rendering" =
   (module struct
-    let conditional_upsert =
-      Insert.(
-        rows
-          table
-          [ (fun row -> row |> set id 1L |> set name "Ada")
-          ; (fun row -> row |> set name "Grace" |> set id 2L)
-          ]
-        |> on_conflict target
-        |> do_update (fun ~existing ~excluded ->
-          Conflict_update.(
-            empty
-            |> set_expr name (Expr.upper (Expr.column excluded name))
-            |> set_opt nickname (Some None)
-            |> where (Expr.column existing id >$ 0L)
-            |> where (Expr.column existing name <>. Expr.column excluded name)))
-        |> returning (fun row ->
-          Projection.pair (Expr.column row name) (Expr.constant Db_type.int 9)))
-    ;;
-
     let%expect_test "conditional composite UPSERT renders in PostgreSQL" =
       Compiler.compile ~dialect:Dialect.postgresql conditional_upsert
       |> ok
       |> Compiled_query.sql
       |> Stdlib.print_endline;
-      [%expect
-        {|
-    INSERT INTO "excluded" AS t0 (
-      "id",
-      "name"
-    )
-    VALUES
-      ($1, $2),
-      ($3, $4)
-    ON CONFLICT (
-      "id",
-      "name"
-    )
-    DO UPDATE
-    SET
-      "name" = UPPER(excluded."name"),
-      "nickname" = $5
-    WHERE
-      (
-        (t0."id" > $6)
-        AND (t0."name" <> excluded."name")
-      )
-    RETURNING
-      "name",
-      $7
-    |}]
+      [%expect {|
+        INSERT INTO "excluded" AS t0 (
+          "id",
+          "name"
+        )
+        VALUES
+          ($1, $2),
+          ($3, $4)
+        ON CONFLICT (
+          "id",
+          "name"
+        )
+        DO UPDATE
+        SET
+          "name" = UPPER(excluded."name"),
+          "nickname" = $5
+        WHERE
+          (
+            (t0."id" > $6)
+            AND (t0."name" <> excluded."name")
+          )
+        RETURNING
+          "name",
+          $7
+        |}]
     ;;
 
     let%expect_test "conditional composite UPSERT renders in SQLite" =
@@ -78,61 +79,55 @@ let%test_module "conditional UPSERT rendering" =
       |> ok
       |> Compiled_query.sql
       |> Stdlib.print_endline;
-      [%expect
-        {|
-    INSERT INTO "excluded" AS t0 (
-      "id",
-      "name"
-    )
-    VALUES
-      (?1, ?2),
-      (?3, ?4)
-    ON CONFLICT (
-      "id",
-      "name"
-    )
-    DO UPDATE
-    SET
-      "name" = UPPER(excluded."name"),
-      "nickname" = ?5
-    WHERE
-      (
-        (t0."id" > ?6)
-        AND (t0."name" <> excluded."name")
-      )
-    RETURNING
-      "name",
-      ?7
-    |}]
+      [%expect {|
+        INSERT INTO "excluded" AS t0 (
+          "id",
+          "name"
+        )
+        VALUES
+          (?1, ?2),
+          (?3, ?4)
+        ON CONFLICT (
+          "id",
+          "name"
+        )
+        DO UPDATE
+        SET
+          "name" = UPPER(excluded."name"),
+          "nickname" = ?5
+        WHERE
+          (
+            (t0."id" > ?6)
+            AND (t0."name" <> excluded."name")
+          )
+        RETURNING
+          "name",
+          ?7
+        |}]
     ;;
   end)
 ;;
 
 let%test_module "targeted DO NOTHING rendering" =
   (module struct
-    let target_do_nothing =
-      Insert.(insert () |> on_conflict target |> do_nothing |> command)
-    ;;
-
     let%expect_test "target-specific DO NOTHING renders in PostgreSQL" =
       compile Dialect.Postgresql target_do_nothing
       |> ok
       |> Compiled_command.sql
       |> Stdlib.print_endline;
-      [%expect
-        {|
-    INSERT INTO "excluded" (
-      "id",
-      "name"
-    )
-    VALUES
-      ($1, $2)
-    ON CONFLICT (
-      "id",
-      "name"
-    )
-    DO NOTHING
-    |}]
+      [%expect {|
+        INSERT INTO "excluded" (
+          "id",
+          "name"
+        )
+        VALUES
+          ($1, $2)
+        ON CONFLICT (
+          "id",
+          "name"
+        )
+        DO NOTHING
+        |}]
     ;;
 
     let%expect_test "target-specific DO NOTHING renders in SQLite" =
@@ -140,20 +135,19 @@ let%test_module "targeted DO NOTHING rendering" =
       |> ok
       |> Compiled_command.sql
       |> Stdlib.print_endline;
-      [%expect
-        {|
-    INSERT INTO "excluded" (
-      "id",
-      "name"
-    )
-    VALUES
-      (?1, ?2)
-    ON CONFLICT (
-      "id",
-      "name"
-    )
-    DO NOTHING
-    |}]
+      [%expect {|
+        INSERT INTO "excluded" (
+          "id",
+          "name"
+        )
+        VALUES
+          (?1, ?2)
+        ON CONFLICT (
+          "id",
+          "name"
+        )
+        DO NOTHING
+        |}]
     ;;
   end)
 ;;
@@ -358,8 +352,7 @@ let%expect_test "conflict predicate lowers for PostgreSQL" =
   |> ok
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect
-    {|
+  [%expect {|
     INSERT INTO "excluded" AS t0 (
       "id",
       "name"
@@ -383,8 +376,7 @@ let%expect_test "conflict predicate lowers for SQLite" =
   |> ok
   |> Compiled_command.sql
   |> Stdlib.print_endline;
-  [%expect
-    {|
+  [%expect {|
     INSERT INTO "excluded" AS t0 (
       "id",
       "name"

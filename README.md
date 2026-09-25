@@ -12,8 +12,8 @@ subqueries и вложенными коллекциями, calendar date, timest
 `DEFAULT`, `UPDATE FROM`, условные assignments и `RETURNING`.
 Пакет `typed-sql-caqti-lwt` содержит адаптеры Caqti для PostgreSQL и SQLite и
 умеет читать их схему; `typed-sql-pgocaml-lwt` содержит PostgreSQL-адаптер для
-PG'OCaml. Runtime-совместимость PostgreSQL пока не проверена на сервере; из двух
-backend-ов полностью проверяется сейчас только SQLite.
+PG'OCaml. Runtime-набор проверен на PostgreSQL 18.6 через оба адаптера; другие
+major versions PostgreSQL пока не проверены.
 
 ```ocaml
 open Typed_sql
@@ -415,10 +415,19 @@ Benchmark compiler для маленького запроса и shapes с 20/10
 opam exec -- dune exec benchmark/query_bench.exe
 ```
 
-SQLite integration tests используют `sqlite3::memory:`. PostgreSQL compiler,
-Caqti dialect branch и PG'OCaml adapter собираются без подключения к внешнему
-PostgreSQL server.
+SQLite integration tests используют `sqlite3::memory:`. Отдельный
+`make test-postgres` создаёт временный кластер PostgreSQL 18 на локальном Unix
+socket, запускает Caqti и PG'OCaml integration tests, включая общие SQL golden
+cases на PostgreSQL и SQLite, и удаляет кластер после прогона. Нужны утилиты
+PostgreSQL 18 (`pg_config`, `initdb`, `pg_ctl`, `createdb`, `psql`), opam-пакет
+`caqti-driver-postgresql` и системная библиотека разработки `libpq`.
 На Ubuntu для сборки SQLite driver нужен системный пакет `libsqlite3-dev`.
+
+Проверен PostgreSQL 18.6. Nullable scalar subquery возвращает `None` как при
+отсутствии строки, так и при SQL `NULL` в найденной строке. PG'OCaml сообщает
+число затронутых строк как `Affected_rows.Unknown`. Native PostgreSQL JSON и
+array codecs остаются за пределами portable API; вложенные коллекции проходят
+через JSON transport адаптера.
 
 `make coverage` измеряет реализацию `Typed_sql` через публичный API приложения:
 запускает public inline tests, QCheck properties и SQLite `:memory:` integration

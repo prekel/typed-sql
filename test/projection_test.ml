@@ -54,8 +54,7 @@ let%test_module "applicative projection rendering" =
 
     let%expect_test "PostgreSQL" =
       Stdlib.print_endline (B.Compiled_query.sql (compile Dialect.Postgresql));
-      [%expect
-        {|
+      [%expect {|
         SELECT
           $1,
           $2
@@ -65,8 +64,7 @@ let%test_module "applicative projection rendering" =
 
     let%expect_test "SQLite" =
       Stdlib.print_endline (B.Compiled_query.sql (compile Dialect.Sqlite));
-      [%expect
-        {|
+      [%expect {|
         SELECT
           ?1,
           ?2

@@ -1,0 +1,6 @@
+(executable
+ (name postgresql_test)
+ (modules postgresql_test)
+ (libraries base lwt.unix pgocaml typed-sql typed-sql-pgocaml-lwt)
+ (preprocess
+  (pps ppx_let)))

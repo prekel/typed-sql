@@ -1,5 +1,6 @@
 (test
  (name sqlite_test)
+ (modules sqlite_test)
  (package typed-sql-caqti-lwt)
  (libraries
   base
@@ -10,6 +11,24 @@
   lwt.unix
   typed-sql
   typed-sql-caqti-lwt
+  uri)
+ (preprocess
+  (pps ppx_let)))
+
+(executable
+ (name postgresql_test)
+ (modules postgresql_test)
+ (libraries
+  base
+  caqti
+  caqti-driver-postgresql
+  caqti-driver-sqlite3
+  caqti-lwt
+  caqti-lwt.unix
+  lwt.unix
+  typed-sql
+  typed-sql-caqti-lwt
+  typed_sql_expect_tests
   uri)
  (preprocess
   (pps ppx_let)))

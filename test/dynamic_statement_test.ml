@@ -61,54 +61,50 @@ let sql dialect predicate =
 
 let%expect_test "at least comparison uses PostgreSQL syntax" =
   Stdlib.print_endline (sql Dialect.Postgresql (At_least 3L));
-  [%expect
-    {|
-        SELECT
-          t0."id"
-        FROM "people" AS t0
-        WHERE
-          (t0."id" >= $1)
-        LIMIT 10
-        |}]
+  [%expect {|
+    SELECT
+      t0."id"
+    FROM "people" AS t0
+    WHERE
+      (t0."id" >= $1)
+    LIMIT 10
+    |}]
 ;;
 
 let%expect_test "at least comparison uses SQLite syntax" =
   Stdlib.print_endline (sql Dialect.Sqlite (At_least 3L));
-  [%expect
-    {|
-        SELECT
-          t0."id"
-        FROM "people" AS t0
-        WHERE
-          (t0."id" >= ?1)
-        LIMIT 10
-        |}]
+  [%expect {|
+    SELECT
+      t0."id"
+    FROM "people" AS t0
+    WHERE
+      (t0."id" >= ?1)
+    LIMIT 10
+    |}]
 ;;
 
 let%expect_test "at most comparison uses PostgreSQL syntax" =
   Stdlib.print_endline (sql Dialect.Postgresql (At_most 9L));
-  [%expect
-    {|
-        SELECT
-          t0."id"
-        FROM "people" AS t0
-        WHERE
-          (t0."id" <= $1)
-        LIMIT 10
-        |}]
+  [%expect {|
+    SELECT
+      t0."id"
+    FROM "people" AS t0
+    WHERE
+      (t0."id" <= $1)
+    LIMIT 10
+    |}]
 ;;
 
 let%expect_test "at most comparison uses SQLite syntax" =
   Stdlib.print_endline (sql Dialect.Sqlite (At_most 9L));
-  [%expect
-    {|
-        SELECT
-          t0."id"
-        FROM "people" AS t0
-        WHERE
-          (t0."id" <= ?1)
-        LIMIT 10
-        |}]
+  [%expect {|
+    SELECT
+      t0."id"
+    FROM "people" AS t0
+    WHERE
+      (t0."id" <= ?1)
+    LIMIT 10
+    |}]
 ;;
 
 let%test_unit "nested predicates and variable IN preserve portable SQL" =

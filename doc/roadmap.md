@@ -159,11 +159,10 @@ assignments. `Statement.For_dialect` принимает статический w
 - предоставляют transaction helper с commit, rollback, rollback при ошибке
   commit и rollback при исключении.
 
-SQLite `:memory:` integration suite проверяет все codec, DML, expressions,
-aggregates, correlated subqueries, conflict ignore и транзакции. PostgreSQL
-compiler, Caqti branch и PG'OCaml adapter собираются без подключения к серверу.
-Это не подтверждает runtime-корректность: PostgreSQL сейчас нельзя считать
-поддерживаемой и проверенной базой до прохождения следующего этапа.
+SQLite `:memory:` integration suite проверяет codec, DML, expressions,
+aggregates, correlated subqueries, conflict ignore и транзакции. Отдельный
+`make test-postgres` запускает те же portable golden queries на PostgreSQL 18
+и SQLite, а также проверяет Caqti и PG'OCaml adapters на реальном сервере.
 
 ### Schema introspection и codegen
 
@@ -261,8 +260,8 @@ Projection реализует `Base.Applicative.S` и `Let_syntax`. Monad для
 ### Dialects и adapters появились раньше
 
 PostgreSQL и SQLite compiler развивались параллельно, поэтому portable
-семантика проверяется парными golden tests. Второй adapter PG'OCaml появился до
-runtime PostgreSQL infrastructure и пока проверяется compile-only.
+семантика проверяется парными golden tests и совместным runtime-прогоном.
+PG'OCaml adapter также проходит отдельный PostgreSQL integration suite.
 
 ## План и статус работ
 
@@ -510,18 +509,21 @@ Compile-fail tests проверяют, что обычный SELECT нельзя
 
 ### 3. Полностью проверить PostgreSQL и довести dialect до runtime-поддержки
 
-- [ ] Подготовить воспроизводимую PostgreSQL test database и прогнать на ней
+- [x] Подготовить воспроизводимую PostgreSQL test database и прогнать на ней
   integration suite через Caqti и PG'OCaml, включая encode/decode,
   transaction lifecycle и SQLSTATE classification;
-- [ ] Выполнять каждый portable SQL golden case на сервере и сравнивать результат
+- [x] Выполнять portable SQL golden cases на сервере и сравнивать результат
   с SQLite, а не считать успешную компиляцию SQL проверкой поддержки;
-- [ ] Проверить коррелированные multiset и derived queries, set operations,
+- [x] Проверить коррелированные multiset и derived queries, set operations,
   CTE, aggregate cardinality, bind parameters, timestamp/JSON transport,
   conflict handling и schema introspection;
-- [ ] Закрыть расхождения между generated SQL и PostgreSQL runtime, явно указать
+- [x] Закрыть расхождения между generated SQL и PostgreSQL runtime, явно указать
   проверенные major versions и ограничения API.
 
-До завершения этого этапа PostgreSQL остаётся экспериментальным backend.
+Проверен PostgreSQL 18.6. Другие major versions остаются непроверенными.
+Nullable scalar subquery не различает отсутствие строки и SQL `NULL`.
+PG'OCaml возвращает `Affected_rows.Unknown`; native JSON и array codecs не
+входят в portable API.
 
 ### 4. Расширять schema tooling по результатам реальных схем
 
@@ -611,11 +613,12 @@ reconnect и eviction. Решение по core API и рассмотренны�
 - derived tables, set operations и CTE имеют portable SQL snapshots и
   capability diagnostics для PostgreSQL-only вариантов;
 - PostgreSQL и SQLite имеют парные SQL snapshots, а portable semantics
-  исполняются на SQLite;
+  исполняются на обоих backend через `make test-postgres`;
 - mapped codec, transaction и constraint errors не выходят из adapter contract;
 - PostgreSQL/SQLite schema introspection и descriptor generator реализованы;
 - `make release-check`, `make coverage` и `make coverage-all` проходят;
-- PostgreSQL server не требуется и не используется.
+- PostgreSQL server не требуется для обычного `make test`; отдельный
+  `make test-postgres` создаёт временный кластер PostgreSQL 18.
 
 После выполнения этих пунктов дальнейшее расширение API должно опираться на
 внешний RealWorld-сценарий или отдельный подтверждённый use case.

@@ -52,6 +52,7 @@
   lwt
   base-unix
   (caqti-driver-sqlite3 :with-test)
+  (caqti-driver-postgresql :with-test)
   (uri :with-test))
  (tags
   (database sql caqti lwt postgresql sqlite)))

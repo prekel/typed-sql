@@ -134,14 +134,13 @@ let%test_unit "command statements bind runtime expressions" =
 let%expect_test "optional parameter predicate renders in PostgreSQL" =
   Stdlib.print_endline
     (Statement.sql_exn ~dialect:Dialect.Postgresql optional_filter_statement);
-  [%expect
-    {|
+  [%expect {|
     SELECT
       t0."id"
     FROM "items" AS t0
     WHERE
       (
-        ($1 IS NULL)
+        (CAST($1 AS text) IS NULL)
         OR (t0."name" = $1)
       )
     |}]
@@ -150,8 +149,7 @@ let%expect_test "optional parameter predicate renders in PostgreSQL" =
 let%expect_test "optional parameter predicate renders in SQLite" =
   Stdlib.print_endline
     (Statement.sql_exn ~dialect:Dialect.Sqlite optional_filter_statement);
-  [%expect
-    {|
+  [%expect {|
     SELECT
       t0."id"
     FROM "items" AS t0
@@ -161,6 +159,28 @@ let%expect_test "optional parameter predicate renders in SQLite" =
         OR (t0."name" = ?1)
       )
     |}]
+;;
+
+let%test_unit "PostgreSQL null parameters have concrete SQL types" =
+  let check db_type sql_type =
+    let nullable = Expr.constant (Db_type.option db_type) None in
+    let statement =
+      Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun _ ->
+        Query.(from items |> where (fun _ -> Expr.is_null nullable) |> select projection))
+    in
+    let sql = Statement.sql_exn ~dialect:Dialect.Postgresql statement in
+    assert (String.is_substring sql ~substring:("CAST($1 AS " ^ sql_type ^ ")"))
+  in
+  check Db_type.bool "boolean";
+  check Db_type.int "integer";
+  check Db_type.int64 "bigint";
+  check Db_type.float "double precision";
+  check Db_type.numeric "numeric";
+  check Db_type.text "text";
+  check Db_type.bytes "bytea";
+  check Db_type.date "date";
+  check Db_type.timestamp "timestamp with time zone";
+  check Db_type.uuid "uuid"
 ;;
 
 let%test_unit "rendering static SQL without input does not evaluate getters" =
@@ -550,8 +570,7 @@ let null_and_sort_query =
 
 let%expect_test "null checks and multiple sort keys render in PostgreSQL" =
   Stdlib.print_endline (sql Dialect.Postgresql null_and_sort_query);
-  [%expect
-    {|
+  [%expect {|
     SELECT
       t0."id"
     FROM "items" AS t0
@@ -573,8 +592,7 @@ let%expect_test "null checks and multiple sort keys render in PostgreSQL" =
 
 let%expect_test "null checks and multiple sort keys render in SQLite" =
   Stdlib.print_endline (sql Dialect.Sqlite null_and_sort_query);
-  [%expect
-    {|
+  [%expect {|
     SELECT
       t0."id"
     FROM "items" AS t0
@@ -729,8 +747,7 @@ let render_returning dialect query =
 
 let%expect_test "multi-assignment UPDATE RETURNING renders in PostgreSQL" =
   Stdlib.print_endline (render_returning Dialect.Postgresql updated_returning);
-  [%expect
-    {|
+  [%expect {|
     UPDATE "items"
     SET
       "id" = $1,
@@ -747,8 +764,7 @@ let%expect_test "multi-assignment UPDATE RETURNING renders in PostgreSQL" =
 
 let%expect_test "multi-assignment UPDATE RETURNING renders in SQLite" =
   Stdlib.print_endline (render_returning Dialect.Sqlite updated_returning);
-  [%expect
-    {|
+  [%expect {|
     UPDATE "items"
     SET
       "id" = ?1,
@@ -765,8 +781,7 @@ let%expect_test "multi-assignment UPDATE RETURNING renders in SQLite" =
 
 let%expect_test "DELETE RETURNING renders in PostgreSQL" =
   Stdlib.print_endline (render_returning Dialect.Postgresql deleted_returning);
-  [%expect
-    {|
+  [%expect {|
     DELETE FROM "items"
     WHERE
       (
@@ -780,8 +795,7 @@ let%expect_test "DELETE RETURNING renders in PostgreSQL" =
 
 let%expect_test "DELETE RETURNING renders in SQLite" =
   Stdlib.print_endline (render_returning Dialect.Sqlite deleted_returning);
-  [%expect
-    {|
+  [%expect {|
     DELETE FROM "items"
     WHERE
       (
