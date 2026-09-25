@@ -45,7 +45,9 @@ CTE доступны только через [Postgresql.Cte]: [Postgresql.Cte.r
 зависит от input, описаны на странице {!page-dynamic_statements}. Границы между
 DSL, compiler и Caqti описаны в {!page-architecture}. Решение сделать
 [Statement] единственным API выполнения и отвергнутые варианты записаны в
-{{:adr/0001-static-statement-api.md}ADR 0001}.
+{{:adr/0001-static-statement-api.md}ADR 0001}. Выбранные рамки и открытые
+вопросы Raw SQL escape hatch записаны в
+{{:adr/0002-raw-sql-escape-hatch.md}ADR 0002}.
 
 API приложения целиком описан в [lib/typed_sql.mli]. Для авторов execution
 adapters есть отдельная библиотека [typed-sql.backend] и контракт

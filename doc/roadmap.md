@@ -576,7 +576,8 @@ PostgreSQL-возможностями. Portable approximation с другой с
 - [ ] Добавить server-side prepared cache в adapters только при подтверждённом
   выигрыше и с явным lifecycle на connection;
 - [ ] Определить отдельный `Unsafe`/`Raw_sql` API с typed bind fragments, когда
-  появится запрос, который нельзя выразить descriptors;
+  появится запрос, который нельзя выразить descriptors. Выбранные рамки и
+  открытые решения записаны в [ADR 0002](adr/0002-raw-sql-escape-hatch.md);
 - [ ] Оптимизировать построение больших condition/order lists только по benchmark;
 - [ ] Проектировать PPX после проверки ручного API внешним RealWorld-приложением.
 
