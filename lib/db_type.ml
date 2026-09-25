@@ -5,6 +5,7 @@ type _ t =
   | Int_type : int t
   | Int64_type : int64 t
   | Float_type : float t
+  | Numeric_type : Decimal.t t
   | Text_type : string t
   | Bytes_type : bytes t
   | Date_type : Date.t t
@@ -34,6 +35,7 @@ type _ view =
   | Int : int view
   | Int64 : int64 view
   | Float : float view
+  | Numeric : Decimal.t view
   | Text : string view
   | Bytes : bytes view
   | Date : Date.t view
@@ -52,11 +54,27 @@ let bool = Bool_type
 let int = Int_type
 let int64 = Int64_type
 let float = Float_type
+let numeric = Numeric_type
 let text = Text_type
 let bytes = Bytes_type
 let date = Date_type
 let timestamp = Timestamp_type
 let uuid = Uuid_type
+
+type 'a orderable = 'a t
+
+module Orderable = struct
+  type 'a t = 'a orderable
+
+  let int = int
+  let int64 = int64
+  let float = float
+  let text = text
+  let date = date
+  let timestamp = timestamp
+  let uuid = uuid
+end
+
 let option typ = Option_type typ
 let next_mapping_id = Atomic.make 0
 
@@ -65,6 +83,7 @@ let rec name : type a. a t -> string = function
   | Int_type -> "int"
   | Int64_type -> "int64"
   | Float_type -> "float"
+  | Numeric_type -> "numeric"
   | Text_type -> "text"
   | Bytes_type -> "bytes"
   | Date_type -> "date"
@@ -86,6 +105,7 @@ let rec fingerprint : type a. a t -> string = function
   | Int_type -> "int"
   | Int64_type -> "int64"
   | Float_type -> "float"
+  | Numeric_type -> "numeric"
   | Text_type -> "text"
   | Bytes_type -> "bytes"
   | Date_type -> "date"
@@ -113,6 +133,7 @@ let rec unsupported_multiset_type
   =
   fun ~path -> function
   | Bytes_type -> Some (path, "bytes")
+  | Numeric_type -> Some (path, "numeric")
   | Option_type typ -> unsupported_multiset_type ~path typ
   | Map_type { repr; _ } -> unsupported_multiset_type ~path repr
   | Json_result_type { fields; _ } ->
@@ -133,6 +154,7 @@ let view : type a. a t -> a view = function
   | Int_type -> Int
   | Int64_type -> Int64
   | Float_type -> Float
+  | Numeric_type -> Numeric
   | Text_type -> Text
   | Bytes_type -> Bytes
   | Date_type -> Date
@@ -150,4 +172,20 @@ let view : type a. a t -> a view = function
             | Yojson.Json_error message -> json_error message)
       ; name = "multiset"
       }
+;;
+
+let rec contains_numeric : type a. a t -> bool = function
+  | Numeric_type -> true
+  | Option_type inner -> contains_numeric inner
+  | Map_type { repr; _ } -> contains_numeric repr
+  | Bool_type
+  | Int_type
+  | Int64_type
+  | Float_type
+  | Text_type
+  | Bytes_type
+  | Date_type
+  | Timestamp_type
+  | Uuid_type
+  | Json_result_type _ -> false
 ;;

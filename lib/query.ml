@@ -385,3 +385,32 @@ let offset_param parameter query =
 ;;
 
 let ast query = query.ast
+
+type ('ctx, 'requirements) aggregate_builder =
+  ('ctx, ungrouped, Cardinality.many, 'requirements) t
+
+module Aggregate = struct
+  type ('ctx, 'requirements) t = ('ctx, 'requirements) aggregate_builder
+
+  let from = from
+  let from_derived = from_derived
+  let from_relation = from_relation
+  let from_cte = from_cte
+  let inner_join = inner_join
+  let left_join = left_join
+  let inner_join_derived = inner_join_derived
+  let left_join_derived = left_join_derived
+  let inner_join_relation = inner_join_relation
+  let left_join_relation = left_join_relation
+  let inner_join_cte = inner_join_cte
+  let left_join_cte = left_join_cte
+  let where = where
+  let where_opt = where_opt
+  let where_optional_param = where_optional_param
+end
+
+let aggregate_one make_projection (query : (_, _) Aggregate.t) =
+  let projection = make_projection query.context |> Aggregate_projection.projection in
+  let ast = { query.ast with projection = Projection.expressions projection } in
+  Result_query.create_select ~requires_exactly_one:true (Ast.Simple ast) projection
+;;

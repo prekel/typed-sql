@@ -1624,6 +1624,48 @@ let run conn =
   in
   if not (List.equal Int64.equal timestamp_ids [ 1L; 2L ]) then
     failwith "CURRENT_TIMESTAMP comparison returned unexpected rows";
+  let* () =
+    Connection.exec
+      (direct
+         "INSERT INTO events (id, occurred_at) VALUES (3, '2024-01-02 04:04:05+01:00')")
+      ()
+    |> caqti_or_fail
+  in
+  let* () =
+    Connection.exec
+      (direct "INSERT INTO events (id, occurred_at) VALUES (4, '2024-01-02 03:04:05z')")
+      ()
+    |> caqti_or_fail
+  in
+  let* () =
+    Connection.exec
+      (direct
+         "INSERT INTO events (id, occurred_at) VALUES (5, '2024-01-02 02:04:05-01:00')")
+      ()
+    |> caqti_or_fail
+  in
+  let* () =
+    Connection.exec
+      (direct "INSERT INTO events (id, occurred_at) VALUES (6, '2024-01-02X03:04:05')")
+      ()
+    |> caqti_or_fail
+  in
+  let malformed_timestamp_collection =
+    Query.(
+      from Event.table
+      |> where (fun event -> Event.id event =$ 6L)
+      |> select_exactly_one (fun event ->
+        Projection.multiset_agg (Projection.expr (Event.occurred_at event))))
+  in
+  let* malformed_timestamp_result =
+    Typed_sql_caqti_lwt.fetch_one ~conn malformed_timestamp_collection
+  in
+  assert_codec_error
+    "multiset element 1.1: expected timestamp, got 2024-01-02X03:04:05"
+    malformed_timestamp_result;
+  let* () =
+    Connection.exec (direct "DELETE FROM events WHERE id = 6") () |> caqti_or_fail
+  in
   let calendar_date = Date.of_ymd_exn ~year:2026 ~month:9 ~day:12 in
   let date_insert =
     Insert.(
@@ -1662,7 +1704,11 @@ let run conn =
     Typed_sql_caqti_lwt.fetch_one ~conn temporal_collection >>= adapter_or_fail
   in
   (match temporal_collection with
-   | first :: [ _ ] when Ptime.equal first timestamp -> ()
+   | first :: _ :: positive_offset :: lower_z :: [ negative_offset ]
+     when Ptime.equal first timestamp
+          && Ptime.equal positive_offset timestamp
+          && Ptime.equal lower_z timestamp
+          && Ptime.equal negative_offset timestamp -> ()
    | _ -> failwith "timestamp multiset codec changed values");
   let date_collection =
     Query.(

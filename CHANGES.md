@@ -1,5 +1,38 @@
 # История изменений
 
+## 0.3.3 — 25 сентября 2026
+
+### Добавлено
+
+- `Query.Aggregate` и `Query.aggregate_one` для ungrouped aggregate-запросов с
+  доказанной кардинальностью `exactly_one`. `Aggregate_projection` ограничивает
+  результат агрегатными выражениями и их композициями.
+- Portable `SUM(int)`, `SUM(float)`, `MIN` и `MAX` для типов с явным
+  `Db_type.Orderable` witness. Пустая группа и набор из одних `NULL` дают
+  `None` для `SUM`, `MIN` и `MAX`.
+- Точный `Decimal.t` и PostgreSQL `numeric`: агрегаты `SUM(int64)`,
+  `SUM(numeric)`, `MIN(numeric)` и `MAX(numeric)`, codecs обоих адаптеров,
+  introspection, schema snapshot и generator. SQLite явно отклоняет
+  `numeric`; JSON multiset не принимает numeric-поля.
+- Примеры SQL для новых агрегатов в `query_test` и отдельные проверки
+  разбора `Decimal`.
+- `Aggregate_projection.Let_syntax` для сборки агрегатов через `let%map` и
+  `and` с сохранением гарантии наличия агрегатного выражения.
+
+### Изменено
+
+- Локальный switch и `make create_switch` используют OCaml 5.1.1;
+  `make deps_all` закрепляет совместимый с ним `bisect_ppx`.
+- Разбор `Decimal` удаляет завершающие нули до создания большого числа;
+  публичная сигнатура уточняет проверки локальности агрегатов и ограничения
+  точных чисел.
+
+### Ограничения
+
+- SQLite сравнивает сохранённые timestamp-значения как текст. Для
+  хронологического `MIN`/`MAX` значения, записанные вне адаптера, должны иметь
+  согласованный формат UTC; смешанные смещения часового пояса меняют порядок.
+
 ## 0.3.2 — 24 сентября 2026
 
 ### Добавлено

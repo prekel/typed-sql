@@ -9,7 +9,9 @@ let decode source =
   |> Result.ok_or_failwith
 ;;
 
-let types = [ Schema_ir.Bool; Int; Int64; Float; Text; Bytes; Date; Timestamp; Uuid ]
+let types =
+  [ Schema_ir.Bool; Int; Int64; Float; Numeric; Text; Bytes; Date; Timestamp; Uuid ]
+;;
 
 let schema =
   let columns =
@@ -84,12 +86,12 @@ let%test_unit "snapshot round trip preserves metadata, types and generated sourc
     List.equal
       Identifier.equal
       (List.map columns ~f:Schema_ir.column_name)
-      (List.init 9 ~f:(fun index -> identifier ("field" ^ Int.to_string index))));
+      (List.init 10 ~f:(fun index -> identifier ("field" ^ Int.to_string index))));
   assert (
     List.equal
       (Option.equal Int.equal)
       (List.map columns ~f:Schema_ir.column_primary_key_position)
-      [ Some 1; Some 2; None; None; None; None; None; None; None ]);
+      [ Some 1; Some 2; None; None; None; None; None; None; None; None ]);
   let foreign_key = List.hd_exn (Schema_ir.foreign_keys first) in
   assert (
     List.equal

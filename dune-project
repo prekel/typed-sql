@@ -2,7 +2,7 @@
 
 (name typed-sql)
 
-(version 0.3.2)
+(version 0.3.3)
 
 (generate_opam_files true)
 
@@ -23,6 +23,7 @@
  (depends
   (ocaml (>= 5.1.1))
   base
+  zarith
   ptime
   yojson
   ppx_let

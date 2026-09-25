@@ -19,6 +19,18 @@ let rec normalize_expr = function
     Ast.Aggregate (Ast.Count (normalize_expr expression))
   | Ast.Aggregate (Ast.Count_distinct expression) ->
     Ast.Aggregate (Ast.Count_distinct (normalize_expr expression))
+  | Ast.Aggregate (Ast.Sum_int expression) ->
+    Ast.Aggregate (Ast.Sum_int (normalize_expr expression))
+  | Ast.Aggregate (Ast.Sum_float expression) ->
+    Ast.Aggregate (Ast.Sum_float (normalize_expr expression))
+  | Ast.Aggregate (Ast.Sum_int64 expression) ->
+    Ast.Aggregate (Ast.Sum_int64 (normalize_expr expression))
+  | Ast.Aggregate (Ast.Sum_numeric expression) ->
+    Ast.Aggregate (Ast.Sum_numeric (normalize_expr expression))
+  | Ast.Aggregate (Ast.Min expression) ->
+    Ast.Aggregate (Ast.Min (normalize_expr expression))
+  | Ast.Aggregate (Ast.Max expression) ->
+    Ast.Aggregate (Ast.Max (normalize_expr expression))
   | Ast.Aggregate (Ast.Multiset_agg multiset) ->
     Ast.Aggregate
       (Ast.Multiset_agg

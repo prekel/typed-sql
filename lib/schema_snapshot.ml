@@ -108,6 +108,7 @@ let db_type =
     ; "int", Schema_ir.Int
     ; "int64", Schema_ir.Int64
     ; "float", Schema_ir.Float
+    ; "numeric", Schema_ir.Numeric
     ; "text", Schema_ir.Text
     ; "bytes", Schema_ir.Bytes
     ; "date", Schema_ir.Date
@@ -123,6 +124,7 @@ let db_type =
           | Int -> "int", []
           | Int64 -> "int64", []
           | Float -> "float", []
+          | Numeric -> "numeric", []
           | Text -> "text", []
           | Bytes -> "bytes", []
           | Date -> "date", []

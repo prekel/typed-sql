@@ -376,6 +376,19 @@ let rec caqti_codec : type a. a Typed_sql_backend.Db_type.t -> a caqti_codec =
   | Float ->
     Caqti_codec
       { row_type = T.Row_type.float; encode = Result.return; decode = Result.return }
+  | Numeric ->
+    Caqti_codec
+      { row_type =
+          T.Row_type.enum
+            ~encode:Typed_sql_backend.Decimal.to_string
+            ~decode:(fun value ->
+              match Typed_sql_backend.Decimal.of_string value with
+              | Some decimal -> Ok decimal
+              | None -> Error ("invalid numeric: " ^ value))
+            "numeric"
+      ; encode = Result.return
+      ; decode = Result.return
+      }
   | Text ->
     Caqti_codec
       { row_type = T.Row_type.string; encode = Result.return; decode = Result.return }
@@ -1159,6 +1172,7 @@ ORDER BY tc.table_schema, tc.table_name, tc.constraint_name, kcu.ordinal_positio
     | "smallint" | "integer" -> Int
     | "bigint" -> Int64
     | "real" | "double precision" -> Float
+    | "numeric" | "decimal" -> Numeric
     | "text" | "character" | "character varying" -> Text
     | "bytea" -> Bytes
     | "date" -> Date

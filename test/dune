@@ -6,6 +6,8 @@
   operation_module_test
   query_test
   relational_query_test
+  aggregate_test
+  decimal_test
   public_api_test
   schema_snapshot_test
   statement_input_test

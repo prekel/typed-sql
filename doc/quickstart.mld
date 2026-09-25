@@ -40,6 +40,35 @@ let projection row =
 [Projection.return] добавляет OCaml-значение без SQL-колонки. В итоговой
 projection должно быть хотя бы одно выражение [Projection.expr].
 
+Ungrouped aggregate строится через отдельный [Query.Aggregate] builder. Он
+сохраняет exactly-one proof, а [Aggregate_projection] требует агрегатное
+выражение в результате; принадлежность источника проверяет compiler:
+
+{[
+let totals =
+  Query.Aggregate.(from Person.table)
+  |> Query.aggregate_one (fun person ->
+    let open Aggregate_projection.Let_syntax in
+    let%map count = Aggregate_projection.count_all
+    and last_name =
+      Aggregate_projection.max Db_type.Orderable.text (Person.name person)
+    in
+    count, last_name)
+]}
+
+[Aggregate_projection.Let_syntax] рекомендуется для сборки нескольких
+агрегатов через [let%map] и [and]. [return] здесь отсутствует: каждый такой
+результат должен содержать хотя бы один агрегат.
+
+[count_all] возвращает [int64], а [max] — [string option]: для пустого набора
+SQL [MAX] возвращает [NULL]. [sum_int] и [sum_float] также возвращают [option],
+поскольку сумма пустого набора равна SQL [NULL].
+[min] и [max] требуют witness [Db_type.Orderable.int], [text] и других
+поддерживаемых scalar типов. Для PostgreSQL есть отдельный namespace
+[Postgresql.Numeric]: он возвращает точный [Decimal.t option] для [SUM(int64)],
+[SUM(numeric)], [MIN(numeric)] и [MAX(numeric)]. Numeric не поддерживается
+SQLite и отклоняется при компиляции.
+
 Вложенный read model собирается через [Query.multiset] из завершённого SELECT.
 Каждая его строка декодируется исходной projection, включая [Projection.map],
 а отсутствие строк даёт пустой список. [Projection.multiset_agg] собирает

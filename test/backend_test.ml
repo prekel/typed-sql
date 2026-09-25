@@ -109,6 +109,25 @@ let%test_unit "command shapes expose their stable representation" =
   assert (Int.(B.Shape.hash shape = B.Shape.hash shape))
 ;;
 
+let%test "numeric codecs expose an exact adapter view" =
+  let table : unit Table.t = Table.v_exn "numeric_values" in
+  let numeric_value = Decimal.of_string "1.25" |> Option.value_exn in
+  let query =
+    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun params ->
+      let value = params.expr Db_type.numeric ~get:(fun () -> numeric_value) in
+      Query.(from table |> select (fun _ -> Projection.expr value)))
+  in
+  match B.Statement.resolve ~dialect:Dialect.Postgresql () query with
+  | Ok (B.Statement.Query_execution { compiled; _ }) ->
+    (match B.Compiled_query.parameters compiled with
+     | [ B.Db_type.Value (db_type, _) ] ->
+       (match B.Db_type.view db_type with
+        | B.Db_type.Numeric -> true
+        | _ -> false)
+     | _ -> false)
+  | Error _ -> false
+;;
+
 let%test_unit "UPSERT shape excludes values and bind slots follow SQL order" =
   let table : unit Table.t = Table.v_exn "items" in
   let id = Column.v_exn table "id" Db_type.int64 in

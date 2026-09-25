@@ -87,6 +87,24 @@ module Uuid : sig
   val equal : t -> t -> bool
 end
 
+(** Exact PostgreSQL [numeric] value. Finite values are compared by value,
+    without preserving input scale; [NaN] compares equal to [NaN]. *)
+module Decimal : sig
+  type t
+
+  (** Parse finite decimal or exponent notation, [NaN], or signed [Infinity].
+      Return [None] for malformed input, an overflowing exponent, or a finite
+      value too large to format as an OCaml string. *)
+  val of_string : string -> t option
+
+  (** Return a normalized decimal without exponent notation, or the canonical
+      spelling of a special value. *)
+  val to_string : t -> string
+
+  (** Compare exact values, including equal special values. *)
+  val equal : t -> t -> bool
+end
+
 (** Database representations and application-level codecs. *)
 module Db_type : sig
   (** A database representation for an OCaml value. It is independent from any
@@ -104,6 +122,38 @@ module Db_type : sig
 
   (** SQL floating-point value represented as an OCaml [float]. *)
   val float : float t
+
+  (** Exact PostgreSQL [numeric]. Expressions using this type are rejected by
+      SQLite compilation. *)
+  val numeric : Decimal.t t
+
+  (** Evidence that a portable scalar type supports SQL [MIN] and [MAX].
+      The witness must match the expression's OCaml value type. *)
+  module Orderable : sig
+    type 'a t
+
+    (** Ordered SQL integer represented as [int]. *)
+    val int : int t
+
+    (** Ordered SQL integer represented as [int64]. *)
+    val int64 : int64 t
+
+    (** Ordered SQL floating-point value. *)
+    val float : float t
+
+    (** Ordered SQL text. *)
+    val text : string t
+
+    (** Ordered SQL date. *)
+    val date : Date.t t
+
+    (** SQLite orders stored timestamp text. For chronological extrema, values
+        written outside the adapter must use a consistent UTC representation. *)
+    val timestamp : Ptime.t t
+
+    (** Ordered SQL UUID. *)
+    val uuid : Uuid.t t
+  end
 
   (** SQL text represented as an OCaml [string]. *)
   val text : string t
@@ -147,6 +197,7 @@ module Schema_ir : sig
     | Int
     | Int64
     | Float
+    | Numeric
     | Text
     | Bytes
     | Date
@@ -524,6 +575,32 @@ module Expr : sig
   (** Count distinct non-null values of an expression. *)
   val count_distinct : ('a, 'requirements) t -> (int64, 'requirements) t
 
+  (** Sum non-null [int] values into [int64]. An empty group, or one containing
+      only nulls, returns [None]. *)
+  val sum_int : (int, 'r) t -> (int64 option, 'r) t
+
+  (** As [sum_int], accepting nullable input. *)
+  val sum_int_nullable : (int option, 'r) t -> (int64 option, 'r) t
+
+  (** Sum non-null [float] values. Empty or entirely null groups return [None]. *)
+  val sum_float : (float, 'r) t -> (float option, 'r) t
+
+  (** As [sum_float], accepting nullable input. *)
+  val sum_float_nullable : (float option, 'r) t -> (float option, 'r) t
+
+  (** Minimum non-null value of an ordered scalar type. An empty group returns
+      [None]. The witness determines which types this operation supports. *)
+  val min : 'a Db_type.Orderable.t -> ('a, 'r) t -> ('a option, 'r) t
+
+  (** Maximum non-null value, with the same empty-group behavior as [min]. *)
+  val max : 'a Db_type.Orderable.t -> ('a, 'r) t -> ('a option, 'r) t
+
+  (** As [min], accepting nullable input without nesting options. *)
+  val min_nullable : 'a Db_type.Orderable.t -> ('a option, 'r) t -> ('a option, 'r) t
+
+  (** As [max], accepting nullable input without nesting options. *)
+  val max_nullable : 'a Db_type.Orderable.t -> ('a option, 'r) t -> ('a option, 'r) t
+
   (** Embed a one-column SELECT, returning [None] when it returns no row.
       Compilation requires [LIMIT 0/1] or an aggregate belonging to this SELECT
       without [GROUP BY]. No limit is added implicitly. For an already nullable
@@ -700,6 +777,77 @@ module Projection : sig
   end
 end
 
+(** A nonempty aggregate projection. Its constructors add an aggregate SQL
+    expression; the compiler separately checks that referenced sources belong
+    to the query and that the aggregate is local. *)
+module Aggregate_projection : sig
+  type ('a, +'requirements) t
+
+  (** Change only the decoded OCaml result; retain the SQL aggregates. *)
+  val map : ('a, 'r) t -> f:('a -> 'b) -> ('b, 'r) t
+
+  (** Combine aggregate expressions from left to right. *)
+  val both : ('a, 'r) t -> ('b, 'r) t -> ('a * 'b, 'r) t
+
+  (** Recommended syntax for combining aggregates with [let%map] and [and].
+      There is no [return]: a value without an aggregate would break the
+      guarantee that this projection contains an aggregate. *)
+  module Let_syntax : sig
+    module Let_syntax : sig
+      (** The operations used by [ppx_let]; they have the semantics of [map]
+          and [both] above. *)
+      val map : ('a, 'r) t -> f:('a -> 'b) -> ('b, 'r) t
+
+      val both : ('a, 'r) t -> ('b, 'r) t -> ('a * 'b, 'r) t
+
+      module Open_on_rhs : sig end
+    end
+  end
+
+  (** Count all rows, including rows with null fields. *)
+  val count_all : (int64, 'r) t
+
+  (** Count non-null values of an expression. *)
+  val count : ('a, 'r) Expr.t -> (int64, 'r) t
+
+  (** Count distinct non-null values of an expression. *)
+  val count_distinct : ('a, 'r) Expr.t -> (int64, 'r) t
+
+  (** Sum [int] values into [int64]; empty or entirely null groups yield [None]. *)
+  val sum_int : (int, 'r) Expr.t -> (int64 option, 'r) t
+
+  (** As [sum_int], accepting nullable input. *)
+  val sum_int_nullable : (int option, 'r) Expr.t -> (int64 option, 'r) t
+
+  (** Sum [float] values; empty or entirely null groups yield [None]. *)
+  val sum_float : (float, 'r) Expr.t -> (float option, 'r) t
+
+  (** As [sum_float], accepting nullable input. *)
+  val sum_float_nullable : (float option, 'r) Expr.t -> (float option, 'r) t
+
+  (** Minimum of an ordered scalar type; an empty group yields [None]. *)
+  val min : 'a Db_type.Orderable.t -> ('a, 'r) Expr.t -> ('a option, 'r) t
+
+  (** Maximum of an ordered scalar type; an empty group yields [None]. *)
+  val max : 'a Db_type.Orderable.t -> ('a, 'r) Expr.t -> ('a option, 'r) t
+
+  (** As [min], accepting nullable input without nesting options. *)
+  val min_nullable : 'a Db_type.Orderable.t -> ('a option, 'r) Expr.t -> ('a option, 'r) t
+
+  (** As [max], accepting nullable input without nesting options. *)
+  val max_nullable : 'a Db_type.Orderable.t -> ('a option, 'r) Expr.t -> ('a option, 'r) t
+
+  (** Collect projected rows from the current group. [filter] excludes rows;
+      [order_by] determines list order. Without ordering, list order is
+      unspecified. Empty groups decode as empty lists. Unsupported field types
+      are rejected during compilation. *)
+  val multiset_agg
+    :  ?filter:'r Condition.t
+    -> ?order_by:'r Aggregate_order.t list
+    -> ('a, 'r) Projection.t
+    -> ('a list, 'r) t
+end
+
 (** Phantom proofs about SELECT result cardinality. These types describe what
     the DSL and compiler can prove before execution; adapters still enforce
     the requested runtime cardinality as a defensive check. *)
@@ -858,6 +1006,101 @@ module Query : sig
       ['cardinality] is the current row-bound proof. *)
   type ('ctx, 'grouping, +'cardinality, +'requirements) t
 
+  (** SELECT builder for one ungrouped aggregate row. It supports sources,
+      joins, and filters, but has no grouping, [HAVING], or pagination. Finish
+      it with [aggregate_one]; the compiler still checks source locality. *)
+  module Aggregate : sig
+    type ('ctx, +'requirements) t
+
+    (** Start with a table. *)
+    val from : 'row Table.t -> ('row Table_ref.t, 'r) t
+
+    (** Start with a named derived table. *)
+    val from_derived : ('row, 'r) Derived_table.t -> ('row Table_ref.t, 'r) t
+
+    (** Start with an inferred derived relation. *)
+    val from_relation
+      :  ('fields, 'nullable_fields, 'r) Derived_table.inferred
+      -> ('fields, 'r) t
+
+    (** Start with a CTE visible in the current lexical scope. *)
+    val from_cte : 'row Cte.t -> ('row Table_ref.t, 'r) t
+
+    (** Add an inner join to a table; [on] sees both the old and new sources. *)
+    val inner_join
+      :  'row Table.t
+      -> on:('ctx -> 'row Table_ref.t -> 'r Condition.t)
+      -> ('ctx, 'r) t
+      -> ('ctx * 'row Table_ref.t, 'r) t
+
+    (** Add a left join; fields of the new source are nullable. *)
+    val left_join
+      :  'row Table.t
+      -> on:('ctx -> 'row Table_ref.t -> 'r Condition.t)
+      -> ('ctx, 'r) t
+      -> ('ctx * 'row Nullable_table_ref.t, 'r) t
+
+    (** Inner join a named derived table. *)
+    val inner_join_derived
+      :  ('row, 'r) Derived_table.t
+      -> on:('ctx -> 'row Table_ref.t -> 'r Condition.t)
+      -> ('ctx, 'r) t
+      -> ('ctx * 'row Table_ref.t, 'r) t
+
+    (** Left join a named derived table. *)
+    val left_join_derived
+      :  ('row, 'r) Derived_table.t
+      -> on:('ctx -> 'row Table_ref.t -> 'r Condition.t)
+      -> ('ctx, 'r) t
+      -> ('ctx * 'row Nullable_table_ref.t, 'r) t
+
+    (** Inner join an inferred relation. *)
+    val inner_join_relation
+      :  ('fields, 'nullable_fields, 'r) Derived_table.inferred
+      -> on:('ctx -> 'fields -> 'r Condition.t)
+      -> ('ctx, 'r) t
+      -> ('ctx * 'fields, 'r) t
+
+    (** Left join an inferred relation; its fields become nullable. *)
+    val left_join_relation
+      :  ('fields, 'nullable_fields, 'r) Derived_table.inferred
+      -> on:('ctx -> 'fields -> 'r Condition.t)
+      -> ('ctx, 'r) t
+      -> ('ctx * 'nullable_fields, 'r) t
+
+    (** Inner join a CTE in scope. *)
+    val inner_join_cte
+      :  'row Cte.t
+      -> on:('ctx -> 'row Table_ref.t -> 'r Condition.t)
+      -> ('ctx, 'r) t
+      -> ('ctx * 'row Table_ref.t, 'r) t
+
+    (** Left join a CTE in scope. *)
+    val left_join_cte
+      :  'row Cte.t
+      -> on:('ctx -> 'row Table_ref.t -> 'r Condition.t)
+      -> ('ctx, 'r) t
+      -> ('ctx * 'row Nullable_table_ref.t, 'r) t
+
+    (** Filter input rows before aggregation. *)
+    val where : ('ctx -> 'r Condition.t) -> ('ctx, 'r) t -> ('ctx, 'r) t
+
+    (** Add a filter only when the option has a value. *)
+    val where_opt
+      :  'a option
+      -> f:('ctx -> 'a -> 'r Condition.t)
+      -> ('ctx, 'r) t
+      -> ('ctx, 'r) t
+
+    (** Keep SQL shape stable for an optional bind parameter: absent values
+        disable the predicate without rebuilding the statement. *)
+    val where_optional_param
+      :  ('a option, 'r) Expr.t
+      -> f:('ctx -> ('a option, 'r) Expr.t -> 'r Condition.t)
+      -> ('ctx, 'r) t
+      -> ('ctx, 'r) t
+  end
+
   (** Direction for one [ORDER BY] key. *)
   type direction =
     [ `Asc (** Ascending SQL order. *)
@@ -918,6 +1161,18 @@ module Query : sig
   val select_exactly_one
     :  ('ctx -> ('result, 'requirements) Projection.t)
     -> ('ctx, ungrouped, 'cardinality, 'requirements) t
+    -> ( 'result
+         , Result_query.select
+         , Cardinality.exactly_one
+         , 'requirements )
+         Result_query.t
+
+  (** Finish an ungrouped aggregate builder with an [exactly_one] result type.
+      [Aggregate_projection] ensures an aggregate expression is present; the
+      compiler verifies source locality and rejects invalid SQL. *)
+  val aggregate_one
+    :  ('ctx -> ('result, 'requirements) Aggregate_projection.t)
+    -> ('ctx, 'requirements) Aggregate.t
     -> ( 'result
          , Result_query.select
          , Cardinality.exactly_one
@@ -1505,6 +1760,96 @@ end
 (** PostgreSQL-specific builders. Using one adds a PostgreSQL requirement to
     the resulting statement. *)
 module Postgresql : sig
+  (** PostgreSQL aggregate expressions whose result is exact [numeric]. Each
+      constructor marks its query as PostgreSQL-only. [SUM], [MIN], and [MAX]
+      return [None] for empty or entirely null groups. *)
+  module Numeric : sig
+    (** Sum [bigint] values without [int64] overflow in the result. *)
+    val sum_int64
+      :  (int64, ([> `Postgresql ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Expr.t
+
+    (** As [sum_int64], accepting nullable input. *)
+    val sum_int64_nullable
+      :  (int64 option, ([> `Postgresql ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Expr.t
+
+    (** Sum exact [numeric] values. *)
+    val sum_numeric
+      :  (Decimal.t, ([> `Postgresql ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Expr.t
+
+    (** As [sum_numeric], accepting nullable input. *)
+    val sum_numeric_nullable
+      :  (Decimal.t option, ([> `Postgresql ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Expr.t
+
+    (** Minimum non-null [numeric] value. *)
+    val min_numeric
+      :  (Decimal.t, ([> `Postgresql ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Expr.t
+
+    (** Maximum non-null [numeric] value. *)
+    val max_numeric
+      :  (Decimal.t, ([> `Postgresql ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Expr.t
+
+    (** As [min_numeric], accepting nullable input. *)
+    val min_numeric_nullable
+      :  (Decimal.t option, ([> `Postgresql ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Expr.t
+
+    (** As [max_numeric], accepting nullable input. *)
+    val max_numeric_nullable
+      :  (Decimal.t option, ([> `Postgresql ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Expr.t
+  end
+
+  (** [Numeric] aggregates packaged for [Query.aggregate_one]. These retain
+      the PostgreSQL requirement and can be combined with
+      [Aggregate_projection.Let_syntax]. *)
+  module Numeric_projection : sig
+    (** Sum [bigint] values into an exact [numeric] result. *)
+    val sum_int64
+      :  (int64, ([> `Postgresql ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Aggregate_projection.t
+
+    (** As [sum_int64], accepting nullable input. *)
+    val sum_int64_nullable
+      :  (int64 option, ([> `Postgresql ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Aggregate_projection.t
+
+    (** Sum exact [numeric] values. *)
+    val sum_numeric
+      :  (Decimal.t, ([> `Postgresql ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Aggregate_projection.t
+
+    (** As [sum_numeric], accepting nullable input. *)
+    val sum_numeric_nullable
+      :  (Decimal.t option, ([> `Postgresql ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Aggregate_projection.t
+
+    (** Minimum non-null [numeric] value. *)
+    val min_numeric
+      :  (Decimal.t, ([> `Postgresql ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Aggregate_projection.t
+
+    (** Maximum non-null [numeric] value. *)
+    val max_numeric
+      :  (Decimal.t, ([> `Postgresql ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Aggregate_projection.t
+
+    (** As [min_numeric], accepting nullable input. *)
+    val min_numeric_nullable
+      :  (Decimal.t option, ([> `Postgresql ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Aggregate_projection.t
+
+    (** As [max_numeric], accepting nullable input. *)
+    val max_numeric_nullable
+      :  (Decimal.t option, ([> `Postgresql ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Aggregate_projection.t
+  end
+
   module Query : sig
     (** Add [HAVING] before [GROUP BY]. PostgreSQL treats the input as one
         aggregate group; portable [Query.having] requires [Query.grouped]. The

@@ -1,5 +1,6 @@
 open! Base
 module Db_type = Typed_sql_private.Db_type
+module Decimal = Typed_sql_private.Decimal
 module Template = Typed_sql_private.Template
 module Shape = Typed_sql_private.Shape
 

@@ -4,6 +4,13 @@ open! Base
     constructors or unchecked conversions are exposed. Application code only
     needs [Typed_sql]. *)
 
+module Decimal : sig
+  type t
+
+  val of_string : string -> t option
+  val to_string : t -> string
+end
+
 (** Read-only access to codecs carried by compiled statements. *)
 module Db_type : sig
   (** A codec obtained from compiled parameters or result fields. *)
@@ -23,6 +30,7 @@ module Db_type : sig
     | Int : int view (** SQL integer represented as an OCaml [int]. *)
     | Int64 : int64 view (** SQL integer represented as an OCaml [int64]. *)
     | Float : float view (** SQL floating-point value. *)
+    | Numeric : Decimal.t view (** Exact PostgreSQL numeric value. *)
     | Text : string view (** SQL text. *)
     | Bytes : bytes view (** SQL binary data. *)
     | Date : Ptime.t view

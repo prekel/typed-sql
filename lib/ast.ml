@@ -16,6 +16,12 @@ type aggregate =
   | Count_all
   | Count of expr
   | Count_distinct of expr
+  | Sum_int of expr
+  | Sum_float of expr
+  | Sum_int64 of expr
+  | Sum_numeric of expr
+  | Min of expr
+  | Max of expr
   | Multiset_agg of multiset_aggregate
 
 and expr =

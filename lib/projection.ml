@@ -119,6 +119,7 @@ let rec decode_db_type
   | Db_type.Int_type, value -> json_error ~path "int" (json_kind value)
   | Db_type.Int64_type, value -> json_error ~path "int64" (json_kind value)
   | Db_type.Float_type, value -> json_error ~path "float" (json_kind value)
+  | Db_type.Numeric_type, value -> json_error ~path "numeric" (json_kind value)
   | Db_type.Text_type, value -> json_error ~path "text" (json_kind value)
   | Db_type.Date_type, value -> json_error ~path "date" (json_kind value)
   | Db_type.Timestamp_type, value -> json_error ~path "timestamp" (json_kind value)

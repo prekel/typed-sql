@@ -5,6 +5,7 @@ type db_type =
   | Int
   | Int64
   | Float
+  | Numeric
   | Text
   | Bytes
   | Date

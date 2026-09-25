@@ -85,10 +85,13 @@ portable query или command, поэтому dialect requirement по-преж�
 [Typed_sql_private.Command.create ast], чтобы проверить compiler на намеренно
 некорректном command.
 
-[Projection] реализует [Base.Applicative.S]: [return], [map] с именованным [f],
+[Projection] реализует [Base.Applicative.S2]: [return], [map] с именованным [f],
 [apply], [both], [all] и аппликативные операторы. [Projection.Let_syntax]
 поддерживает [let%map ... and ...]. Структура SELECT известна до декодирования,
 поэтому зависимый от результата [bind] у projection отсутствует.
+[Aggregate_projection.Let_syntax] поддерживает ту же сборку через [let%map] и
+[and]. Его [return] отсутствует, поскольку результат должен содержать агрегат.
+Принадлежность источника текущему запросу дополнительно проверяет compiler.
 
 Библиотека [typed-sql.backend] предоставляет отдельный контракт в
 [backend/typed_sql_backend.mli]. Только здесь находятся [Db_type.view],

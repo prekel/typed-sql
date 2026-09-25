@@ -387,76 +387,27 @@ Compile-fail tests проверяют, что обычный SELECT нельзя
 `query_optional`, запрос после `limit_one` можно, а последующий произвольный
 `limit` снова запрещает это.
 
-#### Следующие конструкторы кардинальности
+#### Конструкторы кардинальности
 
-`Query.select_exactly_one` пока является проверяемым обещанием: пользователь
-выбирает combinator, а compiler при создании statement проверяет форму AST.
-Следующий шаг — сделать наиболее частые способы получить `exactly_one`
-конструктивными, чтобы некорректный запрос нельзя было собрать средствами
-публичного API. Приведённые ниже сигнатуры предварительные; они фиксируют
-семантику и необходимые phantom proofs, но не окончательные имена
-вспомогательных типов.
+1. **`Query.aggregate_one` и скалярные агрегаты — реализовано.** Новый
+   `Query.Aggregate` — узкий builder поверх прежнего четырёхпараметрического
+   `Query.t`: он даёт `FROM`, joins и `WHERE`, но не открывает grouping,
+   `HAVING` или pagination. Закрытый `Aggregate_projection.t` разрешает только
+   известные aggregate expressions и их комбинации. Поэтому
+   `Query.aggregate_one` возвращает `Cardinality.exactly_one`, сохраняя
+   совместимость остального API.
 
-1. **`Query.aggregate_one` для ungrouped aggregates.** Ungrouped aggregate без
-   отбрасывающих строку clauses возвращает ровно одну строку даже для пустого
-   input relation. Это позволяет статически доказать кардинальность запросов с
-   `COUNT`, `SUM`, `MIN`, `MAX` и составной aggregate projection. При этом
-   aggregate-признак выражения сам по себе не является кардинальностью запроса:
-   `GROUP BY` может вернуть ноль или много строк, `HAVING` и `OFFSET` могут
-   удалить единственную aggregate row, а `LIMIT 0` и runtime limit могут её
-   скрыть.
+   Портативны `SUM(int)`, `SUM(float)`, `MIN` и `MAX` для типов с явным
+   `Db_type.Orderable` witness; суммы возвращают `None` для пустой группы или
+   набора одних `NULL`. `COUNT` и `multiset_agg` доступны как terminal
+   projections. В `Postgresql.Numeric` и `Postgresql.Numeric_projection` вынесены
+   точные `SUM(int64)`, `SUM(numeric)`, `MIN(numeric)` и `MAX(numeric)` с
+   результатом `Decimal.t option`. Numeric columns и aggregates получают явную
+   ошибку при компиляции для SQLite.
 
-   Для настоящей compile-time гарантии понадобятся два независимых proof:
-
-   - projection содержит local aggregate и не содержит недопустимое
-     row-dependent выражение;
-   - query остаётся ungrouped и aggregate-safe. `FROM`, `JOIN` и `WHERE`
-     сохраняют этот state, а `GROUP BY`, `HAVING`, `OFFSET` и произвольный
-     `LIMIT` переводят builder в state, который `aggregate_one` не принимает.
-
-   Предварительная форма API:
-
-   ```ocaml
-   module Aggregate_projection : sig
-     type ('result, +'requirements) t
-   end
-
-   module Query : sig
-     type aggregate_safe
-     type aggregate_unsafe
-
-     type
-       ( 'ctx
-       , 'grouping
-       , 'aggregate_safety
-       , +'cardinality
-       , +'requirements )
-       t
-
-     val aggregate_one
-       :  ('ctx -> ('result, 'requirements) Aggregate_projection.t)
-       -> ( 'ctx
-          , ungrouped
-          , aggregate_safe
-          , 'cardinality
-          , 'requirements )
-          t
-       -> ( 'result
-          , Result_query.select
-          , Cardinality.exactly_one
-          , 'requirements )
-          Result_query.t
-   end
-   ```
-
-   `Aggregate_projection.t` можно реализовать через дополнительный phantom
-   effect у `Expr.t`/`Projection.t` (`neutral`, `row_dependent`, `aggregate`) или
-   как отдельный закрытый builder. Первый вариант выразительнее для арифметики
-   над aggregates, но затрагивает почти весь expression API; второй сохраняет
-   совместимость, но рискует продублировать combinators. Перед реализацией нужно
-   сделать prototype обоих вариантов. `Query.select_exactly_one` после этого
-   останется explicit escape hatch для форм, которые типовая система ещё не
-   умеет доказать, либо будет deprecated.
+   `Query.select_exactly_one` остаётся проверяемым escape hatch для запросов,
+   которые нельзя выразить через безопасный builder: compiler всё ещё проверяет
+   наличие local aggregate и clauses, способных удалить единственную строку.
 
 2. **`Expr.coalesce` и source-free `Query.select_one` для scalar default.**
    Scalar subquery с кардинальностью zero-or-one даёт nullable expression.

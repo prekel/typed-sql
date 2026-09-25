@@ -195,6 +195,8 @@ let type_source = function
   | Schema_ir.Int -> Ok ("int", "Typed_sql_codegen.Db_type.int")
   | Schema_ir.Int64 -> Ok ("int64", "Typed_sql_codegen.Db_type.int64")
   | Schema_ir.Float -> Ok ("float", "Typed_sql_codegen.Db_type.float")
+  | Schema_ir.Numeric ->
+    Ok ("Typed_sql_codegen.Decimal.t", "Typed_sql_codegen.Db_type.numeric")
   | Schema_ir.Text -> Ok ("string", "Typed_sql_codegen.Db_type.text")
   | Schema_ir.Bytes -> Ok ("bytes", "Typed_sql_codegen.Db_type.bytes")
   | Schema_ir.Date -> Ok ("Typed_sql_codegen.Date.t", "Typed_sql_codegen.Db_type.date")

@@ -64,6 +64,22 @@ module Resource = struct
   let external_id reference = Expr.column reference external_id_column
 end
 
+module Sale = struct
+  type row
+
+  let table : row Table.t = Table.v_exn ~schema:"public" "sales"
+  let person_id_column = Column.v_exn table "person_id" Db_type.int64
+  let quantity_column = Column.v_exn table "quantity" Db_type.int
+  let unit_price_column = Column.v_exn table "unit_price" Db_type.float
+  let amount_column = Column.v_exn table "amount" Db_type.numeric
+  let region_column = Column.v_exn table "region" Db_type.text
+  let person_id reference = Expr.column reference person_id_column
+  let quantity reference = Expr.column reference quantity_column
+  let unit_price reference = Expr.column reference unit_price_column
+  let amount reference = Expr.column reference amount_column
+  let region reference = Expr.column reference region_column
+end
+
 module Blob = struct
   type row
 
@@ -74,6 +90,12 @@ end
 
 let compile_exn dialect query =
   match Compiler.compile_portable ~dialect query with
+  | Ok compiled -> compiled
+  | Error error -> failwith (Compile_error.to_string error)
+;;
+
+let compile_postgresql_exn query =
+  match Compiler.compile ~dialect:Dialect.postgresql query with
   | Ok compiled -> compiled
   | Error error -> failwith (Compile_error.to_string error)
 ;;
@@ -1345,6 +1367,162 @@ let%expect_test "grouped aggregates render in SQLite" =
     ORDER BY
       t0."name" ASC
     |}]
+;;
+
+let sales_summary_query =
+  Query.Aggregate.(from Sale.table |> where (fun sale -> Sale.quantity sale >$ 0))
+  |> Query.aggregate_one (fun sale ->
+    let open Aggregate_projection.Let_syntax in
+    let%map count = Aggregate_projection.count_all
+    and quantity = Aggregate_projection.sum_int (Sale.quantity sale)
+    and region = Aggregate_projection.max Db_type.Orderable.text (Sale.region sale) in
+    count, quantity, region)
+;;
+
+let grouped_sales_query =
+  Query.(
+    from Sale.table
+    |> group_by Sale.region
+    |> select (fun sale ->
+      Projection.map3
+        ~f:(fun region total_price smallest_quantity ->
+          region, total_price, smallest_quantity)
+        (Projection.expr (Sale.region sale))
+        (Projection.expr (Expr.sum_float (Sale.unit_price sale)))
+        (Projection.expr (Expr.min Db_type.Orderable.int (Sale.quantity sale)))))
+;;
+
+let numeric_sales_query =
+  Query.Aggregate.(from Sale.table)
+  |> Query.aggregate_one (fun sale ->
+    Aggregate_projection.both
+      (Postgresql.Numeric_projection.sum_numeric (Sale.amount sale))
+      (Postgresql.Numeric_projection.max_numeric (Sale.amount sale)))
+;;
+
+let correlated_sales_total_query =
+  Query.(
+    from Person.table
+    |> select (fun person ->
+      let total =
+        Query.(
+          from Sale.table
+          |> where (fun sale -> Sale.person_id sale =. Person.id person)
+          |> select_scalar (fun sale -> Expr.sum_int (Sale.quantity sale)))
+      in
+      Projection.pair (Person.name person) (Expr.scalar_subquery total)))
+;;
+
+let%expect_test "aggregate_one summarizes filtered rows in PostgreSQL" =
+  sales_summary_query
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      COUNT(*),
+      SUM(t0."quantity"),
+      MAX(t0."region")
+    FROM "public"."sales" AS t0
+    WHERE
+      (t0."quantity" > $1)
+    |}]
+;;
+
+let%expect_test "aggregate_one summarizes filtered rows in SQLite" =
+  sales_summary_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      COUNT(*),
+      SUM(t0."quantity"),
+      MAX(t0."region")
+    FROM "public"."sales" AS t0
+    WHERE
+      (t0."quantity" > ?1)
+    |}]
+;;
+
+let%expect_test "grouped SUM and MIN render in PostgreSQL" =
+  grouped_sales_query
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      t0."region",
+      SUM(t0."unit_price"),
+      MIN(t0."quantity")
+    FROM "public"."sales" AS t0
+    GROUP BY
+      t0."region"
+    |}]
+;;
+
+let%expect_test "grouped SUM and MIN render in SQLite" =
+  grouped_sales_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      t0."region",
+      SUM(t0."unit_price"),
+      MIN(t0."quantity")
+    FROM "public"."sales" AS t0
+    GROUP BY
+      t0."region"
+    |}]
+;;
+
+let%expect_test "PostgreSQL numeric SUM and MAX preserve numeric SQL" =
+  numeric_sales_query
+  |> compile_postgresql_exn
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      SUM(t0."amount"),
+      MAX(t0."amount")
+    FROM "public"."sales" AS t0
+    |}]
+;;
+
+let%expect_test "correlated SUM subquery renders in SQLite" =
+  correlated_sales_total_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      t0."name",
+      (
+        SELECT
+          SUM(t1."quantity")
+        FROM "public"."sales" AS t1
+        WHERE
+          (t1."person_id" = t0."id")
+      )
+    FROM "public"."people" AS t0
+    |}]
+;;
+
+let%test "aggregate_one can define a portable query_one statement" =
+  Statement.Portable.query_one (fun _ -> sales_summary_query) |> Result.is_ok
+;;
+
+let%test "numeric aggregate can define a PostgreSQL query_one statement" =
+  Statement.For_dialect.query_one ~dialect:Dialect.postgresql (fun _ ->
+    numeric_sales_query)
+  |> Result.is_ok
 ;;
 
 let lowered_group_query =

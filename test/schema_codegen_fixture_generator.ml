@@ -26,6 +26,7 @@ let schema =
           ; column "land" Schema_ir.Text
           ; column "_" Schema_ir.Text
           ; column "map" Schema_ir.Text
+          ; column "total" Schema_ir.Numeric
           ]
         ()
     ; Schema_ir.table

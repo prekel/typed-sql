@@ -6,7 +6,7 @@ PGOCAML_PACKAGE = ./_build/default/typed-sql-pgocaml-lwt.opam
 .PHONY: create_switch
 create_switch:
 	opam update default
-	opam switch create . 5.5.1 --no-install -y
+	opam switch create . 5.1.1 --no-install -y
 
 .PHONY: deps
 deps:
@@ -15,7 +15,7 @@ deps:
 
 .PHONY: deps_all
 deps_all:
-	opam pin add bisect_ppx https://github.com/aantron/bisect_ppx.git\#7061d643ff492b0045796357ee6917ded21fb1f0 -yn
+	opam pin add bisect_ppx https://github.com/aantron/bisect_ppx.git\#2d8dffbbfc0c431a37319d4d9a143836c9ec542e -yn
 	opam exec -- dune build --root . typed-sql-pgocaml-lwt.opam
 	opam install --deps-only --with-test --with-doc --with-dev-setup $(PACKAGES) $(PGOCAML_PACKAGE) -y
 

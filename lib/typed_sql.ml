@@ -2,6 +2,7 @@ open! Base
 module Identifier = Typed_sql_private.Identifier
 module Date = Typed_sql_private.Date
 module Uuid = Typed_sql_private.Uuid
+module Decimal = Typed_sql_private.Decimal
 module Db_type = Typed_sql_private.Db_type
 module Schema_ir = Typed_sql_private.Schema_ir
 module Schema_snapshot = Typed_sql_private.Schema_snapshot
@@ -22,6 +23,7 @@ module Infix = struct
 end
 
 module Projection = Typed_sql_private.Projection
+module Aggregate_projection = Typed_sql_private.Aggregate_projection
 module Cardinality = Typed_sql_private.Cardinality
 module Query = Typed_sql_private.Query
 module Result_query = Typed_sql_private.Result_query
@@ -35,6 +37,28 @@ module Dialect = Typed_sql_private.Dialect
 module Statement = Typed_sql_private.Statement
 
 module Postgresql = struct
+  module Numeric = struct
+    let sum_int64 = Typed_sql_private.Expr.sum_int64
+    let sum_int64_nullable = Typed_sql_private.Expr.sum_int64_nullable
+    let sum_numeric = Typed_sql_private.Expr.sum_numeric
+    let sum_numeric_nullable = Typed_sql_private.Expr.sum_numeric_nullable
+    let min_numeric = Typed_sql_private.Expr.min_numeric
+    let max_numeric = Typed_sql_private.Expr.max_numeric
+    let min_numeric_nullable = Typed_sql_private.Expr.min_numeric_nullable
+    let max_numeric_nullable = Typed_sql_private.Expr.max_numeric_nullable
+  end
+
+  module Numeric_projection = struct
+    let sum_int64 = Typed_sql_private.Aggregate_projection.sum_int64
+    let sum_int64_nullable = Typed_sql_private.Aggregate_projection.sum_int64_nullable
+    let sum_numeric = Typed_sql_private.Aggregate_projection.sum_numeric
+    let sum_numeric_nullable = Typed_sql_private.Aggregate_projection.sum_numeric_nullable
+    let min_numeric = Typed_sql_private.Aggregate_projection.min_numeric
+    let max_numeric = Typed_sql_private.Aggregate_projection.max_numeric
+    let min_numeric_nullable = Typed_sql_private.Aggregate_projection.min_numeric_nullable
+    let max_numeric_nullable = Typed_sql_private.Aggregate_projection.max_numeric_nullable
+  end
+
   module Query = struct
     let having = Typed_sql_private.Query.having
     let intersect_all = Typed_sql_private.Query.intersect_all

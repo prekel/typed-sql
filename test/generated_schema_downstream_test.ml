@@ -22,17 +22,24 @@ let first_row : First.t =
   ; land_ = "land"
   ; field = "underscore"
   ; map_2 = "map"
+  ; total = Decimal.of_string "123.45" |> Option.value_exn
   }
 ;;
 
 let () =
   ignore first_row;
+  Query.(from First.table |> select First.projection)
+  |> Compiler.compile ~dialect:Dialect.postgresql
+  |> Result.map_error ~f:Compile_error.to_string
+  |> Result.ok_or_failwith
+  |> ignore;
+  (match
+     Query.(from First.table |> select First.projection)
+     |> Compiler.compile ~dialect:Dialect.sqlite
+   with
+   | Error _ -> ()
+   | Ok _ -> failwith "generated numeric schema unexpectedly compiled for SQLite");
   List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
-    Query.(from First.table |> select First.projection)
-    |> Compiler.compile_portable ~dialect
-    |> Result.map_error ~f:Compile_error.to_string
-    |> Result.ok_or_failwith
-    |> ignore;
     Query.(from Second.table |> select Second.projection)
     |> Compiler.compile_portable ~dialect
     |> Result.map_error ~f:Compile_error.to_string

@@ -29,7 +29,14 @@ and condition_sources = function
 
 and aggregate_sources = function
   | Ast.Count_all -> []
-  | Ast.Count expression | Ast.Count_distinct expression -> expression_sources expression
+  | Ast.Count expression
+  | Ast.Count_distinct expression
+  | Ast.Sum_int expression
+  | Ast.Sum_float expression
+  | Ast.Sum_int64 expression
+  | Ast.Sum_numeric expression
+  | Ast.Min expression
+  | Ast.Max expression -> expression_sources expression
   | Ast.Multiset_agg multiset ->
     List.concat_map multiset.fields ~f:expression_sources
     @ List.concat_map multiset.order_by ~f:(fun order ->

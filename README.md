@@ -426,6 +426,6 @@ test. White-box tests и `typed-sql.backend` в этот прогон не вх�
 97%, HTML-отчёт создаётся в `_coverage/public/html/index.html`.
 
 `make coverage-all` добавляет backend и private suites, требует не менее 99% и
-пишет отчёт в `_coverage/all/html/index.html`. Для OCaml 5.5.1 `make deps_all`
-временно закрепляет `bisect_ppx` на upstream commit с поддержкой актуального
-`ppxlib`.
+пишет отчёт в `_coverage/all/html/index.html`. Для локального switch с OCaml
+5.1.1 `make deps_all` закрепляет `bisect_ppx` на upstream commit, совместимом с
+используемым `ppxlib`.

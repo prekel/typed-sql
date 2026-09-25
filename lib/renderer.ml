@@ -142,6 +142,19 @@ let rec render_expr ~aliases expression state =
   | Ast.Aggregate (Ast.Count_distinct expression) ->
     let expression, state = render_expr ~aliases expression state in
     concat [ text "COUNT(DISTINCT "; expression; text ")" ], state
+  | Ast.Aggregate
+      ( Ast.Sum_int expression
+      | Ast.Sum_float expression
+      | Ast.Sum_int64 expression
+      | Ast.Sum_numeric expression ) ->
+    let expression, state = render_expr ~aliases expression state in
+    concat [ text "SUM("; expression; text ")" ], state
+  | Ast.Aggregate (Ast.Min expression) ->
+    let expression, state = render_expr ~aliases expression state in
+    concat [ text "MIN("; expression; text ")" ], state
+  | Ast.Aggregate (Ast.Max expression) ->
+    let expression, state = render_expr ~aliases expression state in
+    concat [ text "MAX("; expression; text ")" ], state
   | Ast.Aggregate (Ast.Multiset_agg multiset) ->
     let multiset, state = render_multiset_aggregate_raw ~aliases multiset state in
     render_multiset_aggregate_output multiset state

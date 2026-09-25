@@ -125,6 +125,7 @@ let rec encode
   | Int -> Ok (Some (Pgocaml.string_of_int value))
   | Int64 -> Ok (Some (Pgocaml.string_of_int64 value))
   | Float -> Ok (Some (Pgocaml.string_of_float value))
+  | Numeric -> Ok (Some (Typed_sql_backend.Decimal.to_string value))
   | Text -> Ok (Some (Pgocaml.string_of_string value))
   | Bytes -> Ok (Some (Pgocaml.string_of_bytea (Bytes.to_string value)))
   | Date -> Ok (Some (date_to_string value))
@@ -147,14 +148,28 @@ let rec decode
   match Typed_sql_backend.Db_type.view db_type, field with
   | Option _, None -> Ok None
   | Option db_type, Some value -> Result.map (decode db_type (Some value)) ~f:Option.some
-  | (Bool | Int | Int64 | Float | Text | Bytes | Date | Timestamp | Uuid | Map _), None ->
-    Error ("unexpected NULL for " ^ Typed_sql_backend.Db_type.name db_type)
+  | ( ( Bool
+      | Int
+      | Int64
+      | Float
+      | Numeric
+      | Text
+      | Bytes
+      | Date
+      | Timestamp
+      | Uuid
+      | Map _ )
+    , None ) -> Error ("unexpected NULL for " ^ Typed_sql_backend.Db_type.name db_type)
   | Bool, Some value -> protect ~context:"bool" (fun () -> Pgocaml.bool_of_string value)
   | Int, Some value -> protect ~context:"int" (fun () -> Pgocaml.int_of_string value)
   | Int64, Some value ->
     protect ~context:"int64" (fun () -> Pgocaml.int64_of_string value)
   | Float, Some value ->
     protect ~context:"float" (fun () -> Pgocaml.float_of_string value)
+  | Numeric, Some value ->
+    (match Typed_sql_backend.Decimal.of_string value with
+     | Some decimal -> Ok decimal
+     | None -> Error ("numeric: invalid value " ^ value))
   | Text, Some value -> Ok value
   | Bytes, Some value ->
     protect ~context:"bytes" (fun () -> Pgocaml.bytea_of_string value |> Bytes.of_string)
@@ -186,6 +201,7 @@ let rec oid : type a. a Typed_sql_backend.Db_type.t -> Pgocaml.oid =
     | Int -> 23
     | Text -> 25
     | Float -> 701
+    | Numeric -> 1700
     | Date -> 1082
     | Timestamp -> 1184
     | Uuid -> 2950

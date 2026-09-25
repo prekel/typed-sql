@@ -23,8 +23,15 @@ let rec validate_expr ~validate_subquery ~visible = function
     in
     validate_expr ~validate_subquery ~visible else_
   | Ast.Aggregate Ast.Count_all -> Ok ()
-  | Ast.Aggregate (Ast.Count expression | Ast.Count_distinct expression) ->
-    validate_expr ~validate_subquery ~visible expression
+  | Ast.Aggregate
+      ( Ast.Count expression
+      | Ast.Count_distinct expression
+      | Ast.Sum_int expression
+      | Ast.Sum_float expression
+      | Ast.Sum_int64 expression
+      | Ast.Sum_numeric expression
+      | Ast.Min expression
+      | Ast.Max expression ) -> validate_expr ~validate_subquery ~visible expression
   | Ast.Aggregate (Ast.Multiset_agg multiset) ->
     let open Result.Let_syntax in
     let%bind () = validate_expressions ~validate_subquery ~visible multiset.fields in
@@ -210,7 +217,15 @@ let rec analyze_expression ~groups ~inside_aggregate expression =
       combine_all (analyze_expression ~groups ~inside_aggregate else_ :: branches)
     | Ast.Aggregate Ast.Count_all ->
       { has_aggregate = true; nested_aggregate = inside_aggregate; grouped = true }
-    | Ast.Aggregate (Ast.Count expression | Ast.Count_distinct expression) ->
+    | Ast.Aggregate
+        ( Ast.Count expression
+        | Ast.Count_distinct expression
+        | Ast.Sum_int expression
+        | Ast.Sum_float expression
+        | Ast.Sum_int64 expression
+        | Ast.Sum_numeric expression
+        | Ast.Min expression
+        | Ast.Max expression ) ->
       let nested = analyze_expression ~groups ~inside_aggregate:true expression in
       { has_aggregate = true
       ; nested_aggregate = inside_aggregate || nested.nested_aggregate

@@ -45,6 +45,16 @@ let rec expression ~dialect = function
     Ast.Aggregate (Ast.Count (expression ~dialect value))
   | Ast.Aggregate (Ast.Count_distinct value) ->
     Ast.Aggregate (Ast.Count_distinct (expression ~dialect value))
+  | Ast.Aggregate (Ast.Sum_int value) ->
+    Ast.Aggregate (Ast.Sum_int (expression ~dialect value))
+  | Ast.Aggregate (Ast.Sum_float value) ->
+    Ast.Aggregate (Ast.Sum_float (expression ~dialect value))
+  | Ast.Aggregate (Ast.Sum_int64 value) ->
+    Ast.Aggregate (Ast.Sum_int64 (expression ~dialect value))
+  | Ast.Aggregate (Ast.Sum_numeric value) ->
+    Ast.Aggregate (Ast.Sum_numeric (expression ~dialect value))
+  | Ast.Aggregate (Ast.Min value) -> Ast.Aggregate (Ast.Min (expression ~dialect value))
+  | Ast.Aggregate (Ast.Max value) -> Ast.Aggregate (Ast.Max (expression ~dialect value))
   | Ast.Aggregate (Ast.Multiset_agg multiset) ->
     Ast.Aggregate
       (Ast.Multiset_agg
@@ -188,8 +198,15 @@ let rec expression_has_unsupported_having ~dialect = function
     expression_has_unsupported_having ~dialect left
     || expression_has_unsupported_having ~dialect right
   | Ast.String_function (_, value)
-  | Ast.Aggregate (Ast.Count value | Ast.Count_distinct value) ->
-    expression_has_unsupported_having ~dialect value
+  | Ast.Aggregate
+      ( Ast.Count value
+      | Ast.Count_distinct value
+      | Ast.Sum_int value
+      | Ast.Sum_float value
+      | Ast.Sum_int64 value
+      | Ast.Sum_numeric value
+      | Ast.Min value
+      | Ast.Max value ) -> expression_has_unsupported_having ~dialect value
   | Ast.Aggregate (Ast.Multiset_agg multiset) ->
     List.exists multiset.fields ~f:(expression_has_unsupported_having ~dialect)
     || Option.value_map
@@ -307,14 +324,34 @@ and command_has_unsupported_having ~dialect command =
 let first_unsupported values = List.find_map values ~f:Fn.id
 
 let rec sqlite_unsupported_expression = function
-  | Ast.Column _ | Ast.Param _ | Ast.Aggregate Ast.Count_all | Ast.Current_timestamp ->
-    None
+  | Ast.Column { db_type = Db_type.Pack db_type; _ } ->
+    if Db_type.contains_numeric db_type then
+      Some "numeric"
+    else
+      None
+  | Ast.Param (Ast.Value (Db_type.Value (db_type, _))) ->
+    if Db_type.contains_numeric db_type then
+      Some "numeric"
+    else
+      None
+  | Ast.Param (Ast.Slot { db_type = Db_type.Pack db_type; _ }) ->
+    if Db_type.contains_numeric db_type then
+      Some "numeric"
+    else
+      None
+  | Ast.Aggregate Ast.Count_all | Ast.Current_timestamp -> None
   | Ast.Arithmetic (_, left, right) | Ast.Concat (left, right) ->
     first_unsupported
       [ sqlite_unsupported_expression left; sqlite_unsupported_expression right ]
   | Ast.String_function (_, expression)
-  | Ast.Aggregate (Ast.Count expression | Ast.Count_distinct expression) ->
-    sqlite_unsupported_expression expression
+  | Ast.Aggregate
+      ( Ast.Count expression
+      | Ast.Count_distinct expression
+      | Ast.Sum_int expression
+      | Ast.Sum_float expression
+      | Ast.Min expression
+      | Ast.Max expression ) -> sqlite_unsupported_expression expression
+  | Ast.Aggregate (Ast.Sum_int64 _ | Ast.Sum_numeric _) -> Some "numeric aggregate"
   | Ast.Aggregate (Ast.Multiset_agg multiset) ->
     first_unsupported
       (List.map multiset.fields ~f:sqlite_unsupported_expression

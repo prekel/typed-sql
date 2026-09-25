@@ -208,6 +208,63 @@ let count_distinct expression =
   { node = Ast.Aggregate (Ast.Count_distinct expression.node); db_type = Db_type.int64 }
 ;;
 
+let sum_int expression =
+  { node = Ast.Aggregate (Ast.Sum_int expression.node)
+  ; db_type = Db_type.option Db_type.int64
+  }
+;;
+
+let sum_int_nullable = sum_int
+
+let sum_float expression =
+  { node = Ast.Aggregate (Ast.Sum_float expression.node)
+  ; db_type = Db_type.option Db_type.float
+  }
+;;
+
+let sum_float_nullable = sum_float
+
+let sum_int64 expression =
+  { node = Ast.Aggregate (Ast.Sum_int64 expression.node)
+  ; db_type = Db_type.option Db_type.numeric
+  }
+;;
+
+let sum_int64_nullable = sum_int64
+
+let sum_numeric expression =
+  { node = Ast.Aggregate (Ast.Sum_numeric expression.node)
+  ; db_type = Db_type.option Db_type.numeric
+  }
+;;
+
+let sum_numeric_nullable = sum_numeric
+
+let min _orderable expression =
+  { node = Ast.Aggregate (Ast.Min expression.node)
+  ; db_type = Db_type.option expression.db_type
+  }
+;;
+
+let max _orderable expression =
+  { node = Ast.Aggregate (Ast.Max expression.node)
+  ; db_type = Db_type.option expression.db_type
+  }
+;;
+
+let min_nullable _orderable expression =
+  { node = Ast.Aggregate (Ast.Min expression.node); db_type = expression.db_type }
+;;
+
+let max_nullable _orderable expression =
+  { node = Ast.Aggregate (Ast.Max expression.node); db_type = expression.db_type }
+;;
+
+let min_numeric expression = min Db_type.numeric expression
+let max_numeric expression = max Db_type.numeric expression
+let min_numeric_nullable expression = min_nullable Db_type.numeric expression
+let max_numeric_nullable expression = max_nullable Db_type.numeric expression
+
 let scalar_subquery query =
   { node = Ast.Scalar_subquery (Scalar_query.ast query)
   ; db_type = Db_type.option (Scalar_query.db_type query)

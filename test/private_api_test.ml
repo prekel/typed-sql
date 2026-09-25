@@ -858,6 +858,12 @@ let%test_module "private helper boundary cases" =
         .nested_aggregate
     ;;
 
+    let%test "aggregate source traversal visits aggregate arguments" =
+      List.is_empty
+        (Aggregate_scope.expression_sources
+           (A.Aggregate (A.Count (A.Aggregate A.Count_all))))
+    ;;
+
     let%test "rejects INSERT with no rows" =
       match Validator.command { (command A.Insert []) with rows = [] } with
       | Error (Compile_error.Empty_assignments `Insert) -> true
@@ -1074,6 +1080,76 @@ let%test_module "lowering capability traversal" =
            { assignment with A.value = A.Default })
     ;;
 
+    let%test_unit "SQLite lowering rejects direct INSERT and UPDATE DEFAULT" =
+      let default_assignment = { assignment with A.value = A.Default } in
+      assert (
+        is_sqlite_unsupported
+          (Lower.command
+             ~dialect:Dialect.Sqlite
+             (command A.Insert [ default_assignment ])));
+      assert (
+        is_sqlite_unsupported
+          (Lower.command
+             ~dialect:Dialect.Sqlite
+             (command A.Update [ default_assignment ])))
+    ;;
+
+    let%test "SQLite lowering rejects PostgreSQL numeric aggregates" =
+      let numeric_aggregate =
+        A.Aggregate
+          (A.Sum_int64
+             (A.Column
+                { source_id = 0
+                ; name = Identifier.of_string_exn "id"
+                ; db_type = Db_type.Pack Db_type.int64
+                }))
+      in
+      is_sqlite_unsupported
+        (Lower.result_query
+           ~dialect:Dialect.Sqlite
+           (A.Select (A.Simple { select with projection = [ numeric_aggregate ] })))
+    ;;
+
+    let%test "SQLite command lowering rejects unsupported numeric expressions" =
+      let numeric_aggregate =
+        A.Aggregate
+          (A.Sum_int64
+             (A.Column
+                { source_id = 0
+                ; name = Identifier.of_string_exn "id"
+                ; db_type = Db_type.Pack Db_type.int64
+                }))
+      in
+      is_sqlite_unsupported
+        (Lower.command
+           ~dialect:Dialect.Sqlite
+           (command
+              A.Update
+              [ { assignment with A.value = A.Expression numeric_aggregate } ]))
+    ;;
+
+    let%test "SQLite lowering rejects ungrouped HAVING on SELECT" =
+      is_sqlite_unsupported
+        (Lower.result_query
+           ~dialect:Dialect.Sqlite
+           (A.Select (A.Simple { select with having = Some A.True })))
+    ;;
+
+    let%test "command CTE traversal checks nested assignments" =
+      let cte : A.cte =
+        { cte_id = 7
+        ; columns = []
+        ; column_types = []
+        ; result_types = []
+        ; materialization = None
+        ; body = A.Command_body (command A.Update [ bad_assignment ])
+        }
+      in
+      Lower.select_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        { select with ctes = [ cte ]; projection = [] }
+    ;;
+
     let%test "INSERT assignment traversal finds unsupported HAVING" =
       Lower.command_has_unsupported_having
         ~dialect:Dialect.Sqlite
@@ -1165,4 +1241,62 @@ let%test_unit "exactly-one proof rejects compound SELECTs" =
   | Error Compile_error.Exactly_one_query_not_proven -> ()
   | Error error -> failwith (Compile_error.to_string error)
   | Ok _ -> failwith "compound SELECT was accepted as exactly one row"
+;;
+
+let%test_unit "multiset decoder keeps defensive JSON diagnostics" =
+  let int_projection = Projection.expr (Expr.constant Db_type.int 1) in
+  let decode projection value =
+    Projection.decode_json_rows projection ~path:[] (`List [ `List [ value ] ])
+  in
+  (match decode int_projection (`Bool true) with
+   | Error message -> assert (String.is_substring message ~substring:"got boolean")
+   | Ok _ -> failwith "boolean JSON was accepted as an integer");
+  (match decode int_projection (`List []) with
+   | Error message -> assert (String.is_substring message ~substring:"got compound")
+   | Ok _ -> failwith "compound JSON was accepted as an integer");
+  let bool_projection = Projection.expr (Expr.constant Db_type.bool false) in
+  List.iter
+    [ `Intlit "2"; `Float 2.0 ]
+    ~f:(fun value ->
+      match decode bool_projection value with
+      | Error message -> assert (String.is_substring message ~substring:"got number")
+      | Ok _ -> failwith "a JSON number was accepted as a boolean");
+  (match Projection.decode_json_rows int_projection ~path:[] (`List [ `List [] ]) with
+   | Error message ->
+     assert (String.is_substring message ~substring:"projected field count")
+   | Ok _ -> failwith "a row with a missing field was accepted");
+  (match Projection.decode_json_rows int_projection ~path:[] `Null with
+   | Error message -> assert (String.is_substring message ~substring:"expected array")
+   | Ok _ -> failwith "a non-array multiset was accepted");
+  let int64_projection = Projection.expr (Expr.constant Db_type.int64 1L) in
+  (match decode int64_projection (`Intlit "9223372036854775808") with
+   | Error message -> assert (String.is_substring message ~substring:"expected int64")
+   | Ok _ -> failwith "an out-of-range int64 JSON value was accepted");
+  let numeric_projection =
+    Projection.expr
+      (Expr.constant Db_type.numeric (Decimal.of_string "1" |> Option.value_exn))
+  in
+  match decode numeric_projection (`Int 1) with
+  | Error message -> assert (String.is_substring message ~substring:"expected numeric")
+  | Ok _ -> failwith "numeric JSON was accepted by the multiset decoder"
+;;
+
+let%test_unit "result-only multiset codecs expose their backend view" =
+  let db_type : int list Db_type.t =
+    Db_type.json_result
+      ~fields:[ Db_type.Pack Db_type.int ]
+      ~decode_json:(fun ~path:_ _ -> Ok [])
+  in
+  assert (String.equal (Db_type.name db_type) "multiset");
+  assert (not (Db_type.contains_numeric db_type));
+  let verify_view : type a. a Db_type.t -> a -> bool =
+    fun db_type value ->
+    match Db_type.view db_type with
+    | Db_type.Map { repr = Db_type.Text_type; encode; decode; name } ->
+      String.equal name "multiset"
+      && Result.is_error (encode value)
+      && Result.is_error (decode "{")
+    | _ -> false
+  in
+  assert (verify_view db_type [])
 ;;
