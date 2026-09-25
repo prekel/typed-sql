@@ -125,6 +125,10 @@ let rec render_expr ~aliases expression state =
     let left, state = render_expr ~aliases left state in
     let right, state = render_expr ~aliases right state in
     concat [ text "("; left; text " || "; right; text ")" ], state
+  | Ast.Coalesce (nullable, default) ->
+    let nullable, state = render_expr ~aliases nullable state in
+    let default, state = render_expr ~aliases default state in
+    concat [ text "COALESCE("; nullable; text ", "; default; text ")" ], state
   | Ast.Case (branches, else_) ->
     let branches, state = render_case_branches ~aliases branches state in
     let else_, state = render_expr ~aliases else_ state in
@@ -706,6 +710,19 @@ and render_select_query
   match query with
   | Ast.Simple select ->
     render_select ~json_projection ~output_names ~parent_aliases select state
+  | Ast.Source_free source_free ->
+    let render_body state =
+      let projection, state =
+        render_projection
+          ~aliases:parent_aliases
+          ~json_projection
+          ~output_names
+          [ source_free.expression ]
+          state
+      in
+      concat [ text "SELECT"; nest (concat [ break " "; projection ]) ], state
+    in
+    render_with source_free.ctes ~render_body state
   | Ast.Compound compound ->
     let render_body state =
       let left, state =

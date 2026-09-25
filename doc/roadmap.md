@@ -1,6 +1,6 @@
 # Дорожная карта
 
-Состояние проекта на 24 сентября 2026 года. Документ сопоставляет текущую
+Состояние проекта на 25 сентября 2026 года. Документ сопоставляет текущую
 реализацию с исходным [first_plan.md](first_plan.md), фиксирует завершённый
 релизный срез и перечисляет следующую работу. Приложение RealWorld будет жить в
 отдельном репозитории и использовать `typed-sql` вместе с `../typed-endpoint`.
@@ -264,15 +264,19 @@ PostgreSQL и SQLite compiler развивались параллельно, п�
 семантика проверяется парными golden tests. Второй adapter PG'OCaml появился до
 runtime PostgreSQL infrastructure и пока проверяется compile-only.
 
-## Что осталось сделать
+## План и статус работ
+
+В списках этого раздела `[x]` означает, что возможность реализована, а `[ ]` —
+что работа ещё предстоит. Условные расширения остаются незакрытыми до появления
+прикладного сценария и проверки его требований.
 
 ### 1. Проверить текущий API внешним RealWorld-приложением
 
-В отдельном репозитории нужно реализовать официальный RealWorld/OpenAPI 3.1:
-users/auth, profiles/follows, articles, comments, favorites и tags. Приложение
-должно зависеть только от публичных API `Typed_sql`, execution adapter и
-`../typed-endpoint`; ручной SQL и `typed-sql.private`/`typed-sql.backend` в
-application code не допускаются.
+- [ ] Реализовать в отдельном репозитории официальный RealWorld/OpenAPI 3.1:
+  users/auth, profiles/follows, articles, comments, favorites и tags. Приложение
+  должно зависеть только от публичных API `Typed_sql`, execution adapter и
+  `../typed-endpoint`; ручной SQL и `typed-sql.private`/`typed-sql.backend` в
+  application code не допускаются.
 
 Первый runtime должен использовать SQLite `:memory:` или временный файл.
 Нужные patterns уже доступны: scoped ownership mutations, transactions,
@@ -282,56 +286,60 @@ idempotent inserts, count queries, correlated flags и batch loading tags чер
 
 #### Приоритеты по результатам разбора `typed-realworld`
 
-Ниже — потребности из прикладного разбора RealWorld в порядке приоритета.
-Это будущие расширения, а не уже доступный API. Scoped mutations, transactions,
-полноценный UPSERT, отдельные count queries, correlated flags и batch loading
-через `IN` уже есть в DSL; их неиспользование приложением само по себе не
-означает пробел в `typed-sql`.
+Ниже — реализованные возможности и потребности из прикладного разбора RealWorld
+в порядке приоритета. Scoped mutations, transactions, полноценный UPSERT,
+отдельные count queries, correlated flags и batch loading через `IN` уже есть
+в DSL; их неиспользование приложением само по себе не означает пробел в
+`typed-sql`.
 
-Завершено: derived tables, CTE и set operations закрывают выбор страницы до
-последующих JOIN и позволяют выразить `FROM (SELECT ...) AS page`, `WITH page
-AS (...)` и объединение read-model ветвей без ручного SQL.
+- [x] Derived tables, CTE и set operations закрывают выбор страницы до
+  последующих JOIN и позволяют выразить `FROM (SELECT ...) AS page`, `WITH page
+  AS (...)` и объединение read-model ветвей без ручного SQL.
 
-Завершено: portable `Query.multiset` собирает результат коррелированного
-SELECT, а `Projection.multiset_agg` — строки текущей aggregate-группы. Оба API
-сохраняют `Projection.map`, возвращают типизированный OCaml-список,
-нормализуют пустой результат и поддерживают рекурсивные коллекции. PostgreSQL
-и SQLite используют позиционные JSON-массивы только как внутренний transport;
-JSON не выходит в публичный тип. Aggregate-local ordering и filtering доступны
-через `Aggregate_order` и именованные аргументы `multiset_agg`.
+- [x] Portable `Query.multiset` собирает результат коррелированного
+  SELECT, а `Projection.multiset_agg` — строки текущей aggregate-группы. Оба API
+  сохраняют `Projection.map`, возвращают типизированный OCaml-список,
+  нормализуют пустой результат и поддерживают рекурсивные коллекции. PostgreSQL
+  и SQLite используют позиционные JSON-массивы только как внутренний transport;
+  JSON не выходит в публичный тип. Aggregate-local ordering и filtering доступны
+  через `Aggregate_order` и именованные аргументы `multiset_agg`.
 
-Низкоуровневые `array_agg`, `json_agg` и `json_group_array` остаются будущими
-dialect API для случаев, когда приложению нужен сам database JSON или native
-PostgreSQL array.
+- [ ] Низкоуровневые `array_agg`, `json_agg` и `json_group_array` остаются будущими
+  dialect API для случаев, когда приложению нужен сам database JSON или native
+  PostgreSQL array.
 
-1. **Типизированные связи из схемы.** Генерировать FK descriptors и удобные
+- [ ] **Типизированные связи из схемы.** Генерировать FK descriptors и удобные
    отношения вроде `Articles.author`, `Comments.article`, `Favorites.user`,
    пригодные для будущего `join_fk`. FK metadata уже сохраняется, arbitrary
    JOIN уже доступен; не хватает типизированного сокращения ручных сравнений
    колонок, включая составные ключи.
 
-2. **Дополнительные SQL-конструкции.** Добавлять по прикладной необходимости
+- [ ] **Дополнительные SQL-конструкции.** Добавлять по прикладной необходимости
    window functions, `DISTINCT ON`, `LATERAL`, `ILIKE` и `NULLS FIRST/LAST`.
    `COUNT(*) OVER ()` может вернуть страницу и общее количество одним запросом;
    для пустой страницы потребуется отдельное получение количества. PostgreSQL
-   JSON и arrays требуют dialect API.
+   JSON и arrays требуют dialect API. Сценарии и границы этих расширений
+   описаны в разделе «Добавлять сложные запросы по прикладной необходимости».
 
-3. **Больше типов.** Добавить корректные codecs и codegen mappings для
+- [ ] **Больше типов.** Добавить корректные codecs и codegen mappings для
    decimal/numeric, enums, JSON, arrays и пользовательских PostgreSQL types.
    Неизвестные типы сейчас намеренно останавливают codegen; молчаливое
    преобразование в неточный базовый тип недопустимо.
 
-4. **Более полный schema snapshot.** Расширить IR, introspection и snapshot
+- [ ] **Более полный schema snapshot.** Расширить IR, introspection и snapshot
    обычными, expression и partial indexes, CHECK constraints и triggers.
    Текущий snapshot сохраняет columns, PK, FK и UNIQUE, но этого недостаточно
    для полного обнаружения drift производственных индексов и ограничений.
 
-5. **PostgreSQL array parameters для batch lookup.** Добавить отдельный
+- [ ] **PostgreSQL array parameters для batch lookup.** Добавить отдельный
    PostgreSQL-specific API для native array codec и предиката
    `column = ANY (?1)`, например `Db_type.Postgresql.array` и
    `Postgresql.Expr.equals_any`. Это не `IN ?1`: placeholder кодирует одно
    native PostgreSQL array-значение, а `ANY` применяет сравнение к его
-   элементам.
+   элементам. Запись `column IN $1` не передаёт SQL-список через один
+   bind parameter. Текущий portable `IN` создаёт отдельный placeholder для
+   каждого элемента (`IN ($1, $2, ...)`) и потому меняет SQL shape при
+   изменении длины списка.
 
    API нужен для запросов с непредсказуемым числом идентификаторов, которым в
    PostgreSQL полезны одна статическая SQL shape, один bind parameter и
@@ -355,17 +363,21 @@ PostgreSQL array.
    expression. Операция несёт requirement [`Postgresql], поэтому
    `Statement.Portable` и SQLite adapter должны отвергать её до rendering.
    Нужны golden tests SQL и PostgreSQL execution tests для кодирования,
-   пустого массива (`ANY ('{}')` даёт `false`) и SQL three-valued semantics при
+   пустого массива (`= ANY` возвращает `false`) и SQL three-valued semantics при
    `NULL`-элементах. Portable batch-loading остаётся случаем для
    `Statement.Dynamic`: SQLite не получает этот API и не должен эмулировать
    PostgreSQL array через небезопасное разворачивание SQL.
 
-Эти завершённые расширения закрывают построение сложных paginated read models.
-Задача атомарного создания или получения tags закрыта portable UPSERT. Миграциями
-`typed-realworld` продолжает управлять dbmate:
-выполнение миграций остаётся отдельным слоем, вне query DSL.
+Реализованные derived tables, CTE, set operations и multiset закрывают
+построение сложных paginated read models. Portable UPSERT закрывает атомарное
+создание или получение tags. Миграциями `typed-realworld` продолжает управлять
+dbmate: выполнение миграций остаётся отдельным слоем, вне query DSL.
 
-### 2. Типизировать кардинальность SELECT
+### 2. Кардинальность SELECT
+
+- [x] Различать `many`, `at_most_one` и `exactly_one` в типах запросов и
+  предоставлять `limit_one`, `select_exactly_one` и проверяемые
+  `expect_one`/`expect_optional`.
 
 `Query.t` и `Result_query.t` различают `many`, `at_most_one` и `exactly_one`.
 `Statement.query_many` принимает любую из этих cardinality; `query_optional` —
@@ -389,7 +401,7 @@ Compile-fail tests проверяют, что обычный SELECT нельзя
 
 #### Конструкторы кардинальности
 
-1. **`Query.aggregate_one` и скалярные агрегаты — реализовано.** Новый
+- [x] **`Query.aggregate_one` и скалярные агрегаты.** Новый
    `Query.Aggregate` — узкий builder поверх прежнего четырёхпараметрического
    `Query.t`: он даёт `FROM`, joins и `WHERE`, но не открывает grouping,
    `HAVING` или pagination. Закрытый `Aggregate_projection.t` разрешает только
@@ -409,7 +421,7 @@ Compile-fail tests проверяют, что обычный SELECT нельзя
    которые нельзя выразить через безопасный builder: compiler всё ещё проверяет
    наличие local aggregate и clauses, способных удалить единственную строку.
 
-2. **`Expr.coalesce` и source-free `Query.select_one` для scalar default.**
+- [x] **`Expr.coalesce` и source-free `Query.select_one` для scalar default.**
    Scalar subquery с кардинальностью zero-or-one даёт nullable expression.
    `COALESCE` превращает отсутствие строки или SQL `NULL` в заданное значение,
    а `SELECT` без `FROM` в PostgreSQL и SQLite всегда создаёт одну строку.
@@ -451,12 +463,14 @@ Compile-fail tests проверяют, что обычный SELECT нельзя
    значение NULL», одного `COALESCE` недостаточно — эти состояния SQL scalar
    subquery намеренно объединяет.
 
-3. **`Query.default_if_empty` только для составных строк.** Этот combinator
+- [ ] **`Query.default_if_empty` только для составных строк.** Этот combinator
    нужен, когда fallback состоит из нескольких полей или когда SQL `NULL`
    внутри существующей строки не должен считаться отсутствием строки. Он
    принимает candidate с доказательством `at_most_one` и отдельный fallback с
    доказательством `exactly_one`, поэтому результат статически имеет
-   `exactly_one`:
+   `exactly_one`. Пример: запрос настроек пользователя возвращает сохранённую
+   запись, если она есть, иначе одну составную запись со значениями по
+   умолчанию. Наличие строки с `NULL` в одном из полей не включает fallback:
 
    ```ocaml
    module Query : sig
@@ -482,10 +496,13 @@ Compile-fail tests проверяют, что обычный SELECT нельзя
 
    Реализация не должна полагаться на порядок ветвей `UNION ALL ... LIMIT 1`.
    Нужна семантика «добавить fallback только при `NOT EXISTS candidate`», скорее
-   всего через CTE, чтобы candidate не вычислялся и не дублировался дважды.
+   всего через CTE, чтобы не дублировать определение candidate в SQL.
    Как и set operations, compiler обязан проверить одинаковые число, порядок и
-   database types полей обеих ветвей. Если текущего runtime shape check окажется
-   недостаточно, в `Result_query.t` потребуется отдельный phantom layout.
+   database types полей обеих ветвей. Нужно также определить единый decoder:
+   текущие set operations применяют decoder левой ветви к обеим ветвям, даже
+   если их `Projection.map` различаются. Если текущего runtime shape check
+   окажется недостаточно, в `Result_query.t` потребуется отдельный phantom
+   layout.
 
    Этот API стоит добавлять только после реального use case для составной
    строки. Для одного поля сочетание `scalar_subquery`, `Expr.coalesce` и
@@ -493,48 +510,80 @@ Compile-fail tests проверяют, что обычный SELECT нельзя
 
 ### 3. Полностью проверить PostgreSQL и довести dialect до runtime-поддержки
 
-- подготовить воспроизводимую PostgreSQL test database и прогнать на ней
+- [ ] Подготовить воспроизводимую PostgreSQL test database и прогнать на ней
   integration suite через Caqti и PG'OCaml, включая encode/decode,
   transaction lifecycle и SQLSTATE classification;
-- выполнять каждый portable SQL golden case на сервере и сравнивать результат
+- [ ] Выполнять каждый portable SQL golden case на сервере и сравнивать результат
   с SQLite, а не считать успешную компиляцию SQL проверкой поддержки;
-- проверить коррелированные multiset и derived queries, set operations,
+- [ ] Проверить коррелированные multiset и derived queries, set operations,
   CTE, aggregate cardinality, bind parameters, timestamp/JSON transport,
   conflict handling и schema introspection;
-- закрыть расхождения между generated SQL и PostgreSQL runtime, явно указать
+- [ ] Закрыть расхождения между generated SQL и PostgreSQL runtime, явно указать
   проверенные major versions и ограничения API.
 
 До завершения этого этапа PostgreSQL остаётся экспериментальным backend.
 
 ### 4. Расширять schema tooling по результатам реальных схем
 
-- реализовать типы, typed FK descriptors и расширенный snapshot из списка
+- [ ] Реализовать типы, typed FK descriptors и расширенный snapshot из списка
   приоритетов RealWorld выше;
-- при появлении прикладной потребности добавить получение snapshot из
+- [ ] При появлении прикладной потребности добавить получение snapshot из
   миграций; discovery, codegen, migrations и schema diff остаются отдельными
   слоями. Формат snapshot и offline CLI уже реализованы.
 
 ### 5. Добавлять сложные запросы по прикладной необходимости
 
-Оставшиеся конструкции вводить по прикладной необходимости. PostgreSQL extensions
-(`ILIKE`, `DISTINCT ON`, JSON, arrays)
-должны находиться в явно именованных namespaces. Все расширения должны
-проходить capability check до rendering; conflict targets и `DO UPDATE`
-не являются исключительно PostgreSQL-возможностями. Portable approximation
-с другой семантикой не допускается.
+Каждое расширение следует привязать к запросу приложения, ожидаемому результату
+и нужным dialects. Кандидаты:
+
+- [ ] `ILIKE`: поиск имени или заголовка без учёта регистра в PostgreSQL. Перед
+  введением API нужно определить работу с locale и indexes. Конструкция
+  `LOWER(column) LIKE LOWER(pattern)` может быть достаточной для отдельного
+  portable-сценария, но её нельзя объявлять эквивалентом PostgreSQL `ILIKE`
+  без проверки семантики.
+- [ ] `NULLS FIRST/LAST`: явное расположение `NULL` при сортировке nullable
+  columns. Нужны правила для каждого dialect и проверка, что одинаковый
+  portable запрос возвращает одинаковый порядок.
+- [ ] `DISTINCT ON`: одна выбранная строка на ключ, например последняя статья
+  каждого автора. Это PostgreSQL extension; результат зависит от `ORDER BY`,
+  поэтому API должен явно задавать критерий выбора строки.
+- [ ] Window functions: ранжирование строк внутри группы, накопительные суммы и
+  `COUNT(*) OVER ()` для страницы с общим числом результатов. Для пустой
+  страницы общее число понадобится получать отдельно. API должен выразить
+  `PARTITION BY`, порядок и границы window frame без строковых SQL-фрагментов.
+- [ ] `LATERAL`: подзапрос в `FROM`, зависящий от предшествующей строки, например
+  несколько последних комментариев каждой статьи. Сначала следует проверить,
+  покрывает ли конкретный запрос существующий correlated `Query.multiset`.
+- [ ] Native JSON и arrays: публичные database-значения для приложений, которым
+  нужен именно JSON или PostgreSQL array. Позиционные JSON-массивы для
+  `multiset` сейчас остаются внутренним transport. Низкоуровневые
+  `array_agg`, `json_agg` и `json_group_array` потребуют отдельного API.
+- [ ] Список идентификаторов в одном параметре: PostgreSQL `column = ANY($1)`
+  с native array codec и постоянной SQL shape. Контракт и проверки описаны
+  выше в пункте о PostgreSQL array parameters; portable `IN` по-прежнему
+  раскрывает список в отдельные bind parameters.
+
+PostgreSQL extensions (`ILIKE`, `DISTINCT ON`, JSON, arrays) должны находиться
+в явно именованных namespaces. Все расширения проходят capability check до
+rendering; conflict targets и `DO UPDATE` не являются исключительно
+PostgreSQL-возможностями. Portable approximation с другой семантикой не
+допускается.
 
 ### 6. Производительность и escape hatch
 
-- измерить execution overhead на SQLite и PostgreSQL отдельно от уже
+- [ ] Измерить execution overhead на SQLite и PostgreSQL отдельно от уже
   измеренного compiler overhead;
-- добавить server-side prepared cache в adapters только при подтверждённом
+- [ ] Добавить server-side prepared cache в adapters только при подтверждённом
   выигрыше и с явным lifecycle на connection;
-- определить отдельный `Unsafe`/`Raw_sql` API с typed bind fragments, когда
+- [ ] Определить отдельный `Unsafe`/`Raw_sql` API с typed bind fragments, когда
   появится запрос, который нельзя выразить descriptors;
-- оптимизировать построение больших condition/order lists только по benchmark;
-- проектировать PPX после проверки ручного API внешним RealWorld-приложением.
+- [ ] Оптимизировать построение больших condition/order lists только по benchmark;
+- [ ] Проектировать PPX после проверки ручного API внешним RealWorld-приложением.
 
 #### Статические параметры и server-side prepare
+
+- [x] Разделять скомпилированный template и значения input; поддерживать
+  runtime `LIMIT`/`OFFSET`, `Statement.choose` и `Statement.Dynamic.Portable`.
 
 `Statement` теперь разделяет заранее скомпилированный template и значения
 текущего input. Getter каждого слота запускается при `run`; AST, validation,

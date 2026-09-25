@@ -491,6 +491,67 @@ let run conn =
       ()
     |> caqti_or_fail
   in
+  let scalar_name person_id =
+    Query.(
+      from Person.table
+      |> where (fun person -> Person.id person =$ person_id)
+      |> limit 1
+      |> select_scalar Person.name)
+  in
+  let run_fallback nullable =
+    let query =
+      Query.select_one
+        (Expr.coalesce nullable ~default:(Expr.constant Db_type.text "unknown"))
+    in
+    let statement = Statement.Portable.query_one_exn (fun _ -> query) in
+    Adapter.run ~conn statement () >>= adapter_or_fail
+  in
+  let* present = run_fallback (Expr.scalar_subquery (scalar_name 1L)) in
+  if not (String.equal present "Ada") then
+    failwith "COALESCE changed a present scalar value";
+  let* absent = run_fallback (Expr.scalar_subquery (scalar_name 99L)) in
+  if not (String.equal absent "unknown") then
+    failwith "COALESCE did not replace an absent scalar row";
+  let nullable_name =
+    Query.(
+      from Person.table
+      |> where (fun person -> Person.id person =$ 1L)
+      |> limit 1
+      |> select_scalar Person.nickname)
+  in
+  let* null_value = run_fallback (Expr.scalar_subquery_nullable nullable_name) in
+  if not (String.equal null_value "unknown") then
+    failwith "COALESCE did not replace a SQL NULL";
+  let source_free_union =
+    Query.union_all
+      (Query.select_one (Expr.constant Db_type.int64 1L))
+      (Query.select_one (Expr.constant Db_type.int64 2L))
+  in
+  let* union_rows =
+    Typed_sql_caqti_lwt.fetch ~conn source_free_union >>= adapter_or_fail
+  in
+  if not (List.equal Int64.equal (List.sort union_rows ~compare:Int64.compare) [ 1L; 2L ])
+  then
+    failwith "source-free UNION ALL returned unexpected rows";
+  let source_free_relation =
+    Derived_table.create
+      ~table:Person.table
+      ~columns:(fun person -> Projection.expr (Person.id person))
+      (Query.select_one (Expr.constant Db_type.int64 7L))
+  in
+  let source_free_cte = Cte.select source_free_relation in
+  let source_free_cte_query =
+    Cte.with_result source_free_cte ~f:(fun person ->
+      let value = Query.(from_cte person |> limit 1 |> select_scalar Person.id) in
+      Query.select_one
+        (Expr.coalesce
+           (Expr.scalar_subquery value)
+           ~default:(Expr.constant Db_type.int64 0L)))
+  in
+  let statement = Statement.Portable.query_one_exn (fun _ -> source_free_cte_query) in
+  let* cte_value = Adapter.run ~conn statement () >>= adapter_or_fail in
+  if not (Int64.equal cte_value 7L) then
+    failwith "source-free SELECT lost its CTE";
   let query =
     Query.(
       from Person.table

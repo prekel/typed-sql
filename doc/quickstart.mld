@@ -69,6 +69,27 @@ SQL [MAX] возвращает [NULL]. [sum_int] и [sum_float] также во�
 [SUM(numeric)], [MIN(numeric)] и [MAX(numeric)]. Numeric не поддерживается
 SQLite и отклоняется при компиляции.
 
+Для scalar fallback сначала строится запрос, который может не вернуть строку.
+[Expr.coalesce] заменяет отсутствие строки или SQL [NULL] значением по умолчанию,
+а [Query.select_one] выбирает одно выражение без [FROM]:
+
+{[
+let first_name_or_default =
+  let candidate =
+    Query.(
+      from Person.table
+      |> order_by Person.id `Asc
+      |> limit 1
+      |> select_scalar Person.name)
+  in
+  Query.select_one
+    (Expr.coalesce
+       (Expr.scalar_subquery candidate)
+       ~default:(Expr.constant Db_type.text "unknown"))
+]}
+
+Такой результат имеет кардинальность [Cardinality.exactly_one].
+
 Вложенный read model собирается через [Query.multiset] из завершённого SELECT.
 Каждая его строка декодируется исходной projection, включая [Projection.map],
 а отсутствие строк даёт пустой список. [Projection.multiset_agg] собирает

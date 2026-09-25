@@ -198,6 +198,11 @@ let concat left right =
 ;;
 
 let concat_value left right = concat left (constant Db_type.text right)
+
+let coalesce nullable ~default =
+  { node = Ast.Coalesce (nullable.node, default.node); db_type = default.db_type }
+;;
+
 let count_all = { node = Ast.Aggregate Ast.Count_all; db_type = Db_type.int64 }
 
 let count expression =

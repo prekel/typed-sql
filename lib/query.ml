@@ -247,6 +247,12 @@ let select_exactly_one make_projection query =
   Result_query.create_select ~requires_exactly_one:true (Ast.Simple ast) projection
 ;;
 
+let select_one expression =
+  let projection = Projection.expr expression in
+  let ast = Ast.Source_free { ctes = []; expression = Expr.node expression } in
+  Result_query.create_select ~requires_exactly_one:true ast projection
+;;
+
 let select_relation make_fields query =
   let fields = make_fields query.context in
   Derived_table.create_inferred fields query.ast

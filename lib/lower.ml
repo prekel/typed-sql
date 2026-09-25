@@ -35,6 +35,8 @@ let rec expression ~dialect = function
     Ast.String_function (string_function ~dialect function_, expression ~dialect value)
   | Ast.Concat (left, right) ->
     Ast.Concat (expression ~dialect left, expression ~dialect right)
+  | Ast.Coalesce (left, right) ->
+    Ast.Coalesce (expression ~dialect left, expression ~dialect right)
   | Ast.Case (branches, else_) ->
     Ast.Case
       ( List.map branches ~f:(fun (condition_, value) ->
@@ -119,6 +121,11 @@ and select ~dialect (select : Ast.select) =
 
 and select_query ~dialect = function
   | Ast.Simple select_ -> Ast.Simple (select ~dialect select_)
+  | Ast.Source_free source_free ->
+    Ast.Source_free
+      { ctes = List.map source_free.ctes ~f:(cte ~dialect)
+      ; expression = expression ~dialect source_free.expression
+      }
   | Ast.Compound compound ->
     Ast.Compound
       { compound with
@@ -194,7 +201,8 @@ and lower_returning ~dialect (returning : Ast.returning) =
 let rec expression_has_unsupported_having ~dialect = function
   | Ast.Column _ | Ast.Param _ | Ast.Aggregate Ast.Count_all | Ast.Current_timestamp ->
     false
-  | Ast.Arithmetic (_, left, right) | Ast.Concat (left, right) ->
+  | Ast.Arithmetic (_, left, right) | Ast.Concat (left, right) | Ast.Coalesce (left, right)
+    ->
     expression_has_unsupported_having ~dialect left
     || expression_has_unsupported_having ~dialect right
   | Ast.String_function (_, value)
@@ -276,6 +284,9 @@ and select_has_unsupported_having ~dialect (select : Ast.select) =
 
 and select_query_has_unsupported_having ~dialect = function
   | Ast.Simple select -> select_has_unsupported_having ~dialect select
+  | Ast.Source_free source_free ->
+    expression_has_unsupported_having ~dialect source_free.expression
+    || List.exists source_free.ctes ~f:(cte_has_unsupported_having ~dialect)
   | Ast.Compound compound ->
     List.exists compound.ctes ~f:(cte_has_unsupported_having ~dialect)
     || select_query_has_unsupported_having ~dialect compound.left
@@ -340,7 +351,8 @@ let rec sqlite_unsupported_expression = function
     else
       None
   | Ast.Aggregate Ast.Count_all | Ast.Current_timestamp -> None
-  | Ast.Arithmetic (_, left, right) | Ast.Concat (left, right) ->
+  | Ast.Arithmetic (_, left, right) | Ast.Concat (left, right) | Ast.Coalesce (left, right)
+    ->
     first_unsupported
       [ sqlite_unsupported_expression left; sqlite_unsupported_expression right ]
   | Ast.String_function (_, expression)
@@ -410,6 +422,11 @@ and sqlite_unsupported_select (select : Ast.select) =
 
 and sqlite_unsupported_query = function
   | Ast.Simple select -> sqlite_unsupported_select select
+  | Ast.Source_free source_free ->
+    first_unsupported
+      [ List.find_map source_free.ctes ~f:sqlite_unsupported_cte
+      ; sqlite_unsupported_expression source_free.expression
+      ]
   | Ast.Compound compound ->
     let operator =
       match compound.operator with

@@ -34,6 +34,7 @@ and expr =
   | Arithmetic of arithmetic * expr * expr
   | String_function of string_function * expr
   | Concat of expr * expr
+  | Coalesce of expr * expr
   | Case of (condition * expr) list * expr
   | Aggregate of aggregate
   | Scalar_subquery of select
@@ -144,6 +145,10 @@ and select =
 
 and select_query =
   | Simple of select
+  | Source_free of
+      { ctes : cte list
+      ; expression : expr
+      }
   | Compound of compound
 
 and set_operator =

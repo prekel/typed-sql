@@ -4,8 +4,8 @@ let rec expression_sources = function
   | Ast.Column { source_id; _ } -> [ source_id ]
   | Ast.Param _ | Ast.Current_timestamp | Ast.Scalar_subquery _ | Ast.Multiset_subquery _
     -> []
-  | Ast.Arithmetic (_, left, right) | Ast.Concat (left, right) ->
-    expression_sources left @ expression_sources right
+  | Ast.Arithmetic (_, left, right) | Ast.Concat (left, right) | Ast.Coalesce (left, right)
+    -> expression_sources left @ expression_sources right
   | Ast.String_function (_, expression) -> expression_sources expression
   | Ast.Case (branches, else_) ->
     List.concat_map branches ~f:(fun (condition, expression) ->
@@ -58,7 +58,8 @@ let rec expression_has_local_aggregate ~sources = function
   | Ast.Current_timestamp
   | Ast.Scalar_subquery _
   | Ast.Multiset_subquery _ -> false
-  | Ast.Arithmetic (_, left, right) | Ast.Concat (left, right) ->
+  | Ast.Arithmetic (_, left, right) | Ast.Concat (left, right) | Ast.Coalesce (left, right)
+    ->
     expression_has_local_aggregate ~sources left
     || expression_has_local_aggregate ~sources right
   | Ast.String_function (_, expression) ->

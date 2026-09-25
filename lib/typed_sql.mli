@@ -488,6 +488,15 @@ module Expr : sig
       be introduced through [Statement.parameters]. *)
   val constant : 'a Db_type.t -> 'a -> ('a, 'requirements) t
 
+  (** Use [default] when the nullable expression evaluates to SQL [NULL].
+      This includes a scalar subquery that returned no row. The result uses
+      [default]'s database type and decoder; SQL [COALESCE] does not distinguish
+      an absent scalar row from a row containing [NULL]. *)
+  val coalesce
+    :  ('a option, 'requirements) t
+    -> default:('a, 'requirements) t
+    -> ('a, 'requirements) t
+
   (** Test a nullable expression with SQL [IS NULL]. *)
   val is_null : ('a option, 'requirements) t -> 'requirements Condition.t
 
@@ -1166,6 +1175,14 @@ module Query : sig
          , Cardinality.exactly_one
          , 'requirements )
          Result_query.t
+
+  (** Select one scalar expression without [FROM]. PostgreSQL and SQLite
+      produce exactly one row; the compiler checks any references captured by
+      the expression and rejects unavailable sources. A nullable expression
+      may still decode as [None]. *)
+  val select_one
+    :  ('a, 'requirements) Expr.t
+    -> ('a, Result_query.select, Cardinality.exactly_one, 'requirements) Result_query.t
 
   (** Finish an ungrouped aggregate builder with an [exactly_one] result type.
       [Aggregate_projection] ensures an aggregate expression is present; the

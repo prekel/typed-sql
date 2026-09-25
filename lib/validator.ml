@@ -7,7 +7,8 @@ let rec validate_expr ~validate_subquery ~visible = function
       Ok ()
     else
       Error (Compile_error.Foreign_source { visible; actual = source_id })
-  | Ast.Arithmetic (_, left, right) | Ast.Concat (left, right) ->
+  | Ast.Arithmetic (_, left, right) | Ast.Concat (left, right) | Ast.Coalesce (left, right)
+    ->
     let open Result.Let_syntax in
     let%bind () = validate_expr ~validate_subquery ~visible left in
     validate_expr ~validate_subquery ~visible right
@@ -169,6 +170,8 @@ let rec same_group_expression left right =
       && same_group_expression left right
     | Ast.Concat (left_a, left_b), Ast.Concat (right_a, right_b) ->
       same_group_expression left_a right_a && same_group_expression left_b right_b
+    | Ast.Coalesce (left_a, left_b), Ast.Coalesce (right_a, right_b) ->
+      same_group_expression left_a right_a && same_group_expression left_b right_b
     | _ -> false)
 ;;
 
@@ -201,7 +204,9 @@ let rec analyze_expression ~groups ~inside_aggregate expression =
     | Ast.Current_timestamp
     | Ast.Scalar_subquery _
     | Ast.Multiset_subquery _ -> plain ~grouped:true
-    | Ast.Arithmetic (_, left, right) | Ast.Concat (left, right) ->
+    | Ast.Arithmetic (_, left, right)
+    | Ast.Concat (left, right)
+    | Ast.Coalesce (left, right) ->
       combine
         (analyze_expression ~groups ~inside_aggregate left)
         (analyze_expression ~groups ~inside_aggregate right)
@@ -599,6 +604,29 @@ let rec validate_select_query_full
       ~forbidden_ctes
       ~available_ctes
       select
+  | Ast.Source_free source_free ->
+    let open Result.Let_syntax in
+    let%bind available_ctes =
+      validate_ctes_full ~forbidden_ctes ~available_ctes source_free.ctes
+    in
+    let validate_subquery ~outer_visible ~allow_empty query =
+      validate_select_query_full
+        ~forbidden_ctes
+        ~available_ctes
+        ~outer_visible
+        ~allow_empty
+        query
+    in
+    let%bind () =
+      validate_expr ~validate_subquery ~visible:outer_visible source_free.expression
+    in
+    let analysis =
+      analyze_expression ~groups:[] ~inside_aggregate:false source_free.expression
+    in
+    if analysis.nested_aggregate then
+      Error Compile_error.Nested_aggregate
+    else
+      Ok ()
   | Ast.Compound compound ->
     let open Result.Let_syntax in
     let%bind available_ctes =
@@ -716,7 +744,8 @@ and validate_recursive_step ~forbidden_ctes ~available_ctes ~cte_id step =
   let open Result.Let_syntax in
   let%bind () = validate_relation_schema step in
   match step.Ast.query with
-  | Ast.Compound _ -> Error (Compile_error.Invalid_recursive_reference cte_id)
+  | Ast.Compound _ | Ast.Source_free _ ->
+    Error (Compile_error.Invalid_recursive_reference cte_id)
   | Ast.Simple select ->
     let%bind available_ctes =
       validate_ctes_full ~forbidden_ctes ~available_ctes select.ctes

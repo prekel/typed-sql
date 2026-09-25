@@ -72,6 +72,8 @@ let add_cte_to_result cte result =
     match Result_query.ast result with
     | Ast.Select (Ast.Simple select) ->
       Ast.Select (Ast.Simple { select with ctes = cte :: select.ctes })
+    | Ast.Select (Ast.Source_free source_free) ->
+      Ast.Select (Ast.Source_free { source_free with ctes = cte :: source_free.ctes })
     | Ast.Select (Ast.Compound compound) ->
       Ast.Select (Ast.Compound { compound with ctes = cte :: compound.ctes })
     | Ast.Returning returning ->

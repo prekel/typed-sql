@@ -70,6 +70,7 @@ let compile_query_plan ~dialect query =
         ast
       with
       | Ast.Select (Ast.Simple select) when Aggregate_scope.exactly_one select -> Ok ()
+      | Ast.Select (Ast.Source_free _) -> Ok ()
       | Ast.Select (Ast.Compound _) | Ast.Returning _ | Ast.Select (Ast.Simple _) ->
         Error Compile_error.Exactly_one_query_not_proven)
     else

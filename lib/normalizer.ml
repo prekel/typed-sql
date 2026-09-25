@@ -8,6 +8,7 @@ let rec normalize_expr = function
   | Ast.String_function (function_, expression) ->
     Ast.String_function (function_, normalize_expr expression)
   | Ast.Concat (left, right) -> Ast.Concat (normalize_expr left, normalize_expr right)
+  | Ast.Coalesce (left, right) -> Ast.Coalesce (normalize_expr left, normalize_expr right)
   | Ast.Case ([], else_) -> normalize_expr else_
   | Ast.Case (branches, else_) ->
     Ast.Case
@@ -152,6 +153,11 @@ and normalize_select (select : Ast.select) =
 
 and normalize_select_query = function
   | Ast.Simple select -> Ast.Simple (normalize_select select)
+  | Ast.Source_free source_free ->
+    Ast.Source_free
+      { ctes = List.map source_free.ctes ~f:normalize_cte
+      ; expression = normalize_expr source_free.expression
+      }
   | Ast.Compound compound ->
     Ast.Compound
       { compound with

@@ -1525,6 +1525,320 @@ let%test "numeric aggregate can define a PostgreSQL query_one statement" =
   |> Result.is_ok
 ;;
 
+let scalar_fallback_query =
+  let candidate =
+    Query.(
+      from Person.table
+      |> where (fun person -> Person.id person =$ 1L)
+      |> limit 1
+      |> select_scalar Person.name)
+  in
+  Query.select_one
+    (Expr.coalesce
+       (Expr.scalar_subquery candidate)
+       ~default:(Expr.constant Db_type.text "unknown"))
+;;
+
+let%expect_test "scalar fallback renders without FROM in PostgreSQL" =
+  scalar_fallback_query
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      COALESCE((
+        SELECT
+          t0."name"
+        FROM "public"."people" AS t0
+        WHERE
+          (t0."id" = $1)
+        LIMIT 1
+      ), $2)
+    |}]
+;;
+
+let%expect_test "scalar fallback renders without FROM in SQLite" =
+  scalar_fallback_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      COALESCE((
+        SELECT
+          t0."name"
+        FROM "public"."people" AS t0
+        WHERE
+          (t0."id" = ?1)
+        LIMIT 1
+      ), ?2)
+    |}]
+;;
+
+let source_free_union_query =
+  let first = Query.select_one (Expr.constant Db_type.int64 1L) in
+  let second = Query.select_one (Expr.constant Db_type.int64 2L) in
+  Query.union_all first second
+;;
+
+let%expect_test "source-free UNION ALL renders in PostgreSQL" =
+  source_free_union_query
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT *
+    FROM (
+      SELECT
+        $1
+    ) AS s0
+    UNION ALL
+    SELECT *
+    FROM (
+      SELECT
+        $2
+    ) AS s0
+    |}]
+;;
+
+let%expect_test "source-free UNION ALL renders in SQLite" =
+  source_free_union_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT *
+    FROM (
+      SELECT
+        ?1
+    ) AS s0
+    UNION ALL
+    SELECT *
+    FROM (
+      SELECT
+        ?2
+    ) AS s0
+    |}]
+;;
+
+let source_free_cte_query =
+  let relation =
+    Derived_table.create
+      ~table:Person.table
+      ~columns:(fun person -> Projection.expr (Person.id person))
+      (Query.select_one (Expr.constant Db_type.int64 7L))
+  in
+  let cte = Cte.select relation in
+  Cte.with_result cte ~f:(fun person ->
+    let value = Query.(from_cte person |> limit 1 |> select_scalar Person.id) in
+    Query.select_one
+      (Expr.coalesce
+         (Expr.scalar_subquery value)
+         ~default:(Expr.constant Db_type.int64 0L)))
+;;
+
+let%expect_test "source-free SELECT with CTE renders in PostgreSQL" =
+  source_free_cte_query
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    WITH
+      "c0" (
+        "id"
+      ) AS (
+        SELECT
+          $1
+      )
+    SELECT
+      COALESCE((
+        SELECT
+          t0."id"
+        FROM "c0" AS t0
+        LIMIT 1
+      ), $2)
+    |}]
+;;
+
+let%expect_test "source-free SELECT with CTE renders in SQLite" =
+  source_free_cte_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    WITH
+      "c0" (
+        "id"
+      ) AS (
+        SELECT
+          ?1
+      )
+    SELECT
+      COALESCE((
+        SELECT
+          t0."id"
+        FROM "c0" AS t0
+        LIMIT 1
+      ), ?2)
+    |}]
+;;
+
+let%test_unit "source-free SELECT rejects a foreign source" =
+  let escaped = ref None in
+  ignore
+    Query.(
+      from Person.table
+      |> select (fun person ->
+        let expression = Person.name person in
+        escaped := Some expression;
+        Projection.expr expression));
+  let query = Query.select_one (Option.value_exn !escaped) in
+  match Compiler.compile_portable ~dialect:Dialect.Sqlite query with
+  | Error (Compile_error.Foreign_source _) -> ()
+  | Error error -> failwith (Compile_error.to_string error)
+  | Ok _ -> failwith "foreign source was accepted"
+;;
+
+let%test_unit "source-free SELECT rejects nested aggregates" =
+  let inner = Expr.coalesce (Expr.to_nullable Expr.count_all) ~default:Expr.count_all in
+  let query = Query.select_one (Expr.count inner) in
+  match Compiler.compile_portable ~dialect:Dialect.Sqlite query with
+  | Error Compile_error.Nested_aggregate -> ()
+  | Error error -> failwith (Compile_error.to_string error)
+  | Ok _ -> failwith "nested aggregate was accepted"
+;;
+
+let aggregate_coalesce_query =
+  Query.(
+    from Person.table
+    |> select_exactly_one (fun _ ->
+      Projection.expr
+        (Expr.coalesce
+           (Expr.to_nullable Expr.count_all)
+           ~default:(Expr.constant Db_type.int64 0L))))
+;;
+
+let%expect_test "aggregate COALESCE renders in PostgreSQL" =
+  aggregate_coalesce_query
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      COALESCE(COUNT(*), $1)
+    FROM "public"."people" AS t0
+    |}]
+;;
+
+let%expect_test "aggregate COALESCE renders in SQLite" =
+  aggregate_coalesce_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      COALESCE(COUNT(*), ?1)
+    FROM "public"."people" AS t0
+    |}]
+;;
+
+let coalesce_inside_aggregate_query =
+  Query.Aggregate.(from Person.table)
+  |> Query.aggregate_one (fun person ->
+    Aggregate_projection.count
+      (Expr.coalesce
+         (Person.nickname person)
+         ~default:(Expr.constant Db_type.text "unknown")))
+;;
+
+let%expect_test "COALESCE inside an aggregate renders in PostgreSQL" =
+  coalesce_inside_aggregate_query
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      COUNT(COALESCE(t0."nickname", $1))
+    FROM "public"."people" AS t0
+    |}]
+;;
+
+let%expect_test "COALESCE inside an aggregate renders in SQLite" =
+  coalesce_inside_aggregate_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      COUNT(COALESCE(t0."nickname", ?1))
+    FROM "public"."people" AS t0
+    |}]
+;;
+
+let grouped_coalesce_query =
+  let expression person =
+    Expr.coalesce (Person.nickname person) ~default:(Person.name person)
+  in
+  Query.(
+    from Person.table
+    |> group_by expression
+    |> select (fun person -> Projection.expr (expression person)))
+;;
+
+let%expect_test "grouped COALESCE renders in PostgreSQL" =
+  grouped_coalesce_query
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      COALESCE(t0."nickname", t0."name")
+    FROM "public"."people" AS t0
+    GROUP BY
+      COALESCE(t0."nickname", t0."name")
+    |}]
+;;
+
+let%expect_test "grouped COALESCE renders in SQLite" =
+  grouped_coalesce_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      COALESCE(t0."nickname", t0."name")
+    FROM "public"."people" AS t0
+    GROUP BY
+      COALESCE(t0."nickname", t0."name")
+    |}]
+;;
+
+let%test_unit "SQLite rejects numeric in source-free COALESCE" =
+  let value = Decimal.of_string "1.25" |> Option.value_exn in
+  let query =
+    Query.select_one
+      (Expr.coalesce
+         (Expr.to_nullable (Expr.constant Db_type.numeric value))
+         ~default:(Expr.constant Db_type.numeric value))
+  in
+  match Compiler.compile ~dialect:Dialect.sqlite query with
+  | Error (Compile_error.Unsupported_operation { operation = "numeric"; _ }) -> ()
+  | Error error -> failwith (Compile_error.to_string error)
+  | Ok _ -> failwith "SQLite accepted numeric COALESCE"
+;;
+
 let lowered_group_query =
   Query.(
     from Person.table
