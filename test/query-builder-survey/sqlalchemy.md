@@ -2,13 +2,13 @@
 
 # Сценарии запросов из SQLAlchemy
 
-Первые 15 сценариев по [SQLAlchemy 2.0 Unified Tutorial](https://docs.sqlalchemy.org/en/20/tutorial/) (доступ 28.09.2026). Использован SQLAlchemy Core. Примеры сокращены и адаптированы; SQL показывает ожидаемую структуру запроса, а не точный вывод компилятора. Имена bind-параметров могут отличаться у разных диалектов.
+Первые 35 сценариев по [SQLAlchemy 2.0 Unified Tutorial](https://docs.sqlalchemy.org/en/20/tutorial/) и документации SQLAlchemy Core (доступ 28.09.2026). Использован SQLAlchemy Core. Примеры сокращены и адаптированы; SQL показывает ожидаемую структуру запроса, а не точный вывод компилятора. Имена bind-параметров могут отличаться у разных диалектов.
 
 **Желаемый таргет: 50–70 сценариев.**
 
 Источник примеров: SQLAlchemy authors and contributors, © 2005–2026, [лицензия MIT](https://github.com/sqlalchemy/sqlalchemy/blob/main/LICENSE). Уведомление о лицензии приведено в конце файла. Схема tutorial: `user_account(id, name, fullname)` и `address(id, user_id, email_address)`. Для проверки пустых результатов нужна учётная запись без адресов.
 
-Для SA-01–SA-05 ниже добавлены реализация на typed-sql и SQL, полученный её компилятором. В блоках «SQL typed-sql» первая строка запускает компилятор, остальные строки — его вывод. Запустить проверку можно командой `opam exec -- dune runtest doc/query-builder-survey`.
+Для SA-01–SA-05 ниже добавлены реализация на typed-sql и SQL, полученный её компилятором. В блоках «SQL typed-sql» первая строка запускает компилятор, остальные строки — его вывод. Запустить проверку можно командой `opam exec -- dune runtest test/query-builder-survey`.
 
 Статусы в карточках: `✓` — подтверждено; `✗` — условие не выполнено; `—` — не оценивалось. «Семантика» учитывает входные параметры, результат, `NULL` и заданный порядок относительно сценария в карточке. «Без доработок» относится к публичному API typed-sql, а не к необходимости улучшить пример. Реализуемость оценивается после попытки написать OCaml-код.
 
@@ -51,7 +51,6 @@ end
 - Семантика: ✗
 - Без доработок typed-sql: ✓
 - Замечание: `name` заменён фиксированным значением `sandy`.
-
 - Источник: [SELECT и WHERE](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#the-where-clause).
 - Проверяет: выбор двух колонок с bind-параметром.
 
@@ -100,7 +99,6 @@ WHERE
 - Семантика: ✗
 - Без доработок typed-sql: ✓
 - Замечание: `name1`, `name2` и `min_id` заменены фиксированными значениями.
-
 - Источник: [WHERE clause](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#the-where-clause).
 - Проверяет: группировку `OR` внутри `AND`.
 
@@ -158,7 +156,6 @@ WHERE
 - Семантика: ✗
 - Без доработок typed-sql: ✓
 - Замечание: `page_size` и `page_offset` заменены фиксированными значениями.
-
 - Источник: [ORDER BY](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#order-by), [limit/offset](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.GenerativeSelect.limit).
 - Проверяет: устойчивый порядок, `LIMIT` и `OFFSET`.
 
@@ -215,7 +212,6 @@ OFFSET 20
 - Семантика: ✓
 - Без доработок typed-sql: ✓
 - Замечание: Предикат JOIN задан явно вместо вывода по foreign key.
-
 - Источник: [explicit JOIN](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#explicit-from-clauses-and-joins).
 - Проверяет: связь таблиц по внешнему ключу.
 
@@ -265,7 +261,6 @@ INNER JOIN "address" AS t1
 - Реализуемость: ✓
 - Семантика: ✓
 - Без доработок typed-sql: ✓
-
 - Источник: [OUTER JOIN](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#outer-and-full-join).
 - Проверяет: сохранение учётной записи без адреса и nullable-поле.
 
@@ -315,7 +310,6 @@ LEFT JOIN "address" AS t1
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
-
 - Источник: [aggregate functions with GROUP BY/HAVING](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#aggregate-functions-with-group-by-having).
 - Проверяет: фильтрацию агрегированных групп.
 
@@ -343,7 +337,6 @@ stmt = (
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
-
 - Источник: [scalar and correlated subqueries](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#scalar-and-correlated-subqueries).
 - Проверяет: число связанных строк, включая ноль.
 
@@ -370,7 +363,6 @@ stmt = select(user_table.c.id, address_count.label("address_count"))
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
-
 - Источник: [EXISTS subqueries](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#exists-subqueries).
 - Проверяет: фильтрацию без дублирования внешних строк.
 
@@ -398,7 +390,6 @@ stmt = select(user_table.c.id).where(has_address)
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
-
 - Источник: [subqueries and CTEs](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#subqueries-and-ctes).
 - Проверяет: агрегированный подзапрос в `FROM`.
 
@@ -431,7 +422,6 @@ stmt = select(counts.c.user_id, counts.c.address_count).where(
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
-
 - Источник: [common table expressions](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#common-table-expressions-ctes).
 - Проверяет: именованный источник строк и обращение к его колонкам.
 
@@ -462,7 +452,6 @@ stmt = select(counts.c.user_id, counts.c.address_count)
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
-
 - Источник: [UNION and other set operations](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#union-union-all-and-other-set-operations).
 - Проверяет: одинаковую проекцию двух запросов и удаление дублей.
 
@@ -485,7 +474,6 @@ stmt = union(
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
-
 - Источник: [using window functions](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#using-window-functions).
 - Проверяет: нумерацию строк внутри группы без схлопывания результата.
 
@@ -516,7 +504,6 @@ stmt = select(
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
-
 - Источник: [INSERT and RETURNING](https://docs.sqlalchemy.org/en/20/tutorial/data_insert.html#insert-returning).
 - Проверяет: возврат данных вставленной строки; синтаксис `RETURNING` зависит от диалекта.
 
@@ -540,7 +527,6 @@ stmt = (
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
-
 - Источник: [correlated updates](https://docs.sqlalchemy.org/en/20/tutorial/data_update.html#correlated-updates).
 - Проверяет: scalar subquery в `SET` и `NULL` при отсутствии адреса.
 
@@ -570,7 +556,6 @@ stmt = update(user_table).values(fullname=first_email)
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
-
 - Источник: [DELETE](https://docs.sqlalchemy.org/en/20/tutorial/data_update.html#the-delete-sql-expression-construct), [RETURNING](https://docs.sqlalchemy.org/en/20/tutorial/data_update.html#using-returning-with-update-delete).
 - Проверяет: условное удаление и возвращаемые значения; `RETURNING` зависит от диалекта.
 
@@ -585,6 +570,464 @@ stmt = (
     delete(address_table)
     .where(address_table.c.user_id == user_id)
     .returning(address_table.c.id)
+)
+```
+
+### SA-16. DISTINCT
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [DISTINCT](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.Select.distinct).
+- Проверяет: удаление повторов в проекции.
+
+```sql
+SELECT DISTINCT address.user_id
+FROM address
+```
+
+```python
+stmt = select(address_table.c.user_id).distinct()
+```
+
+### SA-17. Фильтр IN
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [оператор IN](https://docs.sqlalchemy.org/en/20/core/operators.html#in-comparisons).
+- Проверяет: сравнение колонки с набором значений.
+
+```sql
+SELECT user_account.id
+FROM user_account
+WHERE user_account.name IN (:name_1, :name_2)
+```
+
+```python
+stmt = select(user_table.c.id).where(
+    user_table.c.name.in_(["sandy", "spongebob"])
+)
+```
+
+### SA-18. Сопоставление шаблону LIKE
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [строковые операторы](https://docs.sqlalchemy.org/en/20/core/operators.html#string-comparisons).
+- Проверяет: шаблонное сравнение строкового значения с bind-параметром.
+
+```sql
+SELECT user_account.id
+FROM user_account
+WHERE user_account.name LIKE :name_pattern
+```
+
+```python
+stmt = select(user_table.c.id).where(user_table.c.name.like(name_pattern))
+```
+
+### SA-19. Проверка IS NULL
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [операторы сравнения с NULL](https://docs.sqlalchemy.org/en/20/core/operators.html#identity-comparisons).
+- Проверяет: предикат `IS NULL`, а не сравнение через `= NULL`.
+
+```sql
+SELECT address.id
+FROM address
+WHERE address.email_address IS NULL
+```
+
+```python
+stmt = select(address_table.c.id).where(address_table.c.email_address.is_(None))
+```
+
+### SA-20. Условное выражение CASE
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [условные выражения](https://docs.sqlalchemy.org/en/20/core/sqlelement.html#sqlalchemy.sql.expression.case).
+- Проверяет: выражение CASE в списке проекции.
+
+```sql
+SELECT user_account.id,
+       CASE WHEN user_account.name = :name_1 THEN :label_1 ELSE :label_2 END AS category
+FROM user_account
+```
+
+```python
+category = case(
+    (user_table.c.name == "sandy", "matched"),
+    else_="other",
+).label("category")
+stmt = select(user_table.c.id, category)
+```
+
+### SA-21. Сортировка NULLS LAST
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [модификаторы ORDER BY](https://docs.sqlalchemy.org/en/20/core/sqlelement.html#sqlalchemy.sql.expression.nulls_last).
+- Проверяет: явное положение `NULL` при сортировке.
+
+```sql
+SELECT address.id, address.email_address
+FROM address
+ORDER BY address.email_address ASC NULLS LAST
+```
+
+```python
+stmt = select(address_table.c.id, address_table.c.email_address).order_by(
+    address_table.c.email_address.asc().nulls_last()
+)
+```
+
+### SA-22. Self join через alias
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [псевдонимы таблиц](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#using-aliases).
+- Проверяет: два независимых псевдонима одной таблицы в JOIN.
+
+```sql
+SELECT user_account.name, related_user.name
+FROM user_account
+JOIN user_account AS related_user
+  ON user_account.id < related_user.id
+```
+
+```python
+related_user = user_table.alias("related_user")
+stmt = select(user_table.c.name, related_user.c.name).join_from(
+    user_table,
+    related_user,
+    user_table.c.id < related_user.c.id,
+)
+```
+
+### SA-23. CROSS JOIN
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [FROM с несколькими источниками](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#explicit-from-clauses-and-joins).
+- Проверяет: декартово произведение строк двух таблиц.
+
+```sql
+SELECT user_account.id, address.id
+FROM user_account, address
+```
+
+```python
+stmt = select(user_table.c.id, address_table.c.id).select_from(
+    user_table, address_table
+)
+```
+
+### SA-24. FULL OUTER JOIN
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [OUTER и FULL JOIN](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#outer-and-full-join).
+- Проверяет: сохранение несопоставленных строк обеих таблиц; поддержка зависит от СУБД.
+
+```sql
+SELECT user_account.id, address.id
+FROM user_account
+FULL OUTER JOIN address ON user_account.id = address.user_id
+```
+
+```python
+stmt = select(user_table.c.id, address_table.c.id).join_from(
+    user_table,
+    address_table,
+    user_table.c.id == address_table.c.user_id,
+    full=True,
+)
+```
+
+### SA-25. Коррелированный LATERAL-подзапрос
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [LATERAL correlation](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#lateral-correlation).
+- Проверяет: выбор первой связанной строки через подзапрос, коррелированный с текущей строкой пользователя.
+
+```sql
+SELECT user_account.id, latest_address.email_address
+FROM user_account
+LEFT JOIN LATERAL (
+  SELECT address.email_address
+  FROM address
+  WHERE address.user_id = user_account.id
+  ORDER BY address.id DESC
+  LIMIT 1
+) AS latest_address ON true
+```
+
+```python
+latest_address = (
+    select(address_table.c.email_address.label("email_address"))
+    .where(address_table.c.user_id == user_table.c.id)
+    .order_by(address_table.c.id.desc())
+    .limit(1)
+    .lateral("latest_address")
+)
+stmt = select(user_table.c.id, latest_address.c.email_address).select_from(
+    user_table.outerjoin(latest_address, true())
+)
+```
+
+### SA-26. UNION ALL
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [UNION и другие set operations](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#union-union-all-and-other-set-operations).
+- Проверяет: объединение результатов без удаления повторов.
+
+```sql
+SELECT user_account.id FROM user_account WHERE user_account.name = :name_1
+UNION ALL
+SELECT user_account.id FROM user_account WHERE user_account.name = :name_2
+```
+
+```python
+stmt = union_all(
+    select(user_table.c.id).where(user_table.c.name == "sandy"),
+    select(user_table.c.id).where(user_table.c.name == "spongebob"),
+)
+```
+
+### SA-27. INTERSECT
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [UNION и другие set operations](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#union-union-all-and-other-set-operations).
+- Проверяет: пересечение результатов запросов с совместимыми проекциями.
+
+```sql
+SELECT address.user_id FROM address WHERE address.email_address LIKE :pattern_1
+INTERSECT
+SELECT address.user_id FROM address WHERE address.id > :id_1
+```
+
+```python
+stmt = intersect(
+    select(address_table.c.user_id).where(
+        address_table.c.email_address.like(email_pattern)
+    ),
+    select(address_table.c.user_id).where(address_table.c.id > min_address_id),
+)
+```
+
+### SA-28. EXCEPT
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [UNION и другие set operations](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#union-union-all-and-other-set-operations).
+- Проверяет: строки первого результата, отсутствующие во втором; поддержка зависит от СУБД.
+
+```sql
+SELECT user_account.id FROM user_account
+EXCEPT
+SELECT address.user_id FROM address
+```
+
+```python
+stmt = except_(
+    select(user_table.c.id),
+    select(address_table.c.user_id),
+)
+```
+
+### SA-29. VALUES как источник строк
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [конструктор VALUES](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.values).
+- Проверяет: использование набора заданных значений как FROM-источника.
+
+```sql
+SELECT selected_ids.id
+FROM (VALUES (:id_1), (:id_2)) AS selected_ids(id)
+```
+
+```python
+selected_ids = values(
+    column("id", Integer), name="selected_ids"
+).data([(1,), (2,)]).alias()
+stmt = select(selected_ids.c.id)
+```
+
+### SA-30. Рекурсивный CTE
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [рекурсивные CTE](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.HasCTE.cte).
+- Проверяет: рекурсивное расширение результата с условием завершения.
+
+```sql
+WITH RECURSIVE nums(n) AS (
+  SELECT :start
+  UNION ALL
+  SELECT nums.n + :step FROM nums WHERE nums.n < :upper_bound
+)
+SELECT nums.n FROM nums
+```
+
+```python
+nums = select(literal(1).label("n")).cte("nums", recursive=True)
+nums_step = nums.alias("nums_step")
+nums = nums.union_all(
+    select((nums_step.c.n + 1).label("n")).where(nums_step.c.n < 5)
+)
+stmt = select(nums.c.n)
+```
+
+### SA-31. Многострочный INSERT
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [INSERT с несколькими значениями](https://docs.sqlalchemy.org/en/20/tutorial/data_insert.html#insert-usually-generates-the-values-clause-automatically).
+- Проверяет: вставку нескольких строк одной конструкцией; синтаксис зависит от диалекта.
+
+```sql
+INSERT INTO user_account (name, fullname)
+VALUES (:name_1, :fullname_1), (:name_2, :fullname_2)
+```
+
+```python
+stmt = insert(user_table).values(
+    [
+        {"name": "sandy", "fullname": "Sandy Cheeks"},
+        {"name": "spongebob", "fullname": "Spongebob Squarepants"},
+    ]
+)
+```
+
+### SA-32. INSERT из SELECT
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [INSERT FROM SELECT](https://docs.sqlalchemy.org/en/20/tutorial/data_insert.html#insertfromselect).
+- Проверяет: вставку результата запроса с соответствующим списком целевых колонок.
+
+```sql
+INSERT INTO address (user_id, email_address)
+SELECT user_account.id, :email
+FROM user_account
+WHERE user_account.name = :name
+```
+
+```python
+source = select(user_table.c.id, bindparam("email")).where(
+    user_table.c.name == bindparam("name")
+)
+stmt = insert(address_table).from_select(
+    ["user_id", "email_address"], source
+)
+```
+
+### SA-33. UPDATE ... FROM
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [UPDATE с дополнительными FROM-таблицами](https://docs.sqlalchemy.org/en/20/tutorial/data_update.html#update-from).
+- Проверяет: обновление по совпадению с другой таблицей; SQL-форма зависит от СУБД.
+
+```sql
+UPDATE user_account
+SET fullname = address.email_address
+FROM address
+WHERE user_account.id = address.user_id
+```
+
+```python
+stmt = (
+    update(user_table)
+    .where(user_table.c.id == address_table.c.user_id)
+    .values(fullname=address_table.c.email_address)
+)
+```
+
+### SA-34. DELETE ... USING
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [DELETE с дополнительными FROM-таблицами](https://docs.sqlalchemy.org/en/20/tutorial/data_update.html#multiple-table-deletes).
+- Проверяет: удаление по условию, связанному с другой таблицей; форма `USING` зависит от СУБД.
+
+```sql
+DELETE FROM address
+USING user_account
+WHERE address.user_id = user_account.id
+  AND user_account.name = :name
+```
+
+```python
+stmt = delete(address_table).where(
+    address_table.c.user_id == user_table.c.id,
+    user_table.c.name == name,
+)
+```
+
+### SA-35. PostgreSQL UPSERT через ON CONFLICT
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [PostgreSQL ON CONFLICT](https://docs.sqlalchemy.org/en/20/dialects/postgresql.html#insert-on-conflict-upsert).
+- Проверяет: вставку новой строки или обновление fullname при конфликте уникального имени.
+
+```sql
+INSERT INTO user_account (name, fullname)
+VALUES (:name, :fullname)
+ON CONFLICT (name) DO UPDATE SET fullname = excluded.fullname
+```
+
+```python
+insert_stmt = pg_insert(user_table).values(name=name, fullname=fullname)
+stmt = insert_stmt.on_conflict_do_update(
+    index_elements=[user_table.c.name],
+    set_={"fullname": insert_stmt.excluded.fullname},
 )
 ```
 

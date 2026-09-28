@@ -1,0 +1,14 @@
+(mdx
+ (files
+  jooq.md
+  kysely.md
+  ef-core.md
+  sqlalchemy.md
+  seaquery.md
+  esqueleto.md
+  linq2db.md
+  sqlkata.md
+  beam.md
+  diesel.md)
+ (libraries base ptime typed-sql)
+ (package typed-sql))

@@ -20,6 +20,7 @@ depends: [
   "ppx_let"
   "ppx_fields_conv" {with-test}
   "qcheck" {with-test}
+  "mdx" {with-test}
   "ppx_expect" {with-test}
   "bisect_ppx" {with-dev-setup}
   "ocamlformat" {= "0.29.0" & with-dev-setup}
