@@ -12,7 +12,7 @@
 
 Для KY-01–KY-05 ниже добавлены реализация на typed-sql и SQL, полученный её компилятором. Для KY-06–KY-50 добавлены OCaml-примеры там, где запрос или эквивалентная ему семантика выразимы текущим публичным API. Блоки отмечают эмуляции, которые используют другой SQL-приём. В блоках «SQL typed-sql» первая строка запускает компилятор, остальные строки — его вывод. Запустить проверку документа можно командой `opam exec -- dune runtest test/query-builder-survey`.
 
-Статусы в карточках: `✓` — запрос выражен текущим API и его семантика сверена по коду; `✗` — условие не выполнено; `—` — не оценивалось. Примеры KY-06–KY-50 в этот раз не прогонялись через MDX-компилятор, поэтому отметка не подтверждает компиляцию или выполнение на сервере. «Семантика» учитывает входные параметры, результат, `NULL` и заданный порядок относительно сценария в карточке. «Без доработок» относится к публичному API typed-sql, а не к необходимости улучшить пример. Реализуемость оценивается после попытки написать OCaml-код.
+Статусы в карточках: `✓` — запрос выражен текущим API и его семантика сверена по коду; `✗` — условие не выполнено; `—` — не оценивалось. MDX-команда проверяет OCaml-примеры и снимки сгенерированного SQL; она не выполняет запросы на сервере базы данных. «Семантика» учитывает входные параметры, результат, `NULL` и заданный порядок относительно сценария в карточке. «Без доработок» относится к публичному API typed-sql, а не к необходимости улучшить пример. Реализуемость оценивается после попытки написать OCaml-код.
 
 ## Общие дескрипторы для KY-01–KY-50
 
@@ -383,6 +383,19 @@ let kysely06 =
           (Projection.expr (Expr.count (Pet.id pet))))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely06);;
+SELECT
+  t0."owner_id",
+  COUNT(t0."id")
+FROM "pet" AS t0
+GROUP BY
+  t0."owner_id"
+HAVING
+  (COUNT(t0."id") > $1)
+```
 ### KY-07. Коррелированный scalar subquery
 
 - OCaml-пример: ✓
@@ -436,6 +449,21 @@ let kysely07 =
                 ~default:(Expr.constant Db_type.int64 0L))))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely07);;
+SELECT
+  t0."id",
+  COALESCE((
+    SELECT
+      COUNT(t1."id")
+    FROM "pet" AS t1
+    WHERE
+      (t1."owner_id" = t0."id")
+  ), $1)
+FROM "person" AS t0
+```
 ### KY-08. Коррелированный EXISTS
 
 - OCaml-пример: ✓
@@ -481,6 +509,22 @@ let kysely08 =
       |> select (fun person -> Projection.expr (Person.id person))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely08);;
+SELECT
+  t0."id"
+FROM "person" AS t0
+WHERE
+  (EXISTS (
+    SELECT
+      1
+    FROM "pet" AS t1
+    WHERE
+      (t1."owner_id" = t0."id")
+  ))
+```
 ### KY-09. Derived table
 
 - OCaml-пример: ✓
@@ -538,6 +582,24 @@ let kysely09 =
       |> select (fun count -> Pet_counts.projection count)))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely09);;
+SELECT
+  t0."owner_id",
+  t0."pet_count"
+FROM (
+  SELECT
+    t1."owner_id" AS "owner_id",
+    COUNT(t1."id") AS "pet_count"
+  FROM "pet" AS t1
+  GROUP BY
+    t1."owner_id"
+) AS t0
+WHERE
+  (t0."pet_count" > $1)
+```
 ### KY-10. CTE
 
 - OCaml-пример: ✓
@@ -590,6 +652,27 @@ let kysely10 =
           Projection.pair (Person.id person) (Person.first_name person)))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely10);;
+WITH
+  "c0" (
+    "id",
+    "first_name"
+  ) AS (
+    SELECT
+      t0."id",
+      t0."first_name"
+    FROM "person" AS t0
+    WHERE
+      (t0."age" >= $1)
+  )
+SELECT
+  t0."id",
+  t0."first_name"
+FROM "c0" AS t0
+```
 ### KY-11. UNION
 
 - OCaml-пример: ✓
@@ -626,6 +709,24 @@ let kysely11 =
     Query.union people pets)
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely11);;
+SELECT *
+FROM (
+  SELECT
+    t0."first_name"
+  FROM "person" AS t0
+) AS s0
+UNION
+SELECT *
+FROM (
+  SELECT
+    t0."name"
+  FROM "pet" AS t0
+) AS s0
+```
 ### KY-12. Оконный агрегат
 
 - OCaml-пример: ✓
@@ -679,6 +780,22 @@ let kysely12 =
                 ~default:(Expr.constant Db_type.int64 0L))))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely12);;
+SELECT
+  t0."id",
+  t0."owner_id",
+  COALESCE((
+    SELECT
+      COUNT(t1."id")
+    FROM "pet" AS t1
+    WHERE
+      (t1."owner_id" = t0."owner_id")
+  ), $1)
+FROM "pet" AS t0
+```
 ### KY-13. INSERT RETURNING
 
 - OCaml-пример: ✓
@@ -719,6 +836,21 @@ let kysely13 =
       |> returning (fun person -> Projection.pair (Person.id person) (Person.first_name person))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely13);;
+INSERT INTO "person" (
+  "first_name",
+  "last_name",
+  "age"
+)
+VALUES
+  ($1, $2, $3)
+RETURNING
+  "id",
+  "first_name"
+```
 ### KY-14. UPDATE RETURNING
 
 - OCaml-пример: ✓
@@ -763,6 +895,23 @@ let kysely14 =
       |> returning (fun person -> Projection.pair (Person.id person) (Person.age person))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely14);;
+UPDATE "person" AS t0
+SET
+  "age" = (t1."age" + $1)
+FROM "person" AS t1
+WHERE
+  (
+    (t0."id" = $2)
+    AND (t0."id" = t1."id")
+  )
+RETURNING
+  "id",
+  "age"
+```
 ### KY-15. DELETE RETURNING
 
 - OCaml-пример: ✓
@@ -795,6 +944,17 @@ let kysely15 =
       |> returning (fun pet -> Projection.pair (Pet.id pet) (Pet.name pet))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely15);;
+DELETE FROM "pet"
+WHERE
+  ("id" = $1)
+RETURNING
+  "id",
+  "name"
+```
 ### KY-16. DISTINCT
 
 - OCaml-пример: ✓
@@ -831,6 +991,16 @@ let kysely16 =
       |> select (fun pet -> Projection.expr (Pet.species pet))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely16);;
+SELECT DISTINCT
+  t0."species"
+FROM "pet" AS t0
+WHERE
+  (t0."owner_id" = $1)
+```
 ### KY-17. DISTINCT ON: первая строка в каждой группе
 
 - OCaml-пример: ✓
@@ -879,6 +1049,30 @@ let kysely17 =
           (Projection.pair (Pet.id pet) (Pet.name pet)))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely17);;
+SELECT
+  t0."owner_id",
+  t0."id",
+  t0."name"
+FROM "pet" AS t0
+WHERE
+  (NOT EXISTS (
+    SELECT
+      1
+    FROM "pet" AS t1
+    WHERE
+      (
+        (t1."owner_id" = t0."owner_id")
+        AND (t1."id" > t0."id")
+      )
+  ))
+ORDER BY
+  t0."owner_id" ASC,
+  t0."id" DESC
+```
 ### KY-18. CASE и COALESCE в проекции
 
 - OCaml-пример: ✓
@@ -932,6 +1126,19 @@ let kysely18 =
                 ~default:(Person.first_name person))))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely18);;
+SELECT
+  t0."id",
+  (CASE
+    WHEN (t0."age" >= $1) THEN $2
+    ELSE $3
+  END),
+  COALESCE(t0."last_name", t0."first_name")
+FROM "person" AS t0
+```
 ### KY-19. Проверка NULL через IS NULL
 
 - OCaml-пример: ✓
@@ -965,6 +1172,17 @@ let kysely19 =
       |> select (fun person -> Projection.pair (Person.id person) (Person.first_name person))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely19);;
+SELECT
+  t0."id",
+  t0."first_name"
+FROM "person" AS t0
+WHERE
+  (t0."last_name" IS NULL)
+```
 ### KY-20. IN со списком и пустым входом
 
 - OCaml-пример: ✓
@@ -1004,6 +1222,30 @@ let kysely20 =
       |> select (fun person -> Projection.expr (Person.id person))))
 ```
 
+#### SQL typed-sql (PostgreSQL, non-empty list)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:[ 1L; 2L ] kysely20);;
+SELECT
+  t0."id"
+FROM "person" AS t0
+WHERE
+  (t0."id" IN (
+    $1,
+    $2
+  ))
+```
+
+#### SQL typed-sql (PostgreSQL, empty list)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:[] kysely20);;
+SELECT
+  t0."id"
+FROM "person" AS t0
+WHERE
+  FALSE
+```
 ### KY-21. Keyset-пагинация по двум колонкам
 
 - OCaml-пример: ✓
@@ -1062,6 +1304,30 @@ let kysely21 =
       |> select (fun person -> Projection.pair (Person.id person) (Person.last_name person))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:("Smith", 10L, 20) kysely21);;
+SELECT
+  t0."id",
+  t0."last_name"
+FROM "person" AS t0
+WHERE
+  (
+    (t0."last_name" IS NOT NULL)
+    AND (
+      (t0."last_name" > $1)
+      OR (
+        (t0."last_name" = $2)
+        AND (t0."id" > $3)
+      )
+    )
+  )
+ORDER BY
+  t0."last_name" ASC,
+  t0."id" ASC
+LIMIT 20
+```
 ### KY-22. Условная проекция через $if
 
 - OCaml-пример: ✓
@@ -1124,6 +1390,25 @@ let kysely22 =
     ~if_false:kysely22_without_age
 ```
 
+#### SQL typed-sql (PostgreSQL, age включён)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:true kysely22);;
+SELECT
+  t0."id",
+  t0."age"
+FROM "person" AS t0
+```
+
+#### SQL typed-sql (PostgreSQL, age отсутствует)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:false kysely22);;
+SELECT
+  t0."id",
+  $1
+FROM "person" AS t0
+```
 ### KY-23. Динамическая сортировка по разрешённой колонке
 
 - OCaml-пример: ✓
@@ -1171,6 +1456,29 @@ let kysely23 =
         |> select (fun person -> Projection.pair (Person.id person) (Person.age person))))
 ```
 
+#### SQL typed-sql (PostgreSQL, сортировка по age)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:`Age kysely23);;
+SELECT
+  t0."id",
+  t0."age"
+FROM "person" AS t0
+ORDER BY
+  t0."age" ASC
+```
+
+#### SQL typed-sql (PostgreSQL, сортировка по id)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:`Id kysely23);;
+SELECT
+  t0."id",
+  t0."age"
+FROM "person" AS t0
+ORDER BY
+  t0."id" ASC
+```
 ### KY-24. CROSS JOIN
 
 - OCaml-пример: ✓
@@ -1211,6 +1519,19 @@ let kysely24 =
       |> select (fun (person, pet) -> Projection.pair (Person.id person) (Pet.name pet))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely24);;
+SELECT
+  t0."id",
+  t1."name"
+FROM "person" AS t0
+INNER JOIN "pet" AS t1
+  ON TRUE
+WHERE
+  (t0."id" = $1)
+```
 ### KY-25. FULL OUTER JOIN
 
 - OCaml-пример: ✓
@@ -1268,6 +1589,34 @@ let kysely25 =
     Query.union_all people_with_pets pets_without_people)
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely25);;
+SELECT *
+FROM (
+  SELECT
+    t0."id",
+    t1."id",
+    t1."name"
+  FROM "person" AS t0
+  LEFT JOIN "pet" AS t1
+    ON (t1."owner_id" = t0."id")
+) AS s0
+UNION ALL
+SELECT *
+FROM (
+  SELECT
+    $1,
+    t0."id",
+    t0."name"
+  FROM "pet" AS t0
+  LEFT JOIN "person" AS t1
+    ON (t0."owner_id" = t1."id")
+  WHERE
+    (t1."id" IS NULL)
+) AS s0
+```
 ### KY-26. LEFT JOIN LATERAL с последней связанной строкой
 
 - OCaml-пример: ✓
@@ -1329,6 +1678,24 @@ let kysely26 =
           (Projection.expr (Expr.scalar_subquery latest_pet)))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely26);;
+SELECT
+  t0."id",
+  (
+    SELECT
+      t1."name"
+    FROM "pet" AS t1
+    WHERE
+      (t1."owner_id" = t0."id")
+    ORDER BY
+      t1."id" DESC
+    LIMIT 1
+  )
+FROM "person" AS t0
+```
 ### KY-27. Коррелированный NOT EXISTS
 
 - OCaml-пример: ✓
@@ -1375,6 +1742,22 @@ let kysely27 =
       |> select (fun person -> Projection.expr (Person.id person))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely27);;
+SELECT
+  t0."id"
+FROM "person" AS t0
+WHERE
+  (NOT EXISTS (
+    SELECT
+      1
+    FROM "pet" AS t1
+    WHERE
+      (t1."owner_id" = t0."id")
+  ))
+```
 ### KY-28. Несколько агрегатов с FILTER
 
 - OCaml-пример: ✓
@@ -1423,6 +1806,21 @@ let kysely28 =
       Aggregate_projection.both (count_when "cat") (count_when "dog")))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely28);;
+SELECT
+  COUNT((CASE
+    WHEN (t0."species" = $1) THEN t0."id"
+    ELSE $2
+  END)),
+  COUNT((CASE
+    WHEN (t0."species" = $3) THEN t0."id"
+    ELSE $4
+  END))
+FROM "pet" AS t0
+```
 ### KY-29. Группировка по нескольким колонкам и COUNT DISTINCT
 
 - OCaml-пример: ✓
@@ -1470,6 +1868,21 @@ let kysely29 =
           (Projection.expr (Expr.count_distinct (Pet.owner_id pet))))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely29);;
+SELECT
+  t0."age",
+  t1."species",
+  COUNT(DISTINCT t1."owner_id")
+FROM "person" AS t0
+INNER JOIN "pet" AS t1
+  ON (t1."owner_id" = t0."id")
+GROUP BY
+  t0."age",
+  t1."species"
+```
 ### KY-30. Кардинальность глобального COUNT на пустом наборе
 
 - OCaml-пример: ✓
@@ -1505,6 +1918,16 @@ let kysely30 =
     |> Query.aggregate_one (fun _ -> Aggregate_projection.count_all))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely30);;
+SELECT
+  COUNT(*)
+FROM "pet" AS t0
+WHERE
+  (t0."id" < $1)
+```
 ### KY-31. ROW_NUMBER для первой строки каждой группы
 
 - OCaml-пример: ✓
@@ -1562,6 +1985,27 @@ let kysely31 =
           (Projection.pair (Pet.id pet) (Pet.name pet)))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely31);;
+SELECT
+  t0."owner_id",
+  t0."id",
+  t0."name"
+FROM "pet" AS t0
+WHERE
+  (NOT EXISTS (
+    SELECT
+      1
+    FROM "pet" AS t1
+    WHERE
+      (
+        (t1."owner_id" = t0."owner_id")
+        AND (t1."id" > t0."id")
+      )
+  ))
+```
 ### KY-32. Накопительная оконная сумма
 
 - OCaml-пример: ✗
@@ -1665,6 +2109,34 @@ let kysely33 =
         |> select (fun person -> Descendants.projection person))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:1L kysely33);;
+WITH RECURSIVE
+  "c0" (
+    "id",
+    "manager_id"
+  ) AS (
+    SELECT
+      t0."id",
+      t0."manager_id"
+    FROM "person" AS t0
+    WHERE
+      (t0."id" = $1)
+    UNION ALL
+    SELECT
+      t0."id",
+      t0."manager_id"
+    FROM "person" AS t0
+    INNER JOIN "c0" AS t1
+      ON (t0."manager_id" = t1."id")
+  )
+SELECT
+  t0."id",
+  t0."manager_id"
+FROM "c0" AS t0
+```
 ### KY-34. MATERIALIZED CTE
 
 - OCaml-пример: ✓
@@ -1718,6 +2190,27 @@ let kysely34 =
           |> select (fun person -> Projection.pair (Person.id person) (Person.age person)))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely34);;
+WITH
+  "c0" (
+    "id",
+    "age"
+  ) AS MATERIALIZED (
+    SELECT
+      t0."id",
+      t0."age"
+    FROM "person" AS t0
+    WHERE
+      (t0."age" >= $1)
+  )
+SELECT
+  t0."id",
+  t0."age"
+FROM "c0" AS t0
+```
 ### KY-35. DML CTE с DELETE RETURNING
 
 - OCaml-пример: ✓
@@ -1771,6 +2264,27 @@ let kysely35 =
           |> select (fun pet -> Projection.pair (Pet.id pet) (Pet.name pet)))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely35);;
+WITH
+  "c0" (
+    "id",
+    "name"
+  ) AS (
+    DELETE FROM "pet"
+    WHERE
+      ("id" = $1)
+    RETURNING
+      "id",
+      "name"
+  )
+SELECT
+  t0."id",
+  t0."name"
+FROM "c0" AS t0
+```
 ### KY-36. UNION ALL
 
 - OCaml-пример: ✓
@@ -1803,6 +2317,24 @@ let kysely36 =
     Query.union_all people pets)
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely36);;
+SELECT *
+FROM (
+  SELECT
+    t0."first_name"
+  FROM "person" AS t0
+) AS s0
+UNION ALL
+SELECT *
+FROM (
+  SELECT
+    t0."name"
+  FROM "pet" AS t0
+) AS s0
+```
 ### KY-37. INTERSECT
 
 - OCaml-пример: ✓
@@ -1835,6 +2367,24 @@ let kysely37 =
     Query.intersect people pets)
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely37);;
+SELECT *
+FROM (
+  SELECT
+    t0."first_name"
+  FROM "person" AS t0
+) AS s0
+INTERSECT
+SELECT *
+FROM (
+  SELECT
+    t0."name"
+  FROM "pet" AS t0
+) AS s0
+```
 ### KY-38. EXCEPT
 
 - OCaml-пример: ✓
@@ -1867,6 +2417,24 @@ let kysely38 =
     Query.except people pets)
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely38);;
+SELECT *
+FROM (
+  SELECT
+    t0."first_name"
+  FROM "person" AS t0
+) AS s0
+EXCEPT
+SELECT *
+FROM (
+  SELECT
+    t0."name"
+  FROM "pet" AS t0
+) AS s0
+```
 ### KY-39. Коррелированный scalar subquery в ORDER BY
 
 - OCaml-пример: ✓
@@ -1923,6 +2491,26 @@ let kysely39 =
       |> select (fun person -> Projection.pair (Person.id person) (Person.first_name person))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely39);;
+SELECT
+  t0."id",
+  t0."first_name"
+FROM "person" AS t0
+ORDER BY
+  (
+    SELECT
+      t1."name"
+    FROM "pet" AS t1
+    WHERE
+      (t1."owner_id" = t0."id")
+    ORDER BY
+      t1."id" ASC
+    LIMIT 1
+  ) ASC
+```
 ### KY-40. SQL template tag с bind-значением
 
 - OCaml-пример: ✓
@@ -1963,6 +2551,16 @@ let kysely40 =
       |> select (fun person -> Projection.expr (Person.id person))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely40);;
+SELECT
+  t0."id"
+FROM "person" AS t0
+WHERE
+  (UPPER(t0."first_name") = $1)
+```
 ### KY-41. Извлечение поля из JSONB
 
 - OCaml-пример: ✗
@@ -2069,6 +2667,33 @@ let kysely42 =
           pets)))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely42);;
+SELECT
+  t0."id",
+  CAST(
+    COALESCE(
+      JSONB_AGG(
+        JSONB_BUILD_ARRAY(
+          t1."id",
+          t1."name"
+        )
+        ORDER BY t1."id" ASC
+      ) FILTER (
+        WHERE (t1."id" IS NOT NULL)
+      ),
+      JSONB_BUILD_ARRAY()
+    )
+    AS TEXT
+  )
+FROM "person" AS t0
+LEFT JOIN "pet" AS t1
+  ON (t1."owner_id" = t0."id")
+GROUP BY
+  t0."id"
+```
 ### KY-43. INSERT нескольких строк
 
 - OCaml-пример: ✓
@@ -2110,6 +2735,19 @@ let kysely43 =
     Insert.command (Insert.rows Pet.table row_builders))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:[ 1L, "Milo", "cat"; 2L, "Rex", "dog" ] kysely43);;
+INSERT INTO "pet" (
+  "name",
+  "species",
+  "owner_id"
+)
+VALUES
+  ($1, $2, $3),
+  ($4, $5, $6)
+```
 ### KY-44. INSERT из SELECT
 
 - OCaml-пример: ✗
@@ -2178,6 +2816,22 @@ let kysely45 =
       |> command))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely45);;
+INSERT INTO "pet" (
+  "name",
+  "species",
+  "owner_id"
+)
+VALUES
+  ($1, $2, $3)
+ON CONFLICT (
+  "name"
+)
+DO NOTHING
+```
 ### KY-46. Условный upsert с excluded и RETURNING
 
 - OCaml-пример: ✓
@@ -2233,6 +2887,30 @@ let kysely46 =
           (Projection.pair (Pet.name pet) (Pet.species pet)))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely46);;
+INSERT INTO "pet" AS t0 (
+  "name",
+  "species",
+  "owner_id"
+)
+VALUES
+  ($1, $2, $3)
+ON CONFLICT (
+  "name"
+)
+DO UPDATE
+SET
+  "species" = excluded."species"
+WHERE
+  (excluded."species" <> t0."species")
+RETURNING
+  "id",
+  "name",
+  "species"
+```
 ### KY-47. FOR UPDATE SKIP LOCKED
 
 - OCaml-пример: ✗
@@ -2307,6 +2985,20 @@ let kysely48 =
       |> command))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely48);;
+UPDATE "person" AS t0
+SET
+  "first_name" = t1."name"
+FROM "pet" AS t1
+WHERE
+  (
+    (t0."id" = $1)
+    AND (t1."owner_id" = t0."id")
+  )
+```
 ### KY-49. DELETE USING
 
 - OCaml-пример: ✓
@@ -2353,6 +3045,26 @@ let kysely49 =
       |> returning (fun pet -> Projection.pair (Pet.id pet) (Pet.name pet))))
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely49);;
+DELETE FROM "pet"
+WHERE
+  (EXISTS (
+    SELECT
+      1
+    FROM "person" AS t1
+    WHERE
+      (
+        (t1."id" = "owner_id")
+        AND (t1."age" < $1)
+      )
+  ))
+RETURNING
+  "id",
+  "name"
+```
 ### KY-50. MERGE из таблицы импорта
 
 - OCaml-пример: ✗

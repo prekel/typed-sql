@@ -2,13 +2,13 @@
 
 # Сценарии запросов из Diesel
 
-**Желаемый таргет: 20 сценариев — 5 обычных и 15 сложных.** Сейчас заведены пять обычных и пять сложных сценариев; остаётся добавить ещё десять сложных.
+**Желаемый таргет: 20 сценариев — 5 обычных и 15 сложных.** Сейчас заведены пять обычных и десять сложных сценариев; остаётся добавить ещё пять сложных.
 
 Источники — [All About Selects](https://diesel.rs/guides/all-about-selects/), [Relations](https://diesel.rs/guides/relations/) и API Diesel 2.3. Примеры и SQL сокращены и адаптированы под схему `users(id, name)` и `posts(id, user_id, title)`. Для JOIN предполагается объявленная Diesel-связь `posts.user_id -> users.id`; оконные функции требуют Diesel 2.3 или новее.
 
 Diesel распространяется по [MIT или Apache-2.0](https://github.com/diesel-rs/diesel#license). Здесь используется вариант MIT для уведомления об авторских правах. Примеры кода адаптированы; указание источника не означает одобрения со стороны авторов Diesel.
 
-Для DI-01–DI-09 приведены реализации через публичный API typed-sql и SQL компилятора для PostgreSQL. Оконные выражения DI-10 пока не входят в публичный API.
+Для DI-01–DI-09 приведены реализации через публичный API typed-sql и SQL компилятора для PostgreSQL. Оконные выражения DI-10 пока не входят в публичный API. DI-11–DI-15 пока приведены без реализации на typed-sql.
 
 ```rust
 use diesel::prelude::*;
@@ -616,6 +616,140 @@ let rows = posts::table
 ```
 
 Оконные выражения `OVER (PARTITION BY ...)` отсутствуют в публичном API и semantic AST typed-sql, поэтому DI-10 нельзя выразить без расширения DSL.
+
+### DI-11. Уникальные авторы постов с заданным префиксом
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [All About Selects](https://diesel.rs/guides/all-about-selects/).
+- Проверяет: `DISTINCT` применяется к `user_id` после фильтра по заголовку; несколько подходящих постов одного пользователя дают одну строку.
+
+```sql
+SELECT DISTINCT posts.user_id
+FROM posts
+WHERE posts.title LIKE $1
+ORDER BY posts.user_id ASC
+```
+
+```rust
+let user_ids = posts::table
+    .filter(posts::title.like(title_pattern))
+    .select(posts::user_id)
+    .distinct()
+    .order(posts::user_id.asc())
+    .load::<i32>(connection)?;
+```
+
+### DI-12. Динамические фильтры в boxed SELECT
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [Composing Applications with Diesel](https://diesel.rs/guides/composing-applications/).
+- Проверяет: два независимых необязательных предиката меняют форму SQL; значения остаются параметрами, а сортировка задаёт устойчивый порядок.
+
+```sql
+SELECT posts.id, posts.title
+FROM posts
+WHERE posts.title LIKE $1 AND posts.id >= $2
+ORDER BY posts.id ASC
+-- При None для обоих параметров WHERE отсутствует.
+```
+
+```rust
+let mut query = posts::table
+    .select((posts::id, posts::title))
+    .into_boxed::<diesel::pg::Pg>();
+if let Some(pattern) = title_pattern {
+    query = query.filter(posts::title.like(pattern));
+}
+if let Some(first_id) = min_id {
+    query = query.filter(posts::id.ge(first_id));
+}
+let rows = query
+    .order(posts::id.asc())
+    .load::<(i32, String)>(connection)?;
+```
+
+### DI-13. UPSERT с новым заголовком из EXCLUDED
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [Diesel `on_conflict` и `excluded`](https://docs.diesel.rs/main/diesel/helper_types/type.OnConflict.html).
+- Проверяет: вставку нового поста и обновление только заголовка при конфликте `id`; возвращается итоговая строка.
+
+```sql
+INSERT INTO posts (id, user_id, title)
+VALUES ($1, $2, $3)
+ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title
+RETURNING id, title
+```
+
+```rust
+let saved = diesel::insert_into(posts::table)
+    .values((
+        posts::id.eq(post_id),
+        posts::user_id.eq(user_id),
+        posts::title.eq(new_title),
+    ))
+    .on_conflict(posts::id)
+    .do_update()
+    .set(posts::title.eq(diesel::upsert::excluded(posts::title)))
+    .returning((posts::id, posts::title))
+    .get_result::<(i32, String)>(connection)?;
+```
+
+### DI-14. Массовый UPDATE с RETURNING
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [All About Updates](https://diesel.rs/guides/all-about-updates/).
+- Проверяет: обновление всех постов одного пользователя одним оператором и получение только изменённых строк.
+
+```sql
+UPDATE posts SET title = $1
+WHERE user_id = $2
+RETURNING id, title
+```
+
+```rust
+let changed = diesel::update(posts::table.filter(posts::user_id.eq(user_id)))
+    .set(posts::title.eq(new_title))
+    .returning((posts::id, posts::title))
+    .get_results::<(i32, String)>(connection)?;
+```
+
+### DI-15. Удаление черновиков с возвратом идентификаторов
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [Diesel delete DSL](https://docs.diesel.rs/main/diesel/fn.delete.html), [RETURNING](https://diesel.rs/guides/all-about-updates/).
+- Проверяет: оба условия удаления, отсутствие затронутых строк при пустом результате и `RETURNING` только удалённых идентификаторов.
+
+```sql
+DELETE FROM posts
+WHERE user_id = $1 AND title LIKE $2
+RETURNING id
+```
+
+```rust
+let removed_ids = diesel::delete(
+    posts::table
+        .filter(posts::user_id.eq(user_id))
+        .filter(posts::title.like("Draft%")),
+)
+.returning(posts::id)
+.get_results::<i32>(connection)?;
+```
 
 ## Уведомление о лицензии
 

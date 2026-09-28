@@ -1,6 +1,6 @@
 # Сценарии запросов из EF Core
 
-Первые 15 сценариев из [документации EF Core](https://learn.microsoft.com/en-us/ef/core/) (доступ 28.09.2026). LINQ и SQL сокращены и адаптированы. SQL показывает существенную форму перевода, а не точный лог конкретной версии провайдера. Квадратные скобки и `@parameter` относятся к SQL Server; EF-10 использует синтаксис PostgreSQL, как в источнике. Условия переноса зависят от версии EF Core и провайдера, поэтому при дальнейшем сравнении нужно фиксировать оба.
+40 сценариев по [документации EF Core](https://learn.microsoft.com/en-us/ef/core/) (доступ 28.09.2026). LINQ и SQL сокращены и адаптированы. SQL показывает существенную форму перевода, а не точный лог конкретной версии провайдера. Квадратные скобки и `@parameter` относятся к SQL Server; EF-10 использует синтаксис PostgreSQL, как в источнике. Условия переноса зависят от версии EF Core и провайдера, поэтому при дальнейшем сравнении нужно фиксировать оба.
 
 **Желаемый таргет: 50–70 сценариев.**
 
@@ -8,7 +8,7 @@
 
 Используются модели примеров `Blog`, `Post`, `Contributor` и `Book`. Карточки взяты из разных разделов документации; одноимённые модели не образуют единую схему. Для outer join и загрузки коллекций нужна фикстура с пустой коллекцией. Для клиентских операций проверять и SQL, и итоговый результат.
 
-Для всех сценариев, которые поддерживает текущий публичный API, ниже добавлены реализации на typed-sql и SQL, полученный компилятором. Для частично поддерживаемых сценариев отдельно описаны границы совпадения. В блоках «SQL typed-sql» первая строка запускает компилятор, остальные строки — его вывод. Запустить проверку можно командой `opam exec -- dune runtest test/query-builder-survey`.
+Для EF-01–EF-35 ниже приведены реализации на typed-sql там, где они доступны, и SQL, полученный компилятором. Для частично поддерживаемых сценариев отдельно описаны границы совпадения. EF-36–EF-40 пока приведены без реализации на typed-sql. В блоках «SQL typed-sql» первая строка запускает компилятор, остальные строки — его вывод. Запустить проверку можно командой `opam exec -- dune runtest test/query-builder-survey`.
 
 Статусы в карточках: `✓` — подтверждено; `✗` — условие не выполнено; `—` — не оценивалось. «Семантика» учитывает входные параметры, результат, `NULL` и заданный порядок относительно серверного запроса в карточке; клиентская сборка объектов EF Core сюда не входит. «Без доработок» относится к публичному API typed-sql, а не к необходимости улучшить пример. Реализуемость оценивается после попытки написать OCaml-код.
 
@@ -625,7 +625,7 @@ WHERE
 
 ### EF-11. GroupBy с финальной группировкой на клиенте
 
-- OCaml-пример: ✗
+- OCaml-пример: —
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
@@ -846,6 +846,8 @@ await context.Blogs
     .ExecuteUpdateAsync(setters =>
         setters.SetProperty(x => x.Blog.Rating, x => x.NewRating));
 ```
+
+Scalar subquery с `AVG` может вернуть `NULL`, а `Blog.Rating` в этом сценарии — non-nullable. `Update.set_expr` не принимает nullable-выражение для этой колонки; обход через `UPDATE FROM Posts` пропустил бы блоги без постов и изменил поведение пустой коллекции.
 
 Пример зависит от приведения типов у провайдера и может потребовать отдельной проверки пустой коллекции.
 
@@ -1650,6 +1652,8 @@ let ef30_client_projection rows =
   List.map rows ~f:(fun (id, url) -> id, ef30_standardize url)
 ```
 
+#### SQL typed-sql (PostgreSQL)
+
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef30_query);;
 SELECT
@@ -1713,6 +1717,8 @@ let ef32 =
       |> where (fun book -> Expr.in_ (Book.author_id book) terrain_ids)
       |> select (fun book -> Projection.expr (Book.id book))))
 ```
+
+#### SQL typed-sql (PostgreSQL)
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:[ 1L; 5L; 4L ] ef32);;
@@ -1808,6 +1814,126 @@ var blogs = await context.Blogs
 ```
 
 Композиция возможна только поверх composable SQL; SQL Server не позволяет оборачивать хранимую процедуру как подзапрос.
+
+### EF-36. UNION блогов и авторов популярных постов
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [LINQ `Union`](https://learn.microsoft.com/en-us/dotnet/api/system.linq.queryable.union).
+- Проверяет: одинаковую проекцию `BlogId` в двух ветвях и устранение повторений после объединения.
+
+```sql
+SELECT [b].[BlogId] FROM [Blogs] AS [b] WHERE [b].[Rating] >= 5
+UNION
+SELECT [p].[BlogId] FROM [Posts] AS [p] WHERE [p].[Rating] >= 5
+```
+
+```csharp
+var blogIds = await context.Blogs
+    .Where(b => b.Rating >= 5)
+    .Select(b => b.BlogId)
+    .Union(context.Posts
+        .Where(p => p.Rating >= 5)
+        .Select(p => p.BlogId))
+    .ToListAsync();
+```
+
+### EF-37. ExecuteUpdate с прежним значением колонки
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [ExecuteUpdate: referencing the existing property value](https://learn.microsoft.com/en-us/ef/core/saving/execute-insert-update-delete#referencing-the-existing-property-value).
+- Проверяет: однократный серверный UPDATE и вычисление нового `Rating` из прежнего значения для каждой подходящей строки.
+
+```sql
+UPDATE [b]
+SET [b].[Rating] = [b].[Rating] + 1
+FROM [Blogs] AS [b]
+WHERE [b].[Rating] < 3
+```
+
+```csharp
+var changed = await context.Blogs
+    .Where(b => b.Rating < 3)
+    .ExecuteUpdateAsync(setters => setters
+        .SetProperty(b => b.Rating, b => b.Rating + 1));
+```
+
+### EF-38. Сравнение с явным правилом сопоставления строк
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [Collations and case sensitivity](https://learn.microsoft.com/en-us/ef/core/miscellaneous/collations-and-case-sensitivity).
+- Проверяет: применение явного правила сопоставления только к сравнению `Url`; совпадение зависит от регистра в SQL Server.
+
+```sql
+SELECT [b].[BlogId], [b].[Url]
+FROM [Blogs] AS [b]
+WHERE [b].[Url] COLLATE SQL_Latin1_General_CP1_CS_AS = @url
+```
+
+```csharp
+var blogs = await context.Blogs
+    .Where(b => EF.Functions.Collate(
+        b.Url, "SQL_Latin1_General_CP1_CS_AS") == url)
+    .Select(b => new { b.BlogId, b.Url })
+    .ToListAsync();
+```
+
+### EF-39. Снимок temporal-таблицы на момент времени
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [SQL Server temporal tables](https://learn.microsoft.com/en-us/ef/core/providers/sql-server/temporal-tables#querying-historical-data).
+- Проверяет: `FOR SYSTEM_TIME AS OF` с UTC-моментом и фильтр по ключу поверх исторической версии строки.
+
+```sql
+SELECT [b].[BlogId], [b].[Url], [b].[Rating]
+FROM [Blogs] FOR SYSTEM_TIME AS OF @point AS [b]
+WHERE [b].[BlogId] = @blogId
+```
+
+```csharp
+var point = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+var snapshot = await context.Blogs
+    .TemporalAsOf(point)
+    .Where(b => b.BlogId == blogId)
+    .Select(b => new { b.BlogId, b.Url, b.Rating })
+    .SingleOrDefaultAsync();
+```
+
+Для EF-39 таблица `Blogs` в фикстуре должна быть настроена как темпоральная таблица.
+
+### EF-40. LIKE с экранированным процентом
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [SQL Server function mappings](https://learn.microsoft.com/en-us/ef/core/providers/sql-server/functions).
+- Проверяет: поиск буквального `100%` в начале заголовка, где первый `%` экранирован, а последний остаётся wildcard.
+
+```sql
+SELECT [p].[PostId], [p].[Title]
+FROM [Posts] AS [p]
+WHERE [p].[Title] LIKE @pattern ESCAPE @escape
+```
+
+```csharp
+var pattern = @"100\%%";
+var posts = await context.Posts
+    .Where(p => EF.Functions.Like(p.Title, pattern, @"\"))
+    .Select(p => new { p.PostId, p.Title })
+    .ToListAsync();
+```
 
 ## Уведомление о лицензии примеров кода
 

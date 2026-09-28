@@ -2,13 +2,13 @@
 
 # Сценарии запросов из Beam
 
-**Желаемый таргет: 20 сценариев — 5 обычных и 15 сложных.** Сейчас заведены пять обычных и пять сложных сценариев.
+**Желаемый таргет: 20 сценариев — 5 обычных и 15 сложных.** Сейчас заведены пять обычных и десять сложных сценариев.
 
 Источники — [руководство Beam](https://haskell-beam.github.io/beam/user-guide/queries/) и его [примеры на базе Chinook](https://haskell-beam.github.io/beam/user-guide/queries/relationships/). Запросы и SQL сокращены и адаптированы. В примерах используется схема `Customer`, `Invoice`, `InvoiceLine`, `Album` из Chinook и имя базы `chinookDb` из руководства. Синтаксис соответствует Beam 0.10.
 
 Код примеров Beam распространяется по [MIT](https://haskell-beam.github.io/beam/about/license/). В конце файла приведено уведомление об авторских правах и лицензии. Это независимая подборка; указание источника не означает одобрения со стороны авторов Beam.
 
-OCaml-примеры typed-sql добавлены для BE-06–BE-08 и BE-10. BE-09 требует оконных выражений, которых пока нет в DSL.
+OCaml-примеры typed-sql добавлены для BE-02, BE-06–BE-08 и BE-10. BE-09 требует оконных выражений, которых пока нет в DSL. BE-01, BE-03–BE-05 и BE-11–BE-15 пока приведены без реализации на typed-sql.
 
 В новых примерах с `as_ @Int32` предполагаются расширение `TypeApplications` и импорт `Int32` из `Data.Int`.
 
@@ -44,11 +44,11 @@ module Invoice = struct
 end
 ```
 
-Общие descriptors используются в примерах BE-06–BE-08 и BE-10.
+Общие descriptors используются в примерах BE-02, BE-06–BE-08 и BE-10.
 
 ### BE-01. Фильтр и проекция
 
-- OCaml-пример: ✗
+- OCaml-пример: —
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
@@ -70,10 +70,10 @@ select $
 
 ### BE-02. Составной предикат
 
-- OCaml-пример: ✗
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [basic queries: filtering](https://haskell-beam.github.io/beam/user-guide/queries/basic/).
 - Проверяет: `AND` с вложенной группой `OR`.
 
@@ -93,9 +93,42 @@ select $
       all_ (customer chinookDb)
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let beam02 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Customer.table
+      |> where (fun customer ->
+        (Customer.first_name customer =~$ "Jo%") &&.
+        ((Customer.country customer =$ "USA") ||.
+         (Customer.country customer =$ "Canada")))
+      |> select (fun customer ->
+        Projection.pair (Customer.id customer) (Customer.first_name customer))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam02);;
+SELECT
+  t0."CustomerId",
+  t0."FirstName"
+FROM "Customer" AS t0
+WHERE
+  (
+    (t0."FirstName" LIKE $1)
+    AND (
+      (t0."Country" = $2)
+      OR (t0."Country" = $3)
+    )
+  )
+```
+
 ### BE-03. Сортировка и страница
 
-- OCaml-пример: ✗
+- OCaml-пример: —
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
@@ -120,7 +153,7 @@ select $
 
 ### BE-04. INNER JOIN
 
-- OCaml-пример: ✗
+- OCaml-пример: —
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
@@ -143,7 +176,7 @@ select $ do
 
 ### BE-05. LEFT JOIN с отсутствующей правой строкой
 
-- OCaml-пример: ✗
+- OCaml-пример: —
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
@@ -476,6 +509,152 @@ FROM (
   WHERE
     (t0."Country" = $1)
 ) AS s0
+```
+
+### BE-11. Уникальные страны покупателей со счетами
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [More complex SELECTs](https://haskell-beam.github.io/beam/user-guide/queries/select/), [relationships](https://haskell-beam.github.io/beam/user-guide/queries/relationships/).
+- Проверяет: `DISTINCT` после коррелированного `EXISTS`; несколько счетов одного покупателя и несколько покупателей из одной страны дают одну страну.
+
+```sql
+SELECT DISTINCT c.Country
+FROM Customer AS c
+WHERE EXISTS (
+  SELECT 1 FROM Invoice AS i WHERE i.CustomerId = c.CustomerId
+)
+```
+
+```haskell
+select $ nub_ $ do
+  c <- all_ (customer chinookDb)
+  guard_ $ exists_ $ do
+    i <- all_ (invoice chinookDb)
+    guard_ (invoiceCustomer i ==. primaryKey c)
+    pure (invoiceId i)
+  pure (customerCountry c)
+```
+
+### BE-12. Покупатели без счетов из выбранной страны
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [Beam tutorial: `NOT EXISTS`](https://haskell-beam.github.io/beam/tutorials/tutorial3/).
+- Проверяет: антисоединение через `NOT EXISTS`, включая покупателей без единого счета; фильтр страны остаётся во внешнем запросе.
+
+```sql
+SELECT c.CustomerId, c.FirstName
+FROM Customer AS c
+WHERE c.Country = ?
+  AND NOT EXISTS (
+    SELECT 1 FROM Invoice AS i WHERE i.CustomerId = c.CustomerId
+  )
+```
+
+```haskell
+select $ do
+  c <- all_ (customer chinookDb)
+  guard_ (customerCountry c ==. val_ "USA")
+  guard_ $ not_ $ exists_ $ do
+    i <- all_ (invoice chinookDb)
+    guard_ (invoiceCustomer i ==. primaryKey c)
+    pure (invoiceId i)
+  pure (customerId c, customerFirstName c)
+```
+
+### BE-13. Число разных покупателей со счетами по странам
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [Aggregates: `COUNT(DISTINCT ...)`](https://haskell-beam.github.io/beam/user-guide/queries/aggregates/).
+- Проверяет: `COUNT(DISTINCT CustomerId)` после соединения, чтобы повторные счета не увеличивали число покупателей в стране.
+
+```sql
+SELECT c.Country, COUNT(DISTINCT c.CustomerId) AS customer_count
+FROM Customer AS c
+JOIN Invoice AS i ON i.CustomerId = c.CustomerId
+GROUP BY c.Country
+```
+
+```haskell
+select $
+  aggregate_ (\(c, _) ->
+    ( group_ (customerCountry c)
+    , as_ @Int32 $ countOver_ distinctInGroup_ (customerId c) )) $ do
+      c <- all_ (customer chinookDb)
+      i <- all_ (invoice chinookDb)
+      guard_ (invoiceCustomer i ==. primaryKey c)
+      pure (c, i)
+```
+
+### BE-14. Повторное использование агрегата через CTE
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [Common table expressions](https://haskell-beam.github.io/beam/user-guide/queries/common-table-expressions/).
+- Проверяет: `selectWith` и `reuse` для агрегата, соединение CTE с покупателями и внешний фильтр по рассчитанному числу счетов.
+
+```sql
+WITH invoice_counts AS (
+  SELECT CustomerId, COUNT(*) AS invoice_count
+  FROM Invoice
+  GROUP BY CustomerId
+)
+SELECT c.CustomerId, ic.invoice_count
+FROM Customer AS c
+JOIN invoice_counts AS ic ON ic.CustomerId = c.CustomerId
+WHERE ic.invoice_count >= 3
+```
+
+```haskell
+selectWith $ do
+  invoiceCounts <- selecting $
+    aggregate_ (\i ->
+      ( group_ (invoiceCustomer i)
+      , as_ @Int32 countAll_ )) $
+        all_ (invoice chinookDb)
+  pure $ do
+    (customerKey, invoiceCount) <- reuse invoiceCounts
+    c <- all_ (customer chinookDb)
+    guard_ (customerKey ==. primaryKey c)
+    guard_ (invoiceCount >=. 3)
+    pure (customerId c, invoiceCount)
+```
+
+### BE-15. Три покупателя с наибольшей суммой счетов
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [Aggregates](https://haskell-beam.github.io/beam/user-guide/queries/aggregates/), [ordering and limit](https://haskell-beam.github.io/beam/user-guide/queries/ordering/).
+- Проверяет: порядок `GROUP BY`, сортировки по агрегату и `LIMIT`; для граничной строки нужна фикстура без равенства сумм.
+
+```sql
+SELECT i.CustomerId, COALESCE(SUM(i.Total), 0) AS total_spent
+FROM Invoice AS i
+GROUP BY i.CustomerId
+ORDER BY total_spent DESC
+LIMIT 3
+```
+
+```haskell
+select $
+  limit_ 3 $
+  orderBy_ (\(_, totalSpent) -> desc_ totalSpent) $
+  aggregate_ (\i ->
+    ( group_ (invoiceCustomer i)
+    , fromMaybe_ 0 (sum_ (invoiceTotal i)) )) $
+      all_ (invoice chinookDb)
 ```
 
 ## Уведомление о лицензии

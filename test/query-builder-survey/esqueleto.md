@@ -2,13 +2,13 @@
 
 # Сценарии запросов из Esqueleto
 
-**Желаемый таргет: 20 сценариев — 5 обычных и 15 сложных.** Сейчас заведены пять обычных и десять сложных сценариев; ещё пять сложных остаются для следующего этапа.
+**Желаемый таргет: 20 сценариев — 5 обычных и 15 сложных.** Сейчас заведены все 20 сценариев.
 
 Источник — [документация `Database.Esqueleto.Experimental`](https://hackage-content.haskell.org/package/esqueleto-3.6.0.0/docs/Database-Esqueleto-Experimental.html), версия Esqueleto 3.6.0.0. Примеры сокращены и адаптированы. Схема следует документации: `Person(name, age)` и `BlogPost(title, authorId)`; `age` nullable. SQL показывает существенную форму запросов.
 
 Пакет Esqueleto распространяется по [BSD-3-Clause](https://hackage-content.haskell.org/package/esqueleto-3.6.0.0). В конце файла приведено уведомление об авторских правах и лицензии. Это независимая подборка; указание источника не означает одобрения со стороны авторов Esqueleto.
 
-Все 15 сценариев ниже выражаются через публичный API typed-sql. OCaml-блоки с реализациями typed-sql исполняются через MDX.
+Для EQ-01–EQ-15 приведены реализации через публичный API typed-sql; EQ-16–EQ-20 пока не оценивались. OCaml-блоки с реализациями typed-sql исполняются через MDX.
 
 ```haskell
 {-# LANGUAGE OverloadedStrings #-}
@@ -1015,6 +1015,151 @@ SELECT
     ELSE $4
   END)
 FROM "person" AS t0
+```
+
+### EQ-16. DISTINCT имён авторов с постами
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [`distinct`](https://hackage-content.haskell.org/package/esqueleto-3.6.0.0/docs/Database-Esqueleto-Experimental.html#v:distinct), [JOIN](https://hackage-content.haskell.org/package/esqueleto-3.6.0.0/docs/Database-Esqueleto-Experimental.html#v:innerJoin).
+- Проверяет: устранение повторений уже после соединения; одно имя может принадлежать нескольким авторам.
+
+```sql
+SELECT DISTINCT p.name
+FROM person AS p
+JOIN blog_post AS bp ON bp.author_id = p.id
+```
+
+```haskell
+select $ distinct $ do
+  (person :& post) <- from $
+    table @Person
+    `innerJoin` table @BlogPost
+    `on` (\(p :& bp) -> p ^. PersonId ==. bp ^. BlogPostAuthorId)
+  pure (person ^. PersonName)
+```
+
+### EQ-17. Последний пост каждого автора через LEFT JOIN LATERAL
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [`leftJoinLateral`](https://hackage-content.haskell.org/package/esqueleto-3.6.0.0/docs/Database-Esqueleto-Experimental.html#v:leftJoinLateral).
+- Проверяет: корреляцию подзапроса с автором, ограничение до одного поста и `NULL` для автора без постов.
+
+```sql
+SELECT p.id, latest.title
+FROM person AS p
+LEFT JOIN LATERAL (
+  SELECT bp.title FROM blog_post AS bp
+  WHERE bp.author_id = p.id
+  ORDER BY bp.id DESC
+  LIMIT 1
+) AS latest ON TRUE
+```
+
+```haskell
+select $ do
+  (person :& latestTitle) <- from $
+    table @Person
+    `leftJoinLateral`
+      ( \p -> do
+          post <- from $ table @BlogPost
+          where_ (post ^. BlogPostAuthorId ==. p ^. PersonId)
+          orderBy [desc (post ^. BlogPostId)]
+          limit 1
+          pure (post ^. BlogPostTitle)
+      , \_ -> val True
+      )
+  pure (person ^. PersonId, latestTitle)
+```
+
+### EQ-18. FULL OUTER JOIN авторов и постов
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [`fullOuterJoin`](https://hackage-content.haskell.org/package/esqueleto-3.6.0.0/docs/Database-Esqueleto-Experimental.html#v:fullOuterJoin).
+- Проверяет: nullable-поля обеих сторон и сохранение строк без совпадения, если такие есть; нужен PostgreSQL или другой поддерживающий `FULL JOIN` диалект.
+
+```sql
+SELECT p.name, bp.title
+FROM person AS p
+FULL OUTER JOIN blog_post AS bp ON p.id = bp.author_id
+```
+
+```haskell
+select $ do
+  (person :& post) <- from $
+    table @Person
+    `fullOuterJoin` table @BlogPost
+    `on` (\(p :& bp) -> p ?. PersonId ==. bp ?. BlogPostAuthorId)
+  pure (person ?. PersonName, post ?. BlogPostTitle)
+```
+
+### EQ-19. Захват первых незаблокированных строк
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [`locking` и `forUpdateSkipLocked`](https://hackage-content.haskell.org/package/esqueleto-3.6.0.0/docs/Database-Esqueleto-Experimental.html#v:forUpdateSkipLocked).
+- Проверяет: порядок `ORDER BY`, `LIMIT` и `FOR UPDATE SKIP LOCKED` при конкурирующих транзакциях; сценарий рассчитан на PostgreSQL.
+
+```sql
+SELECT p.id
+FROM person AS p
+ORDER BY p.id ASC
+LIMIT 5
+FOR UPDATE SKIP LOCKED
+```
+
+```haskell
+select $ do
+  person <- from $ table @Person
+  orderBy [asc (person ^. PersonId)]
+  limit 5
+  locking forUpdateSkipLocked
+  pure (person ^. PersonId)
+```
+
+### EQ-20. Вложенное объединение с последующим исключением
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [Set Operations](https://hackage-content.haskell.org/package/esqueleto-3.6.0.0/docs/Database-Esqueleto-Experimental.html#v:except_).
+- Проверяет: скобки вокруг `UNION ALL` перед `EXCEPT`; исключение удаляет все совпадения, а итоговый `EXCEPT` убирает дубликаты.
+
+```sql
+(SELECT p.id FROM person AS p WHERE p.age >= 18
+ UNION ALL
+ SELECT p.id FROM person AS p WHERE p.age IS NULL)
+EXCEPT
+SELECT p.id FROM person AS p WHERE p.name = 'blocked'
+```
+
+```haskell
+select $ from $
+  ((do
+      person <- from $ table @Person
+      where_ (person ^. PersonAge >=. just (val (18 :: Int)))
+      pure (person ^. PersonId))
+   `unionAll_`
+   (do
+      person <- from $ table @Person
+      where_ (isNothing (person ^. PersonAge))
+      pure (person ^. PersonId)))
+  `except_`
+  (do
+      person <- from $ table @Person
+      where_ (person ^. PersonName ==. val ("blocked" :: Text))
+      pure (person ^. PersonId))
 ```
 
 ## Уведомление о лицензии

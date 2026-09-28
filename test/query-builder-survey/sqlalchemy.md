@@ -2,7 +2,7 @@
 
 # Сценарии запросов из SQLAlchemy
 
-Первые 35 сценариев по [SQLAlchemy 2.0 Unified Tutorial](https://docs.sqlalchemy.org/en/20/tutorial/) и документации SQLAlchemy Core (доступ 28.09.2026). Использован SQLAlchemy Core. Примеры сокращены и адаптированы; SQL показывает ожидаемую структуру запроса, а не точный вывод компилятора. Имена bind-параметров могут отличаться у разных диалектов.
+40 сценариев по [SQLAlchemy 2.0 Unified Tutorial](https://docs.sqlalchemy.org/en/20/tutorial/) и документации SQLAlchemy Core (доступ 28.09.2026). Использован SQLAlchemy Core. Примеры сокращены и адаптированы; SQL показывает ожидаемую структуру запроса, а не точный вывод компилятора. Имена bind-параметров могут отличаться у разных диалектов.
 
 **Желаемый таргет: 50–70 сценариев.**
 
@@ -306,7 +306,7 @@ LEFT JOIN "address" AS t1
 
 ### SA-06. GROUP BY и HAVING
 
-- OCaml-пример: ✗
+- OCaml-пример: —
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
@@ -333,7 +333,7 @@ stmt = (
 
 ### SA-07. Коррелированный scalar subquery
 
-- OCaml-пример: ✗
+- OCaml-пример: —
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
@@ -359,7 +359,7 @@ stmt = select(user_table.c.id, address_count.label("address_count"))
 
 ### SA-08. Коррелированный EXISTS
 
-- OCaml-пример: ✗
+- OCaml-пример: —
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
@@ -386,7 +386,7 @@ stmt = select(user_table.c.id).where(has_address)
 
 ### SA-09. Derived table
 
-- OCaml-пример: ✗
+- OCaml-пример: —
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
@@ -418,7 +418,7 @@ stmt = select(counts.c.user_id, counts.c.address_count).where(
 
 ### SA-10. CTE
 
-- OCaml-пример: ✗
+- OCaml-пример: —
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
@@ -448,7 +448,7 @@ stmt = select(counts.c.user_id, counts.c.address_count)
 
 ### SA-11. UNION
 
-- OCaml-пример: ✗
+- OCaml-пример: —
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
@@ -470,7 +470,7 @@ stmt = union(
 
 ### SA-12. Оконная функция
 
-- OCaml-пример: ✗
+- OCaml-пример: —
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
@@ -500,7 +500,7 @@ stmt = select(
 
 ### SA-13. INSERT RETURNING
 
-- OCaml-пример: ✗
+- OCaml-пример: —
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
@@ -523,7 +523,7 @@ stmt = (
 
 ### SA-14. Коррелированный UPDATE
 
-- OCaml-пример: ✗
+- OCaml-пример: —
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
@@ -552,7 +552,7 @@ stmt = update(user_table).values(fullname=first_email)
 
 ### SA-15. DELETE RETURNING
 
-- OCaml-пример: ✗
+- OCaml-пример: —
 - Реализуемость: —
 - Семантика: —
 - Без доработок typed-sql: —
@@ -1029,6 +1029,162 @@ stmt = insert_stmt.on_conflict_do_update(
     index_elements=[user_table.c.name],
     set_={"fullname": insert_stmt.excluded.fullname},
 )
+```
+
+### SA-36. Пользователи без адресов через NOT EXISTS
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [EXISTS subqueries](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#exists-subqueries).
+- Проверяет: отрицание коррелированного `EXISTS` и сохранение пользователей с пустой коллекцией адресов.
+
+```sql
+SELECT user_account.id, user_account.name
+FROM user_account
+WHERE NOT EXISTS (
+  SELECT address.id FROM address
+  WHERE address.user_id = user_account.id
+)
+```
+
+```python
+addresses = (
+    select(address_table.c.id)
+    .where(address_table.c.user_id == user_table.c.id)
+    .exists()
+)
+stmt = select(user_table.c.id, user_table.c.name).where(~addresses)
+```
+
+### SA-37. Условный агрегат FILTER после LEFT JOIN
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [Special modifiers: FILTER](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#special-modifiers-within-group-filter).
+- Проверяет: подсчёт только адресов с нужным доменом и ноль для пользователя без адресов; форма SQL показана для PostgreSQL.
+
+```sql
+SELECT user_account.id,
+       COUNT(address.id) FILTER (
+         WHERE address.email_address LIKE :pattern
+       ) AS matched
+FROM user_account
+LEFT JOIN address ON address.user_id = user_account.id
+GROUP BY user_account.id
+```
+
+```python
+stmt = (
+    select(
+        user_table.c.id,
+        func.count(address_table.c.id)
+        .filter(address_table.c.email_address.like(pattern))
+        .label("matched"),
+    )
+    .outerjoin(address_table, address_table.c.user_id == user_table.c.id)
+    .group_by(user_table.c.id)
+)
+```
+
+### SA-38. Последний адрес каждого пользователя через ROW_NUMBER
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [Window Functions](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#window-functions).
+- Проверяет: нумерацию адресов внутри каждого `user_id` и фильтр номера во внешнем запросе; пользователь без адресов не возвращается.
+
+```sql
+SELECT user_account.name, ranked.email_address
+FROM user_account
+JOIN (
+  SELECT address.user_id, address.email_address,
+         ROW_NUMBER() OVER (
+           PARTITION BY address.user_id ORDER BY address.id DESC
+         ) AS row_no
+  FROM address
+) AS ranked ON ranked.user_id = user_account.id
+WHERE ranked.row_no = 1
+```
+
+```python
+ranked = (
+    select(
+        address_table.c.user_id,
+        address_table.c.email_address,
+        func.row_number().over(
+            partition_by=address_table.c.user_id,
+            order_by=address_table.c.id.desc(),
+        ).label("row_no"),
+    )
+    .subquery("ranked")
+)
+stmt = (
+    select(user_table.c.name, ranked.c.email_address)
+    .join(ranked, ranked.c.user_id == user_table.c.id)
+    .where(ranked.c.row_no == 1)
+)
+```
+
+### SA-39. Страница строк с FOR UPDATE SKIP LOCKED
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [`Select.with_for_update`](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.Select.with_for_update).
+- Проверяет: блокировку выбранных строк в транзакции и пропуск строк, уже заблокированных другим читателем; форма PostgreSQL.
+
+```sql
+SELECT user_account.id, user_account.name
+FROM user_account
+ORDER BY user_account.id
+LIMIT :limit
+FOR UPDATE OF user_account SKIP LOCKED
+```
+
+```python
+stmt = (
+    select(user_table.c.id, user_table.c.name)
+    .order_by(user_table.c.id)
+    .limit(10)
+    .with_for_update(skip_locked=True, of=user_table)
+)
+```
+
+### SA-40. UPDATE RETURNING как источник CTE
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [CTE with DML](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.HasCTE.cte).
+- Проверяет: выполнение UPDATE ровно один раз и чтение его `RETURNING`-строк через внешний SELECT; требуется PostgreSQL.
+
+```sql
+WITH updated AS (
+  UPDATE user_account
+  SET fullname = :fullname
+  WHERE name = :name
+  RETURNING id, fullname
+)
+SELECT updated.id, updated.fullname FROM updated
+```
+
+```python
+updated = (
+    update(user_table)
+    .where(user_table.c.name == "sandy")
+    .values(fullname="Sandra")
+    .returning(user_table.c.id, user_table.c.fullname)
+    .cte("updated")
+)
+stmt = select(updated.c.id, updated.c.fullname)
 ```
 
 ## Уведомление о лицензии источника

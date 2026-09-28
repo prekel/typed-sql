@@ -2,7 +2,7 @@
 
 # Сценарии запросов из jOOQ
 
-Подборка 40 сценариев из [руководства пользователя jOOQ 3.21](https://www.jooq.org/doc/3.21/manual/). Это каталог для последующего включения запросов в общий набор автоматических тестов. Он не претендует на полный список возможностей jOOQ.
+Подборка 45 сценариев из [руководства пользователя jOOQ 3.21](https://www.jooq.org/doc/3.21/manual/). Это каталог для последующего включения запросов в общий набор автоматических тестов. Он не претендует на полный список возможностей jOOQ.
 
 **Желаемый таргет: 60–100 сценариев.**
 
@@ -10,11 +10,11 @@
 
 Для запросов используется схема примеров jOOQ: `AUTHOR`, `BOOK`, `LANGUAGE`, `BOOK_STORE` и `BOOK_TO_BOOK_STORE`. Состав и примерные данные описаны в [разделе о sample database](https://www.jooq.org/doc/3.21/manual/getting-started/sample-database/). Значения в SQL показаны для ясности; при переносе нужно проверить, что значения остаются bind-параметрами.
 
-Для JQ-16–JQ-40 сохраняется эта схема и используются две дополнительные фикстуры: BOOK_ARCHIVE (ID, TITLE, ARCHIVED_AT), где ID сопоставим с BOOK.ID, а ARCHIVED_AT допускает NULL; и DIRECTORY (ID, PARENT_ID, LABEL) с корнем и несколькими уровнями потомков. Для проверки сортировки NULLS LAST нужны строки архива как с NULL, так и с ненулевым ARCHIVED_AT.
+Для JQ-16–JQ-45 сохраняется эта схема и используются две дополнительные фикстуры: BOOK_ARCHIVE (ID, TITLE, ARCHIVED_AT), где ID сопоставим с BOOK.ID, а ARCHIVED_AT допускает NULL; и DIRECTORY (ID, PARENT_ID, LABEL) с корнем и несколькими уровнями потомков. Для проверки сортировки NULLS LAST нужны строки архива как с NULL, так и с ненулевым ARCHIVED_AT.
 
 Записи, где синтаксис является синтетическим расширением jOOQ, требуют проверки сгенерированного SQL; приведённая там форма SQL может не исполняться напрямую.
 
-Для JQ-01–JQ-10 и JQ-12–JQ-15 приведены реализации на typed-sql и SQL, полученный его компилятором; JQ-11 пока не выражается публичным API. JQ-16–JQ-40 приведены как сценарии для сравнения SQL и Java DSL jOOQ без реализации на typed-sql. В блоках «SQL typed-sql» первая строка запускает компилятор, остальные строки — его вывод. OCaml-блоки выполняются через MDX: `opam exec -- dune runtest test/query-builder-survey`; проверка подтверждает построение запросов typed-sql и вывод SQL.
+Для JQ-01–JQ-10 и JQ-12–JQ-15 приведены реализации на typed-sql и SQL, полученный его компилятором; JQ-11 пока не выражается публичным API. JQ-16–JQ-45 приведены как сценарии для сравнения SQL и Java DSL jOOQ без реализации на typed-sql. В блоках «SQL typed-sql» первая строка запускает компилятор, остальные строки — его вывод. OCaml-блоки выполняются через MDX: `opam exec -- dune runtest test/query-builder-survey`; проверка подтверждает построение запросов typed-sql и вывод SQL.
 
 В карточках JQ-01–JQ-15 статусы означают: `✓` — подтверждено; `✗` — условие не выполнено; `—` — не оценивалось. «Семантика» учитывает входные параметры, результат, `NULL` и заданный порядок относительно адаптированного сценария в этой карточке. «Без доработок» относится к публичному API typed-sql, а не к необходимости улучшить пример. Реализуемость оценивается после попытки написать OCaml-код.
 
@@ -1825,3 +1825,133 @@ create.mergeInto(BOOK_ARCHIVE)
 ```
 
 Фикстура должна содержать как совпадающий ID, который обновится, так и ID, который будет вставлен.
+
+## Дополнительные SELECT-сценарии
+
+### JQ-41. Keyset-страница по году и ID
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [SEEK clause](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/seek-clause/).
+- Проверяет: лексикографическую границу по двум ключам, устойчивую сортировку и отсутствие повторов при переходе к следующей странице.
+
+```sql
+SELECT BOOK.ID, BOOK.TITLE, BOOK.PUBLISHED_IN
+FROM BOOK
+WHERE (BOOK.PUBLISHED_IN, BOOK.ID) > (?, ?)
+ORDER BY BOOK.PUBLISHED_IN ASC, BOOK.ID ASC
+LIMIT 10
+```
+
+```java
+create.select(BOOK.ID, BOOK.TITLE, BOOK.PUBLISHED_IN)
+      .from(BOOK)
+      .orderBy(BOOK.PUBLISHED_IN.asc(), BOOK.ID.asc())
+      .seek(lastYear, lastId)
+      .limit(10)
+      .fetch();
+```
+
+### JQ-42. Конкурентный выбор строк с SKIP LOCKED
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [FOR UPDATE clause](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/for-update-clause/).
+- Проверяет: блокировку только выбранных строк и пропуск уже заблокированных строк в другой транзакции; показана форма PostgreSQL.
+
+```sql
+SELECT BOOK.ID, BOOK.TITLE
+FROM BOOK
+WHERE BOOK.PUBLISHED_IN < ?
+ORDER BY BOOK.ID ASC
+LIMIT 5
+FOR UPDATE SKIP LOCKED
+```
+
+```java
+create.select(BOOK.ID, BOOK.TITLE)
+      .from(BOOK)
+      .where(BOOK.PUBLISHED_IN.lt(cutoffYear))
+      .orderBy(BOOK.ID.asc())
+      .limit(5)
+      .forUpdate()
+      .skipLocked()
+      .fetch();
+```
+
+### JQ-43. CUBE по автору и году издания
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [GROUP BY CUBE](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/group-by-clause/group-by-cube/).
+- Проверяет: детализацию, два вида промежуточных итогов и общий итог в одном наборе; в фикстуре исходные ключи не содержат `NULL`, поэтому он обозначает свернутую размерность.
+
+```sql
+SELECT BOOK.AUTHOR_ID, BOOK.PUBLISHED_IN, COUNT(*)
+FROM BOOK
+GROUP BY CUBE (BOOK.AUTHOR_ID, BOOK.PUBLISHED_IN)
+```
+
+```java
+create.select(BOOK.AUTHOR_ID, BOOK.PUBLISHED_IN, count())
+      .from(BOOK)
+      .groupBy(cube(BOOK.AUTHOR_ID, BOOK.PUBLISHED_IN))
+      .fetch();
+```
+
+## Команды с RETURNING и обработкой конфликтов
+
+### JQ-44. DELETE RETURNING удалённых архивных записей
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [DELETE RETURNING](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/delete-statement/delete-returning/).
+- Проверяет: возврат `ID` и `TITLE` только у строк, реально удалённых по `IS NULL`; показана форма PostgreSQL.
+
+```sql
+DELETE FROM BOOK_ARCHIVE
+WHERE BOOK_ARCHIVE.ARCHIVED_AT IS NULL
+RETURNING BOOK_ARCHIVE.ID, BOOK_ARCHIVE.TITLE
+```
+
+```java
+create.deleteFrom(BOOK_ARCHIVE)
+      .where(BOOK_ARCHIVE.ARCHIVED_AT.isNull())
+      .returningResult(BOOK_ARCHIVE.ID, BOOK_ARCHIVE.TITLE)
+      .fetch();
+```
+
+### JQ-45. INSERT из SELECT с пропуском конфликтов
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [INSERT statement](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/insert-statement/), раздел `ON CONFLICT`.
+- Проверяет: вставку набора старых книг в архив и пропуск уже архивированных ID без обновления их заголовков; показана форма PostgreSQL.
+
+```sql
+INSERT INTO BOOK_ARCHIVE (ID, TITLE)
+SELECT BOOK.ID, BOOK.TITLE
+FROM BOOK
+WHERE BOOK.PUBLISHED_IN < ?
+ON CONFLICT (ID) DO NOTHING
+```
+
+```java
+create.insertInto(BOOK_ARCHIVE, BOOK_ARCHIVE.ID, BOOK_ARCHIVE.TITLE)
+      .select(create.select(BOOK.ID, BOOK.TITLE)
+                    .from(BOOK)
+                    .where(BOOK.PUBLISHED_IN.lt(cutoffYear)))
+      .onConflict(BOOK_ARCHIVE.ID)
+      .doNothing()
+      .execute();
+```

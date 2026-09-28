@@ -2,16 +2,16 @@
 
 # Сценарии запросов из SeaQuery
 
-**Желаемый таргет: 20 сценариев — 5 обычных и 15 сложных.** Сейчас заведены пять обычных и пять сложных сценариев; остаётся добавить ещё десять сложных.
+**Желаемый таргет: 20 сценариев — 5 обычных и 15 сложных.** Сейчас заведены пять обычных и десять сложных сценариев; остаётся добавить ещё пять сложных.
 
 Источники — [раздел Query Select](https://docs.rs/sea-query/latest/sea_query/query/struct.SelectStatement.html) документации SeaQuery и [руководство SeaORM](https://www.sea-ql.org/sea-orm-tutorial/ch01-08-sql-with-sea-query.html) (доступ 28.09.2026). Примеры сокращены и адаптированы под схему `users(id, name, country)` и `posts(id, user_id, title)`. SQL приведён в форме PostgreSQL; `build(PostgresQueryBuilder)` также возвращает значения отдельно от SQL.
 
 SeaQuery распространяется по [MIT или Apache-2.0](https://github.com/SeaQL/sea-query#license). Здесь используется вариант MIT для уведомления об авторских правах. Примеры кода адаптированы; указание источника не означает одобрения со стороны SeaQL.
 
-Для SQ-01–SQ-09 приведены реализации через публичный API typed-sql и SQL, полученный компилятором. Оконные выражения SQ-10 пока не входят в публичный API.
+Для SQ-01–SQ-09 приведены реализации через публичный API typed-sql и SQL, полученный компилятором. Оконные выражения SQ-10 пока не входят в публичный API. SQ-11–SQ-15 пока приведены без реализации на typed-sql.
 
 ```rust
-use sea_query::{Expr, Iden, JoinType, Order, PostgresQueryBuilder, Query, UnionType, WindowStatement};
+use sea_query::{Cond, Expr, Iden, JoinType, OnConflict, Order, PostgresQueryBuilder, Query, UnionType, WindowStatement};
 
 #[derive(Iden)]
 enum Users {
@@ -697,6 +697,151 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 ```
 
 Оконные выражения `OVER (PARTITION BY ...)` отсутствуют в публичном API и semantic AST typed-sql, поэтому этот сценарий нельзя выразить без расширения DSL.
+
+### SQ-11. Пользователи без постов через NOT EXISTS
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [`Expr::not_exists`](https://docs.rs/sea-query/latest/sea_query/expr/type.SimpleExpr.html#method.not_exists).
+- Проверяет: корреляцию по `user_id` и сохранение пользователей без постов без дублирования строк.
+
+```sql
+SELECT "users"."id", "users"."name"
+FROM "users"
+WHERE NOT EXISTS (
+  SELECT "posts"."id" FROM "posts"
+  WHERE "posts"."user_id" = "users"."id"
+)
+```
+
+```rust
+let posts_for_user = Query::select()
+    .column((Posts::Table, Posts::Id))
+    .from(Posts::Table)
+    .and_where(Expr::col((Posts::Table, Posts::UserId))
+        .equals((Users::Table, Users::Id)))
+    .to_owned();
+let query = Query::select()
+    .columns([(Users::Table, Users::Id), (Users::Table, Users::Name)])
+    .from(Users::Table)
+    .and_where(Expr::not_exists(posts_for_user))
+    .to_owned();
+let (sql, values) = query.build(PostgresQueryBuilder);
+```
+
+### SQ-12. Последний пост каждого пользователя через DISTINCT ON
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [`distinct_on`](https://docs.rs/sea-query/latest/sea_query/query/struct.SelectStatement.html#method.distinct_on).
+- Проверяет: левый префикс `ORDER BY` совпадает с ключом `DISTINCT ON`, а `id DESC` выбирает последнюю строку в группе; PostgreSQL-специфично.
+
+```sql
+SELECT DISTINCT ON ("posts"."user_id")
+       "posts"."user_id", "posts"."id", "posts"."title"
+FROM "posts"
+ORDER BY "posts"."user_id" ASC, "posts"."id" DESC
+```
+
+```rust
+let query = Query::select()
+    .distinct_on([(Posts::Table, Posts::UserId)])
+    .columns([
+        (Posts::Table, Posts::UserId),
+        (Posts::Table, Posts::Id),
+        (Posts::Table, Posts::Title),
+    ])
+    .from(Posts::Table)
+    .order_by((Posts::Table, Posts::UserId), Order::Asc)
+    .order_by((Posts::Table, Posts::Id), Order::Desc)
+    .to_owned();
+let (sql, values) = query.build(PostgresQueryBuilder);
+```
+
+### SQ-13. Вложенные группы условий AND и OR
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [`cond_where`](https://docs.rs/sea-query/latest/sea_query/query/struct.SelectStatement.html#method.cond_where).
+- Проверяет: скобки вокруг альтернативных префиксов имени под общим условием страны и порядок bind-параметров.
+
+```sql
+SELECT "users"."id"
+FROM "users"
+WHERE "users"."country" = $1
+  AND ("users"."name" LIKE $2 OR "users"."name" LIKE $3)
+```
+
+```rust
+let query = Query::select()
+    .column((Users::Table, Users::Id))
+    .from(Users::Table)
+    .cond_where(Cond::all()
+        .add(Expr::col((Users::Table, Users::Country)).eq("USA"))
+        .add(Cond::any()
+            .add(Expr::col((Users::Table, Users::Name)).like("A%"))
+            .add(Expr::col((Users::Table, Users::Name)).like("B%"))))
+    .to_owned();
+let (sql, values) = query.build(PostgresQueryBuilder);
+```
+
+### SQ-14. INSERT ON CONFLICT с обновлением заголовка
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [`OnConflict`](https://docs.rs/sea-query/latest/sea_query/query/struct.OnConflict.html).
+- Проверяет: вставку нового поста и обновление только `title` из `EXCLUDED` при конфликте по `id`.
+
+```sql
+INSERT INTO "posts" ("id", "user_id", "title")
+VALUES ($1, $2, $3)
+ON CONFLICT ("id") DO UPDATE SET "title" = "excluded"."title"
+```
+
+```rust
+let query = Query::insert()
+    .into_table(Posts::Table)
+    .columns([Posts::Id, Posts::UserId, Posts::Title])
+    .values_panic([post_id.into(), user_id.into(), title.into()])
+    .on_conflict(OnConflict::column(Posts::Id)
+        .update_column(Posts::Title)
+        .to_owned())
+    .to_owned();
+let (sql, values) = query.build(PostgresQueryBuilder);
+```
+
+### SQ-15. UPDATE с RETURNING изменённых ID
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [`UpdateStatement::returning_col`](https://docs.rs/sea-query/latest/sea_query/query/struct.UpdateStatement.html#method.returning_col).
+- Проверяет: обновление всех постов пользователя одним оператором и возврат только реально изменённых идентификаторов.
+
+```sql
+UPDATE "posts" SET "title" = $1
+WHERE "user_id" = $2
+RETURNING "id"
+```
+
+```rust
+let query = Query::update()
+    .table(Posts::Table)
+    .value(Posts::Title, new_title)
+    .and_where(Expr::col(Posts::UserId).eq(user_id))
+    .returning_col(Posts::Id)
+    .to_owned();
+let (sql, values) = query.build(PostgresQueryBuilder);
+```
 
 ## Уведомление о лицензии
 

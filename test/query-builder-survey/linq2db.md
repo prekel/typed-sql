@@ -2,7 +2,7 @@
 
 # Сценарии запросов из LINQ to DB
 
-Пять сценариев по [руководствам LINQ to DB](https://linq2db.github.io/) (доступ 28.09.2026). Примеры C# сокращены и адаптированы; SQL показывает структуру запроса. Для каждого сценария приведены реализация на typed-sql и SQL, полученный его компилятором для PostgreSQL.
+Десять сценариев по [руководствам LINQ to DB](https://linq2db.github.io/) (доступ 28.09.2026). Примеры C# сокращены и адаптированы; SQL показывает структуру запроса. Для LD-01–LD-05 приведены реализация на typed-sql и SQL, полученный его компилятором для PostgreSQL; LD-06–LD-10 пока не оценивались.
 
 Источник: проект LINQ to DB, лицензия [MIT](https://github.com/linq2db/linq2db/blob/master/LICENSE). Используется схема `author(id, name)` и `book(id, author_id, title, published_in)`. Идентификаторы и годы имеют тип `int64`.
 
@@ -333,4 +333,134 @@ WHERE
     WHERE
       (t1."author_id" = t0."id")
   ))
+```
+
+### LD-06. LEFT JOIN с автором без книг
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [Join Operators: LEFT JOIN](https://linq2db.github.io/articles/sql/Join-Operators.html).
+- Проверяет: сохранение автора без книг и `NULL` в заголовке; автор с несколькими книгами даёт несколько строк.
+
+```sql
+SELECT a.id, b.title
+FROM author AS a
+LEFT JOIN book AS b ON b.author_id = a.id
+```
+
+```csharp
+var query =
+    from a in db.GetTable<Author>()
+    join b in db.GetTable<Book>() on a.Id equals b.AuthorId into books
+    from b in books.DefaultIfEmpty()
+    select new { a.Id, Title = b == null ? null : b.Title };
+```
+
+### LD-07. Авторы без книг через NOT EXISTS
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [LINQ to DB querying](https://linq2db.github.io/), [Queryable.Any](https://learn.microsoft.com/en-us/dotnet/api/system.linq.queryable.any).
+- Проверяет: антисоединение без размножения строк и включение авторов, для которых внутренняя выборка пуста.
+
+```sql
+SELECT a.id, a.name
+FROM author AS a
+WHERE NOT EXISTS (
+  SELECT 1 FROM book AS b WHERE b.author_id = a.id
+)
+```
+
+```csharp
+var query = db.GetTable<Author>()
+    .Where(a => !db.GetTable<Book>()
+        .Any(b => b.AuthorId == a.Id))
+    .Select(a => new { a.Id, a.Name });
+```
+
+### LD-08. Две последние книги каждого автора через ROW_NUMBER
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [Window (Analytic) Functions](https://linq2db.github.io/articles/sql/Window-Functions-%28Analytic-Functions%29.html).
+- Проверяет: нумерацию внутри каждого автора, дополнительный ключ сортировки `id` и фильтр ранга во внешнем SELECT.
+
+```sql
+SELECT ranked.id, ranked.author_id, ranked.title
+FROM (
+  SELECT b.id, b.author_id, b.title,
+         ROW_NUMBER() OVER (
+           PARTITION BY b.author_id
+           ORDER BY b.published_in DESC, b.id DESC
+         ) AS row_no
+  FROM book AS b
+) AS ranked
+WHERE ranked.row_no <= 2
+```
+
+```csharp
+var ranked = db.GetTable<Book>()
+    .Select(b => new {
+        b.Id, b.AuthorId, b.Title,
+        RowNo = Sql.Ext.RowNumber().Over()
+            .PartitionBy(b.AuthorId)
+            .OrderByDesc(b.PublishedIn)
+            .ThenByDesc(b.Id)
+            .ToValue()
+    });
+var query = ranked.Where(row => row.RowNo <= 2)
+    .Select(row => new { row.Id, row.AuthorId, row.Title });
+```
+
+### LD-09. UNION ALL с повторениями на границе периода
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [`UnionAll` в LINQ to DB](https://linq2db.github.io/api/linq2db/linq2db--LinqToDB.LinqExtensions.html).
+- Проверяет: сохранение двух копий книги за 2000 год, поскольку обе ветви включают граничное значение.
+
+```sql
+SELECT b.id, b.author_id FROM book AS b WHERE b.published_in <= 2000
+UNION ALL
+SELECT b.id, b.author_id FROM book AS b WHERE b.published_in >= 2000
+```
+
+```csharp
+var before = db.GetTable<Book>()
+    .Where(b => b.PublishedIn <= 2000)
+    .Select(b => new { b.Id, b.AuthorId });
+var after = db.GetTable<Book>()
+    .Where(b => b.PublishedIn >= 2000)
+    .Select(b => new { b.Id, b.AuthorId });
+var query = before.UnionAll(after);
+```
+
+### LD-10. Массовое обновление года издания
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [`Set` и `Update` в LINQ to DB](https://linq2db.github.io/api/linq2db/linq2db--LinqToDB.LinqExtensions.html).
+- Проверяет: вычисление нового года из прежнего значения и число изменённых строк без загрузки сущностей.
+
+```sql
+UPDATE book
+SET published_in = published_in + 1
+WHERE published_in < @cutoff
+```
+
+```csharp
+var changed = db.GetTable<Book>()
+    .Where(b => b.PublishedIn < cutoff)
+    .Set(b => b.PublishedIn, b => b.PublishedIn + 1)
+    .Update();
 ```

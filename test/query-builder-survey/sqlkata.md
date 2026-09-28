@@ -2,9 +2,9 @@
 
 # Сценарии запросов из SqlKata
 
-Пять сценариев по [документации SqlKata](https://sqlkata.com/docs) (доступ 28.09.2026). Примеры C# сокращены и адаптированы. Для каждого сценария приведены реализация на typed-sql и SQL, полученный его компилятором для PostgreSQL.
+Десять сценариев по [документации SqlKata](https://sqlkata.com/docs) (доступ 28.09.2026). Примеры C# сокращены и адаптированы. Для SK-01–SK-05 приведены реализация на typed-sql и SQL, полученный его компилятором для PostgreSQL; SK-06–SK-10 пока не оценивались.
 
-Источник: проект SqlKata, лицензия [MIT](https://github.com/sqlkata/querybuilder/blob/main/LICENSE). Используется схема `author(id, name)` и `book(id, author_id, title, published_in)`; идентификаторы и годы имеют тип `int64`.
+Источник: проект SqlKata, лицензия [MIT](https://github.com/sqlkata/querybuilder/blob/main/LICENSE). Используется схема `author(id, name)` и `book(id, author_id, title, published_in)`; для SK-09 добавлена таблица `book_archive` с теми же колонками, что у `book`. Идентификаторы и годы имеют тип `int64`.
 
 В блоках «SQL typed-sql» первая строка запускает компилятор, остальные строки — его вывод. Выполнить сценарии можно командой `opam exec -- dune runtest test/query-builder-survey`.
 
@@ -345,4 +345,122 @@ SELECT
   t0."author_id",
   t0."book_count"
 FROM "c0" AS t0
+```
+
+### SK-06. Авторы без книг через NOT EXISTS
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [Where Exists](https://sqlkata.com/docs/where#where-exists).
+- Проверяет: корреляцию по двум колонкам и сохранение авторов без книг; `EXISTS` не должен размножать внешние строки.
+
+```sql
+SELECT id, name
+FROM author
+WHERE NOT EXISTS (
+  SELECT 1 FROM book WHERE book.author_id = author.id LIMIT 1
+)
+```
+
+```csharp
+var query = new Query("author")
+    .Select("id", "name")
+    .WhereNotExists(q => q.From("book")
+        .WhereColumns("book.author_id", "=", "author.id"));
+```
+
+### SK-07. Коррелированный подсчёт книг в проекции
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [Select from a sub query](https://sqlkata.com/docs/select#sub-query).
+- Проверяет: скалярный агрегат для каждого автора и ноль для автора без книг.
+
+```sql
+SELECT author.id, author.name,
+       (SELECT COUNT(*) FROM book
+        WHERE book.author_id = author.id) AS book_count
+FROM author
+```
+
+```csharp
+var countBooks = new Query("book")
+    .WhereColumns("book.author_id", "=", "author.id")
+    .AsCount();
+var query = new Query("author")
+    .Select("author.id", "author.name")
+    .Select(countBooks, "book_count");
+```
+
+### SK-08. UNION ALL с повторениями на границе года
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [Combining Multiple Queries](https://sqlkata.com/docs/combine).
+- Проверяет: одинаковую форму обеих ветвей и сохранение двух копий книги за 2000 год.
+
+```sql
+SELECT id, author_id FROM book WHERE published_in <= @year
+UNION ALL
+SELECT id, author_id FROM book WHERE published_in >= @year
+```
+
+```csharp
+var before = new Query("book")
+    .Select("id", "author_id")
+    .Where("published_in", "<=", 2000L);
+var after = new Query("book")
+    .Select("id", "author_id")
+    .Where("published_in", ">=", 2000L);
+var query = before.UnionAll(after);
+```
+
+### SK-09. INSERT в архив из SELECT
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [Insert from Query](https://sqlkata.com/docs/update#insert-from-query).
+- Проверяет: согласование порядка четырёх колонок в INSERT и SELECT и перенос только книг до заданного года.
+
+```sql
+INSERT INTO book_archive (id, author_id, title, published_in)
+SELECT id, author_id, title, published_in
+FROM book WHERE published_in < @cutoff
+```
+
+```csharp
+var source = new Query("book")
+    .Select("id", "author_id", "title", "published_in")
+    .Where("published_in", "<", cutoff);
+var query = new Query("book_archive")
+    .AsInsert(new[] { "id", "author_id", "title", "published_in" }, source);
+```
+
+### SK-10. Условный UPDATE нескольких строк
+
+- OCaml-пример: —
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+- Источник: [Insert, Update and Delete](https://sqlkata.com/docs/update#update).
+- Проверяет: сохранение обоих предикатов в UPDATE и передачу нового заголовка отдельно от SQL.
+
+```sql
+UPDATE book SET title = @newTitle
+WHERE author_id = @authorId AND published_in < @cutoff
+```
+
+```csharp
+var query = new Query("book")
+    .Where("author_id", authorId)
+    .Where("published_in", "<", cutoff)
+    .AsUpdate(new { title = newTitle });
 ```
