@@ -57,6 +57,7 @@ module Posts = struct
   let user_id_column = Column.v_exn table "user_id" Db_type.int64
   let title_column = Column.v_exn table "title" Db_type.text
   let id row = Expr.column row id_column
+  let nullable_id row = Expr.nullable_column row id_column
   let user_id row = Expr.column row user_id_column
   let title row = Expr.column row title_column
   let nullable_title row = Expr.nullable_column row title_column
@@ -720,7 +721,7 @@ let seaquery10 =
                      from Posts.table
                      |> where (fun same_user -> Posts.user_id same_user =. Posts.user_id post)
                      |> select_scalar (fun _ -> Expr.count_all))))
-                ~default:(Expr.constant Db_type.int64 0L)))))
+                ~default:(Expr.constant Db_type.int64 0L))))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -849,7 +850,7 @@ let seaquery12 =
           (from Posts.table
            |> where (fun newer ->
              (Posts.user_id newer =. Posts.user_id post)
-             &&. (Posts.id newer >. Posts.id post)))
+             &&. (Posts.id newer >. Posts.id post))))
       |> order_by Posts.user_id `Asc
       |> order_by Posts.id `Desc
       |> select (fun post ->

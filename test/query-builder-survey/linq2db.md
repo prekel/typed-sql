@@ -565,13 +565,13 @@ let ld09 =
     let before =
       Query.(
         from Book.table
-        |> where (fun book -> Book.published_in book <=. 2000L)
+        |> where (fun book -> Book.published_in book <=$ 2000L)
         |> select (fun book -> Projection.pair (Book.id book) (Book.author_id book)))
     in
     let after =
       Query.(
         from Book.table
-        |> where (fun book -> Book.published_in book >=. 2000L)
+        |> where (fun book -> Book.published_in book >=$ 2000L)
         |> select (fun book -> Projection.pair (Book.id book) (Book.author_id book)))
     in
     Query.union_all before after)

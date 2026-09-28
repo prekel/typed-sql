@@ -69,7 +69,7 @@ end
 - Реализуемость: ✓
 - Семантика: ✓
 - Без доработок typed-sql: ✓
-- Замечание: параметр `name` заменён фиксированным значением `Sean`.
+- Замечание: параметр `name` передаётся через runtime input.
 - Источник: [All About Selects: Query Building](https://diesel.rs/guides/all-about-selects/).
 - Проверяет: выбор идентификатора и имени по bind-параметру.
 
@@ -90,10 +90,11 @@ let rows = users::table
 
 ```ocaml
 let diesel01 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.Portable.query_many_exn (fun params ->
+    let name = params.expr Db_type.text ~get:Fn.id in
     Query.(
       from Users.table
-      |> where (fun user -> Users.name user =$ "Sean")
+      |> where (fun user -> Users.name user =$ name)
       |> select (fun user ->
         Projection.pair (Users.id user) (Users.name user))))
 ```
@@ -101,7 +102,7 @@ let diesel01 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel01);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:"Sean" diesel01);;
 SELECT
   t0."id",
   t0."name"
@@ -116,7 +117,7 @@ WHERE
 - Реализуемость: ✓
 - Семантика: ✓
 - Без доработок typed-sql: ✓
-- Замечание: `min_id` и `name_pattern` заменены фиксированными значениями.
+- Замечание: `min_id` и `name_pattern` передаются через runtime input.
 - Источник: [All About Selects: Filtering](https://diesel.rs/guides/all-about-selects/).
 - Проверяет: композицию фильтров через последовательные вызовы `filter`.
 
@@ -138,11 +139,13 @@ let rows = users::table
 
 ```ocaml
 let diesel02 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.Portable.query_many_exn (fun params ->
+    let min_id = params.expr Db_type.int ~get:(fun (min_id, _) -> min_id) in
+    let name_pattern = params.expr Db_type.text ~get:(fun (_, name_pattern) -> name_pattern) in
     Query.(
       from Users.table
       |> where (fun user ->
-        (Users.id user >$ 1) &&. (Users.name user =~$ "A%"))
+        (Users.id user >$ min_id) &&. (Users.name user =~$ name_pattern))
       |> select (fun user ->
         Projection.pair (Users.id user) (Users.name user))))
 ```
@@ -150,7 +153,7 @@ let diesel02 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel02);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(1, "A%") diesel02);;
 SELECT
   t0."id",
   t0."name"
@@ -168,7 +171,7 @@ WHERE
 - Реализуемость: ✓
 - Семантика: ✓
 - Без доработок typed-sql: ✓
-- Замечание: `page_size` и `page_offset` заменены фиксированными значениями `10` и `20`.
+- Замечание: `page_size` и `page_offset` передаются через валидируемые runtime input.
 - Источник: [QueryDsl](https://docs.diesel.rs/master/diesel/query_dsl/trait.QueryDsl.html).
 - Проверяет: сортировку до ограничения и смещения результата.
 
@@ -190,16 +193,16 @@ let rows = users::table
 
 #### OCaml (typed-sql)
 
-Здесь размер страницы и смещение заменены литералами `10` и `20`.
-
 ```ocaml
 let diesel03 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.Portable.query_many_exn (fun params ->
+    let page_size = params.non_negative_int ~name:"page_size" ~get:fst in
+    let page_offset = params.non_negative_int ~name:"page_offset" ~get:snd in
     Query.(
       from Users.table
       |> order_by Users.id `Asc
-      |> limit 10
-      |> offset 20
+      |> Query.limit_param page_size
+      |> Query.offset_param page_offset
       |> select (fun user ->
         Projection.pair (Users.id user) (Users.name user))))
 ```
@@ -207,15 +210,15 @@ let diesel03 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel03);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(10, 20) diesel03);;
 SELECT
   t0."id",
   t0."name"
 FROM "users" AS t0
 ORDER BY
   t0."id" ASC
-LIMIT 10
-OFFSET 20
+LIMIT $1
+OFFSET $2
 ```
 
 ### DI-04. INNER JOIN
@@ -320,7 +323,7 @@ LEFT JOIN "posts" AS t1
 - Реализуемость: ✓
 - Семантика: ✓
 - Без доработок typed-sql: ✓
-- Замечание: `min_posts` заменён фиксированным значением `1`.
+- Замечание: `min_posts` передаётся через runtime input.
 - Источник: [QueryDsl: group_by и having](https://docs.diesel.rs/master/diesel/query_dsl/trait.QueryDsl.html).
 - Проверяет: группировку постов по пользователю и фильтрацию групп по агрегату.
 
@@ -345,13 +348,14 @@ let rows = users::table
 
 ```ocaml
 let diesel06 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.Portable.query_many_exn (fun params ->
+    let min_posts = params.expr Db_type.int64 ~get:Fn.id in
     Query.(
       from Users.table
       |> inner_join Posts.table ~on:(fun user post ->
         Users.id user =. Posts.user_id post)
       |> group_by (fun (user, _post) -> Users.id user)
-      |> having (fun (_user, post) -> Expr.count (Posts.id post) >$ 1L)
+      |> having (fun (_user, post) -> Expr.count (Posts.id post) >$ min_posts)
       |> select (fun (user, post) ->
         Projection.pair (Users.id user) (Expr.count (Posts.id post)))))
 ```
@@ -359,7 +363,7 @@ let diesel06 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel06);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:1L diesel06);;
 SELECT
   t0."id",
   COUNT(t1."id")
@@ -378,7 +382,7 @@ HAVING
 - Реализуемость: ✓
 - Семантика: ✓
 - Без доработок typed-sql: ✓
-- Замечание: `title_pattern` заменён фиксированным шаблоном `Rust%`.
+- Замечание: `title_pattern` передаётся через runtime input.
 - Источник: [diesel::dsl::exists](https://docs.diesel.rs/master/diesel/dsl/fn.exists.html).
 - Проверяет: фильтр по наличию связанного поста без размножения строк пользователя.
 
@@ -407,7 +411,8 @@ let rows = users::table
 
 ```ocaml
 let diesel07 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.Portable.query_many_exn (fun params ->
+    let title_pattern = params.expr Db_type.text ~get:Fn.id in
     Query.(
       from Users.table
       |> where (fun user ->
@@ -416,7 +421,7 @@ let diesel07 =
             from Posts.table
             |> where (fun post ->
               (Posts.user_id post =. Users.id user)
-              &&. (Posts.title post =~$ "Rust%"))))
+              &&. (Posts.title post =~$ title_pattern))))
       |> select (fun user ->
         Projection.pair (Users.id user) (Users.name user))))
 ```
@@ -424,7 +429,7 @@ let diesel07 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel07);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:"Rust%" diesel07);;
 SELECT
   t0."id",
   t0."name"
@@ -448,7 +453,7 @@ WHERE
 - Реализуемость: ✓
 - Семантика: ✓
 - Без доработок typed-sql: ✓
-- Замечание: `title_pattern` заменён фиксированным шаблоном `Rust%`.
+- Замечание: `title_pattern` передаётся через runtime input.
 - Источник: [ExpressionMethods: eq_any](https://docs.diesel.rs/master/diesel/expression_methods/trait.ExpressionMethods.html#method.eq_any).
 - Проверяет: сравнение типа результата внешнего столбца с типом единственной колонки подзапроса.
 
@@ -477,14 +482,15 @@ let rows = users::table
 
 ```ocaml
 let diesel08 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.Portable.query_many_exn (fun params ->
+    let title_pattern = params.expr Db_type.text ~get:Fn.id in
     Query.(
       from Users.table
       |> where (fun user ->
         let post_user_ids =
           Query.(
             from Posts.table
-            |> where (fun post -> Posts.title post =~$ "Rust%")
+            |> where (fun post -> Posts.title post =~$ title_pattern)
             |> select_scalar Posts.user_id)
         in
         Query.in_subquery (Users.id user) post_user_ids)
@@ -495,7 +501,7 @@ let diesel08 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel08);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:"Rust%" diesel08);;
 SELECT
   t0."id",
   t0."name"
@@ -516,7 +522,7 @@ WHERE
 - Реализуемость: ✓
 - Семантика: ✓
 - Без доработок typed-sql: ✓
-- Замечание: `owner_id` и `title_pattern` заменены фиксированными значениями.
+- Замечание: `owner_id` и `title_pattern` передаются через runtime input.
 - Источник: [CombineDsl: union_all](https://docs.diesel.rs/2.3.x/diesel/query_dsl/trait.CombineDsl.html).
 - Проверяет: одинаковый SQL-тип проекций и сохранение повторяющихся строк.
 
@@ -548,17 +554,19 @@ let rows = by_owner
 
 ```ocaml
 let diesel09 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.Portable.query_many_exn (fun params ->
+    let owner_id = params.expr Db_type.int ~get:(fun (owner_id, _) -> owner_id) in
+    let title_pattern = params.expr Db_type.text ~get:(fun (_, title_pattern) -> title_pattern) in
     let by_owner =
       Query.(
         from Posts.table
-        |> where (fun post -> Posts.user_id post =$ 7)
+        |> where (fun post -> Posts.user_id post =$ owner_id)
         |> select (fun post -> Projection.expr (Posts.title post)))
     in
     let by_title =
       Query.(
         from Posts.table
-        |> where (fun post -> Posts.title post =~$ "Rust%")
+        |> where (fun post -> Posts.title post =~$ title_pattern)
         |> select (fun post -> Projection.expr (Posts.title post)))
     in
     Query.union_all by_owner by_title)
@@ -567,7 +575,7 @@ let diesel09 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel09);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(7, "Rust%") diesel09);;
 SELECT *
 FROM (
   SELECT
@@ -639,7 +647,7 @@ let diesel10 =
                      from Posts.table
                      |> where (fun same_user -> Posts.user_id same_user =. Posts.user_id post)
                      |> select_scalar (fun _ -> Expr.count_all))))
-                ~default:(Expr.constant Db_type.int64 0L)))))
+                 ~default:(Expr.constant Db_type.int64 0L))))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -940,7 +948,7 @@ let diesel15 =
     let pattern = params.expr Db_type.text ~get:Fn.id in
     Delete.(
       from Posts.table
-      |> where (fun post -> Posts.title post =~$ pattern)
+      |> where (fun post -> Posts.title post =~. pattern)
       |> returning (fun post -> Projection.expr (Posts.id post))))
 ```
 

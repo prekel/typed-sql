@@ -1181,8 +1181,8 @@ let esqueleto18_people =
       Eq_person.id person =. Eq_blog_post.author_id post)
     |> select (fun (person, post) ->
       Projection.pair
-        (Projection.expr (Expr.to_nullable (Eq_person.name person)))
-        (Projection.expr (Eq_blog_post.nullable_title post))))
+        (Expr.to_nullable (Eq_person.name person))
+        (Eq_blog_post.nullable_title post)))
 
 let esqueleto18_orphan_posts =
   Query.(
@@ -1193,8 +1193,8 @@ let esqueleto18_orphan_posts =
       Expr.is_null (Expr.nullable_column person Eq_person.id_column))
     |> select (fun (post, person) ->
       Projection.pair
-        (Projection.expr (Expr.nullable_column person Eq_person.name_column))
-        (Projection.expr (Eq_blog_post.title post))))
+        (Expr.nullable_column person Eq_person.name_column)
+        (Expr.to_nullable (Eq_blog_post.title post))))
 
 let esqueleto18 =
   Statement.Portable.query_many_exn (fun _ ->
@@ -1232,7 +1232,7 @@ FROM (
 ### EQ-19. Захват первых незаблокированных строк
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Замечание: публичный API typed-sql пока не моделирует `FOR UPDATE SKIP LOCKED` и блокировки транзакций.

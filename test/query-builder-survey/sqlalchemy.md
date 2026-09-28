@@ -42,6 +42,7 @@ module Address = struct
   let user_id_column = Column.v_exn table "user_id" Db_type.int64
   let email_column = Column.v_exn table "email_address" Db_type.text
   let user_id row = Expr.column row user_id_column
+  let id row = Expr.column row id_column
   let email row = Expr.column row email_column
   let nullable_email row = Expr.nullable_column row email_column
   let nullable_id row = Expr.nullable_column row id_column
@@ -52,9 +53,9 @@ end
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗
+- Семантика: ✓
 - Без доработок typed-sql: ✓
-- Замечание: `name` заменён фиксированным значением `sandy`.
+- Замечание: `name` передаётся через runtime input.
 - Источник: [SELECT и WHERE](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#the-where-clause).
 - Проверяет: выбор двух колонок с bind-параметром.
 
@@ -76,10 +77,11 @@ Bind-значение сравнивается с выражением коло�
 
 ```ocaml
 let sqlalchemy01 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.Portable.query_many_exn (fun params ->
+    let name = params.expr Db_type.text ~get:Fn.id in
     Query.(
       from User_account.table
-      |> where (fun user -> User_account.name user =$ "sandy")
+      |> where (fun user -> User_account.name user =$ name)
       |> select (fun user ->
         Projection.pair (User_account.id user) (User_account.name user))))
 ```
@@ -87,7 +89,7 @@ let sqlalchemy01 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy01);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:"sandy" sqlalchemy01);;
 SELECT
   t0."id",
   t0."name"
@@ -100,9 +102,9 @@ WHERE
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗
+- Семантика: ✓
 - Без доработок typed-sql: ✓
-- Замечание: `name1`, `name2` и `min_id` заменены фиксированными значениями.
+- Замечание: `name1`, `name2` и `min_id` передаются через runtime input.
 - Источник: [WHERE clause](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#the-where-clause).
 - Проверяет: группировку `OR` внутри `AND`.
 
@@ -126,20 +128,23 @@ OR-группа явно вложена в AND-группу.
 
 ```ocaml
 let sqlalchemy02 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.Portable.query_many_exn (fun params ->
+    let name1 = params.expr Db_type.text ~get:(fun (name1, _, _) -> name1) in
+    let name2 = params.expr Db_type.text ~get:(fun (_, name2, _) -> name2) in
+    let min_id = params.expr Db_type.int64 ~get:(fun (_, _, min_id) -> min_id) in
     Query.(
       from User_account.table
       |> where (fun user ->
-        ((User_account.name user =$ "sandy")
-         ||. (User_account.name user =$ "spongebob"))
-        &&. (User_account.id user >$ 1L))
+        ((User_account.name user =$ name1)
+         ||. (User_account.name user =$ name2))
+        &&. (User_account.id user >$ min_id))
       |> select (fun user -> Projection.expr (User_account.id user))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy02);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:("sandy", "spongebob", 1L) sqlalchemy02);;
 SELECT
   t0."id"
 FROM "user_account" AS t0
@@ -157,9 +162,9 @@ WHERE
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗
+- Семантика: ✓
 - Без доработок typed-sql: ✓
-- Замечание: `page_size` и `page_offset` заменены фиксированными значениями.
+- Замечание: `page_size` и `page_offset` передаются через валидируемые runtime input.
 - Источник: [ORDER BY](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#order-by), [limit/offset](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.GenerativeSelect.limit).
 - Проверяет: устойчивый порядок, `LIMIT` и `OFFSET`.
 
@@ -185,12 +190,14 @@ stmt = (
 
 ```ocaml
 let sqlalchemy03 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.Portable.query_many_exn (fun params ->
+    let page_size = params.non_negative_int ~name:"page_size" ~get:(fun (page_size, _) -> page_size) in
+    let page_offset = params.non_negative_int ~name:"page_offset" ~get:(fun (_, page_offset) -> page_offset) in
     Query.(
       from User_account.table
       |> order_by User_account.id `Asc
-      |> limit 10
-      |> offset 20
+      |> Query.limit_param page_size
+      |> Query.offset_param page_offset
       |> select (fun user ->
         Projection.pair (User_account.id user) (User_account.name user))))
 ```
@@ -198,7 +205,7 @@ let sqlalchemy03 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy03);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(10, 20) sqlalchemy03);;
 SELECT
   t0."id",
   t0."name"
@@ -678,7 +685,7 @@ WHERE
 ### SA-12. Оконная функция
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: ✓
 - Без доработок typed-sql: ✓
 - Источник: [using window functions](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#using-window-functions).
@@ -1465,7 +1472,7 @@ FROM "address" AS t0
 ### SA-29. VALUES как источник строк
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [конструктор VALUES](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.values).
@@ -1488,11 +1495,11 @@ stmt = select(selected_ids.c.id)
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✓
+- Семантика: ✗ (добавлено в роадмап ✗)
 - Без доработок typed-sql: ✓
 - Источник: [рекурсивные CTE](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.HasCTE.cte).
 - Проверяет: рекурсивное расширение результата с условием завершения.
-- Замечание: anchor заменён выборкой `address.id = 1`, затем CTE увеличивает его до 5; для запуска нужна такая строка в фикстуре.
+- Замечание: anchor заменён выборкой `address.id = 1`, поэтому результат зависит от наличия такой строки; исходный литеральный anchor от содержимого таблиц не зависит.
 
 ```sql
 WITH RECURSIVE nums(n) AS (
@@ -1533,7 +1540,7 @@ let sqlalchemy30 =
           Query.(from_cte numbers |> where (fun number -> Address.id number <$ 5L) |> select (fun number -> Projection.expr Expr.Int64.(Address.id number +. Expr.constant Db_type.int64 1L))))
   in
   Statement.Portable.query_many_exn (fun _ ->
-    Cte.with_result definition ~f:(fun numbers -> Query.(from_cte numbers |> select (fun number -> Projection.expr (Address.id number))))
+    Cte.with_result definition ~f:(fun numbers -> Query.(from_cte numbers |> select (fun number -> Projection.expr (Address.id number)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1590,8 +1597,8 @@ stmt = insert(user_table).values(
 let sqlalchemy31 =
   Statement.Portable.command_exn (fun _ ->
     Insert.rows User_account.table
-      [ (fun row -> row |> Insert.set User_account.name_column "sandy" |> Insert.set_expr_opt User_account.fullname_column (Some (Expr.constant (Db_type.option Db_type.text) (Some "Sandy Cheeks"))))
-      ; (fun row -> row |> Insert.set User_account.name_column "spongebob" |> Insert.set_expr_opt User_account.fullname_column (Some (Expr.constant (Db_type.option Db_type.text) (Some "SpongeBob SquarePants"))))
+      [ (fun row -> row |> Insert.set User_account.name_column "sandy" |> Insert.set User_account.fullname_column (Some "Sandy Cheeks"))
+      ; (fun row -> row |> Insert.set User_account.name_column "spongebob" |> Insert.set User_account.fullname_column (Some "SpongeBob SquarePants"))
       ]
     |> Insert.command)
 ```
@@ -1607,7 +1614,7 @@ VALUES ($1, $2), ($3, $4)
 ### SA-32. INSERT из SELECT
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [INSERT FROM SELECT](https://docs.sqlalchemy.org/en/20/tutorial/data_insert.html#insertfromselect).
@@ -1712,7 +1719,7 @@ let sqlalchemy34 =
     Delete.(
       from Address.table
       |> where (fun address ->
-        exists
+        Query.exists
           (Query.(
             from User_account.table
             |> where (fun user ->
@@ -1766,7 +1773,7 @@ let sqlalchemy35 =
     Insert.(
       into User_account.table
       |> set User_account.name_column "sandy"
-      |> set_expr_opt User_account.fullname_column (Some (Expr.constant (Db_type.option Db_type.text) (Some "Sandy Cheeks")))
+      |> set User_account.fullname_column (Some "Sandy Cheeks")
       |> on_conflict (Conflict_target.column User_account.name_column)
       |> do_update (fun ~existing:_ ~excluded ->
         Conflict_update.set_expr User_account.fullname_column (User_account.fullname excluded) Conflict_update.empty)
@@ -1980,7 +1987,7 @@ WHERE
 ### SA-39. Страница строк с FOR UPDATE SKIP LOCKED
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [`Select.with_for_update`](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.Select.with_for_update).
@@ -2007,7 +2014,7 @@ stmt = (
 ### SA-40. UPDATE RETURNING как источник CTE
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [CTE with DML](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.HasCTE.cte).
@@ -2122,8 +2129,23 @@ let sqlalchemy42 =
     Query.(
       from User_account.table
       |> where (fun user ->
-        exists (Query.(from Address.table |> where (fun address -> (Address.user_id address =. User_account.id user) &&. (Address.email address =~$ "%@example.com"))))
-        &&. not_exists (Query.(from Address.table |> where (fun address -> (Address.user_id address =. User_account.id user) &&. (Address.email address =~$ "%@blocked.test"))))
+        let has_allowed_domain =
+          Query.exists
+            (Query.(
+              from Address.table
+              |> where (fun address ->
+                (Address.user_id address =. User_account.id user)
+                &&. (Address.email address =~$ "%@example.com")))
+        in
+        let lacks_blocked_domain =
+          Query.not_exists
+            (Query.(
+              from Address.table
+              |> where (fun address ->
+                (Address.user_id address =. User_account.id user)
+                &&. (Address.email address =~$ "%@blocked.test")))
+        in
+        has_allowed_domain &&. lacks_blocked_domain)
       |> select (fun user -> Projection.expr (User_account.id user))))
 ```
 
@@ -2337,7 +2359,7 @@ let sqlalchemy47 =
     Insert.(
       into User_account.table
       |> set User_account.name_column "sandy"
-      |> set_expr_opt User_account.fullname_column (Some (Expr.constant (Db_type.option Db_type.text) (Some "Sandy")))
+      |> set User_account.fullname_column (Some "Sandy")
       |> on_conflict (Conflict_target.column User_account.name_column)
       |> do_update (fun ~existing ~excluded ->
         Conflict_update.empty

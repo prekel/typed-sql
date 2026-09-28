@@ -98,9 +98,9 @@ end
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗
+- Семантика: ✓
 - Без доработок typed-sql: ✓
-- Замечание: `skip` и `take` заменены фиксированными `20` и `10`.
+- Замечание: `skip` и `take` передаются через валидируемые runtime input.
 - Источник: [offset pagination](https://learn.microsoft.com/en-us/ef/core/querying/pagination#offset-pagination).
 - Проверяет: порядок и границы страницы.
 
@@ -121,23 +121,25 @@ var page = await context.Posts
 
 #### OCaml (typed-sql)
 
-typed-sql рендерит portable PostgreSQL SQL. Здесь OFFSET и LIMIT задаются значениями при построении запроса.
+typed-sql рендерит portable PostgreSQL SQL; значения страницы остаются runtime input.
 
 ```ocaml
 let ef01 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.Portable.query_many_exn (fun params ->
+    let skip = params.non_negative_int ~name:"skip" ~get:(fun (skip, _) -> skip) in
+    let take = params.non_negative_int ~name:"take" ~get:(fun (_, take) -> take) in
     Query.(
       from Post.table
       |> order_by Post.id `Asc
-      |> limit 10
-      |> offset 20
+      |> Query.limit_param take
+      |> Query.offset_param skip
       |> select (fun post -> Projection.expr (Post.id post))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef01);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(20, 10) ef01);;
 SELECT
   t0."PostId"
 FROM "Posts" AS t0
@@ -151,9 +153,9 @@ OFFSET 20
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗
+- Семантика: ✓
 - Без доработок typed-sql: ✓
-- Замечание: `lastDate`, `lastId` и `take` заменены фиксированными значениями.
+- Замечание: `lastDate`, `lastId` и `take` передаются через runtime input.
 - Источник: [multiple pagination keys](https://learn.microsoft.com/en-us/ef/core/querying/pagination#multiple-pagination-keys).
 - Проверяет: лексикографический фильтр с составным порядком и дублирующимися датами.
 
@@ -185,22 +187,25 @@ let last_date =
   Ptime.of_date_time ((2020, 1, 1), ((0, 0, 0), 0)) |> Option.value_exn
 
 let ef02 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.Portable.query_many_exn (fun params ->
+    let last_date = params.expr Db_type.timestamp ~get:(fun (last_date, _, _) -> last_date) in
+    let last_id = params.expr Db_type.int64 ~get:(fun (_, last_id, _) -> last_id) in
+    let take = params.non_negative_int ~name:"take" ~get:(fun (_, _, take) -> take) in
     Query.(
       from Post.table
       |> where (fun post ->
         (Post.date post >$ last_date)
-        ||. ((Post.date post =$ last_date) &&. (Post.id post >$ 55L)))
+        ||. ((Post.date post =$ last_date) &&. (Post.id post >$ last_id)))
       |> order_by Post.date `Asc
       |> order_by Post.id `Asc
-      |> limit 10
+      |> Query.limit_param take
       |> select (fun post -> Projection.pair (Post.id post) (Post.date post))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef02);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(last_date, 55L, 10) ef02);;
 SELECT
   t0."PostId",
   t0."Date"
@@ -627,7 +632,7 @@ WHERE
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗
+- Семантика: ✗ (добавлено в роадмап ✗)
 - Без доработок typed-sql: ✓
 - Источник: [GroupBy without aggregate](https://learn.microsoft.com/en-us/ef/core/querying/complex-query-operators#groupby).
 - Проверяет: различие между SQL-строками и итоговыми группами; EF Core 7+ собирает группы после чтения.
@@ -682,7 +687,7 @@ ORDER BY
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗
+- Семантика: ✗ (добавлено в роадмап ✗)
 - Без доработок typed-sql: ✗
 - Источник: [cartesian explosion](https://learn.microsoft.com/en-us/ef/core/querying/single-split-queries#cartesian-explosion).
 - Проверяет: два `LEFT JOIN`, умножение строк на сервере и сборку двух коллекций на клиенте.
@@ -747,7 +752,7 @@ ORDER BY
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗
+- Семантика: ✗ (добавлено в роадмап ✗)
 - Без доработок typed-sql: ✗
 - Источник: [split queries](https://learn.microsoft.com/en-us/ef/core/querying/single-split-queries#split-queries).
 - Проверяет: два серверных запроса, порядок строк и сборку коллекции на клиенте.
@@ -822,7 +827,7 @@ ORDER BY
 ### EF-14. ExecuteUpdate с коррелированным агрегатом
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [updating from related entities](https://learn.microsoft.com/en-us/ef/core/saving/execute-insert-update-delete#navigations-and-related-entities).
@@ -1534,7 +1539,7 @@ let ef27 =
           (Projection.pair
              (Post.nullable_id post)
              (Expr.nullable_column post Post.blog_id_column))
-          (Projection.expr (Expr.nullable_column post Post.title_column)))))
+          (Projection.expr (Expr.nullable_column post Post.title_column))))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1621,7 +1626,7 @@ ORDER BY
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗
+- Семантика: ✗ (добавлено в роадмап ✗)
 - Без доработок typed-sql: ✗
 - Источник: [Tracking vs. No-Tracking Queries](https://learn.microsoft.com/en-us/ef/core/querying/tracking).
 - Проверяет: одинаковый серверный запрос при разной работе change tracker и identity resolution.
@@ -1722,7 +1727,7 @@ ORDER BY
 ### EF-31. Непереводимый helper в WHERE
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [Client vs. Server Evaluation: unsupported client evaluation](https://learn.microsoft.com/en-us/ef/core/querying/client-eval#unsupported-client-evaluation).
@@ -1797,7 +1802,7 @@ WHERE
 ### EF-33. Поиск элемента в JSON-коллекции колонки
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [What's New in EF Core 8: primitive collections](https://learn.microsoft.com/en-us/ef/core/what-is-new/ef-core-8.0/whatsnew#primitive-collections-in-json-columns).
@@ -1824,7 +1829,7 @@ var pubs = await context.Pubs
 ### EF-34. CLR-метод, отображённый в SQL UDF
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [User-defined function mapping](https://learn.microsoft.com/en-us/ef/core/querying/user-defined-function-mapping#mapping-a-method-to-a-sql-function).
@@ -1848,7 +1853,7 @@ CLR-метод должен быть зарегистрирован через `
 ### EF-35. FromSql с LINQ-композицией
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [SQL Queries: composing with LINQ](https://learn.microsoft.com/en-us/ef/core/querying/sql-queries#composing-with-linq).
@@ -1970,7 +1975,7 @@ let ef37 =
       |> from Blog.table ~f:(fun target source update ->
         update
         |> set_expr Blog.rating_column
-          Expr.Int.(Blog.rating target +. Expr.constant Db_type.int 1)
+          Expr.Int.Infix.(Blog.rating target +. Expr.constant Db_type.int 1)
         |> where (fun _ -> Blog.id target =. Blog.id source))
       |> where (fun target -> Blog.rating target <$ 3)
       |> command))
@@ -1990,7 +1995,7 @@ WHERE
 ### EF-38. Сравнение с явным правилом сопоставления строк
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [Collations and case sensitivity](https://learn.microsoft.com/en-us/ef/core/miscellaneous/collations-and-case-sensitivity).
@@ -2014,7 +2019,7 @@ var blogs = await context.Blogs
 ### EF-39. Снимок temporal-таблицы на момент времени
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [SQL Server temporal tables](https://learn.microsoft.com/en-us/ef/core/providers/sql-server/temporal-tables#querying-historical-data).
@@ -2041,7 +2046,7 @@ var snapshot = await context.Blogs
 ### EF-40. LIKE с экранированным процентом
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [SQL Server function mappings](https://learn.microsoft.com/en-us/ef/core/providers/sql-server/functions).

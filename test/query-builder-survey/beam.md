@@ -8,7 +8,7 @@
 
 Код примеров Beam распространяется по [MIT](https://haskell-beam.github.io/beam/about/license/). В конце файла приведено уведомление об авторских правах и лицензии. Это независимая подборка; указание источника не означает одобрения со стороны авторов Beam.
 
-OCaml-примеры typed-sql приведены для BE-01–BE-20. BE-09 воспроизводит `RANK` коррелированным `COUNT(DISTINCT Total)`; оконный синтаксис в ядро не добавляется.
+OCaml-примеры typed-sql приведены для BE-01–BE-20. BE-09 воспроизводит `RANK` коррелированным `COUNT(*)`; оконный синтаксис в ядро не добавляется.
 
 В новых примерах с `as_ @Int32` предполагаются расширение `TypeApplications` и импорт `Int32` из `Data.Int`.
 
@@ -542,7 +542,7 @@ INNER JOIN (
 - Без доработок typed-sql: ✓
 - Источник: [window functions](https://haskell-beam.github.io/beam/user-guide/queries/window-functions/).
 - Проверяет: оконный `RANK` по сумме счета без схлопывания строк; равные суммы получают одинаковый ранг.
-- Замечание: оконный `RANK` заменён `1 + COUNT(DISTINCT Total)` для больших сумм; равные суммы получают одинаковый ранг.
+- Замечание: ранг каждой суммы вычисляется как `1 + COUNT(*)` счетов того же покупателя с большей суммой. Повторные большие суммы тоже занимают позиции, в отличие от `DENSE_RANK`.
 
 `OVER (PARTITION BY ... ORDER BY ...)` отсутствует в публичном API и semantic AST typed-sql.
 
@@ -577,17 +577,17 @@ let be09 =
       |> select (fun invoice ->
         Projection.pair
           (Invoice.id invoice)
-          Expr.Int64.(
-            Expr.coalesce
-              (Expr.scalar_subquery
-                 (Query.(
-                   from Invoice.table
-                   |> where (fun other ->
-                     (Invoice.customer_id other =. Invoice.customer_id invoice)
-                     &&. (Invoice.total other >. Invoice.total invoice))
-                   |> select_scalar (fun other -> Expr.count_distinct (Invoice.total other)))))
-              ~default:(Expr.constant Db_type.int64 0L)
-            +. Expr.constant Db_type.int64 1L))))
+          Expr.Int64.Infix.(
+              Expr.coalesce
+                (Expr.scalar_subquery
+                   (Query.(
+                     from Invoice.table
+                     |> where (fun other ->
+                       (Invoice.customer_id other =. Invoice.customer_id invoice)
+                       &&. (Invoice.total other >. Invoice.total invoice))
+                     |> select_scalar (fun _ -> Expr.count_all))))
+                ~default:(Expr.constant Db_type.int64 0L)
+              +. Expr.constant Db_type.int64 1L))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -596,7 +596,7 @@ let be09 =
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql be09);;
 SELECT
   t0."InvoiceId",
-  (COALESCE((SELECT COUNT(DISTINCT t1."Total") FROM "Invoice" AS t1 WHERE ((t1."CustomerId" = t0."CustomerId") AND (t1."Total" > t0."Total"))), $1) + $2)
+  (COALESCE((SELECT COUNT(*) FROM "Invoice" AS t1 WHERE ((t1."CustomerId" = t0."CustomerId") AND (t1."Total" > t0."Total"))), $1) + $2)
 FROM "Invoice" AS t0
 ```
 
@@ -931,7 +931,7 @@ let beam14 =
         from Customer.table
         |> inner_join_cte invoice_counts ~on:(fun customer counts ->
           Customer.id customer =. Invoice_counts.customer_id counts)
-        |> where (fun (_, counts) -> Invoice_counts.count counts >=. 3L)
+        |> where (fun (_, counts) -> Invoice_counts.count counts >=$ 3L)
         |> select (fun (customer, counts) ->
           Projection.pair (Customer.id customer) (Invoice_counts.count counts)))))
 ```
@@ -1104,13 +1104,14 @@ let beam17 =
     Query.(
       from Customer.table
       |> select (fun customer ->
-        Projection.pair
-          (Customer.id customer)
-          (Expr.scalar_subquery
-             (Query.(
-               from Invoice.table
-               |> where (fun invoice -> Invoice.customer_id invoice =. Customer.id customer)
-               |> select_scalar (fun invoice -> Expr.max Db_type.Orderable.float (Invoice.total invoice)))))))
+        let maximum =
+          Expr.scalar_subquery_nullable
+            (Query.(
+              from Invoice.table
+              |> where (fun invoice -> Invoice.customer_id invoice =. Customer.id customer)
+              |> select_scalar (fun invoice -> Expr.max Db_type.Orderable.float (Invoice.total invoice))))
+        in
+        Projection.pair (Customer.id customer) maximum)))
 ```
 
 #### SQL typed-sql (PostgreSQL)

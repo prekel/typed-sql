@@ -56,7 +56,6 @@ module Book = struct
   let nullable_id row = Expr.nullable_column row id_column
   let nullable_title row = Expr.nullable_column row title_column
 end
-```
 
 module Language = struct
   type row
@@ -103,6 +102,7 @@ module Directory_tree = struct
   let label row = Expr.column row label_column
   let depth row = Expr.column row depth_column
 end
+```
 
 ## SELECT и фильтрация
 
@@ -653,7 +653,7 @@ ORDER BY
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗
+- Семантика: ✗ (добавлено в роадмап ✗)
 - Без доработок typed-sql: ✗
 - Источник: [Set operations](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/set-operations/).
 - Проверяет: объединение строк с удалением дубликатов, одинаковую степень и типы колонок.
@@ -882,7 +882,7 @@ let jq11 =
                      from Book.table
                      |> where (fun same_author -> Book.author_id same_author =. Book.author_id book)
                      |> select_scalar (fun _ -> Expr.count_all))))
-                ~default:(Expr.constant Db_type.int64 0L)))))
+                ~default:(Expr.constant Db_type.int64 0L))))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1407,13 +1407,15 @@ let jq19 =
       |> inner_join Book.table ~on:(fun author book -> Author.id author =. Book.author_id book)
       |> where (fun (author, book) ->
         Book.id book =.
-        Expr.scalar_subquery
-          (Query.(
-            from Book.table
-            |> where (fun candidate -> Book.author_id candidate =. Author.id author)
-            |> order_by Book.id `Desc
-            |> limit_one
-            |> select_scalar Book.id)))
+        Expr.coalesce
+          (Expr.scalar_subquery_nullable
+             (Query.(
+               from Book.table
+               |> where (fun candidate -> Book.author_id candidate =. Author.id author)
+               |> order_by Book.id `Desc
+               |> limit_one
+               |> select_scalar Book.id)))
+          ~default:(Expr.constant Db_type.int (-1)))
       |> select (fun (author, book) -> Projection.pair (Author.id author) (Book.id book))))
 ```
 
@@ -1443,7 +1445,7 @@ WHERE
 ### JQ-20. VALUES как табличный источник
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [VALUES table constructor](https://www.jooq.org/doc/3.21/manual/sql-building/table-expressions/values/).
@@ -1572,7 +1574,7 @@ let jq21 =
                 ~directory_id:(Projection.expr (Directory.id directory))
                 ~parent_id:(Projection.expr (Directory.parent_id directory))
                 ~label:(Projection.expr (Directory.label directory))
-                ~depth:(Projection.expr Expr.Int.(Directory_tree.depth parent +. Expr.constant Db_type.int 1)))))
+                ~depth:(Projection.expr Expr.Int.Infix.(Directory_tree.depth parent +. Expr.constant Db_type.int 1)))))
   in
   Statement.Portable.query_many_exn (fun _ ->
     Cte.with_result definition ~f:(fun directory_cte ->
@@ -1709,9 +1711,9 @@ let jq23 =
             from Book.table
             |> where (fun earlier ->
               (Book.language_id earlier =. Book.language_id book)
-              &&. ((Book.published_in earlier <$ Book.published_in book)
+              &&. ((Book.published_in earlier <. Book.published_in book)
                    ||. ((Book.published_in earlier =. Book.published_in book)
-                        &&. (Book.id earlier <$ Book.id book)))))))
+                        &&. (Book.id earlier <. Book.id book)))))))
       |> order_by Book.language_id `Asc
       |> select (fun book -> Projection.pair (Book.language_id book) (Book.id book))))
 ```
@@ -1845,7 +1847,7 @@ ORDER BY
 ### JQ-26. FETCH FIRST WITH TIES
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [WITH TIES clause](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/with-ties-clause/).
@@ -1990,7 +1992,7 @@ WHERE
 ### JQ-29. GROUP BY ROLLUP для подытогов
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [GROUP BY ROLLUP](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/group-by-clause/group-by-rollup/).
@@ -2079,7 +2081,7 @@ GROUP BY
 ### JQ-31. Оконная сумма с явным frame
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [Window frame clause](https://www.jooq.org/doc/3.21/manual/sql-building/column-expressions/window-functions/window-frame/).
@@ -2312,7 +2314,7 @@ WHERE
 ### JQ-35. LISTAGG с порядком элементов
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [LISTAGG](https://www.jooq.org/doc/3.21/manual/sql-building/column-expressions/aggregate-functions/listagg-function/).
@@ -2342,7 +2344,7 @@ create.select(
 ### JQ-36. INSERT .. SELECT
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [INSERT .. SELECT](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/insert-statement/insert-select/).
@@ -2444,7 +2446,7 @@ let jq38 =
       |> from Book.table ~f:(fun target source update ->
         update
         |> set_expr Book.published_in_column
-          Expr.Int.(Book.published_in target +. Expr.constant Db_type.int 1)
+          Expr.Int.Infix.(Book.published_in target +. Expr.constant Db_type.int 1)
         |> where (fun _ -> Book.id target =. Book.id source))
       |> where (fun book -> Book.published_in book <$ 1950)
       |> command))
@@ -2496,7 +2498,7 @@ let jq39 =
     Delete.(
       from Book.table
       |> where (fun book ->
-        exists
+        Query.exists
           (Query.(
             from Author.table
             |> where (fun author -> Author.id author =. Book.author_id book))))
@@ -2520,7 +2522,7 @@ WHERE
 ### JQ-40. MERGE с UPDATE и INSERT
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [MERGE statement](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/merge-statement/).
@@ -2591,7 +2593,11 @@ let jq41 =
       |> order_by Book.id `Asc
       |> limit 20
       |> select (fun book ->
-        Projection.pair (Book.published_in book) (Projection.pair (Book.id book) (Book.title book)))))
+        Projection.map3
+          ~f:(fun year id title -> year, id, title)
+          (Projection.expr (Book.published_in book))
+          (Projection.expr (Book.id book))
+          (Projection.expr (Book.title book)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2614,7 +2620,7 @@ LIMIT 20
 ### JQ-42. Конкурентный выбор строк с SKIP LOCKED
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [FOR UPDATE clause](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/for-update-clause/).
@@ -2644,7 +2650,7 @@ create.select(BOOK.ID, BOOK.TITLE)
 ### JQ-43. CUBE по автору и году издания
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [GROUP BY CUBE](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/group-by-clause/group-by-cube/).
@@ -2714,7 +2720,7 @@ RETURNING
 ### JQ-45. INSERT из SELECT с пропуском конфликтов
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [INSERT statement](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/insert-statement/), раздел `ON CONFLICT`.
@@ -3264,7 +3270,7 @@ let jq58 =
       |> where (fun book ->
         Book.id book <.
         Expr.coalesce
-          (Expr.scalar_subquery
+          (Expr.scalar_subquery_nullable
              (Query.(
                from Book.table
                |> where (fun other -> Book.author_id other =. Book.author_id book)
@@ -3314,8 +3320,23 @@ let jq59 =
     Query.(
       from Author.table
       |> where (fun author ->
-        exists (Query.(from Book.table |> where (fun book -> (Book.author_id book =. Author.id author) &&. (Book.published_in book <$ 1950))))
-        &&. not_exists (Query.(from Book.table |> where (fun book -> (Book.author_id book =. Author.id author) &&. (Book.published_in book >$ 2000))))
+        let has_old_book =
+          Query.exists
+            (Query.(
+              from Book.table
+              |> where (fun book ->
+                (Book.author_id book =. Author.id author)
+                &&. (Book.published_in book <$ 1950)))
+        in
+        let lacks_recent_book =
+          Query.not_exists
+            (Query.(
+              from Book.table
+              |> where (fun book ->
+                (Book.author_id book =. Author.id author)
+                &&. (Book.published_in book >$ 2000)))
+        in
+        has_old_book &&. lacks_recent_book)
       |> select (fun author -> Projection.expr (Author.id author))))
 ```
 

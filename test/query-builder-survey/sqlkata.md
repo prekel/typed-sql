@@ -501,13 +501,13 @@ let sk08 =
     let before =
       Query.(
         from Book.table
-        |> where (fun book -> Book.published_in book <=. 2000L)
+        |> where (fun book -> Book.published_in book <=$ 2000L)
         |> select (fun book -> Projection.pair (Book.id book) (Book.author_id book)))
     in
     let after =
       Query.(
         from Book.table
-        |> where (fun book -> Book.published_in book >=. 2000L)
+        |> where (fun book -> Book.published_in book >=$ 2000L)
         |> select (fun book -> Projection.pair (Book.id book) (Book.author_id book)))
     in
     Query.union_all before after)
@@ -541,7 +541,7 @@ FROM (
 ### SK-09. INSERT в архив из SELECT
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Замечание: `Insert` пока принимает только значения и строки; публичного конструктора для `INSERT ... SELECT` нет.
