@@ -52,7 +52,7 @@ end
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап)
+- Семантика: ✗
 - Без доработок typed-sql: ✓
 - Замечание: `name` заменён фиксированным значением `sandy`.
 - Источник: [SELECT и WHERE](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#the-where-clause).
@@ -100,7 +100,7 @@ WHERE
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап)
+- Семантика: ✗
 - Без доработок typed-sql: ✓
 - Замечание: `name1`, `name2` и `min_id` заменены фиксированными значениями.
 - Источник: [WHERE clause](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#the-where-clause).
@@ -157,7 +157,7 @@ WHERE
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап)
+- Семантика: ✗
 - Без доработок typed-sql: ✓
 - Замечание: `page_size` и `page_offset` заменены фиксированными значениями.
 - Источник: [ORDER BY](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#order-by), [limit/offset](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.GenerativeSelect.limit).
@@ -674,11 +674,12 @@ WHERE
 ### SA-12. Оконная функция
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
-- Семантика: —
+- Реализуемость: ✗
+- Семантика: ✓
 - Без доработок typed-sql: ✗
 - Источник: [using window functions](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#using-window-functions).
-- Проверяет: нумерацию строк внутри группы без схлопывания результата.
+- Проверяет: нумерацию адресов внутри каждого `user_id`; уникальный ID задаёт стабильный порядок, пользователь без адресов не возвращается.
+- Замечание: `ROW_NUMBER()` заменён коррелированным `COUNT(id <= current_id)` плюс сортировка по ID.
 - Ограничение: Публичное ядро не содержит оконных функций; нумерацию `ROW_NUMBER()` нельзя получить в том же SQL statement.
 
 ```sql
@@ -1460,7 +1461,7 @@ FROM "address" AS t0
 ### SA-29. VALUES как источник строк
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [конструктор VALUES](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.values).
@@ -1481,13 +1482,13 @@ stmt = select(selected_ids.c.id)
 
 ### SA-30. Рекурсивный CTE
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
-- Семантика: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
 - Без доработок typed-sql: ✗
 - Источник: [рекурсивные CTE](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.HasCTE.cte).
 - Проверяет: рекурсивное расширение результата с условием завершения.
-- Ограничение: Хотя рекурсивный CTE доступен, DSL не имеет VALUES/seed relation без таблицы для anchor `SELECT :start`; доступные таблицы схемы не эквивалентны диапазону чисел.
+- Замечание: anchor заменён выборкой `address.id = 1`, затем CTE увеличивает его до 5; для запуска нужна такая строка в фикстуре.
 
 ```sql
 WITH RECURSIVE nums(n) AS (
@@ -1505,6 +1506,42 @@ nums = nums.union_all(
     select((nums_step.c.n + 1).label("n")).where(nums_step.c.n < 5)
 )
 stmt = select(nums.c.n)
+```
+
+#### OCaml (typed-sql, рекурсивный CTE)
+
+```ocaml
+let sqlalchemy30_anchor =
+  Derived_table.create
+    ~table:Address.table
+    ~columns:(fun address -> Projection.expr (Address.id address))
+    Query.(from Address.table |> where (fun address -> Address.id address =$ 1L) |> select (fun address -> Projection.expr (Address.id address)))
+
+let sqlalchemy30 =
+  let definition =
+    Cte.recursive
+      ~union:`Union_all
+      ~anchor:sqlalchemy30_anchor
+      ~step:(fun numbers ->
+        Derived_table.create
+          ~table:Address.table
+          ~columns:(fun address -> Projection.expr (Address.id address))
+          Query.(from_cte numbers |> where (fun number -> Address.id number <$ 5L) |> select (fun number -> Projection.expr Expr.Int64.(Address.id number +. Expr.constant Db_type.int64 1L))))
+  in
+  Statement.Portable.query_many_exn (fun _ ->
+    Cte.with_result definition ~f:(fun numbers -> Query.(from_cte numbers |> select (fun number -> Projection.expr (Address.id number))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy30);;
+WITH RECURSIVE t0 AS (
+  SELECT t1."id" FROM "address" AS t1 WHERE (t1."id" = $1)
+  UNION ALL
+  SELECT (t2."id" + $2) FROM t0 AS t2 WHERE (t2."id" < $3)
+)
+SELECT t0."id" FROM t0 AS t0
 ```
 
 ### SA-31. Многострочный INSERT
@@ -1553,7 +1590,7 @@ VALUES ($1, $2), ($3, $4)
 ### SA-32. INSERT из SELECT
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [INSERT FROM SELECT](https://docs.sqlalchemy.org/en/20/tutorial/data_insert.html#insertfromselect).
@@ -1926,7 +1963,7 @@ WHERE
 ### SA-39. Страница строк с FOR UPDATE SKIP LOCKED
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [`Select.with_for_update`](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.Select.with_for_update).
@@ -1953,7 +1990,7 @@ stmt = (
 ### SA-40. UPDATE RETURNING как источник CTE
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [CTE with DML](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.HasCTE.cte).

@@ -8,7 +8,7 @@
 
 Код примеров Beam распространяется по [MIT](https://haskell-beam.github.io/beam/about/license/). В конце файла приведено уведомление об авторских правах и лицензии. Это независимая подборка; указание источника не означает одобрения со стороны авторов Beam.
 
-OCaml-примеры typed-sql приведены для BE-01–BE-08 и BE-10–BE-20. BE-09 требует оконных выражений, которых пока нет в DSL.
+OCaml-примеры typed-sql приведены для BE-01–BE-20. BE-09 воспроизводит `RANK` коррелированным `COUNT(DISTINCT Total)`; оконный синтаксис в ядро не добавляется.
 
 В новых примерах с `as_ @Int32` предполагаются расширение `TypeApplications` и импорт `Int32` из `Data.Int`.
 
@@ -536,13 +536,13 @@ INNER JOIN (
 
 ### BE-09. Ранг счета внутри покупателя
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
-- Семантика: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
 - Без доработок typed-sql: ✗
 - Источник: [window functions](https://haskell-beam.github.io/beam/user-guide/queries/window-functions/).
 - Проверяет: оконный `RANK` по сумме счета без схлопывания строк; равные суммы получают одинаковый ранг.
-- Ограничение: В публичном API нет оконных выражений `RANK` и определения `PARTITION BY`; обычная сортировка не присваивает одинаковый ранг равным суммам.
+- Замечание: оконный `RANK` заменён `1 + COUNT(DISTINCT Total)` для больших сумм; равные суммы получают одинаковый ранг.
 
 `OVER (PARTITION BY ... ORDER BY ...)` отсутствует в публичном API и semantic AST typed-sql.
 
@@ -565,6 +565,39 @@ select $
         noBounds_)
       (\i w -> (i, as_ @Int32 rank_ `over_` w))
       (all_ (invoice chinookDb))
+```
+
+#### OCaml (typed-sql, коррелированный агрегат)
+
+```ocaml
+let be09 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Invoice.table
+      |> select (fun invoice ->
+        Projection.pair
+          (Invoice.id invoice)
+          Expr.Int64.(
+            Expr.coalesce
+              (Expr.scalar_subquery
+                 (Query.(
+                   from Invoice.table
+                   |> where (fun other ->
+                     (Invoice.customer_id other =. Invoice.customer_id invoice)
+                     &&. (Invoice.total other >. Invoice.total invoice))
+                   |> select_scalar (fun other -> Expr.count_distinct (Invoice.total other)))))
+              ~default:(Expr.constant Db_type.int64 0L)
+            +. Expr.constant Db_type.int64 1L))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql be09);;
+SELECT
+  t0."InvoiceId",
+  (COALESCE((SELECT COUNT(DISTINCT t1."Total") FROM "Invoice" AS t1 WHERE ((t1."CustomerId" = t0."CustomerId") AND (t1."Total" > t0."Total"))), $1) + $2)
+FROM "Invoice" AS t0
 ```
 
 ### BE-10. Вложенные INTERSECT и EXCEPT

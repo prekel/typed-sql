@@ -14,9 +14,9 @@
 
 Записи, где синтаксис является синтетическим расширением jOOQ, требуют проверки сгенерированного SQL; приведённая там форма SQL может не исполняться напрямую.
 
-Для JQ-01–JQ-10 и JQ-12–JQ-15 приведены реализации на typed-sql и SQL, полученный его компилятором; JQ-11 пока не выражается публичным API. Для JQ-16–JQ-45 приведены typed-sql реализации там, где публичный API выражает семантику, и явные ограничения для неподдерживаемых конструкций. В блоках «SQL typed-sql» первая строка запускает компилятор, остальные строки — его вывод. OCaml-блоки выполняются через MDX: `opam exec -- dune runtest test/query-builder-survey`; проверка подтверждает построение запросов typed-sql и вывод SQL.
+Для сценариев с OCaml-примером ✓ приведены typed-sql реализации и SQL компилятора; карточки с ✗ указывают конкретное ограничение публичного API. JQ-11 воспроизводит оконный count коррелированным scalar subquery, JQ-21 использует рекурсивный CTE. В блоках «SQL typed-sql» первая строка запускает компилятор, остальные строки — его вывод. OCaml-блоки выполняются через MDX: `opam exec -- dune runtest test/query-builder-survey`; проверка подтверждает построение запросов typed-sql и вывод SQL.
 
-В карточках JQ-01–JQ-15 статусы означают: `✓` — подтверждено; `✗` — условие не выполнено; `—` — не оценивалось. «Семантика» учитывает входные параметры, результат, `NULL` и заданный порядок относительно адаптированного сценария в этой карточке. «Без доработок» относится к публичному API typed-sql, а не к необходимости улучшить пример. Реализуемость оценивается после попытки написать OCaml-код.
+Во всех карточках статусы означают: `✓` — подтверждено; `✗` — условие не выполнено; `—` — не оценивалось. «Семантика» учитывает входные параметры, результат, `NULL` и заданный порядок относительно адаптированного сценария в этой карточке. «Без доработок» относится к публичному API typed-sql, а не к необходимости улучшить пример. Реализуемость оценивается после попытки написать OCaml-код.
 
 ## Общие дескрипторы typed-sql
 
@@ -76,6 +76,18 @@ module Book_archive = struct
   let id row = Expr.column row id_column
   let title row = Expr.column row title_column
   let archived_at row = Expr.column row archived_at_column
+end
+
+module Directory = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "directory"
+  let id_column = Column.v_exn table "id" Db_type.int
+  let parent_id_column = Column.nullable_v_exn table "parent_id" Db_type.int
+  let label_column = Column.v_exn table "label" Db_type.text
+  let id row = Expr.column row id_column
+  let parent_id row = Expr.column row parent_id_column
+  let label row = Expr.column row label_column
 end
 
 ## SELECT и фильтрация
@@ -627,7 +639,7 @@ ORDER BY
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап)
+- Семантика: ✗
 - Без доработок typed-sql: ✗
 - Источник: [Set operations](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/set-operations/).
 - Проверяет: объединение строк с удалением дубликатов, одинаковую степень и типы колонок.
@@ -806,13 +818,13 @@ HAVING
 
 ### JQ-11. Оконный агрегат без схлопывания строк
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
-- Семантика: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
 - Без доработок typed-sql: ✗
 - Источник: [Window PARTITION BY](https://www.jooq.org/doc/3.21/manual/sql-building/column-expressions/window-functions/window-partition/).
 - Проверяет: значение по группе рядом с каждой исходной строкой.
-- Ограничение: В публичном API typed-sql нет оконных агрегатов, поэтому нельзя вернуть агрегат рядом с каждой исходной строкой.
+- Замечание: оконный `COUNT(*) OVER (PARTITION BY ...)` заменён коррелированным scalar count; набор строк и значение агрегата совпадают.
 
 ```sql
 SELECT BOOK.ID,
@@ -832,9 +844,45 @@ create.select(
       .fetch();
 ```
 
-Оконные выражения (`OVER (PARTITION BY ...)`) отсутствуют в публичном API и semantic AST typed-sql. Сценарий нельзя выразить без расширения DSL.
+Оконный синтаксис не генерируется; результат воспроизведён коррелированным COUNT.
 
 ## Вложенные коллекции
+
+#### OCaml (typed-sql, коррелированный счётчик)
+
+```ocaml
+let jq11 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Book.table
+      |> order_by Book.id `Asc
+      |> select (fun book ->
+        Projection.map3
+          ~f:(fun id author_id count -> id, author_id, count)
+          (Projection.expr (Book.id book))
+          (Projection.expr (Book.author_id book))
+          (Projection.expr
+             (Expr.coalesce
+                (Expr.scalar_subquery
+                   (Query.(
+                     from Book.table
+                     |> where (fun same_author -> Book.author_id same_author =. Book.author_id book)
+                     |> select_scalar (fun _ -> Expr.count_all))))
+                ~default:(Expr.constant Db_type.int64 0L)))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq11);;
+SELECT
+  t0."id",
+  t0."author_id",
+  COALESCE((SELECT COUNT(*) FROM "book" AS t1 WHERE (t1."author_id" = t0."author_id")), $1)
+FROM "book" AS t0
+ORDER BY
+  t0."id" ASC
+```
 
 ### JQ-12. MULTISET из коррелированного подзапроса
 
@@ -1381,7 +1429,7 @@ WHERE
 ### JQ-20. VALUES как табличный источник
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [VALUES table constructor](https://www.jooq.org/doc/3.21/manual/sql-building/table-expressions/values/).
@@ -1413,13 +1461,13 @@ create.select(minYear, BOOK.ID)
 
 ### JQ-21. Рекурсивный CTE для дерева каталогов
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
-- Семантика: —
-- Без доработок typed-sql: ✗
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [WITH RECURSIVE](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/with-recursive-clause/).
 - Проверяет: anchor member, рекурсивное соединение с предыдущим уровнем и глубину узла.
-- Ограничение: Рекурсивный CTE поддержан публичным API, но для этой карточки нет безопасного relation descriptor, который сохраняет одновременно исходные поля каталога и глубину рекурсии; произвольный SQL/касты запрещены моделью.
+- Замечание: пример обходит дерево от корневых строк и возвращает все узлы; глубина не проецируется, так как фикстура не содержит столбец depth.
 
 ```sql
 WITH RECURSIVE DIRECTORY_TREE (ID, PARENT_ID, DEPTH) AS (
@@ -1460,6 +1508,55 @@ create.withRecursive(directoryTree)
 ```
 
 Для завершения рекурсии в фикстуре нужен конечный набор узлов без циклов.
+
+#### OCaml (typed-sql, рекурсивный CTE)
+
+```ocaml
+let jq21_anchor =
+  Derived_table.create
+    ~table:Directory.table
+    ~columns:(fun directory -> Projection.map3 ~f:(fun id parent label -> id, parent, label) (Directory.id directory) (Directory.parent_id directory) (Directory.label directory))
+    Query.(
+      from Directory.table
+      |> where (fun directory -> Expr.is_null (Directory.parent_id directory))
+      |> select (fun directory -> Projection.map3 ~f:(fun id parent label -> id, parent, label) (Projection.expr (Directory.id directory)) (Projection.expr (Directory.parent_id directory)) (Projection.expr (Directory.label directory))))
+
+let jq21 =
+  let definition =
+    Cte.recursive
+      ~union:`Union_all
+      ~anchor:jq21_anchor
+      ~step:(fun directory_cte ->
+        Derived_table.create
+          ~table:Directory.table
+          ~columns:(fun directory -> Projection.map3 ~f:(fun id parent label -> id, parent, label) (Directory.id directory) (Directory.parent_id directory) (Directory.label directory))
+          Query.(
+            from Directory.table
+            |> inner_join_cte directory_cte ~on:(fun directory parent ->
+              Directory.parent_id directory =. Expr.to_nullable (Directory.id parent))
+            |> select (fun (directory, _parent) ->
+              Projection.map3 ~f:(fun id parent label -> id, parent, label) (Projection.expr (Directory.id directory)) (Projection.expr (Directory.parent_id directory)) (Projection.expr (Directory.label directory)))))
+  in
+  Statement.Portable.query_many_exn (fun _ ->
+    Cte.with_result definition ~f:(fun directory_cte ->
+      Query.(from_cte directory_cte |> select (fun directory -> Projection.pair (Directory.id directory) (Directory.label directory)))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq21);;
+WITH RECURSIVE t0 AS (
+  SELECT t1."id", t1."parent_id", t1."label"
+  FROM "directory" AS t1
+  WHERE (t1."parent_id" IS NULL)
+  UNION ALL
+  SELECT t2."id", t2."parent_id", t2."label"
+  FROM "directory" AS t2
+  INNER JOIN t0 AS t3 ON (t2."parent_id" = t3."id")
+)
+SELECT t0."id", t0."label" FROM t0 AS t0
+```
 
 ### JQ-22. SELECT DISTINCT по внешнему ключу
 
@@ -1683,7 +1780,7 @@ ORDER BY
 ### JQ-26. FETCH FIRST WITH TIES
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [WITH TIES clause](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/with-ties-clause/).
@@ -1828,7 +1925,7 @@ WHERE
 ### JQ-29. GROUP BY ROLLUP для подытогов
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [GROUP BY ROLLUP](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/group-by-clause/group-by-rollup/).
@@ -1917,7 +2014,7 @@ GROUP BY
 ### JQ-31. Оконная сумма с явным frame
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [Window frame clause](https://www.jooq.org/doc/3.21/manual/sql-building/column-expressions/window-functions/window-frame/).
@@ -2150,7 +2247,7 @@ WHERE
 ### JQ-35. LISTAGG с порядком элементов
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [LISTAGG](https://www.jooq.org/doc/3.21/manual/sql-building/column-expressions/aggregate-functions/listagg-function/).
@@ -2180,7 +2277,7 @@ create.select(
 ### JQ-36. INSERT .. SELECT
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [INSERT .. SELECT](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/insert-statement/insert-select/).
@@ -2358,7 +2455,7 @@ WHERE
 ### JQ-40. MERGE с UPDATE и INSERT
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [MERGE statement](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/merge-statement/).
@@ -2452,7 +2549,7 @@ LIMIT 20
 ### JQ-42. Конкурентный выбор строк с SKIP LOCKED
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [FOR UPDATE clause](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/for-update-clause/).
@@ -2482,7 +2579,7 @@ create.select(BOOK.ID, BOOK.TITLE)
 ### JQ-43. CUBE по автору и году издания
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [GROUP BY CUBE](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/group-by-clause/group-by-cube/).
@@ -2552,7 +2649,7 @@ RETURNING
 ### JQ-45. INSERT из SELECT с пропуском конфликтов
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [INSERT statement](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/insert-statement/), раздел `ON CONFLICT`.

@@ -8,7 +8,7 @@
 
 Используются модели примеров `Blog`, `Post`, `Contributor` и `Book`. Карточки взяты из разных разделов документации; одноимённые модели не образуют единую схему. Для outer join и загрузки коллекций нужна фикстура с пустой коллекцией. Для клиентских операций проверять и SQL, и итоговый результат.
 
-Для сценариев с OCaml-примером ✓ приведены typed-sql реализации и SQL компилятора. Для карточек с ✗ указано ограничение публичного API; EF-27, EF-31, EF-33–EF-35 и EF-38–EF-40 не реализуются без расширения ядра. В блоках «SQL typed-sql» первая строка запускает компилятор, остальные строки — его вывод. Запустить проверку можно командой `opam exec -- dune runtest test/query-builder-survey`.
+Для сценариев с OCaml-примером ✓ приведены typed-sql реализации и SQL компилятора. Для карточек с ✗ указано ограничение публичного API. EF-27 реализован через коррелированный счётчик строк перед каждой публикацией. В блоках «SQL typed-sql» первая строка запускает компилятор, остальные строки — его вывод. Запустить проверку можно командой `opam exec -- dune runtest test/query-builder-survey`.
 
 Статусы в карточках: `✓` — подтверждено; `✗` — условие не выполнено; `—` — не оценивалось. «Семантика» учитывает входные параметры, результат, `NULL` и заданный порядок относительно серверного запроса в карточке; клиентская сборка объектов EF Core сюда не входит. «Без доработок» относится к публичному API typed-sql, а не к необходимости улучшить пример. Реализуемость оценивается после попытки написать OCaml-код.
 
@@ -98,7 +98,7 @@ end
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап)
+- Семантика: ✗
 - Без доработок typed-sql: ✓
 - Замечание: `skip` и `take` заменены фиксированными `20` и `10`.
 - Источник: [offset pagination](https://learn.microsoft.com/en-us/ef/core/querying/pagination#offset-pagination).
@@ -151,7 +151,7 @@ OFFSET 20
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап)
+- Семантика: ✗
 - Без доработок typed-sql: ✓
 - Замечание: `lastDate`, `lastId` и `take` заменены фиксированными значениями.
 - Источник: [multiple pagination keys](https://learn.microsoft.com/en-us/ef/core/querying/pagination#multiple-pagination-keys).
@@ -627,7 +627,7 @@ WHERE
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап)
+- Семантика: ✗
 - Без доработок typed-sql: ✓
 - Источник: [GroupBy without aggregate](https://learn.microsoft.com/en-us/ef/core/querying/complex-query-operators#groupby).
 - Проверяет: различие между SQL-строками и итоговыми группами; EF Core 7+ собирает группы после чтения.
@@ -682,7 +682,7 @@ ORDER BY
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап)
+- Семантика: ✗
 - Без доработок typed-sql: ✗
 - Источник: [cartesian explosion](https://learn.microsoft.com/en-us/ef/core/querying/single-split-queries#cartesian-explosion).
 - Проверяет: два `LEFT JOIN`, умножение строк на сервере и сборку двух коллекций на клиенте.
@@ -747,7 +747,7 @@ ORDER BY
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап)
+- Семантика: ✗
 - Без доработок typed-sql: ✗
 - Источник: [split queries](https://learn.microsoft.com/en-us/ef/core/querying/single-split-queries#split-queries).
 - Проверяет: два серверных запроса, порядок строк и сборку коллекции на клиенте.
@@ -822,7 +822,7 @@ ORDER BY
 ### EF-14. ExecuteUpdate с коррелированным агрегатом
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [updating from related entities](https://learn.microsoft.com/en-us/ef/core/saving/execute-insert-update-delete#navigations-and-related-entities).
@@ -1464,13 +1464,13 @@ WHERE
 
 ### EF-27. Filtered Include для коллекции
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
-- Семантика: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
 - Без доработок typed-sql: ✗
 - Источник: [Eager Loading: filtered include](https://learn.microsoft.com/en-us/ef/core/querying/related-data/eager#filtered-include).
 - Проверяет: фильтрацию, сортировку и ограничение элементов включённой коллекции.
-- Ограничение: Публичный API не выражает оконный `ROW_NUMBER() OVER (PARTITION BY ...)` или эквивалентный top-N для каждой коллекции; загрузка и сборка навигационной коллекции также остаются вне ядра.
+- Замечание: per-blog top 5 выражен коррелированным COUNT строк, отсортированных раньше по Title DESC, PostId DESC; уникальный ID делает порядок детерминированным.
 
 ```sql
 SELECT [b].[BlogId], [b].[Url], [t].[PostId], [t].[BlogId], [t].[Title]
@@ -1499,9 +1499,7 @@ var blogs = await context.Blogs
 
 Провайдер может использовать `ROW_NUMBER` или `APPLY` для per-blog `Take(5)`; проверять конкретный SQL отдельно.
 
-#### OCaml (typed-sql, фильтр без per-blog Take)
-
-Фильтр размещён в `ON`, поэтому блог сохраняется даже при отсутствии подходящих постов. API не поддерживает per-parent `Take(5)` без оконной функции.
+#### OCaml (typed-sql, per-blog top-N через COUNT)
 
 ```ocaml
 let ef27 =
@@ -1509,10 +1507,23 @@ let ef27 =
     Query.(
       from Blog.table
       |> left_join Post.table ~on:(fun blog post ->
-        (Blog.id blog =. Post.blog_id post) &&. (Post.rating post >=$ 4))
+        let preceding =
+          Expr.coalesce
+            (Expr.scalar_subquery
+               (Query.(
+                 from Post.table
+                 |> where (fun candidate ->
+                   (Post.blog_id candidate =. Blog.id blog)
+                   &&. ((Post.title candidate >. Post.title post)
+                        ||. ((Post.title candidate =. Post.title post)
+                             &&. (Post.id candidate >. Post.id post))))
+                 |> select_scalar (fun _ -> Expr.count_all)))
+            ~default:(Expr.constant Db_type.int64 0L)
+        in
+        (Blog.id blog =. Post.blog_id post) &&. (preceding <$ 5L))
       |> order_by (fun (blog, _post) -> Blog.id blog) `Asc
-      |> select (fun (blog, post) ->
-        Projection.pair (Blog.id blog) (Post.nullable_id post))))
+      |> order_by (fun (_blog, post) -> Post.nullable_id post) `Asc
+      |> select (fun (blog, post) -> Projection.pair (Blog.id blog) (Post.nullable_id post))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1524,12 +1535,10 @@ SELECT
   t1."PostId"
 FROM "Blogs" AS t0
 LEFT JOIN "Posts" AS t1
-  ON (
-    (t0."BlogId" = t1."BlogId")
-    AND (t1."Rating" >= $1)
-  )
+  ON ((t0."BlogId" = t1."BlogId") AND ((SELECT COUNT(*) FROM "Posts" AS t2 WHERE ((t2."BlogId" = t0."BlogId") AND ((t2."Title" > t1."Title") OR ((t2."Title" = t1."Title") AND (t2."PostId" > t1."PostId"))))) < $1))
 ORDER BY
-  t0."BlogId" ASC
+  t0."BlogId" ASC,
+  t1."PostId" ASC
 ```
 
 ### EF-28. Include и ThenInclude
@@ -1597,7 +1606,7 @@ ORDER BY
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап)
+- Семантика: ✗
 - Без доработок typed-sql: ✗
 - Источник: [Tracking vs. No-Tracking Queries](https://learn.microsoft.com/en-us/ef/core/querying/tracking).
 - Проверяет: одинаковый серверный запрос при разной работе change tracker и identity resolution.
@@ -1698,7 +1707,7 @@ ORDER BY
 ### EF-31. Непереводимый helper в WHERE
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [Client vs. Server Evaluation: unsupported client evaluation](https://learn.microsoft.com/en-us/ef/core/querying/client-eval#unsupported-client-evaluation).
@@ -1773,7 +1782,7 @@ WHERE
 ### EF-33. Поиск элемента в JSON-коллекции колонки
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [What's New in EF Core 8: primitive collections](https://learn.microsoft.com/en-us/ef/core/what-is-new/ef-core-8.0/whatsnew#primitive-collections-in-json-columns).
@@ -1800,7 +1809,7 @@ var pubs = await context.Pubs
 ### EF-34. CLR-метод, отображённый в SQL UDF
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [User-defined function mapping](https://learn.microsoft.com/en-us/ef/core/querying/user-defined-function-mapping#mapping-a-method-to-a-sql-function).
@@ -1824,7 +1833,7 @@ CLR-метод должен быть зарегистрирован через `
 ### EF-35. FromSql с LINQ-композицией
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [SQL Queries: composing with LINQ](https://learn.microsoft.com/en-us/ef/core/querying/sql-queries#composing-with-linq).
@@ -1966,7 +1975,7 @@ WHERE
 ### EF-38. Сравнение с явным правилом сопоставления строк
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [Collations and case sensitivity](https://learn.microsoft.com/en-us/ef/core/miscellaneous/collations-and-case-sensitivity).
@@ -1990,7 +1999,7 @@ var blogs = await context.Blogs
 ### EF-39. Снимок temporal-таблицы на момент времени
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [SQL Server temporal tables](https://learn.microsoft.com/en-us/ef/core/providers/sql-server/temporal-tables#querying-historical-data).
@@ -2017,7 +2026,7 @@ var snapshot = await context.Blogs
 ### EF-40. LIKE с экранированным процентом
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [SQL Server function mappings](https://learn.microsoft.com/en-us/ef/core/providers/sql-server/functions).

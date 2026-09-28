@@ -8,7 +8,7 @@
 
 SeaQuery распространяется по [MIT или Apache-2.0](https://github.com/SeaQL/sea-query#license). Здесь используется вариант MIT для уведомления об авторских правах. Примеры кода адаптированы; указание источника не означает одобрения со стороны SeaQL.
 
-Для SQ-01–SQ-09 и SQ-11–SQ-20 приведены реализации через публичный API typed-sql и SQL компилятора. Оконные выражения SQ-10 пока не входят в публичный API.
+Для SQ-01–SQ-20 приведены реализации через публичный API typed-sql и SQL компилятора. SQ-10 воспроизводит оконный count коррелированным scalar subquery.
 
 ```rust
 use sea_query::{Cond, Expr, Iden, JoinType, OnConflict, Order, PostgresQueryBuilder, Query, UnionType, WindowStatement};
@@ -665,13 +665,13 @@ FROM (
 
 ### SQ-10. Оконный подсчёт постов
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
-- Семантика: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
 - Без доработок typed-sql: ✗
 - Источник: [expr_window_as](https://docs.rs/sea-query/latest/sea_query/query/struct.SelectStatement.html#method.expr_window_as).
 - Проверяет: число постов пользователя рядом с каждой строкой без свёртывания строк в группы.
-- Ограничение: Оконные функции отсутствуют в публичном API typed-sql; обычная группировка схлопывает строки и не сохраняет нужный результат.
+- Замечание: число строк в партиции получено коррелированным `COUNT(*)`; для каждой исходной строки сохраняется то же значение.
 
 ```sql
 SELECT posts.id, posts.user_id,
@@ -697,7 +697,45 @@ let query = Query::select()
 let (sql, values) = query.build(PostgresQueryBuilder);
 ```
 
-Оконные выражения `OVER (PARTITION BY ...)` отсутствуют в публичном API и semantic AST typed-sql, поэтому этот сценарий нельзя выразить без расширения DSL.
+Оконный синтаксис не генерируется; тот же построчный результат строится коррелированным COUNT.
+
+#### OCaml (typed-sql, коррелированный счётчик)
+
+```ocaml
+let seaquery10 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Posts.table
+      |> order_by Posts.user_id `Asc
+      |> order_by Posts.id `Asc
+      |> select (fun post ->
+        Projection.map3
+          ~f:(fun id user_id count -> id, user_id, count)
+          (Projection.expr (Posts.id post))
+          (Projection.expr (Posts.user_id post))
+          (Projection.expr
+             (Expr.coalesce
+                (Expr.scalar_subquery
+                   (Query.(
+                     from Posts.table
+                     |> where (fun same_user -> Posts.user_id same_user =. Posts.user_id post)
+                     |> select_scalar (fun _ -> Expr.count_all))))
+                ~default:(Expr.constant Db_type.int64 0L)))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery10);;
+SELECT
+  t0."id",
+  t0."user_id",
+  COALESCE((SELECT COUNT(*) FROM "posts" AS t1 WHERE (t1."user_id" = t0."user_id")), $1)
+FROM "posts" AS t0
+ORDER BY
+  t0."user_id" ASC,
+  t0."id" ASC
+```
 
 ### SQ-11. Пользователи без постов через NOT EXISTS
 

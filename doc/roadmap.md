@@ -731,6 +731,8 @@ reconnect и eviction. Решение по core API и рассмотренны�
   загрузка соседних navigation collections и split-query orchestration
   ([EF-12](../test/query-builder-survey/ef-core.md#ef-12-include-двух-соседних-коллекций),
   [EF-13](../test/query-builder-survey/ef-core.md#ef-13-split-query-для-коллекции)),
+  загрузка цепочки navigation properties
+  ([EF-28](../test/query-builder-survey/ef-core.md#ef-28-include-и-theninclude)),
   а также identity resolution/change tracking
   ([EF-29](../test/query-builder-survey/ef-core.md#ef-29-tracking-и-asnotracking))?
   Эти сценарии относятся к материализации графа объектов и работе ORM после
@@ -741,7 +743,9 @@ reconnect и eviction. Решение по core API и рассмотренны�
   Typed query builder проверяет выражения при построении и не исполняет
   пользовательские функции на стороне клиента.
 - [ ] Входит ли SQL Server dialect в планы проекта? Только при положительном
-  ответе имеют смысл SQL Server-specific `OPENJSON` для JSON-колонок
+  ответе имеют смысл JSON-параметр для `Contains`
+  ([EF-32](../test/query-builder-survey/ef-core.md#ef-32-contains-по-параметрической-коллекции-ef-core-8)),
+  SQL Server-specific `OPENJSON` для JSON-колонок
   ([EF-33](../test/query-builder-survey/ef-core.md#ef-33-поиск-элемента-в-json-коллекции-колонки)),
   `COLLATE` с SQL Server collation
   ([EF-38](../test/query-builder-survey/ef-core.md#ef-38-сравнение-с-явным-правилом-сопоставления-строк))

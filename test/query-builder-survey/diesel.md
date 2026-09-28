@@ -8,7 +8,7 @@
 
 Diesel распространяется по [MIT или Apache-2.0](https://github.com/diesel-rs/diesel#license). Здесь используется вариант MIT для уведомления об авторских правах. Примеры кода адаптированы; указание источника не означает одобрения со стороны авторов Diesel.
 
-Для DI-01–DI-09 и DI-11–DI-20 приведены реализации через публичный API typed-sql и SQL компилятора для PostgreSQL. Оконные выражения DI-10 пока не входят в публичный API.
+Для DI-01–DI-20 приведены реализации через публичный API typed-sql и SQL компилятора для PostgreSQL. DI-10 воспроизводит оконный count коррелированным scalar subquery.
 
 ```rust
 use diesel::prelude::*;
@@ -589,13 +589,13 @@ FROM (
 
 ### DI-10. Оконный подсчёт постов
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
-- Семантика: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
 - Без доработок typed-sql: ✗
 - Источник: [Diesel 2.3: window functions](https://diesel.rs/news/2_3_0_release) и [WindowExpressionMethods](https://docs.diesel.rs/master/diesel/expression_methods/trait.WindowExpressionMethods.html).
 - Проверяет: число постов каждого пользователя рядом с каждой строкой без схлопывания результата в группы.
-- Ограничение: Публичный API typed-sql не строит оконные выражения; GROUP BY схлопнул бы строки и изменил проверяемую семантику.
+- Замечание: результат окна воспроизведён коррелированным `COUNT(*)` по тому же `user_id`; вывод остаётся построчным, форма SQL отличается.
 
 ```sql
 SELECT posts.id, posts.user_id,
@@ -616,7 +616,45 @@ let rows = posts::table
     .load::<(i32, i32, i64)>(connection)?;
 ```
 
-Оконные выражения `OVER (PARTITION BY ...)` отсутствуют в публичном API и semantic AST typed-sql, поэтому DI-10 нельзя выразить без расширения DSL.
+Оконный синтаксис не генерируется; эквивалентный коррелированный COUNT доступен в текущем DSL.
+
+#### OCaml (typed-sql, коррелированный счётчик)
+
+```ocaml
+let diesel10 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Posts.table
+      |> order_by Posts.user_id `Asc
+      |> order_by Posts.id `Asc
+      |> select (fun post ->
+        Projection.map3
+          ~f:(fun id user_id count -> id, user_id, count)
+          (Projection.expr (Posts.id post))
+          (Projection.expr (Posts.user_id post))
+          (Projection.expr
+             (Expr.coalesce
+                (Expr.scalar_subquery
+                   (Query.(
+                     from Posts.table
+                     |> where (fun same_user -> Posts.user_id same_user =. Posts.user_id post)
+                     |> select_scalar (fun _ -> Expr.count_all))))
+                ~default:(Expr.constant Db_type.int64 0L)))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel10);;
+SELECT
+  t0."id",
+  t0."user_id",
+  COALESCE((SELECT COUNT(*) FROM "posts" AS t1 WHERE (t1."user_id" = t0."user_id")), $1)
+FROM "posts" AS t0
+ORDER BY
+  t0."user_id" ASC,
+  t0."id" ASC
+```
 
 ### DI-11. Уникальные авторы постов с заданным префиксом
 
