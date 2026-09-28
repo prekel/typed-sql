@@ -2,13 +2,55 @@
 
 Первые 15 сценариев из [документации EF Core](https://learn.microsoft.com/en-us/ef/core/) (доступ 28.09.2026). LINQ и SQL сокращены и адаптированы. SQL показывает существенную форму перевода, а не точный лог конкретной версии провайдера. Квадратные скобки и `@parameter` относятся к SQL Server; EF-10 использует синтаксис PostgreSQL, как в источнике. Условия переноса зависят от версии EF Core и провайдера, поэтому при дальнейшем сравнении нужно фиксировать оба.
 
+**Желаемый таргет: 50–70 сценариев.**
+
 Текст документации Microsoft / .NET team распространяется по [CC BY 4.0](https://github.com/dotnet/EntityFramework.Docs/blob/main/LICENSE), а [примеры кода — по MIT](https://github.com/dotnet/EntityFramework.Docs/blob/main/LICENSE-CODE), © Microsoft Corporation. Здесь примеры сокращены, проекции упрощены и добавлены критерии проверки. Уведомление MIT приведено в конце файла. Ссылки в каждой карточке ведут к разделу с контекстом.
 
-Используются модели примеров `Blog`, `Post`, `Contributor` и `Book`. Карточки взяты из разных разделов документации; одноимённые модели не образуют единую схему. Для outer join и загрузки коллекций нужна фикстура с пустой коллекцией. Отмечать `[x]` следует после переноса сценария в regression-набор и выполнения на заявленных диалектах. Для клиентских операций проверять и SQL, и итоговый результат.
+Используются модели примеров `Blog`, `Post`, `Contributor` и `Book`. Карточки взяты из разных разделов документации; одноимённые модели не образуют единую схему. Для outer join и загрузки коллекций нужна фикстура с пустой коллекцией. Для клиентских операций проверять и SQL, и итоговый результат.
+
+Для EF-01–EF-05 ниже добавлены реализация на typed-sql и SQL, полученный её компилятором. В блоках «SQL typed-sql» первая строка запускает компилятор, остальные строки — его вывод. Запустить проверку можно командой `opam exec -- dune runtest doc/query-builder-survey`.
+
+Статусы в карточках: `✓` — подтверждено; `✗` — условие не выполнено; `—` — не оценивалось. «Семантика» учитывает входные параметры, результат, `NULL` и заданный порядок относительно серверного запроса в карточке; клиентская сборка объектов EF Core сюда не входит. «Без доработок» относится к публичному API typed-sql, а не к необходимости улучшить пример. Реализуемость оценивается после попытки написать OCaml-код.
+
+## Общие дескрипторы для EF-01–EF-05
+
+Эти descriptors используются во всех пяти примерах этого файла.
+
+```ocaml
+open! Base
+open Typed_sql
+open Infix
+
+module Blog = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "Blogs"
+  let id_column = Column.v_exn table "BlogId" Db_type.int64
+  let id row = Expr.column row id_column
+end
+
+module Post = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "Posts"
+  let id_column = Column.v_exn table "PostId" Db_type.int64
+  let blog_id_column = Column.v_exn table "BlogId" Db_type.int64
+  let date_column = Column.v_exn table "Date" Db_type.timestamp
+  let id row = Expr.column row id_column
+  let blog_id row = Expr.column row blog_id_column
+  let date row = Expr.column row date_column
+  let nullable_id row = Expr.nullable_column row id_column
+end
+```
 
 ### EF-01. Страница через OFFSET
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✗
+- Без доработок typed-sql: ✓
+- Замечание: `skip` и `take` заменены фиксированными `20` и `10`.
+
 - Источник: [offset pagination](https://learn.microsoft.com/en-us/ef/core/querying/pagination#offset-pagination).
 - Проверяет: порядок и границы страницы.
 
@@ -27,9 +69,42 @@ var page = await context.Posts
     .ToListAsync();
 ```
 
+#### OCaml (typed-sql)
+
+typed-sql рендерит portable PostgreSQL SQL. Здесь OFFSET и LIMIT задаются значениями при построении запроса.
+
+```ocaml
+let ef01 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Post.table
+      |> order_by Post.id `Asc
+      |> limit 10
+      |> offset 20
+      |> select (fun post -> Projection.expr (Post.id post))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef01);;
+SELECT
+  t0."PostId"
+FROM "Posts" AS t0
+ORDER BY
+  t0."PostId" ASC
+LIMIT 10
+OFFSET 20
+```
+
 ### EF-02. Keyset по двум колонкам
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✗
+- Без доработок typed-sql: ✓
+- Замечание: `lastDate`, `lastId` и `take` заменены фиксированными значениями.
+
 - Источник: [multiple pagination keys](https://learn.microsoft.com/en-us/ef/core/querying/pagination#multiple-pagination-keys).
 - Проверяет: лексикографический фильтр с составным порядком и дублирующимися датами.
 
@@ -52,9 +127,56 @@ var page = await context.Posts
     .ToListAsync();
 ```
 
+#### OCaml (typed-sql)
+
+Порядок по дате и ключу задаёт лексикографическое условие для следующей страницы.
+
+```ocaml
+let last_date =
+  Ptime.of_date_time ((2020, 1, 1), ((0, 0, 0), 0)) |> Option.value_exn
+
+let ef02 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Post.table
+      |> where (fun post ->
+        (Post.date post >$ last_date)
+        ||. ((Post.date post =$ last_date) &&. (Post.id post >$ 55L)))
+      |> order_by Post.date `Asc
+      |> order_by Post.id `Asc
+      |> limit 10
+      |> select (fun post -> Projection.pair (Post.id post) (Post.date post))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef02);;
+SELECT
+  t0."PostId",
+  t0."Date"
+FROM "Posts" AS t0
+WHERE
+  (
+    (t0."Date" > $1)
+    OR (
+      (t0."Date" = $2)
+      AND (t0."PostId" > $3)
+    )
+  )
+ORDER BY
+  t0."Date" ASC,
+  t0."PostId" ASC
+LIMIT 10
+```
+
 ### EF-03. INNER JOIN
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+
 - Источник: [Join](https://learn.microsoft.com/en-us/ef/core/querying/complex-query-operators#join).
 - Проверяет: соединение по ключу и число результирующих строк.
 
@@ -71,9 +193,40 @@ var query =
     select new { b.BlogId, p.PostId };
 ```
 
+#### OCaml (typed-sql)
+
+Соединение строится по внешнему ключу BlogId.
+
+```ocaml
+let ef03 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Blog.table
+      |> inner_join Post.table ~on:(fun blog post ->
+        Blog.id blog =. Post.blog_id post)
+      |> select (fun (blog, post) ->
+        Projection.pair (Blog.id blog) (Post.id post))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef03);;
+SELECT
+  t0."BlogId",
+  t1."PostId"
+FROM "Blogs" AS t0
+INNER JOIN "Posts" AS t1
+  ON (t0."BlogId" = t1."BlogId")
+```
+
 ### EF-04. LEFT JOIN через GroupJoin
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+
 - Источник: [left join](https://learn.microsoft.com/en-us/ef/core/querying/complex-query-operators#left-join).
 - Проверяет: `DefaultIfEmpty` и строку для блога без постов.
 
@@ -91,9 +244,41 @@ var query =
     select new { b.BlogId, PostId = p == null ? (int?)null : p.PostId };
 ```
 
+#### OCaml (typed-sql)
+
+Правый ключ выбирается как option, чтобы представить blog без поста.
+
+```ocaml
+let ef04 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Blog.table
+      |> left_join Post.table ~on:(fun blog post ->
+        Blog.id blog =. Post.blog_id post)
+      |> select (fun (blog, post) ->
+        Projection.pair (Blog.id blog) (Post.nullable_id post))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef04);;
+SELECT
+  t0."BlogId",
+  t1."PostId"
+FROM "Blogs" AS t0
+LEFT JOIN "Posts" AS t1
+  ON (t0."BlogId" = t1."BlogId")
+```
+
 ### EF-05. CROSS JOIN
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Замечание: `INNER JOIN ... ON TRUE` вместо `CROSS JOIN`; строки совпадают.
+
 - Источник: [SelectMany without outer reference](https://learn.microsoft.com/en-us/ef/core/querying/complex-query-operators#collection-selector-doesnt-reference-outer).
 - Проверяет: декартово произведение двух источников.
 
@@ -110,9 +295,39 @@ var query =
     select new { b.BlogId, p.PostId };
 ```
 
+#### OCaml (typed-sql)
+
+В текущем DSL нет отдельного cross_join. Условие TRUE даёт то же декартово множество строк, но компилятор выводит INNER JOIN ... ON TRUE.
+
+```ocaml
+let ef05 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Blog.table
+      |> inner_join Post.table ~on:(fun _blog _post -> Condition.true_)
+      |> select (fun (blog, post) ->
+        Projection.pair (Blog.id blog) (Post.id post))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef05);;
+SELECT
+  t0."BlogId",
+  t1."PostId"
+FROM "Blogs" AS t0
+INNER JOIN "Posts" AS t1
+  ON TRUE
+```
+
 ### EF-06. Коррелированный selector как JOIN
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [collection selector references outer in WHERE](https://learn.microsoft.com/en-us/ef/core/querying/complex-query-operators#collection-selector-references-outer-in-a-where-clause).
 - Проверяет: перевод ссылки на внешнюю строку в условие соединения.
 
@@ -131,7 +346,11 @@ var query =
 
 ### EF-07. Коррелированная проекция как APPLY
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [collection selector references outer outside WHERE](https://learn.microsoft.com/en-us/ef/core/querying/complex-query-operators#collection-selector-references-outer-in-a-non-where-case).
 - Проверяет: зависимый источник и границу переносимости; SQLite не поддерживает `APPLY`.
 
@@ -150,7 +369,11 @@ var query =
 
 ### EF-08. GROUP BY с COUNT
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [GroupBy](https://learn.microsoft.com/en-us/ef/core/querying/complex-query-operators#groupby).
 - Проверяет: серверную агрегацию и отсутствие группы для пустого источника.
 
@@ -168,7 +391,11 @@ var query = context.Posts
 
 ### EF-09. HAVING после группировки
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [GroupBy with aggregate predicate](https://learn.microsoft.com/en-us/ef/core/querying/complex-query-operators#groupby).
 - Проверяет: применение условия к группе, затем сортировку.
 
@@ -190,7 +417,11 @@ var query = context.Posts
 
 ### EF-10. Подзапрос в IN
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [EF Core 8: better use of IN queries](https://learn.microsoft.com/en-us/ef/core/what-is-new/ef-core-8.0/whatsnew#better-use-of-in-queries).
 - Проверяет: `Contains` с подзапросом и устранение корреляции. SQL в источнике дан для PostgreSQL.
 
@@ -208,7 +439,11 @@ var blogs = await context.Blogs
 
 ### EF-11. GroupBy с финальной группировкой на клиенте
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [GroupBy without aggregate](https://learn.microsoft.com/en-us/ef/core/querying/complex-query-operators#groupby).
 - Проверяет: различие между SQL-строками и итоговыми группами; EF Core 7+ собирает группы после чтения.
 
@@ -228,7 +463,11 @@ var groups = await context.Books
 
 ### EF-12. Include двух соседних коллекций
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [cartesian explosion](https://learn.microsoft.com/en-us/ef/core/querying/single-split-queries#cartesian-explosion).
 - Проверяет: два `LEFT JOIN`, умножение строк на сервере и сборку двух коллекций на клиенте.
 
@@ -249,7 +488,11 @@ var blogs = await context.Blogs
 
 ### EF-13. Split query для коллекции
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [split queries](https://learn.microsoft.com/en-us/ef/core/querying/single-split-queries#split-queries).
 - Проверяет: два серверных запроса, порядок строк и сборку коллекции на клиенте.
 
@@ -271,7 +514,11 @@ var blogs = await context.Blogs
 
 ### EF-14. ExecuteUpdate с коррелированным агрегатом
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [updating from related entities](https://learn.microsoft.com/en-us/ef/core/saving/execute-insert-update-delete#navigations-and-related-entities).
 - Проверяет: выражение для `SET` на основе связанных строк и поведение при пустой коллекции.
 
@@ -299,7 +546,11 @@ await context.Blogs
 
 ### EF-15. ExecuteDelete
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [ExecuteDelete](https://learn.microsoft.com/en-us/ef/core/saving/execute-insert-update-delete#executedelete).
 - Проверяет: массовое условное удаление без загрузки сущностей.
 

@@ -2,15 +2,61 @@
 
 # Сценарии запросов из Kysely
 
-Первые 15 сценариев по [API Kysely](https://kysely-org.github.io/kysely-apidoc/) (доступ 28.09.2026). Примеры сокращены и адаптированы. Это каталог кандидатов для regression-набора; приведённый SQL показывает ожидаемую форму для PostgreSQL, а не побайтовый снимок вывода Kysely. Плейсхолдеры `$1`, `$2` и далее обозначают bind-параметры.
+Первые 15 сценариев по [API Kysely](https://kysely-org.github.io/kysely-apidoc/) (доступ 28.09.2026). Примеры сокращены и адаптированы. Это каталог кандидатов для автоматических тестов запросов; приведённый SQL показывает ожидаемую форму для PostgreSQL, а не побайтовый снимок вывода Kysely. Плейсхолдеры `$1`, `$2` и далее обозначают bind-параметры.
+
+**Желаемый таргет: 50–70 сценариев.**
 
 Источник примеров: Kysely, © 2022 Sami Koskimäki, [лицензия MIT](https://github.com/kysely-org/kysely/blob/master/LICENSE). Копирайт и текст разрешения приведены в конце файла. Схема: `person(id, first_name, last_name, age)` и `pet(id, owner_id, name, species)`. Для проверки nullable-результатов нужна персона без питомцев.
 
-Отмечать `[x]` следует после переноса сценария в regression-набор и выполнения на заявленных диалектах.
+Для KY-01–KY-05 ниже добавлены реализация на typed-sql и SQL, полученный её компилятором. В блоках «SQL typed-sql» первая строка запускает компилятор, остальные строки — его вывод. Запустить проверку можно командой `opam exec -- dune runtest doc/query-builder-survey`.
+
+Статусы в карточках: `✓` — подтверждено; `✗` — условие не выполнено; `—` — не оценивалось. «Семантика» учитывает входные параметры, результат, `NULL` и заданный порядок относительно сценария в карточке. «Без доработок» относится к публичному API typed-sql, а не к необходимости улучшить пример. Реализуемость оценивается после попытки написать OCaml-код.
+
+## Общие дескрипторы для KY-01–KY-05
+
+Эти descriptors используются во всех пяти примерах этого файла.
+
+```ocaml
+open! Base
+open Typed_sql
+open Infix
+
+module Person = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "person"
+  let id_column = Column.v_exn table "id" Db_type.int64
+  let first_name_column = Column.v_exn table "first_name" Db_type.text
+  let last_name_column = Column.v_exn table "last_name" Db_type.text
+  let age_column = Column.v_exn table "age" Db_type.int
+  let id row = Expr.column row id_column
+  let first_name row = Expr.column row first_name_column
+  let last_name row = Expr.column row last_name_column
+  let age row = Expr.column row age_column
+end
+
+module Pet = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "pet"
+  let id_column = Column.v_exn table "id" Db_type.int64
+  let owner_id_column = Column.v_exn table "owner_id" Db_type.int64
+  let name_column = Column.v_exn table "name" Db_type.text
+  let id row = Expr.column row id_column
+  let owner_id row = Expr.column row owner_id_column
+  let name row = Expr.column row name_column
+  let nullable_name row = Expr.nullable_column row name_column
+end
+```
 
 ### KY-01. Фильтр и проекция
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✗
+- Без доработок typed-sql: ✓
+- Замечание: `minAge` заменён фиксированным значением `18`.
+
 - Источник: [select](https://kysely-org.github.io/kysely-apidoc/interfaces/SelectQueryBuilder.html#select), [where](https://kysely-org.github.io/kysely-apidoc/interfaces/SelectQueryBuilder.html#where).
 - Проверяет: проекцию и bind-параметр.
 
@@ -25,9 +71,39 @@ await db.selectFrom('person')
   .execute()
 ```
 
+#### OCaml (typed-sql)
+
+Фильтр по возрасту остаётся bind-параметром; проекция сохраняет обе колонки.
+
+```ocaml
+let kysely01 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Person.table
+      |> where (fun person -> Person.age person >=$ 18)
+      |> select (fun person ->
+        Projection.pair (Person.id person) (Person.first_name person))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely01);;
+SELECT
+  t0."id",
+  t0."first_name"
+FROM "person" AS t0
+WHERE
+  (t0."age" >= $1)
+```
+
 ### KY-02. Условный фильтр
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+
 - Источник: [динамическая композиция WHERE](https://kysely-org.github.io/kysely-apidoc/interfaces/SelectQueryBuilder.html#where).
 - Проверяет: две формы запроса при наличии и отсутствии фильтра.
 
@@ -45,9 +121,47 @@ if (minAge !== undefined) {
 await query.execute()
 ```
 
+#### OCaml (typed-sql)
+
+Опциональный фильтр меняет форму SQL, поэтому используется динамический statement. MDX печатает оба варианта.
+
+```ocaml
+let kysely02 =
+  Statement.Dynamic.Portable.query_many (fun minimum_age ->
+    Query.(
+      from Person.table
+      |> where_opt minimum_age ~f:(fun person age -> Person.age person >=$ age)
+      |> select (fun person -> Projection.expr (Person.id person))))
+```
+
+#### SQL typed-sql (PostgreSQL, фильтр есть)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(Some 18) kysely02);;
+SELECT
+  t0."id"
+FROM "person" AS t0
+WHERE
+  (t0."age" >= $1)
+```
+
+#### SQL typed-sql (PostgreSQL, фильтр отсутствует)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:None kysely02);;
+SELECT
+  t0."id"
+FROM "person" AS t0
+```
+
 ### KY-03. Вложенные AND и OR
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✗
+- Без доработок typed-sql: ✓
+- Замечание: `young`, `old` и `surname` заменены фиксированными значениями.
+
 - Источник: [ExpressionBuilder](https://kysely-org.github.io/kysely-apidoc/interfaces/ExpressionBuilder.html).
 - Проверяет: приоритет и группировку предикатов.
 
@@ -66,9 +180,45 @@ await db.selectFrom('person')
   .execute()
 ```
 
+#### OCaml (typed-sql)
+
+Условия собраны с явными скобками: OR остаётся внутри AND.
+
+```ocaml
+let kysely03 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Person.table
+      |> where (fun person ->
+        ((Person.age person <$ 18) ||. (Person.age person >$ 65))
+        &&. (Person.last_name person =$ "Smith"))
+      |> select (fun person -> Projection.expr (Person.id person))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely03);;
+SELECT
+  t0."id"
+FROM "person" AS t0
+WHERE
+  (
+    (
+      (t0."age" < $1)
+      OR (t0."age" > $2)
+    )
+    AND (t0."last_name" = $3)
+  )
+```
+
 ### KY-04. INNER JOIN
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+
 - Источник: [innerJoin](https://kysely-org.github.io/kysely-apidoc/interfaces/SelectQueryBuilder.html#innerJoin).
 - Проверяет: связь двух таблиц и квалификацию одинаковых имён колонок.
 
@@ -85,9 +235,40 @@ await db.selectFrom('person')
   .execute()
 ```
 
+#### OCaml (typed-sql)
+
+Обе таблицы имеют собственные типизированные ссылки; одинаковые имена колонок не требуют ручного alias.
+
+```ocaml
+let kysely04 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Person.table
+      |> inner_join Pet.table ~on:(fun person pet ->
+        Pet.owner_id pet =. Person.id person)
+      |> select (fun (person, pet) ->
+        Projection.pair (Person.id person) (Pet.name pet))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely04);;
+SELECT
+  t0."id",
+  t1."name"
+FROM "person" AS t0
+INNER JOIN "pet" AS t1
+  ON (t1."owner_id" = t0."id")
+```
+
 ### KY-05. LEFT JOIN
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+
 - Источник: [leftJoin](https://kysely-org.github.io/kysely-apidoc/interfaces/SelectQueryBuilder.html#leftJoin).
 - Проверяет: сохранение персоны без питомца и nullable-правую сторону.
 
@@ -104,9 +285,40 @@ await db.selectFrom('person')
   .execute()
 ```
 
+#### OCaml (typed-sql)
+
+После LEFT JOIN имя питомца становится nullable в OCaml-типе результата.
+
+```ocaml
+let kysely05 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Person.table
+      |> left_join Pet.table ~on:(fun person pet ->
+        Pet.owner_id pet =. Person.id person)
+      |> select (fun (person, pet) ->
+        Projection.pair (Person.id person) (Pet.nullable_name pet))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely05);;
+SELECT
+  t0."id",
+  t1."name"
+FROM "person" AS t0
+LEFT JOIN "pet" AS t1
+  ON (t1."owner_id" = t0."id")
+```
+
 ### KY-06. Группировка и HAVING
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [groupBy](https://kysely-org.github.io/kysely-apidoc/interfaces/SelectQueryBuilder.html#groupBy), [having](https://kysely-org.github.io/kysely-apidoc/interfaces/SelectQueryBuilder.html#having).
 - Проверяет: агрегат в проекции и предикате группы.
 
@@ -130,7 +342,11 @@ await db.selectFrom('pet')
 
 ### KY-07. Коррелированный scalar subquery
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [select с подзапросом](https://kysely-org.github.io/kysely-apidoc/interfaces/SelectQueryBuilder.html#select).
 - Проверяет: обращение к внешней строке и ноль вместо NULL для пустой группы.
 
@@ -155,7 +371,11 @@ await db.selectFrom('person')
 
 ### KY-08. Коррелированный EXISTS
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [exists](https://kysely-org.github.io/kysely-apidoc/interfaces/ExpressionBuilder.html#exists).
 - Проверяет: фильтр по наличию связанной строки.
 
@@ -181,7 +401,11 @@ await db.selectFrom('person')
 
 ### KY-09. Derived table
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [selectFrom](https://kysely-org.github.io/kysely-apidoc/classes/Kysely.html#selectFrom), [as](https://kysely-org.github.io/kysely-apidoc/interfaces/SelectQueryBuilder.html#as).
 - Проверяет: агрегированный подзапрос как источник строк.
 
@@ -211,7 +435,11 @@ await db.selectFrom(counts)
 
 ### KY-10. CTE
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [with](https://kysely-org.github.io/kysely-apidoc/classes/Kysely.html#with).
 - Проверяет: объявление и использование именованного запроса.
 
@@ -234,7 +462,11 @@ await db.with('older_people', (db) =>
 
 ### KY-11. UNION
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [union](https://kysely-org.github.io/kysely-apidoc/interfaces/SelectQueryBuilder.html#union).
 - Проверяет: совместимость проекций и удаление дублей.
 
@@ -253,7 +485,11 @@ await db.selectFrom('person')
 
 ### KY-12. Оконный агрегат
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [over](https://kysely-org.github.io/kysely-apidoc/interfaces/AggregateFunctionBuilder.html#over).
 - Проверяет: число питомцев в каждой группе без схлопывания строк.
 
@@ -277,7 +513,11 @@ await db.selectFrom('pet')
 
 ### KY-13. INSERT RETURNING
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [insertInto](https://kysely-org.github.io/kysely-apidoc/classes/Kysely.html#insertInto), [returning](https://kysely-org.github.io/kysely-apidoc/interfaces/InsertQueryBuilder.html#returning).
 - Проверяет: вставку со значениями и возвращаемыми колонками.
 
@@ -296,7 +536,11 @@ await db.insertInto('person')
 
 ### KY-14. UPDATE RETURNING
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [updateTable](https://kysely-org.github.io/kysely-apidoc/classes/Kysely.html#updateTable), [returning](https://kysely-org.github.io/kysely-apidoc/interfaces/UpdateQueryBuilder.html#returning).
 - Проверяет: арифметическое обновление и возвращаемую строку.
 
@@ -316,7 +560,11 @@ await db.updateTable('person')
 
 ### KY-15. DELETE RETURNING
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [deleteFrom](https://kysely-org.github.io/kysely-apidoc/classes/Kysely.html#deleteFrom), [returning](https://kysely-org.github.io/kysely-apidoc/interfaces/DeleteQueryBuilder.html#returning).
 - Проверяет: удаление и данные удалённой строки.
 

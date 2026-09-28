@@ -4,13 +4,54 @@
 
 Первые 15 сценариев по [SQLAlchemy 2.0 Unified Tutorial](https://docs.sqlalchemy.org/en/20/tutorial/) (доступ 28.09.2026). Использован SQLAlchemy Core. Примеры сокращены и адаптированы; SQL показывает ожидаемую структуру запроса, а не точный вывод компилятора. Имена bind-параметров могут отличаться у разных диалектов.
 
+**Желаемый таргет: 50–70 сценариев.**
+
 Источник примеров: SQLAlchemy authors and contributors, © 2005–2026, [лицензия MIT](https://github.com/sqlalchemy/sqlalchemy/blob/main/LICENSE). Уведомление о лицензии приведено в конце файла. Схема tutorial: `user_account(id, name, fullname)` и `address(id, user_id, email_address)`. Для проверки пустых результатов нужна учётная запись без адресов.
 
-Отмечать `[x]` следует после переноса сценария в regression-набор и выполнения на заявленных диалектах.
+Для SA-01–SA-05 ниже добавлены реализация на typed-sql и SQL, полученный её компилятором. В блоках «SQL typed-sql» первая строка запускает компилятор, остальные строки — его вывод. Запустить проверку можно командой `opam exec -- dune runtest doc/query-builder-survey`.
+
+Статусы в карточках: `✓` — подтверждено; `✗` — условие не выполнено; `—` — не оценивалось. «Семантика» учитывает входные параметры, результат, `NULL` и заданный порядок относительно сценария в карточке. «Без доработок» относится к публичному API typed-sql, а не к необходимости улучшить пример. Реализуемость оценивается после попытки написать OCaml-код.
+
+## Общие дескрипторы для SA-01–SA-05
+
+Эти descriptors используются во всех пяти примерах этого файла.
+
+```ocaml
+open! Base
+open Typed_sql
+open Infix
+
+module User_account = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "user_account"
+  let id_column = Column.v_exn table "id" Db_type.int64
+  let name_column = Column.v_exn table "name" Db_type.text
+  let id row = Expr.column row id_column
+  let name row = Expr.column row name_column
+end
+
+module Address = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "address"
+  let id_column = Column.v_exn table "id" Db_type.int64
+  let user_id_column = Column.v_exn table "user_id" Db_type.int64
+  let email_column = Column.v_exn table "email_address" Db_type.text
+  let user_id row = Expr.column row user_id_column
+  let email row = Expr.column row email_column
+  let nullable_email row = Expr.nullable_column row email_column
+end
+```
 
 ### SA-01. Фильтр и проекция
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✗
+- Без доработок typed-sql: ✓
+- Замечание: `name` заменён фиксированным значением `sandy`.
+
 - Источник: [SELECT и WHERE](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#the-where-clause).
 - Проверяет: выбор двух колонок с bind-параметром.
 
@@ -26,9 +67,40 @@ stmt = select(user_table.c.id, user_table.c.name).where(
 )
 ```
 
+#### OCaml (typed-sql)
+
+Bind-значение сравнивается с выражением колонки; проекция декодируется в пару.
+
+```ocaml
+let sqlalchemy01 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from User_account.table
+      |> where (fun user -> User_account.name user =$ "sandy")
+      |> select (fun user ->
+        Projection.pair (User_account.id user) (User_account.name user))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy01);;
+SELECT
+  t0."id",
+  t0."name"
+FROM "user_account" AS t0
+WHERE
+  (t0."name" = $1)
+```
+
 ### SA-02. Составной предикат
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✗
+- Без доработок typed-sql: ✓
+- Замечание: `name1`, `name2` и `min_id` заменены фиксированными значениями.
+
 - Источник: [WHERE clause](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#the-where-clause).
 - Проверяет: группировку `OR` внутри `AND`.
 
@@ -46,9 +118,47 @@ stmt = select(user_table.c.id).where(
 )
 ```
 
+#### OCaml (typed-sql)
+
+OR-группа явно вложена в AND-группу.
+
+```ocaml
+let sqlalchemy02 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from User_account.table
+      |> where (fun user ->
+        ((User_account.name user =$ "sandy")
+         ||. (User_account.name user =$ "spongebob"))
+        &&. (User_account.id user >$ 1L))
+      |> select (fun user -> Projection.expr (User_account.id user))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy02);;
+SELECT
+  t0."id"
+FROM "user_account" AS t0
+WHERE
+  (
+    (
+      (t0."name" = $1)
+      OR (t0."name" = $2)
+    )
+    AND (t0."id" > $3)
+  )
+```
+
 ### SA-03. Сортировка и страница
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✗
+- Без доработок typed-sql: ✓
+- Замечание: `page_size` и `page_offset` заменены фиксированными значениями.
+
 - Источник: [ORDER BY](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#order-by), [limit/offset](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.GenerativeSelect.limit).
 - Проверяет: устойчивый порядок, `LIMIT` и `OFFSET`.
 
@@ -68,9 +178,44 @@ stmt = (
 )
 ```
 
+#### OCaml (typed-sql)
+
+Порядок по уникальному id задаёт стабильную страницу.
+
+```ocaml
+let sqlalchemy03 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from User_account.table
+      |> order_by User_account.id `Asc
+      |> limit 10
+      |> offset 20
+      |> select (fun user ->
+        Projection.pair (User_account.id user) (User_account.name user))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy03);;
+SELECT
+  t0."id",
+  t0."name"
+FROM "user_account" AS t0
+ORDER BY
+  t0."id" ASC
+LIMIT 10
+OFFSET 20
+```
+
 ### SA-04. INNER JOIN
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Замечание: Предикат JOIN задан явно вместо вывода по foreign key.
+
 - Источник: [explicit JOIN](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#explicit-from-clauses-and-joins).
 - Проверяет: связь таблиц по внешнему ключу.
 
@@ -87,9 +232,40 @@ stmt = (
 )
 ```
 
+#### OCaml (typed-sql)
+
+Foreign key связь задаётся явно через callback JOIN.
+
+```ocaml
+let sqlalchemy04 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from User_account.table
+      |> inner_join Address.table ~on:(fun user address ->
+        User_account.id user =. Address.user_id address)
+      |> select (fun (user, address) ->
+        Projection.pair (User_account.name user) (Address.email address))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy04);;
+SELECT
+  t0."name",
+  t1."email_address"
+FROM "user_account" AS t0
+INNER JOIN "address" AS t1
+  ON (t0."id" = t1."user_id")
+```
+
 ### SA-05. LEFT OUTER JOIN
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+
 - Источник: [OUTER JOIN](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#outer-and-full-join).
 - Проверяет: сохранение учётной записи без адреса и nullable-поле.
 
@@ -106,9 +282,40 @@ stmt = (
 )
 ```
 
+#### OCaml (typed-sql)
+
+Nullable-колонка адреса в результате имеет тип string option.
+
+```ocaml
+let sqlalchemy05 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from User_account.table
+      |> left_join Address.table ~on:(fun user address ->
+        User_account.id user =. Address.user_id address)
+      |> select (fun (user, address) ->
+        Projection.pair (User_account.name user) (Address.nullable_email address))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy05);;
+SELECT
+  t0."name",
+  t1."email_address"
+FROM "user_account" AS t0
+LEFT JOIN "address" AS t1
+  ON (t0."id" = t1."user_id")
+```
+
 ### SA-06. GROUP BY и HAVING
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [aggregate functions with GROUP BY/HAVING](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#aggregate-functions-with-group-by-having).
 - Проверяет: фильтрацию агрегированных групп.
 
@@ -132,7 +339,11 @@ stmt = (
 
 ### SA-07. Коррелированный scalar subquery
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [scalar and correlated subqueries](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#scalar-and-correlated-subqueries).
 - Проверяет: число связанных строк, включая ноль.
 
@@ -155,7 +366,11 @@ stmt = select(user_table.c.id, address_count.label("address_count"))
 
 ### SA-08. Коррелированный EXISTS
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [EXISTS subqueries](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#exists-subqueries).
 - Проверяет: фильтрацию без дублирования внешних строк.
 
@@ -179,7 +394,11 @@ stmt = select(user_table.c.id).where(has_address)
 
 ### SA-09. Derived table
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [subqueries and CTEs](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#subqueries-and-ctes).
 - Проверяет: агрегированный подзапрос в `FROM`.
 
@@ -208,7 +427,11 @@ stmt = select(counts.c.user_id, counts.c.address_count).where(
 
 ### SA-10. CTE
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [common table expressions](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#common-table-expressions-ctes).
 - Проверяет: именованный источник строк и обращение к его колонкам.
 
@@ -235,7 +458,11 @@ stmt = select(counts.c.user_id, counts.c.address_count)
 
 ### SA-11. UNION
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [UNION and other set operations](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#union-union-all-and-other-set-operations).
 - Проверяет: одинаковую проекцию двух запросов и удаление дублей.
 
@@ -254,7 +481,11 @@ stmt = union(
 
 ### SA-12. Оконная функция
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [using window functions](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#using-window-functions).
 - Проверяет: нумерацию строк внутри группы без схлопывания результата.
 
@@ -281,7 +512,11 @@ stmt = select(
 
 ### SA-13. INSERT RETURNING
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [INSERT and RETURNING](https://docs.sqlalchemy.org/en/20/tutorial/data_insert.html#insert-returning).
 - Проверяет: возврат данных вставленной строки; синтаксис `RETURNING` зависит от диалекта.
 
@@ -301,7 +536,11 @@ stmt = (
 
 ### SA-14. Коррелированный UPDATE
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [correlated updates](https://docs.sqlalchemy.org/en/20/tutorial/data_update.html#correlated-updates).
 - Проверяет: scalar subquery в `SET` и `NULL` при отсутствии адреса.
 
@@ -327,7 +566,11 @@ stmt = update(user_table).values(fullname=first_email)
 
 ### SA-15. DELETE RETURNING
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [DELETE](https://docs.sqlalchemy.org/en/20/tutorial/data_update.html#the-delete-sql-expression-construct), [RETURNING](https://docs.sqlalchemy.org/en/20/tutorial/data_update.html#using-returning-with-update-delete).
 - Проверяет: условное удаление и возвращаемые значения; `RETURNING` зависит от диалекта.
 

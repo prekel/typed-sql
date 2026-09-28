@@ -1,5 +1,7 @@
 (lang dune 3.23)
 
+(using mdx 0.4)
+
 (name typed-sql)
 
 (version 0.3.4)
@@ -29,6 +31,7 @@
   ppx_let
   (ppx_fields_conv :with-test)
   (qcheck :with-test)
+  (mdx :with-test)
   (ppx_expect :with-test)
   (bisect_ppx :with-dev-setup)
   (ocamlformat (and (= 0.29.0) :with-dev-setup))

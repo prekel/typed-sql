@@ -2,19 +2,67 @@
 
 # Сценарии запросов из jOOQ
 
-Начальная выборка сценариев из [руководства пользователя jOOQ 3.21](https://www.jooq.org/doc/3.21/manual/). Это каталог для последующего переноса запросов в общий regression-набор. Он не претендует на полный список возможностей jOOQ.
+Начальная выборка сценариев из [руководства пользователя jOOQ 3.21](https://www.jooq.org/doc/3.21/manual/). Это каталог для последующего включения запросов в общий набор автоматических тестов. Он не претендует на полный список возможностей jOOQ.
+
+**Желаемый таргет: 60–100 сценариев.**
 
 Источник: *The jOOQ User Manual*, © 2009–2026 Data Geekery GmbH, лицензия [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Запросы отобраны, сокращены и местами адаптированы; ссылки ведут к исходным разделам. Этот файл с адаптациями распространяется на условиях CC BY-SA 4.0. Указание источника не означает одобрения со стороны jOOQ или Data Geekery GmbH.
 
 Для запросов используется схема примеров jOOQ: `AUTHOR`, `BOOK`, `LANGUAGE`, `BOOK_STORE` и `BOOK_TO_BOOK_STORE`. Состав и примерные данные описаны в [разделе о sample database](https://www.jooq.org/doc/3.21/manual/getting-started/sample-database/). Значения в SQL показаны для ясности; при переносе нужно проверить, что значения остаются bind-параметрами.
 
-Отмечать `[x]` следует после того, как сценарий перенесён в regression-набор и проверен на заявленных диалектах. Записи, где синтаксис является синтетическим расширением jOOQ, требуют проверки сгенерированного SQL; приведённая там форма SQL может не исполняться напрямую.
+Записи, где синтаксис является синтетическим расширением jOOQ, требуют проверки сгенерированного SQL; приведённая там форма SQL может не исполняться напрямую.
+
+Для JQ-01–JQ-05 ниже приведены реализация на typed-sql и SQL, полученный её компилятором. В блоках «SQL typed-sql» первая строка запускает компилятор, остальные строки — его вывод. OCaml-блоки выполняются через MDX: `opam exec -- dune runtest doc/query-builder-survey`. Проверка MDX подтверждает построение запроса и вывод SQL.
+
+Статусы в карточках: `✓` — подтверждено; `✗` — условие не выполнено; `—` — не оценивалось. «Семантика» учитывает входные параметры, результат, `NULL` и заданный порядок относительно адаптированного сценария в этой карточке. «Без доработок» относится к публичному API typed-sql, а не к необходимости улучшить пример. Реализуемость оценивается после попытки написать OCaml-код.
+
+## Общие дескрипторы для JQ-01–JQ-05
+
+Здесь используются таблицы `author` и `book`. Компилятор экранирует имена и назначает алиасы.
+
+```ocaml
+open! Base
+open Typed_sql
+open Infix
+
+module Author = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "author"
+  let id_column = Column.v_exn table "id" Db_type.int
+  let first_name_column = Column.v_exn table "first_name" Db_type.text
+  let last_name_column = Column.v_exn table "last_name" Db_type.text
+  let id row = Expr.column row id_column
+  let first_name row = Expr.column row first_name_column
+  let last_name row = Expr.column row last_name_column
+end
+
+module Book = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "book"
+  let id_column = Column.v_exn table "id" Db_type.int
+  let author_id_column = Column.v_exn table "author_id" Db_type.int
+  let title_column = Column.v_exn table "title" Db_type.text
+  let published_in_column = Column.v_exn table "published_in" Db_type.int
+  let id row = Expr.column row id_column
+  let author_id row = Expr.column row author_id_column
+  let title row = Expr.column row title_column
+  let published_in row = Expr.column row published_in_column
+  let nullable_id row = Expr.nullable_column row id_column
+  let nullable_title row = Expr.nullable_column row title_column
+end
+```
 
 ## SELECT и фильтрация
 
 ### JQ-01. Фильтр, JOIN, группировка, сортировка и страница
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+
 - Источник: [SELECT from a complex table expression](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/).
 - Проверяет: композицию основных SELECT-клауз и сохранение порядка применения `LIMIT`/`OFFSET`.
 
@@ -45,9 +93,63 @@ create.select(AUTHOR.FIRST_NAME, AUTHOR.LAST_NAME, count())
 
 Запрос адаптирован по примеру руководства: исключены `FOR UPDATE` и `NULLS FIRST`, чтобы сначала сравнить переносимую часть.
 
+#### OCaml (typed-sql)
+
+`Query.group_by` вызывается по одному разу для каждого ключа. `COUNT(*)` в `HAVING` и проекции относится к группе. Год и порог числа книг остаются bind-значениями.
+
+```ocaml
+let jq01 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Author.table
+      |> inner_join Book.table ~on:(fun author book ->
+        Book.author_id book =. Author.id author)
+      |> where (fun (_author, book) -> Book.published_in book >$ 1940)
+      |> group_by (fun (author, _book) -> Author.first_name author)
+      |> group_by (fun (author, _book) -> Author.last_name author)
+      |> having (fun _ -> Expr.count_all >$ 0L)
+      |> order_by (fun (author, _book) -> Author.last_name author) `Asc
+      |> limit 2
+      |> offset 1
+      |> select (fun (author, _book) ->
+        Projection.map3
+          ~f:(fun first last count -> first, last, count)
+          (Projection.expr (Author.first_name author))
+          (Projection.expr (Author.last_name author))
+          (Projection.expr Expr.count_all))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq01);;
+SELECT
+  t0."first_name",
+  t0."last_name",
+  COUNT(*)
+FROM "author" AS t0
+INNER JOIN "book" AS t1
+  ON (t1."author_id" = t0."id")
+WHERE
+  (t1."published_in" > $1)
+GROUP BY
+  t0."first_name",
+  t0."last_name"
+HAVING
+  (COUNT(*) > $2)
+ORDER BY
+  t0."last_name" ASC
+LIMIT 2
+OFFSET 1
+```
+
 ### JQ-02. Условный предикат и форма запроса
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+
 - Источник: [Optional conditional expressions](https://www.jooq.org/doc/3.21/manual/sql-building/dynamic-sql/no-condition/).
 - Проверяет: включение/исключение условия и соответствующее изменение SQL.
 
@@ -69,9 +171,66 @@ create.select(BOOK.ID)
       .fetch();
 ```
 
+#### OCaml (typed-sql)
+
+`where_opt` добавляет условие только при `Some`. Поэтому здесь используется `Statement.Dynamic.Portable`: форма SQL зависит от входа. Для двух заранее известных вариантов можно также создать два статических statements.
+
+```ocaml
+let jq02 =
+  Statement.Dynamic.Portable.query_many (fun book_id ->
+    Query.(
+      from Book.table
+      |> where_opt book_id ~f:(fun book id -> Book.id book =$ id)
+      |> select (fun book -> Projection.expr (Book.id book))))
+```
+
+#### SQL typed-sql (PostgreSQL, фильтр есть)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(Some 10) jq02);;
+SELECT
+  t0."id"
+FROM "book" AS t0
+WHERE
+  (t0."id" = $1)
+```
+
+#### SQL typed-sql (PostgreSQL, фильтр отсутствует)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:None jq02);;
+SELECT
+  t0."id"
+FROM "book" AS t0
+```
+
+#### SQL typed-sql (SQLite, фильтр есть)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Sqlite ~input:(Some 10) jq02);;
+SELECT
+  t0."id"
+FROM "book" AS t0
+WHERE
+  (t0."id" = ?1)
+```
+
+#### SQL typed-sql (SQLite, фильтр отсутствует)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Sqlite ~input:None jq02);;
+SELECT
+  t0."id"
+FROM "book" AS t0
+```
+
 ### JQ-03. LEFT JOIN с отсутствующей правой строкой
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+
 - Источник: [JOIN operator](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/from-clause/join-clause/).
 - Проверяет: сохранение левой строки без совпадения и nullable-поля правой стороны.
 
@@ -92,13 +251,55 @@ create.select(AUTHOR.ID, BOOK.ID, BOOK.TITLE)
 
 Для фикстуры нужно добавить автора без книг, иначе сценарий не проверяет null-extension.
 
+#### OCaml (typed-sql)
+
+После `left_join` дескриптор `Book` становится nullable. Поля книги выбираются через `Expr.nullable_column`; для автора без книг они декодируются как `None`.
+
+```ocaml
+let jq03 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Author.table
+      |> left_join Book.table ~on:(fun author book ->
+        Book.author_id book =. Author.id author)
+      |> order_by (fun (author, _book) -> Author.id author) `Asc
+      |> order_by (fun (_author, book) -> Book.nullable_id book) `Asc
+      |> select (fun (author, book) ->
+        Projection.map3
+          ~f:(fun author_id book_id title -> author_id, book_id, title)
+          (Projection.expr (Author.id author))
+          (Projection.expr (Book.nullable_id book))
+          (Projection.expr (Book.nullable_title book)))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq03);;
+SELECT
+  t0."id",
+  t1."id",
+  t1."title"
+FROM "author" AS t0
+LEFT JOIN "book" AS t1
+  ON (t1."author_id" = t0."id")
+ORDER BY
+  t0."id" ASC,
+  t1."id" ASC
+```
+
 ### JQ-04. Коррелированный EXISTS
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Замечание: Проверяется `WHERE EXISTS`; `EXISTS` в проекции здесь не проверяется.
+
 - Источник: [EXISTS predicate](https://www.jooq.org/doc/3.21/manual/sql-building/conditional-expressions/exists-predicate/).
 - Проверяет: корреляцию подзапроса и фильтрацию по наличию связанных строк.
 
-```sql
+```
 SELECT AUTHOR.ID, AUTHOR.LAST_NAME
 FROM AUTHOR
 WHERE EXISTS (
@@ -119,9 +320,49 @@ create.select(AUTHOR.ID, AUTHOR.LAST_NAME)
 
 Отдельным вариантом того же сценария стоит проверить `NOT EXISTS`.
 
+#### OCaml (typed-sql)
+
+Внутренний запрос захватывает `author` из внешнего callback. `Query.exists` получает незавершённый SELECT и сам формирует `SELECT 1`.
+
+```ocaml
+let jq04 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Author.table
+      |> where (fun author ->
+        Query.exists
+          Query.(
+            from Book.table
+            |> where (fun book -> Book.author_id book =. Author.id author)))
+      |> select (fun author ->
+        Projection.pair (Author.id author) (Author.last_name author))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq04);;
+SELECT
+  t0."id",
+  t0."last_name"
+FROM "author" AS t0
+WHERE
+  (EXISTS (
+    SELECT
+      1
+    FROM "book" AS t1
+    WHERE
+      (t1."author_id" = t0."id")
+  ))
+```
+
 ### JQ-05. Коррелированный scalar subquery в projection
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+
 - Источник: [Scalar subqueries](https://www.jooq.org/doc/3.21/manual/sql-building/column-expressions/scalar-subqueries/).
 - Проверяет: scalar aggregate-подзапрос, корреляцию к внешней строке и результат для автора без книг.
 
@@ -148,9 +389,54 @@ create.select(
       .fetch();
 ```
 
+#### OCaml (typed-sql)
+
+`Expr.scalar_subquery` возвращает `int64 option`: тип учитывает возможность отсутствия строки у произвольного scalar SELECT. У `COUNT(*)` без группировки строка есть даже при нуле книг; decoder здесь преобразует `None` в `0L`.
+
+```ocaml
+let jq05 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Author.table
+      |> order_by Author.id `Asc
+      |> select (fun author ->
+        let count =
+          Query.(
+            from Book.table
+            |> where (fun book -> Book.author_id book =. Author.id author)
+            |> select_scalar (fun _ -> Expr.count_all))
+        in
+        Projection.map2
+          ~f:(fun author_id count -> author_id, Option.value count ~default:0L)
+          (Projection.expr (Author.id author))
+          (Projection.expr (Expr.scalar_subquery count)))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq05);;
+SELECT
+  t0."id",
+  (
+    SELECT
+      COUNT(*)
+    FROM "book" AS t1
+    WHERE
+      (t1."author_id" = t0."id")
+  )
+FROM "author" AS t0
+ORDER BY
+  t0."id" ASC
+```
+
 ### JQ-06. Derived table с агрегатом
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [Derived tables](https://www.jooq.org/doc/3.21/manual/sql-building/table-expressions/derived-tables/).
 - Проверяет: использование результата одного SELECT как relation во внешнем SELECT.
 
@@ -178,7 +464,11 @@ create.select(nested.fields())
 
 ### JQ-07. CTE, используемый как relation
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [The WITH clause](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/with-clause/).
 - Проверяет: объявление CTE и обращение к нему во внешнем SELECT.
 
@@ -212,7 +502,11 @@ create.with(bookCounts)
 
 ### JQ-08. UNION двух SELECT
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [Set operations](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/set-operations/).
 - Проверяет: объединение строк с удалением дубликатов, одинаковую степень и типы колонок.
 
@@ -242,7 +536,11 @@ select(BOOK.ID)
 
 ### JQ-09. GROUP BY и HAVING
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [HAVING clause](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/having-clause/).
 - Проверяет: количество строк в каждой группе и фильтр уже сформированных групп.
 
@@ -263,7 +561,11 @@ create.select(BOOK.AUTHOR_ID, count())
 
 ### JQ-10. HAVING без GROUP BY и cardinality агрегата
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [HAVING clause](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/having-clause/).
 - Проверяет: агрегат над всей входной relation и то, что `HAVING` может убрать единственную агрегатную строку.
 
@@ -284,7 +586,11 @@ create.select(count())
 
 ### JQ-11. Оконный агрегат без схлопывания строк
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [Window PARTITION BY](https://www.jooq.org/doc/3.21/manual/sql-building/column-expressions/window-functions/window-partition/).
 - Проверяет: значение по группе рядом с каждой исходной строкой.
 
@@ -310,7 +616,11 @@ create.select(
 
 ### JQ-12. MULTISET из коррелированного подзапроса
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [MULTISET value constructor](https://www.jooq.org/doc/3.21/manual/sql-building/column-expressions/multiset-value-constructor/).
 - Проверяет: вложенную коллекцию книг для каждой строки автора, в том числе пустую коллекцию.
 
@@ -341,7 +651,11 @@ create.select(
 
 ### JQ-13. MULTISET_AGG по группе
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [MULTISET_AGG](https://www.jooq.org/doc/3.21/manual/sql-building/column-expressions/aggregate-functions/multiset-agg-function/).
 - Проверяет: сбор полей строк текущей группы во вложенную коллекцию.
 
@@ -371,7 +685,11 @@ create.select(
 
 ### JQ-14. INSERT ON CONFLICT DO UPDATE
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [INSERT statement](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/insert-statement/), раздел `ON CONFLICT`.
 - Проверяет: вставку новой строки и обновление уже существующей по уникальному ключу.
 
@@ -393,7 +711,11 @@ create.insertInto(AUTHOR, AUTHOR.ID, AUTHOR.LAST_NAME)
 
 ### JQ-15. UPDATE с FROM
 
-- [ ] Перенесено в regression-набор.
+- OCaml-пример: ✗
+- Реализуемость: —
+- Семантика: —
+- Без доработок typed-sql: —
+
 - Источник: [UPDATE .. FROM](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/update-statement/update-from/).
 - Проверяет: обновление целевой строки по join-предикату с другой таблицей.
 
