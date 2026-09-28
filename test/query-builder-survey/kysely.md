@@ -2016,7 +2016,7 @@ WHERE
 - Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: ✗ (добавлено в роадмап ✗)
 - Без доработок typed-sql: ✗
-- Замечание: В публичном API нет оконных функций; эмуляция потребовала бы других SQL-возможностей и дополнительных ограничений.
+- Ограничение: В публичном API нет оконных функций; эмуляция потребовала бы других SQL-возможностей и дополнительных ограничений.
 - Источник: [over](https://kysely-org.github.io/kysely-apidoc/classes/AggregateFunctionBuilder.html#over).
 - Проверяет: вычисление running total внутри владельца с сохранением каждой строки.
 
@@ -2571,7 +2571,7 @@ WHERE
 - Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: ✗ (добавлено в роадмап ✗)
 - Без доработок typed-sql: ✗
-- Замечание: В typed-sql пока нет типизированных JSONB path/extraction expressions.
+- Ограничение: В typed-sql пока нет типизированных JSONB path/extraction expressions.
 - Источник: [JSON reference expressions](https://kysely-org.github.io/kysely-apidoc/interfaces/ExpressionBuilder.html#ref).
 - Проверяет: JSON-оператор PostgreSQL и bind-параметр справа от оператора.
 
@@ -2758,7 +2758,7 @@ VALUES
 - Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: ✗ (добавлено в роадмап ✗)
 - Без доработок typed-sql: ✗
-- Замечание: Публичный INSERT API не принимает SELECT как источник строк.
+- Ограничение: Публичный INSERT API не принимает SELECT как источник строк.
 - Источник: [expression](https://kysely-org.github.io/kysely-apidoc/classes/InsertQueryBuilder.html#expression).
 - Проверяет: перенос набора строк между отношениями с совпадающей формой проекции.
 
@@ -2921,7 +2921,7 @@ RETURNING
 - Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: ✗ (добавлено в роадмап ✗)
 - Без доработок typed-sql: ✗
-- Замечание: В публичном API пока нет `FOR UPDATE` и `SKIP LOCKED`.
+- Ограничение: В публичном API пока нет `FOR UPDATE` и `SKIP LOCKED`.
 - Источник: [forUpdate и skipLocked](https://kysely-org.github.io/kysely-apidoc/interfaces/SelectQueryBuilder.html#forUpdate).
 - Проверяет: выбор незаблокированной строки очереди. Сценарий специфичен для СУБД, поддерживающих блокировки строк.
 
@@ -3075,7 +3075,7 @@ RETURNING
 - Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: ✗ (добавлено в роадмап ✗)
 - Без доработок typed-sql: ✗
-- Замечание: В публичном API пока нет `MERGE`; разбиение на команды не сохраняло бы атомарность исходного оператора.
+- Ограничение: В публичном API пока нет `MERGE`; разбиение на команды не сохраняло бы атомарность исходного оператора.
 - Источник: [mergeInto](https://kysely-org.github.io/kysely-apidoc/classes/QueryCreator.html#mergeInto), [MergeQueryBuilder](https://kysely-org.github.io/kysely-apidoc/classes/MergeQueryBuilder.html).
 - Проверяет: ветви WHEN MATCHED UPDATE и WHEN NOT MATCHED INSERT. Для PostgreSQL требуется версия 15 или новее.
 

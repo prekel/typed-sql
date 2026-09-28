@@ -1471,11 +1471,11 @@ WHERE
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✓
+- Семантика: ✗ (добавлено в роадмап ✗)
 - Без доработок typed-sql: ✓
 - Источник: [Eager Loading: filtered include](https://learn.microsoft.com/en-us/ef/core/querying/related-data/eager#filtered-include).
 - Проверяет: фильтрацию, сортировку и ограничение элементов включённой коллекции.
-- Замечание: per-blog top 5 выражен коррелированным COUNT строк, отсортированных раньше по Title DESC, PostId DESC; уникальный ID делает порядок детерминированным.
+- Замечание: per-blog top 5 выражен коррелированным COUNT строк, отсортированных раньше по Title DESC, PostId DESC; typed-sql возвращает плоские строки и не собирает navigation collection.
 
 ```sql
 SELECT [b].[BlogId], [b].[Url], [t].[PostId], [t].[BlogId], [t].[Title]
@@ -1498,11 +1498,12 @@ var blogs = await context.Blogs
     .Include(b => b.Posts
         .Where(p => p.Rating >= 4)
         .OrderByDescending(p => p.Title)
+        .ThenByDescending(p => p.PostId)
         .Take(5))
     .ToListAsync();
 ```
 
-Провайдер может использовать `ROW_NUMBER` или `APPLY` для per-blog `Take(5)`; проверять конкретный SQL отдельно.
+Провайдер может использовать `ROW_NUMBER` или `APPLY` для per-blog `Take(5)`; конкретная форма SQL зависит от провайдера.
 
 #### OCaml (typed-sql, per-blog top-N через COUNT)
 
@@ -1587,7 +1588,7 @@ ORDER BY
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✓
+- Семантика: ✗ (добавлено в роадмап ✗)
 - Без доработок typed-sql: ✓
 - Источник: [Eager Loading: including multiple levels](https://learn.microsoft.com/en-us/ef/core/querying/related-data/eager#including-multiple-levels).
 - Проверяет: загрузку цепочки Blog → Posts → Author одним запросом.
@@ -1623,8 +1624,13 @@ let ef28 =
         Post.nullable_author_id post =. Expr.to_nullable (Author.id author))
       |> order_by (fun ((blog, _post), _author) -> Blog.id blog) `Asc
       |> order_by (fun ((_blog, post), _author) -> Post.nullable_id post) `Asc
-      |> select (fun ((_blog, post), author) ->
-        Projection.pair (Post.nullable_id post) (Author.nullable_id author))))
+      |> select (fun ((blog, post), author) ->
+        Projection.map2
+          ~f:(fun blog_and_post author_fields -> blog_and_post, author_fields)
+          (Projection.pair (Blog.id blog) (Post.nullable_id post))
+          (Projection.pair
+             (Author.nullable_id author)
+             (Expr.nullable_column author Author.name_column)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1632,8 +1638,10 @@ let ef28 =
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef28);;
 SELECT
+  t0."BlogId",
   t1."PostId",
-  t2."AuthorId"
+  t2."AuthorId",
+  t2."Name"
 FROM "Blogs" AS t0
 LEFT JOIN "Posts" AS t1
   ON (t0."BlogId" = t1."BlogId")

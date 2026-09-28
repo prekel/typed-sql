@@ -1236,7 +1236,7 @@ FROM (
 - Реализуемость: ✗ (добавлено в роадмап ✗)
 - Семантика: —
 - Без доработок typed-sql: ✗
-- Замечание: публичный API typed-sql пока не моделирует `FOR UPDATE SKIP LOCKED` и блокировки транзакций.
+- Ограничение: публичный API typed-sql пока не моделирует `FOR UPDATE SKIP LOCKED` и блокировки транзакций.
 - Источник: [`locking` и `forUpdateSkipLocked`](https://hackage-content.haskell.org/package/esqueleto-3.6.0.0/docs/Database-Esqueleto-Experimental.html#v:forUpdateSkipLocked).
 - Проверяет: порядок `ORDER BY`, `LIMIT` и `FOR UPDATE SKIP LOCKED` при конкурирующих транзакциях; сценарий рассчитан на PostgreSQL.
 
