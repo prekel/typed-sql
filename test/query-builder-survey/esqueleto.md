@@ -8,7 +8,7 @@
 
 Пакет Esqueleto распространяется по [BSD-3-Clause](https://hackage-content.haskell.org/package/esqueleto-3.6.0.0). В конце файла приведено уведомление об авторских правах и лицензии. Это независимая подборка; указание источника не означает одобрения со стороны авторов Esqueleto.
 
-Для EQ-01–EQ-15 приведены реализации через публичный API typed-sql; EQ-16–EQ-20 пока не оценивались. OCaml-блоки с реализациями typed-sql исполняются через MDX.
+Для EQ-01–EQ-18 и EQ-20 приведены реализации через публичный API typed-sql; EQ-19 требует блокировки строк, которых нет в публичном API. OCaml-блоки с реализациями typed-sql исполняются через MDX.
 
 ```haskell
 {-# LANGUAGE OverloadedStrings #-}
@@ -1019,10 +1019,10 @@ FROM "person" AS t0
 
 ### EQ-16. DISTINCT имён авторов с постами
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [`distinct`](https://hackage-content.haskell.org/package/esqueleto-3.6.0.0/docs/Database-Esqueleto-Experimental.html#v:distinct), [JOIN](https://hackage-content.haskell.org/package/esqueleto-3.6.0.0/docs/Database-Esqueleto-Experimental.html#v:innerJoin).
 - Проверяет: устранение повторений уже после соединения; одно имя может принадлежать нескольким авторам.
 
@@ -1041,12 +1041,37 @@ select $ distinct $ do
   pure (person ^. PersonName)
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let esqueleto16 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Eq_person.table
+      |> inner_join Eq_blog_post.table ~on:(fun person post ->
+        Eq_person.id person =. Eq_blog_post.author_id post)
+      |> distinct
+      |> select (fun (person, _) -> Projection.expr (Eq_person.name person))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql esqueleto16);;
+SELECT DISTINCT
+  t0."name"
+FROM "person" AS t0
+INNER JOIN "blog_post" AS t1
+  ON (t0."id" = t1."author_id")
+```
+
+
 ### EQ-17. Последний пост каждого автора через LEFT JOIN LATERAL
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [`leftJoinLateral`](https://hackage-content.haskell.org/package/esqueleto-3.6.0.0/docs/Database-Esqueleto-Experimental.html#v:leftJoinLateral).
 - Проверяет: корреляцию подзапроса с автором, ограничение до одного поста и `NULL` для автора без постов.
 
@@ -1077,12 +1102,55 @@ select $ do
   pure (person ^. PersonId, latestTitle)
 ```
 
+#### OCaml (typed-sql)
+
+`LEFT JOIN LATERAL` представлен коррелированным scalar subquery; `LIMIT 1` и сортировка сохраняют выбор последнего поста, а отсутствие постов даёт `NULL`.
+
+```ocaml
+let esqueleto17 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Eq_person.table
+      |> select (fun person ->
+        let latest_title =
+          Query.(
+            from Eq_blog_post.table
+            |> where (fun post -> Eq_blog_post.author_id post =. Eq_person.id person)
+            |> order_by Eq_blog_post.id `Desc
+            |> limit 1
+            |> select_scalar Eq_blog_post.title)
+        in
+        Projection.pair
+          (Eq_person.id person)
+          (Expr.scalar_subquery latest_title))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql esqueleto17);;
+SELECT
+  t0."id",
+  (
+    SELECT
+      t1."title"
+    FROM "blog_post" AS t1
+    WHERE
+      (t1."author_id" = t0."id")
+    ORDER BY
+      t1."id" DESC
+    LIMIT 1
+  )
+FROM "person" AS t0
+```
+
+
 ### EQ-18. FULL OUTER JOIN авторов и постов
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [`fullOuterJoin`](https://hackage-content.haskell.org/package/esqueleto-3.6.0.0/docs/Database-Esqueleto-Experimental.html#v:fullOuterJoin).
 - Проверяет: nullable-поля обеих сторон и сохранение строк без совпадения, если такие есть; нужен PostgreSQL или другой поддерживающий `FULL JOIN` диалект.
 
@@ -1101,12 +1169,73 @@ select $ do
   pure (person ?. PersonName, post ?. BlogPostTitle)
 ```
 
+#### OCaml (typed-sql)
+
+`FULL OUTER JOIN` построен из двух `LEFT JOIN`: вторая ветвь добавляет только посты без автора.
+
+```ocaml
+let esqueleto18_people =
+  Query.(
+    from Eq_person.table
+    |> left_join Eq_blog_post.table ~on:(fun person post ->
+      Eq_person.id person =. Eq_blog_post.author_id post)
+    |> select (fun (person, post) ->
+      Projection.pair
+        (Projection.expr (Expr.to_nullable (Eq_person.name person)))
+        (Projection.expr (Eq_blog_post.nullable_title post))))
+
+let esqueleto18_orphan_posts =
+  Query.(
+    from Eq_blog_post.table
+    |> left_join Eq_person.table ~on:(fun post person ->
+      Eq_person.id person =. Eq_blog_post.author_id post)
+    |> where (fun (_post, person) ->
+      Expr.is_null (Expr.nullable_column person Eq_person.id_column))
+    |> select (fun (post, person) ->
+      Projection.pair
+        (Projection.expr (Expr.nullable_column person Eq_person.name_column))
+        (Projection.expr (Eq_blog_post.title post))))
+
+let esqueleto18 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.union_all esqueleto18_people esqueleto18_orphan_posts)
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql esqueleto18);;
+SELECT *
+FROM (
+  SELECT
+    t0."name",
+    t1."title"
+  FROM "person" AS t0
+  LEFT JOIN "blog_post" AS t1
+    ON (t0."id" = t1."author_id")
+) AS s0
+UNION ALL
+SELECT *
+FROM (
+  SELECT
+    t1."name",
+    t0."title"
+  FROM "blog_post" AS t0
+  LEFT JOIN "person" AS t1
+    ON (t1."id" = t0."author_id")
+  WHERE
+    (t1."id" IS NULL)
+) AS s0
+```
+
+
 ### EQ-19. Захват первых незаблокированных строк
 
-- OCaml-пример: —
-- Реализуемость: —
+- OCaml-пример: ✗
+- Реализуемость: ✗
 - Семантика: —
-- Без доработок typed-sql: —
+- Без доработок typed-sql: ✗
+- Замечание: публичный API typed-sql пока не моделирует `FOR UPDATE SKIP LOCKED` и блокировки транзакций.
 - Источник: [`locking` и `forUpdateSkipLocked`](https://hackage-content.haskell.org/package/esqueleto-3.6.0.0/docs/Database-Esqueleto-Experimental.html#v:forUpdateSkipLocked).
 - Проверяет: порядок `ORDER BY`, `LIMIT` и `FOR UPDATE SKIP LOCKED` при конкурирующих транзакциях; сценарий рассчитан на PostgreSQL.
 
@@ -1129,10 +1258,10 @@ select $ do
 
 ### EQ-20. Вложенное объединение с последующим исключением
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Set Operations](https://hackage-content.haskell.org/package/esqueleto-3.6.0.0/docs/Database-Esqueleto-Experimental.html#v:except_).
 - Проверяет: скобки вокруг `UNION ALL` перед `EXCEPT`; исключение удаляет все совпадения, а итоговый `EXCEPT` убирает дубликаты.
 
@@ -1161,6 +1290,71 @@ select $ from $
       where_ (person ^. PersonName ==. val ("blocked" :: Text))
       pure (person ^. PersonId))
 ```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let esqueleto20_adults =
+  Query.(
+    from Eq_person.table
+    |> where (fun person ->
+      Eq_person.age person >=. Expr.constant (Db_type.option Db_type.int) (Some 18))
+    |> select (fun person -> Projection.expr (Eq_person.id person)))
+
+let esqueleto20_unknown_age =
+  Query.(
+    from Eq_person.table
+    |> where (fun person -> Expr.is_null (Eq_person.age person))
+    |> select (fun person -> Projection.expr (Eq_person.id person)))
+
+let esqueleto20_blocked =
+  Query.(
+    from Eq_person.table
+    |> where (fun person -> Eq_person.name person =$ "blocked")
+    |> select (fun person -> Projection.expr (Eq_person.id person)))
+
+let esqueleto20 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.except
+      (Query.union_all esqueleto20_adults esqueleto20_unknown_age)
+      esqueleto20_blocked)
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql esqueleto20);;
+SELECT *
+FROM (
+  SELECT *
+  FROM (
+    SELECT
+      t0."id"
+    FROM "person" AS t0
+    WHERE
+      (t0."age" >= $1)
+  ) AS s0
+  UNION ALL
+  SELECT *
+  FROM (
+    SELECT
+      t0."id"
+    FROM "person" AS t0
+    WHERE
+      (t0."age" IS NULL)
+  ) AS s0
+) AS s0
+EXCEPT
+SELECT *
+FROM (
+  SELECT
+    t0."id"
+  FROM "person" AS t0
+  WHERE
+    (t0."name" = $2)
+) AS s0
+```
+
 
 ## Уведомление о лицензии
 

@@ -8,7 +8,7 @@
 
 SeaQuery распространяется по [MIT или Apache-2.0](https://github.com/SeaQL/sea-query#license). Здесь используется вариант MIT для уведомления об авторских правах. Примеры кода адаптированы; указание источника не означает одобрения со стороны SeaQL.
 
-Для SQ-01–SQ-09 приведены реализации через публичный API typed-sql и SQL, полученный компилятором. Оконные выражения SQ-10 пока не входят в публичный API. SQ-11–SQ-15 пока приведены без реализации на typed-sql.
+Для SQ-01–SQ-09 и SQ-11–SQ-15 приведены реализации через публичный API typed-sql и SQL компилятора. Оконные выражения SQ-10 пока не входят в публичный API.
 
 ```rust
 use sea_query::{Cond, Expr, Iden, JoinType, OnConflict, Order, PostgresQueryBuilder, Query, UnionType, WindowStatement};
@@ -700,10 +700,10 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 
 ### SQ-11. Пользователи без постов через NOT EXISTS
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [`Expr::not_exists`](https://docs.rs/sea-query/latest/sea_query/expr/type.SimpleExpr.html#method.not_exists).
 - Проверяет: корреляцию по `user_id` и сохранение пользователей без постов без дублирования строк.
 
@@ -731,12 +731,46 @@ let query = Query::select()
 let (sql, values) = query.build(PostgresQueryBuilder);
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let seaquery11 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Users.table
+      |> where (fun user ->
+        not_exists
+          (from Posts.table
+           |> where (fun post -> Posts.user_id post =. Users.id user)))
+      |> select (fun user -> Projection.pair (Users.id user) (Users.name user))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery11);;
+SELECT
+  t0."id",
+  t0."name"
+FROM "users" AS t0
+WHERE
+  (NOT EXISTS (
+    SELECT
+      1
+    FROM "posts" AS t1
+    WHERE
+      (t1."user_id" = t0."id")
+  ))
+```
+
+
 ### SQ-12. Последний пост каждого пользователя через DISTINCT ON
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Замечание: `DISTINCT ON` эмулирован через anti-`EXISTS` при уникальном `posts.id`.
 - Источник: [`distinct_on`](https://docs.rs/sea-query/latest/sea_query/query/struct.SelectStatement.html#method.distinct_on).
 - Проверяет: левый префикс `ORDER BY` совпадает с ключом `DISTINCT ON`, а `id DESC` выбирает последнюю строку в группе; PostgreSQL-специфично.
 
@@ -762,12 +796,62 @@ let query = Query::select()
 let (sql, values) = query.build(PostgresQueryBuilder);
 ```
 
+#### OCaml (typed-sql)
+
+`DISTINCT ON` заменён на anti-`EXISTS`; при уникальном `posts.id` выбирается пост пользователя с наибольшим ID.
+
+```ocaml
+let seaquery12 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Posts.table
+      |> where (fun post ->
+        not_exists
+          (from Posts.table
+           |> where (fun newer ->
+             (Posts.user_id newer =. Posts.user_id post)
+             &&. (Posts.id newer >. Posts.id post)))
+      |> order_by Posts.user_id `Asc
+      |> order_by Posts.id `Desc
+      |> select (fun post ->
+        Projection.map2
+          ~f:(fun user_id (id, title) -> user_id, id, title)
+          (Projection.expr (Posts.user_id post))
+          (Projection.pair (Posts.id post) (Posts.title post)))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery12);;
+SELECT
+  t0."user_id",
+  t0."id",
+  t0."title"
+FROM "posts" AS t0
+WHERE
+  (NOT EXISTS (
+    SELECT
+      1
+    FROM "posts" AS t1
+    WHERE
+      (
+        (t1."user_id" = t0."user_id")
+        AND (t1."id" > t0."id")
+      )
+  ))
+ORDER BY
+  t0."user_id" ASC,
+  t0."id" DESC
+```
+
+
 ### SQ-13. Вложенные группы условий AND и OR
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [`cond_where`](https://docs.rs/sea-query/latest/sea_query/query/struct.SelectStatement.html#method.cond_where).
 - Проверяет: скобки вокруг альтернативных префиксов имени под общим условием страны и порядок bind-параметров.
 
@@ -791,12 +875,43 @@ let query = Query::select()
 let (sql, values) = query.build(PostgresQueryBuilder);
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let seaquery13 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Users.table
+      |> where (fun user ->
+        (Users.country user =$ "USA") &&.
+        ((Users.name user =~$ "A%") ||. (Users.name user =~$ "B%")))
+      |> select (fun user -> Projection.expr (Users.id user))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery13);;
+SELECT
+  t0."id"
+FROM "users" AS t0
+WHERE
+  (
+    (t0."country" = $1)
+    AND (
+      (t0."name" LIKE $2)
+      OR (t0."name" LIKE $3)
+    )
+  )
+```
+
+
 ### SQ-14. INSERT ON CONFLICT с обновлением заголовка
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [`OnConflict`](https://docs.rs/sea-query/latest/sea_query/query/struct.OnConflict.html).
 - Проверяет: вставку нового поста и обновление только `title` из `EXCLUDED` при конфликте по `id`.
 
@@ -818,12 +933,52 @@ let query = Query::insert()
 let (sql, values) = query.build(PostgresQueryBuilder);
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let seaquery14 =
+  Statement.Portable.command_exn (fun params ->
+    let id = params.expr Db_type.int64 ~get:(fun (id, _, _) -> id) in
+    let user_id = params.expr Db_type.int64 ~get:(fun (_, user_id, _) -> user_id) in
+    let title = params.expr Db_type.text ~get:(fun (_, _, title) -> title) in
+    Insert.(
+      into Posts.table
+      |> set_expr Posts.id_column id
+      |> set_expr Posts.user_id_column user_id
+      |> set_expr Posts.title_column title
+      |> on_conflict (Conflict_target.column Posts.id_column)
+      |> do_update (fun ~existing:_ ~excluded ->
+        Conflict_update.empty
+        |> Conflict_update.set_expr Posts.title_column (Posts.title excluded))
+      |> command))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery14);;
+INSERT INTO "posts" AS t0 (
+  "id",
+  "user_id",
+  "title"
+)
+VALUES
+  ($1, $2, $3)
+ON CONFLICT (
+  "id"
+)
+DO UPDATE
+SET
+  "title" = excluded."title"
+```
+
+
 ### SQ-15. UPDATE с RETURNING изменённых ID
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [`UpdateStatement::returning_col`](https://docs.rs/sea-query/latest/sea_query/query/struct.UpdateStatement.html#method.returning_col).
 - Проверяет: обновление всех постов пользователя одним оператором и возврат только реально изменённых идентификаторов.
 
@@ -842,6 +997,34 @@ let query = Query::update()
     .to_owned();
 let (sql, values) = query.build(PostgresQueryBuilder);
 ```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let seaquery15 =
+  Statement.Portable.query_many_exn (fun params ->
+    let title = params.expr Db_type.text ~get:(fun (title, _) -> title) in
+    let user_id = params.expr Db_type.int64 ~get:(fun (_, user_id) -> user_id) in
+    Update.(
+      table Posts.table
+      |> set_expr Posts.title_column title
+      |> where (fun post -> Posts.user_id post =. user_id)
+      |> returning (fun post -> Projection.expr (Posts.id post))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery15);;
+UPDATE "posts"
+SET
+  "title" = $1
+WHERE
+  ("user_id" = $2)
+RETURNING
+  "id"
+```
+
 
 ## Уведомление о лицензии
 

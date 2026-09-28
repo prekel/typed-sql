@@ -1,14 +1,14 @@
 <!-- SPDX-License-Identifier: MIT -->
 
-# Сценарии запросов из SqlKata
+  # Сценарии запросов из SqlKata
 
-Десять сценариев по [документации SqlKata](https://sqlkata.com/docs) (доступ 28.09.2026). Примеры C# сокращены и адаптированы. Для SK-01–SK-05 приведены реализация на typed-sql и SQL, полученный его компилятором для PostgreSQL; SK-06–SK-10 пока не оценивались.
+Десять сценариев по [документации SqlKata](https://sqlkata.com/docs) (доступ 28.09.2026). Примеры C# сокращены и адаптированы. Для поддерживаемых сценариев приведены реализация на typed-sql и SQL, полученный его компилятором для PostgreSQL. SK-09 требует `INSERT ... SELECT`, которого нет в публичном API typed-sql.
 
 Источник: проект SqlKata, лицензия [MIT](https://github.com/sqlkata/querybuilder/blob/main/LICENSE). Используется схема `author(id, name)` и `book(id, author_id, title, published_in)`; для SK-09 добавлена таблица `book_archive` с теми же колонками, что у `book`. Идентификаторы и годы имеют тип `int64`.
 
 В блоках «SQL typed-sql» первая строка запускает компилятор, остальные строки — его вывод. Выполнить сценарии можно командой `opam exec -- dune runtest test/query-builder-survey`.
 
-## Общие дескрипторы для SK-01–SK-05
+## Общие дескрипторы для SK-01–SK-10
 
 ```ocaml
 open! Base
@@ -349,10 +349,10 @@ FROM "c0" AS t0
 
 ### SK-06. Авторы без книг через NOT EXISTS
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Where Exists](https://sqlkata.com/docs/where#where-exists).
 - Проверяет: корреляцию по двум колонкам и сохранение авторов без книг; `EXISTS` не должен размножать внешние строки.
 
@@ -371,12 +371,44 @@ var query = new Query("author")
         .WhereColumns("book.author_id", "=", "author.id"));
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let sk06 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Author.table
+      |> where (fun author ->
+        not_exists
+          (from Book.table
+           |> where (fun book -> Book.author_id book =. Author.id author)))
+      |> select (fun author -> Projection.pair (Author.id author) (Author.name author))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sk06);;
+SELECT
+  t0."id",
+  t0."name"
+FROM "author" AS t0
+WHERE
+  (NOT EXISTS (
+    SELECT
+      1
+    FROM "book" AS t1
+    WHERE
+      (t1."author_id" = t0."id")
+  ))
+```
+
 ### SK-07. Коррелированный подсчёт книг в проекции
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Select from a sub query](https://sqlkata.com/docs/select#sub-query).
 - Проверяет: скалярный агрегат для каждого автора и ноль для автора без книг.
 
@@ -396,12 +428,52 @@ var query = new Query("author")
     .Select(countBooks, "book_count");
 ```
 
+#### OCaml (typed-sql)
+
+`COUNT(*)` в scalar subquery возвращает ноль и для автора без книг.
+
+```ocaml
+let sk07 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Author.table
+      |> select (fun author ->
+        let book_count =
+          Query.(
+            from Book.table
+            |> where (fun book -> Book.author_id book =. Author.id author)
+            |> select_scalar (fun _ -> Expr.count_all))
+        in
+        Projection.map2
+          ~f:(fun (author_id, name) count -> author_id, name, count)
+          (Projection.pair (Author.id author) (Author.name author))
+          (Projection.expr (Expr.coalesce (Expr.scalar_subquery book_count)
+             ~default:(Expr.constant Db_type.int64 0L))))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sk07);;
+SELECT
+  t0."id",
+  t0."name",
+  COALESCE((
+    SELECT
+      COUNT(*)
+    FROM "book" AS t1
+    WHERE
+      (t1."author_id" = t0."id")
+  ), $1)
+FROM "author" AS t0
+```
+
 ### SK-08. UNION ALL с повторениями на границе года
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Combining Multiple Queries](https://sqlkata.com/docs/combine).
 - Проверяет: одинаковую форму обеих ветвей и сохранение двух копий книги за 2000 год.
 
@@ -421,12 +493,58 @@ var after = new Query("book")
 var query = before.UnionAll(after);
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let sk08 =
+  Statement.Portable.query_many_exn (fun _ ->
+    let before =
+      Query.(
+        from Book.table
+        |> where (fun book -> Book.published_in book <=. 2000L)
+        |> select (fun book -> Projection.pair (Book.id book) (Book.author_id book)))
+    in
+    let after =
+      Query.(
+        from Book.table
+        |> where (fun book -> Book.published_in book >=. 2000L)
+        |> select (fun book -> Projection.pair (Book.id book) (Book.author_id book)))
+    in
+    Query.union_all before after)
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sk08);;
+SELECT *
+FROM (
+  SELECT
+    t0."id",
+    t0."author_id"
+  FROM "book" AS t0
+  WHERE
+    (t0."published_in" <= $1)
+) AS s0
+UNION ALL
+SELECT *
+FROM (
+  SELECT
+    t0."id",
+    t0."author_id"
+  FROM "book" AS t0
+  WHERE
+    (t0."published_in" >= $2)
+) AS s0
+```
+
 ### SK-09. INSERT в архив из SELECT
 
-- OCaml-пример: —
-- Реализуемость: —
+- OCaml-пример: ✗
+- Реализуемость: ✗
 - Семантика: —
-- Без доработок typed-sql: —
+- Без доработок typed-sql: ✗
+- Замечание: `Insert` пока принимает только значения и строки; публичного конструктора для `INSERT ... SELECT` нет.
 - Источник: [Insert from Query](https://sqlkata.com/docs/update#insert-from-query).
 - Проверяет: согласование порядка четырёх колонок в INSERT и SELECT и перенос только книг до заданного года.
 
@@ -446,10 +564,10 @@ var query = new Query("book_archive")
 
 ### SK-10. Условный UPDATE нескольких строк
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Insert, Update and Delete](https://sqlkata.com/docs/update#update).
 - Проверяет: сохранение обоих предикатов в UPDATE и передачу нового заголовка отдельно от SQL.
 
@@ -463,4 +581,34 @@ var query = new Query("book")
     .Where("author_id", authorId)
     .Where("published_in", "<", cutoff)
     .AsUpdate(new { title = newTitle });
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let sk10 =
+  Statement.Portable.command_exn (fun params ->
+    let title = params.expr Db_type.text ~get:(fun (title, _, _) -> title) in
+    let author_id = params.expr Db_type.int64 ~get:(fun (_, author_id, _) -> author_id) in
+    let cutoff = params.expr Db_type.int64 ~get:(fun (_, _, cutoff) -> cutoff) in
+    Update.(
+      table Book.table
+      |> set_expr Book.title_column title
+      |> where (fun book ->
+        (Book.author_id book =. author_id) &&. (Book.published_in book <. cutoff))
+      |> command))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sk10);;
+UPDATE "book"
+SET
+  "title" = $1
+WHERE
+  (
+    ("author_id" = $2)
+    AND ("published_in" < $3)
+  )
 ```

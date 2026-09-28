@@ -8,7 +8,7 @@
 
 Используются модели примеров `Blog`, `Post`, `Contributor` и `Book`. Карточки взяты из разных разделов документации; одноимённые модели не образуют единую схему. Для outer join и загрузки коллекций нужна фикстура с пустой коллекцией. Для клиентских операций проверять и SQL, и итоговый результат.
 
-Для EF-01–EF-35 ниже приведены реализации на typed-sql там, где они доступны, и SQL, полученный компилятором. Для частично поддерживаемых сценариев отдельно описаны границы совпадения. EF-36–EF-40 пока приведены без реализации на typed-sql. В блоках «SQL typed-sql» первая строка запускает компилятор, остальные строки — его вывод. Запустить проверку можно командой `opam exec -- dune runtest test/query-builder-survey`.
+Для сценариев с OCaml-примером ✓ приведены typed-sql реализации и SQL компилятора. Для карточек с ✗ указано ограничение публичного API; EF-27, EF-31, EF-33–EF-35 и EF-38–EF-40 не реализуются без расширения ядра. В блоках «SQL typed-sql» первая строка запускает компилятор, остальные строки — его вывод. Запустить проверку можно командой `opam exec -- dune runtest test/query-builder-survey`.
 
 Статусы в карточках: `✓` — подтверждено; `✗` — условие не выполнено; `—` — не оценивалось. «Семантика» учитывает входные параметры, результат, `NULL` и заданный порядок относительно серверного запроса в карточке; клиентская сборка объектов EF Core сюда не входит. «Без доработок» относится к публичному API typed-sql, а не к необходимости улучшить пример. Реализуемость оценивается после попытки написать OCaml-код.
 
@@ -625,12 +625,13 @@ WHERE
 
 ### EF-11. GroupBy с финальной группировкой на клиенте
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✗
+- Без доработок typed-sql: ✓
 - Источник: [GroupBy without aggregate](https://learn.microsoft.com/en-us/ef/core/querying/complex-query-operators#groupby).
 - Проверяет: различие между SQL-строками и итоговыми группами; EF Core 7+ собирает группы после чтения.
+- Ограничение: OCaml выражает чтение строк и сортировку; финальная сборка групп остаётся клиентской.
 
 ```sql
 SELECT [b].[Price], [b].[Id], [b].[AuthorId]
@@ -896,14 +897,14 @@ WHERE
 
 ## Дополнительные сценарии
 
-Карточки EF-16–EF-35 расширяют каталог новыми формами LINQ, материализации и provider-specific SQL. Для них намеренно не приводятся OCaml-примеры и не оценивается поддержка typed-sql.
+Карточки EF-16–EF-40 расширяют каталог новыми формами LINQ, материализации и provider-specific SQL; для каждой карточки оценена применимость typed-sql.
 
 ### EF-16. Проекция только нужных столбцов
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Efficient Querying: project only properties you need](https://learn.microsoft.com/en-us/ef/core/performance/efficient-querying#project-only-properties-you-need).
 - Проверяет: отсутствие загрузки остальных столбцов сущности.
 
@@ -940,10 +941,10 @@ FROM "Blogs" AS t0
 
 ### EF-17. StartsWith и индексируемый префикс
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Efficient Querying: use indexes properly](https://learn.microsoft.com/en-us/ef/core/performance/efficient-querying#use-indexes-properly).
 - Проверяет: перевод префиксного поиска и отличие от поиска с ведущим wildcard.
 
@@ -988,10 +989,10 @@ WHERE
 
 ### EF-18. Any как EXISTS
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Efficient Querying: limit resultset size](https://learn.microsoft.com/en-us/ef/core/performance/efficient-querying#limit-the-resultset-size).
 - Проверяет: булев результат существования связанной строки без загрузки коллекции.
 
@@ -1052,10 +1053,10 @@ FROM "Blogs" AS t0
 
 ### EF-19. All как NOT EXISTS нарушения предиката
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Complex Query Operators](https://learn.microsoft.com/en-us/ef/core/querying/complex-query-operators).
 - Проверяет: пустую коллекцию (для неё `All` возвращает `true`) и перевод отрицания.
 
@@ -1121,10 +1122,10 @@ FROM "Blogs" AS t0
 
 ### EF-20. DISTINCT после проекции
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Efficient Querying](https://learn.microsoft.com/en-us/ef/core/performance/efficient-querying).
 - Проверяет: устранение дубликатов по набору спроецированных значений.
 
@@ -1162,10 +1163,10 @@ FROM "Posts" AS t0
 
 ### EF-21. Счётчик строк без материализации
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Complex Query Operators: aggregate functions](https://learn.microsoft.com/en-us/ef/core/querying/complex-query-operators#aggregate-functions).
 - Проверяет: серверный `COUNT(*)` и скалярный результат.
 
@@ -1204,10 +1205,10 @@ WHERE
 
 ### EF-22. Последняя запись с FirstOrDefault
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Efficient Querying: limit resultset size](https://learn.microsoft.com/en-us/ef/core/performance/efficient-querying#limit-the-resultset-size).
 - Проверяет: выбор первой строки после обратной сортировки и `null`, если строк нет.
 
@@ -1267,10 +1268,10 @@ LIMIT 1
 
 ### EF-23. Равенство nullable-значений
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Query null semantics](https://learn.microsoft.com/en-us/ef/core/querying/null-comparisons).
 - Проверяет: сравнение nullable колонок и компенсацию различий трёхзначной логики SQL и C#.
 
@@ -1321,10 +1322,10 @@ WHERE
 
 ### EF-24. Null-coalescing в проекции
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Database Functions](https://learn.microsoft.com/en-us/ef/core/querying/database-functions).
 - Проверяет: перевод оператора `??` в SQL `COALESCE`.
 
@@ -1364,10 +1365,10 @@ FROM "Blogs" AS t0
 
 ### EF-25. Условная проекция в CASE
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Client vs. Server Evaluation](https://learn.microsoft.com/en-us/ef/core/querying/client-eval).
 - Проверяет: исполнение сравнения и выбора результата на сервере.
 
@@ -1412,10 +1413,10 @@ FROM "Blogs" AS t0
 
 ### EF-26. Глобальный фильтр soft delete
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Global Query Filters](https://learn.microsoft.com/en-us/ef/core/querying/filters#basic-example---soft-deletion).
 - Проверяет: автоматическое добавление фильтра модели и его отключение через `IgnoreQueryFilters`.
 
@@ -1462,12 +1463,13 @@ WHERE
 
 ### EF-27. Filtered Include для коллекции
 
-- OCaml-пример: —
-- Реализуемость: —
+- OCaml-пример: ✗
+- Реализуемость: ✗
 - Семантика: —
-- Без доработок typed-sql: —
+- Без доработок typed-sql: ✗
 - Источник: [Eager Loading: filtered include](https://learn.microsoft.com/en-us/ef/core/querying/related-data/eager#filtered-include).
 - Проверяет: фильтрацию, сортировку и ограничение элементов включённой коллекции.
+- Ограничение: Публичный API не выражает оконный `ROW_NUMBER() OVER (PARTITION BY ...)` или эквивалентный top-N для каждой коллекции; загрузка и сборка навигационной коллекции также остаются вне ядра.
 
 ```sql
 SELECT [b].[BlogId], [b].[Url], [t].[PostId], [t].[BlogId], [t].[Title]
@@ -1531,12 +1533,13 @@ ORDER BY
 
 ### EF-28. Include и ThenInclude
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Eager Loading: including multiple levels](https://learn.microsoft.com/en-us/ef/core/querying/related-data/eager#including-multiple-levels).
 - Проверяет: загрузку цепочки Blog → Posts → Author одним запросом.
+- Ограничение: typed-sql строит плоский набор строк с двумя LEFT JOIN; сущности EF и identity resolution не материализуются.
 
 ```sql
 SELECT [b].[BlogId], [p].[PostId], [a].[AuthorId], [a].[Name]
@@ -1591,12 +1594,13 @@ ORDER BY
 
 ### EF-29. Tracking и AsNoTracking
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✗
+- Без доработок typed-sql: ✗
 - Источник: [Tracking vs. No-Tracking Queries](https://learn.microsoft.com/en-us/ef/core/querying/tracking).
 - Проверяет: одинаковый серверный запрос при разной работе change tracker и identity resolution.
+- Ограничение: SQL выборка выражается полностью, но change tracker и identity resolution относятся к работе EF Core после чтения строк.
 
 ```sql
 SELECT [b].[BlogId], [b].[Rating], [b].[Url]
@@ -1612,12 +1616,38 @@ SQL может совпадать; сравнить tracking state, иденти
 
 typed-sql может построить сам rowset, но tracking, identity resolution и attach состояния находятся вне backend-independent ядра. Семантическую часть этой карточки через typed-sql выразить нельзя.
 
+#### OCaml (typed-sql, серверная форма)
+
+```ocaml
+let ef29 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Blog.table
+      |> select (fun blog ->
+        Projection.map3
+          ~f:(fun id rating url -> id, rating, url)
+          (Projection.expr (Blog.id blog))
+          (Projection.expr (Blog.rating blog))
+          (Projection.expr (Blog.url blog)))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef29);;
+SELECT
+  t0."BlogId",
+  t0."Rating",
+  t0."Url"
+FROM "Blogs" AS t0
+```
+
 ### EF-30. Клиентский helper в верхней проекции
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Client vs. Server Evaluation](https://learn.microsoft.com/en-us/ef/core/querying/client-eval#client-evaluation-in-the-top-level-projection).
 - Проверяет: вычисление на сервере выбранных данных и вызов helper после чтения строки.
 
@@ -1666,12 +1696,13 @@ ORDER BY
 
 ### EF-31. Непереводимый helper в WHERE
 
-- OCaml-пример: —
-- Реализуемость: —
+- OCaml-пример: ✗
+- Реализуемость: ✗
 - Семантика: —
-- Без доработок typed-sql: —
+- Без доработок typed-sql: ✗
 - Источник: [Client vs. Server Evaluation: unsupported client evaluation](https://learn.microsoft.com/en-us/ef/core/querying/client-eval#unsupported-client-evaluation).
 - Проверяет: исключение при непереводимом выражении вне верхней проекции, вместо незаметной клиентской фильтрации.
+- Ограничение: Произвольный OCaml helper нельзя переводить в SQL; typed-sql строит запросы, а не воспроизводит исключение EF Core при трансляции.
 
 ```csharp
 var blogs = await context.Blogs
@@ -1683,12 +1714,13 @@ var blogs = await context.Blogs
 
 ### EF-32. Contains по параметрической коллекции (EF Core 8)
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [What's New in EF Core 8: primitive collections](https://learn.microsoft.com/en-us/ef/core/what-is-new/ef-core-8.0/whatsnew#primitive-collections).
 - Проверяет: передачу списка одним JSON параметром, кэшируемую форму SQL и зависимость от уровня совместимости SQL Server.
+- Ограничение: `Expr.in_` сохраняет результат Contains, но передаёт элементы отдельными bind-параметрами вместо одного JSON-параметра EF Core 8.
 
 ```sql
 SELECT [w].[Name]
@@ -1739,12 +1771,13 @@ WHERE
 
 ### EF-33. Поиск элемента в JSON-коллекции колонки
 
-- OCaml-пример: —
-- Реализуемость: —
+- OCaml-пример: ✗
+- Реализуемость: ✗
 - Семантика: —
-- Без доработок typed-sql: —
+- Без доработок typed-sql: ✗
 - Источник: [What's New in EF Core 8: primitive collections](https://learn.microsoft.com/en-us/ef/core/what-is-new/ef-core-8.0/whatsnew#primitive-collections-in-json-columns).
 - Проверяет: разворачивание JSON массива колонки и сравнение с параметром.
+- Ограничение: В публичном DSL нет табличной функции `OPENJSON` для чтения элементов JSON-массива из каждой строки.
 
 ```sql
 SELECT [p].[Name]
@@ -1765,12 +1798,13 @@ var pubs = await context.Pubs
 
 ### EF-34. CLR-метод, отображённый в SQL UDF
 
-- OCaml-пример: —
-- Реализуемость: —
+- OCaml-пример: ✗
+- Реализуемость: ✗
 - Семантика: —
-- Без доработок typed-sql: —
+- Без доработок typed-sql: ✗
 - Источник: [User-defined function mapping](https://learn.microsoft.com/en-us/ef/core/querying/user-defined-function-mapping#mapping-a-method-to-a-sql-function).
 - Проверяет: отображение метода модели на схематизированную скалярную SQL-функцию.
+- Ограничение: Публичный API не имеет дескриптора SQL UDF или конструктора вызова произвольной схемной функции.
 
 ```sql
 SELECT [b].[BlogId], [b].[Rating], [b].[Url]
@@ -1788,12 +1822,13 @@ CLR-метод должен быть зарегистрирован через `
 
 ### EF-35. FromSql с LINQ-композицией
 
-- OCaml-пример: —
-- Реализуемость: —
+- OCaml-пример: ✗
+- Реализуемость: ✗
 - Семантика: —
-- Без доработок typed-sql: —
+- Без доработок typed-sql: ✗
 - Источник: [SQL Queries: composing with LINQ](https://learn.microsoft.com/en-us/ef/core/querying/sql-queries#composing-with-linq).
 - Проверяет: обёртку raw SQL как подзапрос и добавление LINQ фильтра и сортировки снаружи.
+- Ограничение: Публичный API не принимает raw SQL как typed relation, которую можно обернуть внешним SELECT.
 
 ```sql
 SELECT [b].[BlogId], [b].[Rating], [b].[Url]
@@ -1817,10 +1852,10 @@ var blogs = await context.Blogs
 
 ### EF-36. UNION блогов и авторов популярных постов
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [LINQ `Union`](https://learn.microsoft.com/en-us/dotnet/api/system.linq.queryable.union).
 - Проверяет: одинаковую проекцию `BlogId` в двух ветвях и устранение повторений после объединения.
 
@@ -1840,14 +1875,51 @@ var blogIds = await context.Blogs
     .ToListAsync();
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let ef36_blogs =
+  Query.(
+    from Blog.table
+    |> where (fun blog -> Blog.rating blog >$ 5)
+    |> select (fun blog -> Projection.expr (Blog.id blog)))
+
+let ef36_posts =
+  Query.(
+    from Post.table
+    |> where (fun post -> Post.rating post >$ 5)
+    |> select (fun post -> Projection.expr (Post.blog_id post)))
+
+let ef36 =
+  Statement.Portable.query_many_exn (fun _ -> Query.union ef36_blogs ef36_posts)
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef36);;
+SELECT
+  t0."BlogId"
+FROM "Blogs" AS t0
+WHERE
+  (t0."Rating" > $1)
+UNION
+SELECT
+  t0."BlogId"
+FROM "Posts" AS t0
+WHERE
+  (t0."Rating" > $2)
+```
+
 ### EF-37. ExecuteUpdate с прежним значением колонки
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [ExecuteUpdate: referencing the existing property value](https://learn.microsoft.com/en-us/ef/core/saving/execute-insert-update-delete#referencing-the-existing-property-value).
 - Проверяет: однократный серверный UPDATE и вычисление нового `Rating` из прежнего значения для каждой подходящей строки.
+- Ограничение: Для доступа к старому значению используется typed UPDATE self-join по первичному ключу; выражение Rating + 1 остаётся на сервере.
 
 ```sql
 UPDATE [b]
@@ -1863,14 +1935,42 @@ var changed = await context.Blogs
         .SetProperty(b => b.Rating, b => b.Rating + 1));
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let ef37 =
+  Statement.Portable.command_exn (fun _ ->
+    Update.(
+      table Blog.table
+      |> from Blog.table ~f:(fun target source update ->
+        update
+        |> set_expr Blog.rating_column
+          Expr.Int.(Blog.rating target +. Expr.constant Db_type.int 1)
+        |> where (fun _ -> Blog.id target =. Blog.id source))
+      |> where (fun target -> Blog.rating target <$ 3)
+      |> command))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef37);;
+UPDATE "Blogs" AS t0
+SET "Rating" = (t1."Rating" + $1)
+FROM "Blogs" AS t1
+WHERE
+  ((t0."BlogId" = t1."BlogId") AND (t0."Rating" < $2))
+```
+
 ### EF-38. Сравнение с явным правилом сопоставления строк
 
-- OCaml-пример: —
-- Реализуемость: —
+- OCaml-пример: ✗
+- Реализуемость: ✗
 - Семантика: —
-- Без доработок typed-sql: —
+- Без доработок typed-sql: ✗
 - Источник: [Collations and case sensitivity](https://learn.microsoft.com/en-us/ef/core/miscellaneous/collations-and-case-sensitivity).
 - Проверяет: применение явного правила сопоставления только к сравнению `Url`; совпадение зависит от регистра в SQL Server.
+- Ограничение: DSL не поддерживает выражение `COLLATE` и выбор collation для отдельного сравнения.
 
 ```sql
 SELECT [b].[BlogId], [b].[Url]
@@ -1888,12 +1988,13 @@ var blogs = await context.Blogs
 
 ### EF-39. Снимок temporal-таблицы на момент времени
 
-- OCaml-пример: —
-- Реализуемость: —
+- OCaml-пример: ✗
+- Реализуемость: ✗
 - Семантика: —
-- Без доработок typed-sql: —
+- Без доработок typed-sql: ✗
 - Источник: [SQL Server temporal tables](https://learn.microsoft.com/en-us/ef/core/providers/sql-server/temporal-tables#querying-historical-data).
 - Проверяет: `FOR SYSTEM_TIME AS OF` с UTC-моментом и фильтр по ключу поверх исторической версии строки.
+- Ограничение: Синтаксис SQL Server `FOR SYSTEM_TIME AS OF` задаётся между именем таблицы и алиасом и сейчас отсутствует в renderer.
 
 ```sql
 SELECT [b].[BlogId], [b].[Url], [b].[Rating]
@@ -1914,12 +2015,13 @@ var snapshot = await context.Blogs
 
 ### EF-40. LIKE с экранированным процентом
 
-- OCaml-пример: —
-- Реализуемость: —
+- OCaml-пример: ✗
+- Реализуемость: ✗
 - Семантика: —
-- Без доработок typed-sql: —
+- Без доработок typed-sql: ✗
 - Источник: [SQL Server function mappings](https://learn.microsoft.com/en-us/ef/core/providers/sql-server/functions).
 - Проверяет: поиск буквального `100%` в начале заголовка, где первый `%` экранирован, а последний остаётся wildcard.
+- Ограничение: DSL поддерживает LIKE, но не `ESCAPE`; без него обратный слеш не гарантирует поиск буквального `%` во всех диалектах.
 
 ```sql
 SELECT [p].[PostId], [p].[Title]

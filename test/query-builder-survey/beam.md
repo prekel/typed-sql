@@ -8,11 +8,11 @@
 
 Код примеров Beam распространяется по [MIT](https://haskell-beam.github.io/beam/about/license/). В конце файла приведено уведомление об авторских правах и лицензии. Это независимая подборка; указание источника не означает одобрения со стороны авторов Beam.
 
-OCaml-примеры typed-sql добавлены для BE-02, BE-06–BE-08 и BE-10. BE-09 требует оконных выражений, которых пока нет в DSL. BE-01, BE-03–BE-05 и BE-11–BE-15 пока приведены без реализации на typed-sql.
+OCaml-примеры typed-sql добавлены для BE-01–BE-08 и BE-10–BE-15. BE-09 требует оконных выражений, которых пока нет в DSL.
 
 В новых примерах с `as_ @Int32` предполагаются расширение `TypeApplications` и импорт `Int32` из `Data.Int`.
 
-## Общие descriptors typed-sql для BE-06–BE-10
+## Общие descriptors typed-sql для BE-01–BE-15
 
 ```ocaml
 open! Base
@@ -27,10 +27,13 @@ module Customer = struct
   let first_name_column = Column.v_exn table "FirstName" Db_type.text
   let last_name_column = Column.v_exn table "LastName" Db_type.text
   let country_column = Column.v_exn table "Country" Db_type.text
+  let nullable_country_column = Column.nullable_v_exn table "Country" Db_type.text
   let id row = Expr.column row id_column
+  let nullable_id row = Expr.nullable_column row id_column
   let first_name row = Expr.column row first_name_column
   let last_name row = Expr.column row last_name_column
   let country row = Expr.column row country_column
+  let nullable_country row = Expr.column row nullable_country_column
 end
 
 module Invoice = struct
@@ -39,19 +42,53 @@ module Invoice = struct
   let table : row Table.t = Table.v_exn "Invoice"
   let id_column = Column.v_exn table "InvoiceId" Db_type.int
   let customer_id_column = Column.v_exn table "CustomerId" Db_type.int
+  let total_column = Column.v_exn table "Total" Db_type.float
   let id row = Expr.column row id_column
+  let nullable_id row = Expr.nullable_column row id_column
   let customer_id row = Expr.column row customer_id_column
+  let total row = Expr.column row total_column
+end
+
+module Invoice_line = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "InvoiceLine"
+  let id_column = Column.v_exn table "InvoiceLineId" Db_type.int
+  let invoice_id_column = Column.v_exn table "InvoiceId" Db_type.int
+  let id row = Expr.column row id_column
+  let invoice_id row = Expr.column row invoice_id_column
+end
+
+module Album = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "Album"
+  let id_column = Column.v_exn table "AlbumId" Db_type.int
+  let title_column = Column.v_exn table "Title" Db_type.text
+  let id row = Expr.column row id_column
+  let title row = Expr.column row title_column
+end
+
+module Invoice_counts = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "invoice_counts"
+  let customer_id_column = Column.v_exn table "CustomerId" Db_type.int
+  let count_column = Column.v_exn table "invoice_count" Db_type.int64
+  let customer_id row = Expr.column row customer_id_column
+  let count row = Expr.column row count_column
+  let projection row = Projection.pair (customer_id row) (count row)
 end
 ```
 
-Общие descriptors используются в примерах BE-02, BE-06–BE-08 и BE-10.
+Общие descriptors используются во всех typed-sql примерах этого файла.
 
 ### BE-01. Фильтр и проекция
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [basic queries: filtering and projecting](https://haskell-beam.github.io/beam/user-guide/queries/basic/).
 - Проверяет: фильтр по стране и выбор двух полей.
 
@@ -67,6 +104,31 @@ select $
     filter_ (\customer -> customerCountry customer ==. val_ "USA") $
       all_ (customer chinookDb)
 ```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let beam01 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Customer.table
+      |> where (fun customer -> Customer.country customer =$ "USA")
+      |> select (fun customer ->
+        Projection.pair (Customer.first_name customer) (Customer.last_name customer))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam01);;
+SELECT
+  t0."FirstName",
+  t0."LastName"
+FROM "Customer" AS t0
+WHERE
+  (t0."Country" = $1)
+```
+
 
 ### BE-02. Составной предикат
 
@@ -128,10 +190,10 @@ WHERE
 
 ### BE-03. Сортировка и страница
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [ordering](https://haskell-beam.github.io/beam/user-guide/queries/ordering/).
 - Проверяет: стабильную сортировку до применения `LIMIT` и `OFFSET`.
 
@@ -151,12 +213,40 @@ select $
           all_ (album chinookDb)
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let beam03 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Album.table
+      |> order_by Album.title `Asc
+      |> limit 10
+      |> offset 20
+      |> select (fun album -> Projection.pair (Album.id album) (Album.title album))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam03);;
+SELECT
+  t0."AlbumId",
+  t0."Title"
+FROM "Album" AS t0
+ORDER BY
+  t0."Title" ASC
+LIMIT 10
+OFFSET 20
+```
+
+
 ### BE-04. INNER JOIN
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [relationships](https://haskell-beam.github.io/beam/user-guide/queries/relationships/).
 - Проверяет: соединение счетов с их строками.
 
@@ -174,12 +264,38 @@ select $ do
   pure (invoiceId invoice, invoiceLineId line)
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let beam04 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Invoice.table
+      |> inner_join Invoice_line.table ~on:(fun invoice line ->
+        Invoice_line.invoice_id line =. Invoice.id invoice)
+      |> select (fun (invoice, line) ->
+        Projection.pair (Invoice.id invoice) (Invoice_line.id line))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam04);;
+SELECT
+  t0."InvoiceId",
+  t1."InvoiceLineId"
+FROM "Invoice" AS t0
+INNER JOIN "InvoiceLine" AS t1
+  ON (t1."InvoiceId" = t0."InvoiceId")
+```
+
+
 ### BE-05. LEFT JOIN с отсутствующей правой строкой
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [left and right joins](https://haskell-beam.github.io/beam/user-guide/queries/relationships/#left-and-right-joins).
 - Проверяет: сохранение покупателя без счета и nullable-сторону результата.
 
@@ -196,6 +312,32 @@ select $ do
     invoiceCustomer invoice ==. primaryKey customer
   pure (customerId customer, invoice)
 ```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let beam05 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Customer.table
+      |> left_join Invoice.table ~on:(fun customer invoice ->
+        Invoice.customer_id invoice =. Customer.id customer)
+      |> select (fun (customer, invoice) ->
+        Projection.pair (Customer.id customer) (Invoice.nullable_id invoice))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam05);;
+SELECT
+  t0."CustomerId",
+  t1."InvoiceId"
+FROM "Customer" AS t0
+LEFT JOIN "Invoice" AS t1
+  ON (t1."CustomerId" = t0."CustomerId")
+```
+
 
 ### BE-06. GROUP BY и HAVING по числу счетов
 
@@ -513,10 +655,10 @@ FROM (
 
 ### BE-11. Уникальные страны покупателей со счетами
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [More complex SELECTs](https://haskell-beam.github.io/beam/user-guide/queries/select/), [relationships](https://haskell-beam.github.io/beam/user-guide/queries/relationships/).
 - Проверяет: `DISTINCT` после коррелированного `EXISTS`; несколько счетов одного покупателя и несколько покупателей из одной страны дают одну страну.
 
@@ -538,12 +680,46 @@ select $ nub_ $ do
   pure (customerCountry c)
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let beam11 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Customer.table
+      |> where (fun customer ->
+        exists
+          (from Invoice.table
+           |> where (fun invoice ->
+             Invoice.customer_id invoice =. Customer.id customer)))
+      |> distinct
+      |> select (fun customer -> Projection.expr (Customer.country customer))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam11);;
+SELECT DISTINCT
+  t0."Country"
+FROM "Customer" AS t0
+WHERE
+  (EXISTS (
+    SELECT
+      1
+    FROM "Invoice" AS t1
+    WHERE
+      (t1."CustomerId" = t0."CustomerId")
+  ))
+```
+
+
 ### BE-12. Покупатели без счетов из выбранной страны
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Beam tutorial: `NOT EXISTS`](https://haskell-beam.github.io/beam/tutorials/tutorial3/).
 - Проверяет: антисоединение через `NOT EXISTS`, включая покупателей без единого счета; фильтр страны остаётся во внешнем запросе.
 
@@ -567,12 +743,51 @@ select $ do
   pure (customerId c, customerFirstName c)
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let beam12 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Customer.table
+      |> where (fun customer ->
+        (Customer.country customer =$ "USA") &&.
+        not_exists
+          (from Invoice.table
+           |> where (fun invoice ->
+             Invoice.customer_id invoice =. Customer.id customer)))
+      |> select (fun customer ->
+        Projection.pair (Customer.id customer) (Customer.first_name customer))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam12);;
+SELECT
+  t0."CustomerId",
+  t0."FirstName"
+FROM "Customer" AS t0
+WHERE
+  (
+    (t0."Country" = $1)
+    AND (NOT EXISTS (
+      SELECT
+        1
+      FROM "Invoice" AS t1
+      WHERE
+        (t1."CustomerId" = t0."CustomerId")
+    ))
+  )
+```
+
+
 ### BE-13. Число разных покупателей со счетами по странам
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Aggregates: `COUNT(DISTINCT ...)`](https://haskell-beam.github.io/beam/user-guide/queries/aggregates/).
 - Проверяет: `COUNT(DISTINCT CustomerId)` после соединения, чтобы повторные счета не увеличивали число покупателей в стране.
 
@@ -594,12 +809,44 @@ select $
       pure (c, i)
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let beam13 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Customer.table
+      |> inner_join Invoice.table ~on:(fun customer invoice ->
+        Customer.id customer =. Invoice.customer_id invoice)
+      |> group_by (fun (customer, _) -> Customer.country customer)
+      |> select (fun (customer, _) ->
+        Projection.map2
+          ~f:(fun country customer_count -> country, customer_count)
+          (Projection.expr (Customer.country customer))
+          (Projection.expr (Expr.count_distinct (Customer.id customer))))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam13);;
+SELECT
+  t0."Country",
+  COUNT(DISTINCT t0."CustomerId")
+FROM "Customer" AS t0
+INNER JOIN "Invoice" AS t1
+  ON (t0."CustomerId" = t1."CustomerId")
+GROUP BY
+  t0."Country"
+```
+
+
 ### BE-14. Повторное использование агрегата через CTE
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Common table expressions](https://haskell-beam.github.io/beam/user-guide/queries/common-table-expressions/).
 - Проверяет: `selectWith` и `reuse` для агрегата, соединение CTE с покупателями и внешний фильтр по рассчитанному числу счетов.
 
@@ -630,12 +877,64 @@ selectWith $ do
     pure (customerId c, invoiceCount)
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let beam14_counts_relation =
+  Derived_table.create
+    ~table:Invoice_counts.table
+    ~columns:Invoice_counts.projection
+    Query.(
+      from Invoice.table
+      |> group_by Invoice.customer_id
+      |> select (fun invoice ->
+        Projection.pair (Invoice.customer_id invoice) Expr.count_all))
+
+let beam14 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Cte.with_result (Cte.select beam14_counts_relation) ~f:(fun invoice_counts ->
+      Query.(
+        from Customer.table
+        |> inner_join_cte invoice_counts ~on:(fun customer counts ->
+          Customer.id customer =. Invoice_counts.customer_id counts)
+        |> where (fun (_, counts) -> Invoice_counts.count counts >=. 3L)
+        |> select (fun (customer, counts) ->
+          Projection.pair (Customer.id customer) (Invoice_counts.count counts)))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam14);;
+WITH
+  "c0" (
+    "CustomerId",
+    "invoice_count"
+  ) AS (
+    SELECT
+      t0."CustomerId",
+      COUNT(*)
+    FROM "Invoice" AS t0
+    GROUP BY
+      t0."CustomerId"
+  )
+SELECT
+  t0."CustomerId",
+  t1."invoice_count"
+FROM "Customer" AS t0
+INNER JOIN "c0" AS t1
+  ON (t0."CustomerId" = t1."CustomerId")
+WHERE
+  (t1."invoice_count" >= $1)
+```
+
+
 ### BE-15. Три покупателя с наибольшей суммой счетов
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Aggregates](https://haskell-beam.github.io/beam/user-guide/queries/aggregates/), [ordering and limit](https://haskell-beam.github.io/beam/user-guide/queries/ordering/).
 - Проверяет: порядок `GROUP BY`, сортировки по агрегату и `LIMIT`; для граничной строки нужна фикстура без равенства сумм.
 
@@ -656,6 +955,43 @@ select $
     , fromMaybe_ 0 (sum_ (invoiceTotal i)) )) $
       all_ (invoice chinookDb)
 ```
+
+#### OCaml (typed-sql)
+
+`Total` объявлен как `float`; для фикстуры без равных итогов сумма определяет тот же порядок покупателей.
+
+```ocaml
+let beam15 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Invoice.table
+      |> group_by Invoice.customer_id
+      |> order_by (fun invoice ->
+        Expr.coalesce (Expr.sum_float (Invoice.total invoice))
+          ~default:(Expr.constant Db_type.float 0.)) `Desc
+      |> limit 3
+      |> select (fun invoice ->
+        Projection.pair
+          (Invoice.customer_id invoice)
+          (Expr.coalesce (Expr.sum_float (Invoice.total invoice))
+             ~default:(Expr.constant Db_type.float 0.)))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam15);;
+SELECT
+  t0."CustomerId",
+  COALESCE(SUM(t0."Total"), $1)
+FROM "Invoice" AS t0
+GROUP BY
+  t0."CustomerId"
+ORDER BY
+  COALESCE(SUM(t0."Total"), $2) DESC
+LIMIT 3
+```
+
 
 ## Уведомление о лицензии
 

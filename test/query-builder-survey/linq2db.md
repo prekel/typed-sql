@@ -2,13 +2,13 @@
 
 # Сценарии запросов из LINQ to DB
 
-Десять сценариев по [руководствам LINQ to DB](https://linq2db.github.io/) (доступ 28.09.2026). Примеры C# сокращены и адаптированы; SQL показывает структуру запроса. Для LD-01–LD-05 приведены реализация на typed-sql и SQL, полученный его компилятором для PostgreSQL; LD-06–LD-10 пока не оценивались.
+Десять сценариев по [руководствам LINQ to DB](https://linq2db.github.io/) (доступ 28.09.2026). Примеры C# сокращены и адаптированы; SQL показывает структуру запроса. Для поддерживаемых сценариев приведены реализация на typed-sql и SQL, полученный его компилятором для PostgreSQL. LD-08 выражен эквивалентным коррелированным подсчётом; оконные функции пока отсутствуют в typed-sql.
 
 Источник: проект LINQ to DB, лицензия [MIT](https://github.com/linq2db/linq2db/blob/master/LICENSE). Используется схема `author(id, name)` и `book(id, author_id, title, published_in)`. Идентификаторы и годы имеют тип `int64`.
 
 В блоках «SQL typed-sql» первая строка запускает компилятор, остальные строки — его вывод. Выполнить сценарии можно командой `opam exec -- dune runtest test/query-builder-survey`.
 
-## Общие дескрипторы для LD-01–LD-05
+## Общие дескрипторы для LD-01–LD-10
 
 ```ocaml
 open! Base
@@ -36,6 +36,7 @@ module Book = struct
   let id row = Expr.column row id_column
   let author_id row = Expr.column row author_id_column
   let title row = Expr.column row title_column
+  let nullable_title row = Expr.nullable_column row title_column
   let published_in row = Expr.column row published_in_column
 end
 
@@ -337,10 +338,10 @@ WHERE
 
 ### LD-06. LEFT JOIN с автором без книг
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Join Operators: LEFT JOIN](https://linq2db.github.io/articles/sql/Join-Operators.html).
 - Проверяет: сохранение автора без книг и `NULL` в заголовке; автор с несколькими книгами даёт несколько строк.
 
@@ -358,12 +359,37 @@ var query =
     select new { a.Id, Title = b == null ? null : b.Title };
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let ld06 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Author.table
+      |> left_join Book.table ~on:(fun author book ->
+        Book.author_id book =. Author.id author)
+      |> select (fun (author, book) ->
+        Projection.pair (Author.id author) (Book.nullable_title book))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ld06);;
+SELECT
+  t0."id",
+  t1."title"
+FROM "author" AS t0
+LEFT JOIN "book" AS t1
+  ON (t1."author_id" = t0."id")
+```
+
 ### LD-07. Авторы без книг через NOT EXISTS
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [LINQ to DB querying](https://linq2db.github.io/), [Queryable.Any](https://learn.microsoft.com/en-us/dotnet/api/system.linq.queryable.any).
 - Проверяет: антисоединение без размножения строк и включение авторов, для которых внутренняя выборка пуста.
 
@@ -382,12 +408,45 @@ var query = db.GetTable<Author>()
     .Select(a => new { a.Id, a.Name });
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let ld07 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Author.table
+      |> where (fun author ->
+        not_exists
+          (from Book.table
+           |> where (fun book -> Book.author_id book =. Author.id author)))
+      |> select (fun author -> Projection.pair (Author.id author) (Author.name author))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ld07);;
+SELECT
+  t0."id",
+  t0."name"
+FROM "author" AS t0
+WHERE
+  (NOT EXISTS (
+    SELECT
+      1
+    FROM "book" AS t1
+    WHERE
+      (t1."author_id" = t0."id")
+  ))
+```
+
 ### LD-08. Две последние книги каждого автора через ROW_NUMBER
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Замечание: `ROW_NUMBER() <= 2` заменён подсчётом строк, отсортированных выше текущей; при уникальном `id` выбирается тот же набор книг.
 - Источник: [Window (Analytic) Functions](https://linq2db.github.io/articles/sql/Window-Functions-%28Analytic-Functions%29.html).
 - Проверяет: нумерацию внутри каждого автора, дополнительный ключ сортировки `id` и фильтр ранга во внешнем SELECT.
 
@@ -418,12 +477,67 @@ var query = ranked.Where(row => row.RowNo <= 2)
     .Select(row => new { row.Id, row.AuthorId, row.Title });
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let ld08 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Book.table
+      |> where (fun book ->
+        let books_before =
+          Query.(
+            from Book.table
+            |> where (fun other ->
+              (Book.author_id other =. Book.author_id book)
+              &&. ((Book.published_in other >. Book.published_in book)
+                   ||. ((Book.published_in other =. Book.published_in book)
+                        &&. (Book.id other >. Book.id book))))
+            |> select_scalar (fun _ -> Expr.count_all))
+        in
+        Expr.coalesce (Expr.scalar_subquery books_before)
+          ~default:(Expr.constant Db_type.int64 0L) <. 2L)
+      |> select (fun book ->
+        Projection.map2
+          ~f:(fun (id, author_id) title -> id, author_id, title)
+          (Projection.pair (Book.id book) (Book.author_id book))
+          (Projection.expr (Book.title book)))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ld08);;
+SELECT
+  t0."id",
+  t0."author_id",
+  t0."title"
+FROM "book" AS t0
+WHERE
+  (COALESCE((
+    SELECT
+      COUNT(*)
+    FROM "book" AS t1
+    WHERE
+      (
+        (t1."author_id" = t0."author_id")
+        AND (
+          (t1."published_in" > t0."published_in")
+          OR (
+            (t1."published_in" = t0."published_in")
+            AND (t1."id" > t0."id")
+          )
+        )
+      )
+  ), $1) < $2)
+```
+
 ### LD-09. UNION ALL с повторениями на границе периода
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [`UnionAll` в LINQ to DB](https://linq2db.github.io/api/linq2db/linq2db--LinqToDB.LinqExtensions.html).
 - Проверяет: сохранение двух копий книги за 2000 год, поскольку обе ветви включают граничное значение.
 
@@ -443,12 +557,58 @@ var after = db.GetTable<Book>()
 var query = before.UnionAll(after);
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let ld09 =
+  Statement.Portable.query_many_exn (fun _ ->
+    let before =
+      Query.(
+        from Book.table
+        |> where (fun book -> Book.published_in book <=. 2000L)
+        |> select (fun book -> Projection.pair (Book.id book) (Book.author_id book)))
+    in
+    let after =
+      Query.(
+        from Book.table
+        |> where (fun book -> Book.published_in book >=. 2000L)
+        |> select (fun book -> Projection.pair (Book.id book) (Book.author_id book)))
+    in
+    Query.union_all before after)
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ld09);;
+SELECT *
+FROM (
+  SELECT
+    t0."id",
+    t0."author_id"
+  FROM "book" AS t0
+  WHERE
+    (t0."published_in" <= $1)
+) AS s0
+UNION ALL
+SELECT *
+FROM (
+  SELECT
+    t0."id",
+    t0."author_id"
+  FROM "book" AS t0
+  WHERE
+    (t0."published_in" >= $2)
+) AS s0
+```
+
 ### LD-10. Массовое обновление года издания
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Замечание: self-join по уникальному `book.id` предоставляет типизированный источник прежнего года для выражения `SET`.
 - Источник: [`Set` и `Update` в LINQ to DB](https://linq2db.github.io/api/linq2db/linq2db--LinqToDB.LinqExtensions.html).
 - Проверяет: вычисление нового года из прежнего значения и число изменённых строк без загрузки сущностей.
 
@@ -463,4 +623,37 @@ var changed = db.GetTable<Book>()
     .Where(b => b.PublishedIn < cutoff)
     .Set(b => b.PublishedIn, b => b.PublishedIn + 1)
     .Update();
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let ld10 =
+  Statement.Portable.command_exn (fun params ->
+    let cutoff = params.expr Db_type.int64 ~get:Fn.id in
+    Update.(
+      table Book.table
+      |> from Book.table ~f:(fun _target source update ->
+        let open Expr.Int64.Infix in
+        update
+        |> set_expr Book.published_in_column
+             (Book.published_in source +. Expr.constant Db_type.int64 1L)
+        |> where (fun book ->
+          (Book.id book =. Book.id source) &&. (Book.published_in book <. cutoff)))
+      |> command))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ld10);;
+UPDATE "book" AS t0
+SET
+  "published_in" = (t1."published_in" + $1)
+FROM "book" AS t1
+WHERE
+  (
+    (t0."id" = t1."id")
+    AND (t0."published_in" < $2)
+  )
 ```

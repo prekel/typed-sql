@@ -8,7 +8,7 @@
 
 Diesel распространяется по [MIT или Apache-2.0](https://github.com/diesel-rs/diesel#license). Здесь используется вариант MIT для уведомления об авторских правах. Примеры кода адаптированы; указание источника не означает одобрения со стороны авторов Diesel.
 
-Для DI-01–DI-09 приведены реализации через публичный API typed-sql и SQL компилятора для PostgreSQL. Оконные выражения DI-10 пока не входят в публичный API. DI-11–DI-15 пока приведены без реализации на typed-sql.
+Для DI-01–DI-09 и DI-11–DI-15 приведены реализации через публичный API typed-sql и SQL компилятора для PostgreSQL. Оконные выражения DI-10 пока не входят в публичный API.
 
 ```rust
 use diesel::prelude::*;
@@ -619,10 +619,10 @@ let rows = posts::table
 
 ### DI-11. Уникальные авторы постов с заданным префиксом
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [All About Selects](https://diesel.rs/guides/all-about-selects/).
 - Проверяет: `DISTINCT` применяется к `user_id` после фильтра по заголовку; несколько подходящих постов одного пользователя дают одну строку.
 
@@ -642,12 +642,39 @@ let user_ids = posts::table
     .load::<i32>(connection)?;
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let diesel11 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Posts.table
+      |> where (fun post -> Posts.title post =~$ "SQL%")
+      |> distinct
+      |> order_by Posts.user_id `Asc
+      |> select (fun post -> Projection.expr (Posts.user_id post))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel11);;
+SELECT DISTINCT
+  t0."user_id"
+FROM "posts" AS t0
+WHERE
+  (t0."title" LIKE $1)
+ORDER BY
+  t0."user_id" ASC
+```
+
+
 ### DI-12. Динамические фильтры в boxed SELECT
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Composing Applications with Diesel](https://diesel.rs/guides/composing-applications/).
 - Проверяет: два независимых необязательных предиката меняют форму SQL; значения остаются параметрами, а сортировка задаёт устойчивый порядок.
 
@@ -674,12 +701,55 @@ let rows = query
     .load::<(i32, String)>(connection)?;
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let diesel12 =
+  Statement.Dynamic.Portable.query_many (fun (title_pattern, minimum_id) ->
+    Query.(
+      from Posts.table
+      |> where_opt title_pattern ~f:(fun post pattern -> Posts.title post =~$ pattern)
+      |> where_opt minimum_id ~f:(fun post id -> Posts.id post >=$ id)
+      |> order_by Posts.id `Asc
+      |> select (fun post -> Projection.pair (Posts.id post) (Posts.title post))))
+```
+
+#### SQL typed-sql (PostgreSQL, оба фильтра)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(Some "Draft%", Some 10) diesel12);;
+SELECT
+  t0."id",
+  t0."title"
+FROM "posts" AS t0
+WHERE
+  (
+    (t0."title" LIKE $1)
+    AND (t0."id" >= $2)
+  )
+ORDER BY
+  t0."id" ASC
+```
+
+#### SQL typed-sql (PostgreSQL, фильтров нет)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(None, None) diesel12);;
+SELECT
+  t0."id",
+  t0."title"
+FROM "posts" AS t0
+ORDER BY
+  t0."id" ASC
+```
+
+
 ### DI-13. UPSERT с новым заголовком из EXCLUDED
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Diesel `on_conflict` и `excluded`](https://docs.diesel.rs/main/diesel/helper_types/type.OnConflict.html).
 - Проверяет: вставку нового поста и обновление только заголовка при конфликте `id`; возвращается итоговая строка.
 
@@ -704,12 +774,55 @@ let saved = diesel::insert_into(posts::table)
     .get_result::<(i32, String)>(connection)?;
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let diesel13 =
+  Statement.Portable.expect_one_exn (fun params ->
+    let id = params.expr Db_type.int ~get:(fun (id, _, _) -> id) in
+    let user_id = params.expr Db_type.int ~get:(fun (_, user_id, _) -> user_id) in
+    let title = params.expr Db_type.text ~get:(fun (_, _, title) -> title) in
+    Insert.(
+      into Posts.table
+      |> set_expr Posts.id_column id
+      |> set_expr Posts.user_id_column user_id
+      |> set_expr Posts.title_column title
+      |> on_conflict (Conflict_target.column Posts.id_column)
+      |> do_update (fun ~existing:_ ~excluded ->
+        Conflict_update.empty
+        |> Conflict_update.set_expr Posts.title_column (Posts.title excluded))
+      |> returning (fun post -> Projection.pair (Posts.id post) (Posts.title post))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel13);;
+INSERT INTO "posts" AS t0 (
+  "id",
+  "user_id",
+  "title"
+)
+VALUES
+  ($1, $2, $3)
+ON CONFLICT (
+  "id"
+)
+DO UPDATE
+SET
+  "title" = excluded."title"
+RETURNING
+  "id",
+  "title"
+```
+
+
 ### DI-14. Массовый UPDATE с RETURNING
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [All About Updates](https://diesel.rs/guides/all-about-updates/).
 - Проверяет: обновление всех постов одного пользователя одним оператором и получение только изменённых строк.
 
@@ -726,12 +839,41 @@ let changed = diesel::update(posts::table.filter(posts::user_id.eq(user_id)))
     .get_results::<(i32, String)>(connection)?;
 ```
 
+#### OCaml (typed-sql)
+
+```ocaml
+let diesel14 =
+  Statement.Portable.query_many_exn (fun params ->
+    let title = params.expr Db_type.text ~get:(fun (title, user_id) -> title) in
+    let user_id = params.expr Db_type.int ~get:(fun (_, user_id) -> user_id) in
+    Update.(
+      table Posts.table
+      |> set_expr Posts.title_column title
+      |> where (fun post -> Posts.user_id post =. user_id)
+      |> returning (fun post -> Projection.pair (Posts.id post) (Posts.title post))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel14);;
+UPDATE "posts"
+SET
+  "title" = $1
+WHERE
+  ("user_id" = $2)
+RETURNING
+  "id",
+  "title"
+```
+
+
 ### DI-15. Удаление черновиков с возвратом идентификаторов
 
-- OCaml-пример: —
-- Реализуемость: —
-- Семантика: —
-- Без доработок typed-sql: —
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Diesel delete DSL](https://docs.diesel.rs/main/diesel/fn.delete.html), [RETURNING](https://diesel.rs/guides/all-about-updates/).
 - Проверяет: оба условия удаления, отсутствие затронутых строк при пустом результате и `RETURNING` только удалённых идентификаторов.
 
@@ -750,6 +892,30 @@ let removed_ids = diesel::delete(
 .returning(posts::id)
 .get_results::<i32>(connection)?;
 ```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let diesel15 =
+  Statement.Portable.query_many_exn (fun params ->
+    let pattern = params.expr Db_type.text ~get:Fn.id in
+    Delete.(
+      from Posts.table
+      |> where (fun post -> Posts.title post =~$ pattern)
+      |> returning (fun post -> Projection.expr (Posts.id post))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel15);;
+DELETE FROM "posts"
+WHERE
+  ("title" LIKE $1)
+RETURNING
+  "id"
+```
+
 
 ## Уведомление о лицензии
 
