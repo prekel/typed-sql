@@ -303,6 +303,29 @@ idempotent inserts, count queries, correlated flags и batch loading tags чер
   JSON не выходит в публичный тип. Aggregate-local ordering и filtering доступны
   через `Aggregate_order` и именованные аргументы `multiset_agg`.
 
+- [ ] **`EXISTS` в проекции как `bool` expression.** В `typed-realworld`
+  флаг `following` сейчас получается через коррелированный scalar subquery,
+  выборку `followed_id` и `Option.is_some`: `Query.exists` возвращает
+  `Condition.t`, который нельзя передать в `Projection.expr`. Добавить
+  `Query.exists_expr` для незавершённого SELECT с результатом
+  `(bool, 'requirements) Expr.t` и прямым `EXISTS (SELECT 1 ...)` в проекции.
+  Проверить корреляцию, отсутствующего viewer, пустой результат и выполнение
+  на SQLite и PostgreSQL. Общее преобразование `Condition.t` в не-`NULL` `bool`
+  сюда не входит: произвольный SQL-предикат может иметь значение `UNKNOWN`.
+
+- [ ] **Повторное использование фильтров страницы и count.** В
+  `typed-realworld` условия для списка статей и подсчёта повторяются при
+  построении обычного `Query` и `Query.Aggregate`. Проверить, можно ли задать
+  общий набор условий через публичный API без потери проверки типов и без
+  дублирования SQL-семантики. Подтвердить решение запросами RealWorld и
+  regression tests для одинаковых фильтров страницы и count.
+
+- [ ] **Коллекции в read model RealWorld.** Сравнить текущую пакетную догрузку
+  тегов и авторов комментариев с вариантами на основе `Query.multiset`, JOIN
+  и коррелированных projections. Для SQLite и PostgreSQL проверить одинаковый
+  результат, число запросов и планы выполнения. Менять запросы приложения
+  или расширять API только при подтверждённом упрощении или выигрыше.
+
 - [ ] Низкоуровневые `array_agg`, `json_agg` и `json_group_array` остаются будущими
   dialect API для случаев, когда приложению нужен сам database JSON или native
   PostgreSQL array.
