@@ -2,7 +2,7 @@
 
 # Сценарии запросов из SeaQuery
 
-**Желаемый таргет: 20 сценариев — 5 обычных и 15 сложных.** Сейчас заведены пять обычных и десять сложных сценариев; остаётся добавить ещё пять сложных.
+**Желаемый таргет: 20 сценариев — 5 обычных и 15 сложных.** Каталог включает пять обычных и пятнадцать сложных сценариев.
 
 Источники — [раздел Query Select](https://docs.rs/sea-query/latest/sea_query/query/struct.SelectStatement.html) документации SeaQuery и [руководство SeaORM](https://www.sea-ql.org/sea-orm-tutorial/ch01-08-sql-with-sea-query.html) (доступ 28.09.2026). Примеры сокращены и адаптированы под схему `users(id, name, country)` и `posts(id, user_id, title)`. SQL приведён в форме PostgreSQL; `build(PostgresQueryBuilder)` также возвращает значения отдельно от SQL.
 
@@ -668,7 +668,7 @@ FROM (
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [expr_window_as](https://docs.rs/sea-query/latest/sea_query/query/struct.SelectStatement.html#method.expr_window_as).
 - Проверяет: число постов пользователя рядом с каждой строкой без свёртывания строк в группы.
 - Замечание: число строк в партиции получено коррелированным `COUNT(*)`; для каждой исходной строки сохраняется то же значение.
@@ -1153,10 +1153,24 @@ let seaquery17 =
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery17);;
-WITH t0 AS (
-  SELECT t1."id", t1."name" FROM "users" AS t1 WHERE (t1."id" > $1)
-)
-SELECT t0."id", t0."name" FROM t0 AS t0 ORDER BY t0."id" ASC
+WITH
+  "c0" (
+    "id",
+    "name"
+  ) AS (
+    SELECT
+      t0."id",
+      t0."name"
+    FROM "users" AS t0
+    WHERE
+      (t0."id" > $1)
+  )
+SELECT
+  t0."id",
+  t0."name"
+FROM "c0" AS t0
+ORDER BY
+  t0."id" ASC
 ```
 
 ### SQ-18. UPSERT с обновлением только при новом заголовке

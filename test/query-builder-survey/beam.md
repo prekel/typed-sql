@@ -539,7 +539,7 @@ INNER JOIN (
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [window functions](https://haskell-beam.github.io/beam/user-guide/queries/window-functions/).
 - Проверяет: оконный `RANK` по сумме счета без схлопывания строк; равные суммы получают одинаковый ранг.
 - Замечание: оконный `RANK` заменён `1 + COUNT(DISTINCT Total)` для больших сумм; равные суммы получают одинаковый ранг.

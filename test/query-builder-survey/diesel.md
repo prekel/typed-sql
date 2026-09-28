@@ -2,7 +2,7 @@
 
 # Сценарии запросов из Diesel
 
-**Желаемый таргет: 20 сценариев — 5 обычных и 15 сложных.** Сейчас заведены пять обычных и десять сложных сценариев; остаётся добавить ещё пять сложных.
+**Желаемый таргет: 20 сценариев — 5 обычных и 15 сложных.** Каталог включает пять обычных и пятнадцать сложных сценариев.
 
 Источники — [All About Selects](https://diesel.rs/guides/all-about-selects/), [Relations](https://diesel.rs/guides/relations/) и API Diesel 2.3. Примеры и SQL сокращены и адаптированы под схему `users(id, name)` и `posts(id, user_id, title)`. Для JOIN предполагается объявленная Diesel-связь `posts.user_id -> users.id`; оконные функции требуют Diesel 2.3 или новее.
 
@@ -592,7 +592,7 @@ FROM (
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [Diesel 2.3: window functions](https://diesel.rs/news/2_3_0_release) и [WindowExpressionMethods](https://docs.diesel.rs/master/diesel/expression_methods/trait.WindowExpressionMethods.html).
 - Проверяет: число постов каждого пользователя рядом с каждой строкой без схлопывания результата в группы.
 - Замечание: результат окна воспроизведён коррелированным `COUNT(*)` по тому же `user_id`; вывод остаётся построчным, форма SQL отличается.

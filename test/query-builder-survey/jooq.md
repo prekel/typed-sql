@@ -90,6 +90,20 @@ module Directory = struct
   let label row = Expr.column row label_column
 end
 
+module Directory_tree = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "directory_tree"
+  let id_column = Column.v_exn table "id" Db_type.int
+  let parent_id_column = Column.nullable_v_exn table "parent_id" Db_type.int
+  let label_column = Column.v_exn table "label" Db_type.text
+  let depth_column = Column.v_exn table "depth" Db_type.int
+  let id row = Expr.column row id_column
+  let parent_id row = Expr.column row parent_id_column
+  let label row = Expr.column row label_column
+  let depth row = Expr.column row depth_column
+end
+
 ## SELECT и фильтрация
 
 ### JQ-01. Фильтр, JOIN, группировка, сортировка и страница
@@ -821,7 +835,7 @@ HAVING
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [Window PARTITION BY](https://www.jooq.org/doc/3.21/manual/sql-building/column-expressions/window-functions/window-partition/).
 - Проверяет: значение по группе рядом с каждой исходной строкой.
 - Замечание: оконный `COUNT(*) OVER (PARTITION BY ...)` заменён коррелированным scalar count; набор строк и значение агрегата совпадают.
@@ -1238,7 +1252,7 @@ ORDER BY
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [CROSS JOIN](https://www.jooq.org/doc/3.21/manual/sql-building/table-expressions/joined-tables/join-type-cross/).
 - Проверяет: декартово произведение таблиц и его размер до применения последующих фильтров.
 - Ограничение: Typed-sql выражает декартово произведение через `INNER JOIN ON TRUE`; отдельного конструктора `CROSS JOIN` нет.
@@ -1294,7 +1308,7 @@ ORDER BY
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [USING clause](https://www.jooq.org/doc/3.21/manual/sql-building/table-expressions/joined-tables/join-predicate-using/).
 - Проверяет: соединение по одноимённому ключу и использование общей колонки в USING.
 - Ограничение: Публичный API принимает typed `ON`, но не сохраняет специальную форму `USING`.
@@ -1345,7 +1359,7 @@ INNER JOIN "book" AS t1
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [LATERAL](https://www.jooq.org/doc/3.21/manual/sql-building/table-expressions/joined-tables/join-mode-lateral/).
 - Проверяет: корреляцию правой табличной функции с текущим автором и выбор не более одной книги на автора.
 - Ограничение: LATERAL заменён коррелированным scalar subquery с сортировкой и `LIMIT 1`; результирующие строки совпадают.
@@ -1466,8 +1480,8 @@ create.select(minYear, BOOK.ID)
 - Семантика: ✓
 - Без доработок typed-sql: ✓
 - Источник: [WITH RECURSIVE](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/with-recursive-clause/).
-- Проверяет: anchor member, рекурсивное соединение с предыдущим уровнем и глубину узла.
-- Замечание: пример обходит дерево от корневых строк и возвращает все узлы; глубина не проецируется, так как фикстура не содержит столбец depth.
+- Проверяет: anchor member, рекурсивное соединение с родителем и накопление глубины до каждого узла.
+- Замечание: `depth` — вычисляемое поле рекурсивного CTE; исходная таблица DIRECTORY его не хранит.
 
 ```sql
 WITH RECURSIVE DIRECTORY_TREE (ID, PARENT_ID, DEPTH) AS (
@@ -1512,14 +1526,33 @@ create.withRecursive(directoryTree)
 #### OCaml (typed-sql, рекурсивный CTE)
 
 ```ocaml
+let jq21_fields ~directory_id ~parent_id ~label ~depth =
+  Projection.map3
+    ~f:(fun id parent fields -> id, parent, fields)
+    directory_id
+    parent_id
+    (Projection.pair label depth)
+
+let jq21_columns directory =
+  jq21_fields
+    ~directory_id:(Projection.expr (Directory_tree.id directory))
+    ~parent_id:(Projection.expr (Directory_tree.parent_id directory))
+    ~label:(Projection.expr (Directory_tree.label directory))
+    ~depth:(Projection.expr (Directory_tree.depth directory))
+
 let jq21_anchor =
   Derived_table.create
-    ~table:Directory.table
-    ~columns:(fun directory -> Projection.map3 ~f:(fun id parent label -> id, parent, label) (Directory.id directory) (Directory.parent_id directory) (Directory.label directory))
+    ~table:Directory_tree.table
+    ~columns:jq21_columns
     Query.(
       from Directory.table
       |> where (fun directory -> Expr.is_null (Directory.parent_id directory))
-      |> select (fun directory -> Projection.map3 ~f:(fun id parent label -> id, parent, label) (Projection.expr (Directory.id directory)) (Projection.expr (Directory.parent_id directory)) (Projection.expr (Directory.label directory))))
+      |> select (fun directory ->
+        jq21_fields
+          ~directory_id:(Projection.expr (Directory.id directory))
+          ~parent_id:(Projection.expr (Directory.parent_id directory))
+          ~label:(Projection.expr (Directory.label directory))
+          ~depth:(Projection.expr (Expr.constant Db_type.int 0))))
 
 let jq21 =
   let definition =
@@ -1528,34 +1561,66 @@ let jq21 =
       ~anchor:jq21_anchor
       ~step:(fun directory_cte ->
         Derived_table.create
-          ~table:Directory.table
-          ~columns:(fun directory -> Projection.map3 ~f:(fun id parent label -> id, parent, label) (Directory.id directory) (Directory.parent_id directory) (Directory.label directory))
+          ~table:Directory_tree.table
+          ~columns:jq21_columns
           Query.(
             from Directory.table
             |> inner_join_cte directory_cte ~on:(fun directory parent ->
-              Directory.parent_id directory =. Expr.to_nullable (Directory.id parent))
-            |> select (fun (directory, _parent) ->
-              Projection.map3 ~f:(fun id parent label -> id, parent, label) (Projection.expr (Directory.id directory)) (Projection.expr (Directory.parent_id directory)) (Projection.expr (Directory.label directory)))))
+              Directory.parent_id directory =. Expr.to_nullable (Directory_tree.id parent))
+            |> select (fun (directory, parent) ->
+              jq21_fields
+                ~directory_id:(Projection.expr (Directory.id directory))
+                ~parent_id:(Projection.expr (Directory.parent_id directory))
+                ~label:(Projection.expr (Directory.label directory))
+                ~depth:(Projection.expr Expr.Int.(Directory_tree.depth parent +. Expr.constant Db_type.int 1)))))
   in
   Statement.Portable.query_many_exn (fun _ ->
     Cte.with_result definition ~f:(fun directory_cte ->
-      Query.(from_cte directory_cte |> select (fun directory -> Projection.pair (Directory.id directory) (Directory.label directory)))))
+      Query.(
+        from_cte directory_cte
+        |> order_by Directory_tree.depth `Asc
+        |> order_by Directory_tree.id `Asc
+        |> select (fun directory -> jq21_columns directory))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq21);;
-WITH RECURSIVE t0 AS (
-  SELECT t1."id", t1."parent_id", t1."label"
-  FROM "directory" AS t1
-  WHERE (t1."parent_id" IS NULL)
-  UNION ALL
-  SELECT t2."id", t2."parent_id", t2."label"
-  FROM "directory" AS t2
-  INNER JOIN t0 AS t3 ON (t2."parent_id" = t3."id")
-)
-SELECT t0."id", t0."label" FROM t0 AS t0
+WITH RECURSIVE
+  "c0" (
+    "id",
+    "parent_id",
+    "label",
+    "depth"
+  ) AS (
+    SELECT
+      t0."id",
+      t0."parent_id",
+      t0."label",
+      $1
+    FROM "directory" AS t0
+    WHERE
+      (t0."parent_id" IS NULL)
+    UNION ALL
+    SELECT
+      t0."id",
+      t0."parent_id",
+      t0."label",
+      (t1."depth" + $2)
+    FROM "directory" AS t0
+    INNER JOIN "c0" AS t1
+      ON (t0."parent_id" = t1."id")
+  )
+SELECT
+  t0."id",
+  t0."parent_id",
+  t0."label",
+  t0."depth"
+FROM "c0" AS t0
+ORDER BY
+  t0."depth" ASC,
+  t0."id" ASC
 ```
 
 ### JQ-22. SELECT DISTINCT по внешнему ключу
@@ -1608,7 +1673,7 @@ FROM "book" AS t0
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [SELECT DISTINCT ON](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/select-clause/select-clause-distinct-on/).
 - Проверяет: выбор первой строки каждой группы согласно явному порядку.
 - Ограничение: `DISTINCT ON` выражен коррелированным `NOT EXISTS` с тем же tie-break; форма SQL отличается, результат совпадает при уникальном ID.
@@ -1729,7 +1794,7 @@ FROM "book" AS t0
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [ORDER BY clause](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/order-by-clause/order-by-nulls-ordering/).
 - Проверяет: явное положение NULL относительно ненулевых значений.
 - Ограничение: NULLS LAST реализован portable `CASE` ключом сортировки, а не специальной клаузой диалекта.
@@ -1875,7 +1940,7 @@ WHERE
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [Row value expressions](https://www.jooq.org/doc/3.21/manual/sql-building/column-expressions/row-value-expressions/).
 - Проверяет: лексикографическое сравнение пары значений в одном предикате.
 - Ограничение: Row-value сравнение раскрыто в эквивалентный лексикографический предикат `OR`/`AND`.
@@ -1954,7 +2019,7 @@ create.select(BOOK.AUTHOR_ID, BOOK.PUBLISHED_IN, count())
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [Aggregate FILTER](https://www.jooq.org/doc/3.21/manual/sql-building/column-expressions/aggregate-functions/aggregate-filter/).
 - Проверяет: несколько агрегатов над одной группой с разными условиями отбора.
 - Ограничение: Условный агрегат выражен как `SUM(CASE ...)`; отдельного aggregate `FILTER` в текущем API нет.
@@ -2052,7 +2117,7 @@ create.select(
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [QUALIFY clause](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/qualify-clause/).
 - Проверяет: фильтрацию по оконной функции после вычисления ROW_NUMBER.
 - Ограничение: `QUALIFY ROW_NUMBER() = 1` заменён `NOT EXISTS` по более поздней книге; ID разрешает равенство года.
@@ -2401,7 +2466,7 @@ WHERE
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [DELETE .. USING](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/delete-statement/delete-using/).
 - Проверяет: удаление целевых строк по условию, зависящему от соединённой таблицы.
 - Ограничение: `DELETE ... USING` выражен эквивалентным коррелированным `WHERE EXISTS`; отдельного API для USING нет.
@@ -2797,18 +2862,22 @@ let jq48 =
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq48);;
-WITH t0 AS (
-  SELECT
-    t1."id",
-    t1."last_name"
-  FROM "author" AS t1
-  WHERE
-    (t1."id" > $1)
-)
+WITH
+  "c0" (
+    "id",
+    "last_name"
+  ) AS (
+    SELECT
+      t0."id",
+      t0."last_name"
+    FROM "author" AS t0
+    WHERE
+      (t0."id" > $1)
+  )
 SELECT
   t0."id",
   t0."last_name"
-FROM t0 AS t0
+FROM "c0" AS t0
 ORDER BY
   t0."id" ASC
 ```

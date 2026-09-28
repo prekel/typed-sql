@@ -608,18 +608,22 @@ let sqlalchemy10 =
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy10);;
-WITH t0 AS (
-  SELECT
-    t1."id",
-    t1."name"
-  FROM "user_account" AS t1
-  WHERE
-    (t1."id" > $1)
-)
+WITH
+  "c0" (
+    "id",
+    "name"
+  ) AS (
+    SELECT
+      t0."id",
+      t0."name"
+    FROM "user_account" AS t0
+    WHERE
+      (t0."id" > $1)
+  )
 SELECT
   t0."id",
   t0."name"
-FROM t0 AS t0
+FROM "c0" AS t0
 ORDER BY
   t0."id" ASC
 ```
@@ -676,7 +680,7 @@ WHERE
 - OCaml-пример: ✗
 - Реализуемость: ✗
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [using window functions](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#using-window-functions).
 - Проверяет: нумерацию адресов внутри каждого `user_id`; уникальный ID задаёт стабильный порядок, пользователь без адресов не возвращается.
 - Замечание: `ROW_NUMBER()` заменён коррелированным `COUNT(id <= current_id)` плюс сортировка по ID.
@@ -1060,7 +1064,7 @@ FROM "user_account" AS t0
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [модификаторы ORDER BY](https://docs.sqlalchemy.org/en/20/core/sqlelement.html#sqlalchemy.sql.expression.nulls_last).
 - Проверяет: явное положение `NULL` при сортировке.
 - Ограничение: Положение NULL задаётся portable `CASE` ключом сортировки вместо специального `NULLS LAST`.
@@ -1152,7 +1156,7 @@ INNER JOIN "user_account" AS t1
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [FROM с несколькими источниками](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#explicit-from-clauses-and-joins).
 - Проверяет: декартово произведение строк двух таблиц.
 - Ограничение: Декартово произведение выражено через `INNER JOIN ON TRUE`, отдельного `CROSS JOIN` builder нет.
@@ -1195,7 +1199,7 @@ INNER JOIN "address" AS t1
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [OUTER и FULL JOIN](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#outer-and-full-join).
 - Проверяет: сохранение несопоставленных строк обеих таблиц; поддержка зависит от СУБД.
 - Ограничение: Результат FULL OUTER JOIN собран через `UNION ALL` двух LEFT JOIN; реализация предполагает уникальный ключ с каждой стороны, поэтому unmatched строк не дублируются.
@@ -1251,7 +1255,7 @@ LEFT JOIN "user_account" AS t1
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [LATERAL correlation](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#lateral-correlation).
 - Проверяет: выбор первой связанной строки через подзапрос, коррелированный с текущей строкой пользователя.
 - Ограничение: LATERAL выражен коррелированным scalar subquery с `LIMIT 1`; выбранное значение совпадает.
@@ -1485,7 +1489,7 @@ stmt = select(selected_ids.c.id)
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [рекурсивные CTE](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.HasCTE.cte).
 - Проверяет: рекурсивное расширение результата с условием завершения.
 - Замечание: anchor заменён выборкой `address.id = 1`, затем CTE увеличивает его до 5; для запуска нужна такая строка в фикстуре.
@@ -1536,12 +1540,25 @@ let sqlalchemy30 =
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy30);;
-WITH RECURSIVE t0 AS (
-  SELECT t1."id" FROM "address" AS t1 WHERE (t1."id" = $1)
-  UNION ALL
-  SELECT (t2."id" + $2) FROM t0 AS t2 WHERE (t2."id" < $3)
-)
-SELECT t0."id" FROM t0 AS t0
+WITH RECURSIVE
+  "c0" (
+    "id"
+  ) AS (
+    SELECT
+      t0."id"
+    FROM "address" AS t0
+    WHERE
+      (t0."id" = $1)
+    UNION ALL
+    SELECT
+      (t0."id" + $2)
+    FROM "c0" AS t0
+    WHERE
+      (t0."id" < $3)
+  )
+SELECT
+  t0."id"
+FROM "c0" AS t0
 ```
 
 ### SA-31. Многострочный INSERT
@@ -1668,7 +1685,7 @@ WHERE
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [DELETE с дополнительными FROM-таблицами](https://docs.sqlalchemy.org/en/20/tutorial/data_update.html#multiple-table-deletes).
 - Проверяет: удаление по условию, связанному с другой таблицей; форма `USING` зависит от СУБД.
 - Ограничение: DELETE с `USING` переписан как коррелированный `WHERE EXISTS`; совпадает по строкам при уникальном User ID.
@@ -1822,7 +1839,7 @@ WHERE
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [Special modifiers: FILTER](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#special-modifiers-within-group-filter).
 - Проверяет: подсчёт только адресов с нужным доменом и ноль для пользователя без адресов; форма SQL показана для PostgreSQL.
 - Ограничение: Эквивалентный фильтр перенесён в `LEFT JOIN ON`, затем считается ненулевой ID; для каждой строки пользователя получается тот же count.
@@ -1886,7 +1903,7 @@ GROUP BY
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [Window Functions](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#window-functions).
 - Проверяет: нумерацию адресов внутри каждого `user_id` и фильтр номера во внешнем запросе; пользователь без адресов не возвращается.
 - Ограничение: Уникальный address ID позволяет заменить `ROW_NUMBER() = 1` анти-подзапросом на более высокий ID.

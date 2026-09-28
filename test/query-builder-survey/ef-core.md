@@ -1467,7 +1467,7 @@ WHERE
 - OCaml-пример: ✓
 - Реализуемость: ✓
 - Семантика: ✓
-- Без доработок typed-sql: ✗
+- Без доработок typed-sql: ✓
 - Источник: [Eager Loading: filtered include](https://learn.microsoft.com/en-us/ef/core/querying/related-data/eager#filtered-include).
 - Проверяет: фильтрацию, сортировку и ограничение элементов включённой коллекции.
 - Замечание: per-blog top 5 выражен коррелированным COUNT строк, отсортированных раньше по Title DESC, PostId DESC; уникальный ID делает порядок детерминированным.
@@ -1479,7 +1479,7 @@ LEFT JOIN (
   SELECT [t0].[PostId], [t0].[BlogId], [t0].[Title]
   FROM (
     SELECT [p].[PostId], [p].[BlogId], [p].[Title],
-      ROW_NUMBER() OVER(PARTITION BY [p].[BlogId] ORDER BY [p].[Title] DESC) AS [row]
+      ROW_NUMBER() OVER(PARTITION BY [p].[BlogId] ORDER BY [p].[Title] DESC, [p].[PostId] DESC) AS [row]
     FROM [Posts] AS [p]
     WHERE [p].[Rating] >= 4
   ) AS [t0]
@@ -1514,16 +1514,27 @@ let ef27 =
                  from Post.table
                  |> where (fun candidate ->
                    (Post.blog_id candidate =. Blog.id blog)
+                   &&. (Post.rating candidate >=$ 4)
                    &&. ((Post.title candidate >. Post.title post)
                         ||. ((Post.title candidate =. Post.title post)
                              &&. (Post.id candidate >. Post.id post))))
                  |> select_scalar (fun _ -> Expr.count_all)))
             ~default:(Expr.constant Db_type.int64 0L)
         in
-        (Blog.id blog =. Post.blog_id post) &&. (preceding <$ 5L))
+        (Blog.id blog =. Post.blog_id post)
+        &&. (Post.rating post >=$ 4)
+        &&. (preceding <$ 5L))
       |> order_by (fun (blog, _post) -> Blog.id blog) `Asc
       |> order_by (fun (_blog, post) -> Post.nullable_id post) `Asc
-      |> select (fun (blog, post) -> Projection.pair (Blog.id blog) (Post.nullable_id post))))
+      |> order_by (fun (_blog, post) -> Expr.nullable_column post Post.title_column) `Desc
+      |> select (fun (blog, post) ->
+        Projection.map3
+          ~f:(fun blog_fields post_fields title -> blog_fields, post_fields, title)
+          (Projection.pair (Blog.id blog) (Blog.url blog))
+          (Projection.pair
+             (Post.nullable_id post)
+             (Expr.nullable_column post Post.blog_id_column))
+          (Projection.expr (Expr.nullable_column post Post.title_column)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1532,13 +1543,17 @@ let ef27 =
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef27);;
 SELECT
   t0."BlogId",
-  t1."PostId"
+  t0."Url",
+  t1."PostId",
+  t1."BlogId",
+  t1."Title"
 FROM "Blogs" AS t0
 LEFT JOIN "Posts" AS t1
-  ON ((t0."BlogId" = t1."BlogId") AND ((SELECT COUNT(*) FROM "Posts" AS t2 WHERE ((t2."BlogId" = t0."BlogId") AND ((t2."Title" > t1."Title") OR ((t2."Title" = t1."Title") AND (t2."PostId" > t1."PostId"))))) < $1))
+  ON ((t0."BlogId" = t1."BlogId") AND (t1."Rating" >= $1) AND ((SELECT COUNT(*) FROM "Posts" AS t2 WHERE ((t2."BlogId" = t0."BlogId") AND (t2."Rating" >= $2) AND ((t2."Title" > t1."Title") OR ((t2."Title" = t1."Title") AND (t2."PostId" > t1."PostId"))))) < $3))
 ORDER BY
   t0."BlogId" ASC,
-  t1."PostId" ASC
+  t1."PostId" ASC,
+  t1."Title" DESC
 ```
 
 ### EF-28. Include и ThenInclude
@@ -2384,8 +2399,24 @@ let ef48 = Statement.Portable.query_many_exn (fun _ -> Cte.with_result ef48_cte 
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef48);;
-WITH t0 AS (SELECT t1."BlogId", t1."Rating" FROM "Blogs" AS t1 WHERE (t1."Rating" >= $1))
-SELECT t0."BlogId", t0."Rating" FROM t0 AS t0 ORDER BY t0."Rating" DESC
+WITH
+  "c0" (
+    "BlogId",
+    "Rating"
+  ) AS (
+    SELECT
+      t0."BlogId",
+      t0."Rating"
+    FROM "Blogs" AS t0
+    WHERE
+      (t0."Rating" >= $1)
+  )
+SELECT
+  t0."BlogId",
+  t0."Rating"
+FROM "c0" AS t0
+ORDER BY
+  t0."Rating" DESC
 ```
 
 ### EF-49. UNION ALL идентификаторов блогов и публикаций

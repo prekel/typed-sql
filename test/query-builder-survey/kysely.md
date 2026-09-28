@@ -83,7 +83,7 @@ end
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап)
+- Семантика: ✗
 - Без доработок typed-sql: ✓
 - Замечание: `minAge` заменён фиксированным значением `18`.
 - Источник: [select](https://kysely-org.github.io/kysely-apidoc/interfaces/SelectQueryBuilder.html#select), [where](https://kysely-org.github.io/kysely-apidoc/interfaces/SelectQueryBuilder.html#where).
@@ -186,7 +186,7 @@ FROM "person" AS t0
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап)
+- Семантика: ✗
 - Без доработок typed-sql: ✓
 - Замечание: `young`, `old` и `surname` заменены фиксированными значениями.
 - Источник: [ExpressionBuilder](https://kysely-org.github.io/kysely-apidoc/interfaces/ExpressionBuilder.html).
@@ -2009,8 +2009,8 @@ WHERE
 ### KY-32. Накопительная оконная сумма
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
-- Семантика: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
+- Семантика: ✗
 - Без доработок typed-sql: ✗
 - Замечание: В публичном API нет оконных функций; эмуляция потребовала бы других SQL-возможностей и дополнительных ограничений.
 - Источник: [over](https://kysely-org.github.io/kysely-apidoc/classes/AggregateFunctionBuilder.html#over).
@@ -2564,8 +2564,8 @@ WHERE
 ### KY-41. Извлечение поля из JSONB
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
-- Семантика: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
+- Семантика: ✗
 - Без доработок typed-sql: ✗
 - Замечание: В typed-sql пока нет типизированных JSONB path/extraction expressions.
 - Источник: [JSON reference expressions](https://kysely-org.github.io/kysely-apidoc/interfaces/ExpressionBuilder.html#ref).
@@ -2751,8 +2751,8 @@ VALUES
 ### KY-44. INSERT из SELECT
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
-- Семантика: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
+- Семантика: ✗
 - Без доработок typed-sql: ✗
 - Замечание: Публичный INSERT API не принимает SELECT как источник строк.
 - Источник: [expression](https://kysely-org.github.io/kysely-apidoc/classes/InsertQueryBuilder.html#expression).
@@ -2914,8 +2914,8 @@ RETURNING
 ### KY-47. FOR UPDATE SKIP LOCKED
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
-- Семантика: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
+- Семантика: ✗
 - Без доработок typed-sql: ✗
 - Замечание: В публичном API пока нет `FOR UPDATE` и `SKIP LOCKED`.
 - Источник: [forUpdate и skipLocked](https://kysely-org.github.io/kysely-apidoc/interfaces/SelectQueryBuilder.html#forUpdate).
@@ -3068,8 +3068,8 @@ RETURNING
 ### KY-50. MERGE из таблицы импорта
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап)
-- Семантика: ✗ (добавлено в роадмап)
+- Реализуемость: ✗
+- Семантика: ✗
 - Без доработок typed-sql: ✗
 - Замечание: В публичном API пока нет `MERGE`; разбиение на команды не сохраняло бы атомарность исходного оператора.
 - Источник: [mergeInto](https://kysely-org.github.io/kysely-apidoc/classes/QueryCreator.html#mergeInto), [MergeQueryBuilder](https://kysely-org.github.io/kysely-apidoc/classes/MergeQueryBuilder.html).
