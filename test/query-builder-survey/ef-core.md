@@ -145,8 +145,8 @@ SELECT
 FROM "Posts" AS t0
 ORDER BY
   t0."PostId" ASC
-LIMIT 10
-OFFSET 20
+LIMIT $1
+OFFSET $2
 ```
 
 ### EF-02. Keyset по двум колонкам
@@ -194,8 +194,8 @@ let ef02 =
     Query.(
       from Post.table
       |> where (fun post ->
-        (Post.date post >$ last_date)
-        ||. ((Post.date post =$ last_date) &&. (Post.id post >$ last_id)))
+        (Post.date post >. last_date)
+        ||. ((Post.date post =. last_date) &&. (Post.id post >. last_id)))
       |> order_by Post.date `Asc
       |> order_by Post.id `Asc
       |> Query.limit_param take
@@ -214,14 +214,14 @@ WHERE
   (
     (t0."Date" > $1)
     OR (
-      (t0."Date" = $2)
-      AND (t0."PostId" > $3)
+      (t0."Date" = $1)
+      AND (t0."PostId" > $2)
     )
   )
 ORDER BY
   t0."Date" ASC,
   t0."PostId" ASC
-LIMIT 10
+LIMIT $3
 ```
 
 ### EF-03. INNER JOIN
@@ -1512,18 +1512,20 @@ let ef27 =
     Query.(
       from Blog.table
       |> left_join Post.table ~on:(fun blog post ->
+        let preceding_count =
+          Query.(
+            from Post.table
+            |> where (fun candidate ->
+              (Post.blog_id candidate =. Blog.id blog)
+              &&. (Post.rating candidate >=$ 4)
+              &&. ((Post.title candidate >. Post.title post)
+                   ||. ((Post.title candidate =. Post.title post)
+                        &&. (Post.id candidate >. Post.id post))))
+            |> select_scalar (fun _ -> Expr.count_all))
+        in
         let preceding =
           Expr.coalesce
-            (Expr.scalar_subquery
-               (Query.(
-                 from Post.table
-                 |> where (fun candidate ->
-                   (Post.blog_id candidate =. Blog.id blog)
-                   &&. (Post.rating candidate >=$ 4)
-                   &&. ((Post.title candidate >. Post.title post)
-                        ||. ((Post.title candidate =. Post.title post)
-                             &&. (Post.id candidate >. Post.id post))))
-                 |> select_scalar (fun _ -> Expr.count_all)))
+            (Expr.scalar_subquery preceding_count)
             ~default:(Expr.constant Db_type.int64 0L)
         in
         (Blog.id blog =. Post.blog_id post)
@@ -1539,7 +1541,7 @@ let ef27 =
           (Projection.pair
              (Post.nullable_id post)
              (Expr.nullable_column post Post.blog_id_column))
-          (Projection.expr (Expr.nullable_column post Post.title_column))))))
+          (Projection.expr (Expr.nullable_column post Post.title_column)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1554,7 +1556,27 @@ SELECT
   t1."Title"
 FROM "Blogs" AS t0
 LEFT JOIN "Posts" AS t1
-  ON ((t0."BlogId" = t1."BlogId") AND (t1."Rating" >= $1) AND ((SELECT COUNT(*) FROM "Posts" AS t2 WHERE ((t2."BlogId" = t0."BlogId") AND (t2."Rating" >= $2) AND ((t2."Title" > t1."Title") OR ((t2."Title" = t1."Title") AND (t2."PostId" > t1."PostId"))))) < $3))
+  ON (
+    (t0."BlogId" = t1."BlogId")
+    AND (t1."Rating" >= $1)
+    AND (COALESCE((
+      SELECT
+        COUNT(*)
+      FROM "Posts" AS t2
+      WHERE
+        (
+          (t2."BlogId" = t0."BlogId")
+          AND (t2."Rating" >= $2)
+          AND (
+            (t2."Title" > t1."Title")
+            OR (
+              (t2."Title" = t1."Title")
+              AND (t2."PostId" > t1."PostId")
+            )
+          )
+        )
+    ), $3) < $4)
+  )
 ORDER BY
   t0."BlogId" ASC,
   t1."PostId" ASC,
@@ -1928,17 +1950,23 @@ let ef36 =
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef36);;
-SELECT
-  t0."BlogId"
-FROM "Blogs" AS t0
-WHERE
-  (t0."Rating" > $1)
+SELECT *
+FROM (
+  SELECT
+    t0."BlogId"
+  FROM "Blogs" AS t0
+  WHERE
+    (t0."Rating" > $1)
+) AS s0
 UNION
-SELECT
-  t0."BlogId"
-FROM "Posts" AS t0
-WHERE
-  (t0."Rating" > $2)
+SELECT *
+FROM (
+  SELECT
+    t0."BlogId"
+  FROM "Posts" AS t0
+  WHERE
+    (t0."Rating" > $2)
+) AS s0
 ```
 
 ### EF-37. ExecuteUpdate с прежним значением колонки
@@ -1986,10 +2014,14 @@ let ef37 =
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef37);;
 UPDATE "Blogs" AS t0
-SET "Rating" = (t1."Rating" + $1)
+SET
+  "Rating" = (t0."Rating" + $1)
 FROM "Blogs" AS t1
 WHERE
-  ((t0."BlogId" = t1."BlogId") AND (t0."Rating" < $2))
+  (
+    (t0."BlogId" = t1."BlogId")
+    AND (t0."Rating" < $2)
+  )
 ```
 
 ### EF-38. Сравнение с явным правилом сопоставления строк
@@ -2182,7 +2214,13 @@ let ef42 =
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef42);;
 SELECT
   t0."BlogId",
-  (SELECT MAX(t1."Date") FROM "Posts" AS t1 WHERE (t1."BlogId" = t0."BlogId"))
+  (
+    SELECT
+      MAX(t1."Date")
+    FROM "Posts" AS t1
+    WHERE
+      (t1."BlogId" = t0."BlogId")
+  )
 FROM "Blogs" AS t0
 ```
 
@@ -2261,9 +2299,16 @@ SELECT
   t0."Price"
 FROM "Books" AS t0
 WHERE
-  NOT EXISTS (
-    SELECT 1 FROM "Authors" AS t1 WHERE ((t1."AuthorId" = t0."AuthorId") AND (t1."Name" = $1))
-  )
+  (NOT EXISTS (
+    SELECT
+      1
+    FROM "Authors" AS t1
+    WHERE
+      (
+        (t1."AuthorId" = t0."AuthorId")
+        AND (t1."Name" = $1)
+      )
+  ))
 ```
 
 ### EF-45. Условный DELETE с возвратом удалённых ключей
@@ -2331,7 +2376,10 @@ SELECT
   t0."AuthorId"
 FROM "Posts" AS t0
 WHERE
-  (t0."AuthorId" IN ($1, $2))
+  (t0."AuthorId" IN (
+    $1,
+    $2
+  ))
 ```
 
 ### EF-47. Постраничная выборка с nullable-значением по умолчанию
@@ -2455,9 +2503,23 @@ let ef49 = Statement.Portable.query_many_exn (fun _ -> Query.union_all ef49_blog
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef49);;
-SELECT t0."BlogId" FROM "Blogs" AS t0 WHERE (t0."Rating" >= $1)
+SELECT *
+FROM (
+  SELECT
+    t0."BlogId"
+  FROM "Blogs" AS t0
+  WHERE
+    (t0."Rating" >= $1)
+) AS s0
 UNION ALL
-SELECT t0."BlogId" FROM "Posts" AS t0 WHERE (t0."Rating" >= $2)
+SELECT *
+FROM (
+  SELECT
+    t0."BlogId"
+  FROM "Posts" AS t0
+  WHERE
+    (t0."Rating" >= $2)
+) AS s0
 ```
 
 ### EF-50. Блоги минимум с двумя публикациями
@@ -2490,7 +2552,16 @@ let ef50 = Statement.Portable.query_many_exn (fun _ -> Query.(from Blog.table |>
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef50);;
-SELECT t0."BlogId", COUNT(t1."PostId") FROM "Blogs" AS t0
-LEFT JOIN "Posts" AS t1 ON (t0."BlogId" = t1."BlogId")
-GROUP BY t0."BlogId" HAVING (COUNT(t1."PostId") >= $1) ORDER BY t0."BlogId" ASC
+SELECT
+  t0."BlogId",
+  COUNT(t1."PostId")
+FROM "Blogs" AS t0
+LEFT JOIN "Posts" AS t1
+  ON (t0."BlogId" = t1."BlogId")
+GROUP BY
+  t0."BlogId"
+HAVING
+  (COUNT(t1."PostId") >= $1)
+ORDER BY
+  t0."BlogId" ASC
 ```

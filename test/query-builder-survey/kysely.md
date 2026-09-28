@@ -110,7 +110,7 @@ let kysely01 =
     let min_age = params.expr Db_type.int ~get:Fn.id in
     Query.(
       from Person.table
-      |> where (fun person -> Person.age person >=$ min_age)
+      |> where (fun person -> Person.age person >=. min_age)
       |> select (fun person ->
         Projection.pair (Person.id person) (Person.first_name person))))
 ```
@@ -221,8 +221,8 @@ let kysely03 =
     Query.(
       from Person.table
       |> where (fun person ->
-        ((Person.age person <$ young) ||. (Person.age person >$ old))
-        &&. (Person.last_name person =$ surname))
+        ((Person.age person <. young) ||. (Person.age person >. old))
+        &&. (Person.last_name person =. surname))
       |> select (fun person -> Projection.expr (Person.id person))))
 ```
 

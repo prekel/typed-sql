@@ -496,7 +496,7 @@ let ld08 =
             |> select_scalar (fun _ -> Expr.count_all))
         in
         Expr.coalesce (Expr.scalar_subquery books_before)
-          ~default:(Expr.constant Db_type.int64 0L) <. 2L)
+          ~default:(Expr.constant Db_type.int64 0L) <$ 2L)
       |> select (fun book ->
         Projection.map2
           ~f:(fun (id, author_id) title -> id, author_id, title)

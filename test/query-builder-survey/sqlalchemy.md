@@ -81,7 +81,7 @@ let sqlalchemy01 =
     let name = params.expr Db_type.text ~get:Fn.id in
     Query.(
       from User_account.table
-      |> where (fun user -> User_account.name user =$ name)
+      |> where (fun user -> User_account.name user =. name)
       |> select (fun user ->
         Projection.pair (User_account.id user) (User_account.name user))))
 ```
@@ -135,9 +135,9 @@ let sqlalchemy02 =
     Query.(
       from User_account.table
       |> where (fun user ->
-        ((User_account.name user =$ name1)
-         ||. (User_account.name user =$ name2))
-        &&. (User_account.id user >$ min_id))
+        ((User_account.name user =. name1)
+         ||. (User_account.name user =. name2))
+        &&. (User_account.id user >. min_id))
       |> select (fun user -> Projection.expr (User_account.id user))))
 ```
 
@@ -212,8 +212,8 @@ SELECT
 FROM "user_account" AS t0
 ORDER BY
   t0."id" ASC
-LIMIT 10
-OFFSET 20
+LIMIT $1
+OFFSET $2
 ```
 
 ### SA-04. INNER JOIN
@@ -481,12 +481,13 @@ SELECT
   t0."name"
 FROM "user_account" AS t0
 WHERE
-  EXISTS (
-    SELECT 1
+  (EXISTS (
+    SELECT
+      1
     FROM "address" AS t1
     WHERE
       (t1."user_id" = t0."id")
-  )
+  ))
 ```
 
 ### SA-09. Derived table
@@ -544,18 +545,18 @@ let sqlalchemy09 =
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy09);;
 SELECT
-  t0."field_0",
-  t0."field_1"
+  t0."field_1",
+  t0."field_2"
 FROM (
   SELECT
-    t1."user_id",
-    COUNT(*)
+    t1."user_id" AS "field_1",
+    COUNT(*) AS "field_2"
   FROM "address" AS t1
   GROUP BY
     t1."user_id"
 ) AS t0
 ORDER BY
-  t0."field_0" ASC
+  t0."field_1" ASC
 ```
 
 ### SA-10. CTE
@@ -669,17 +670,23 @@ let sqlalchemy11 = Statement.Portable.query_many_exn (fun _ -> Query.union sqlal
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy11);;
-SELECT
-  t0."id"
-FROM "user_account" AS t0
-WHERE
-  (t0."name" = $1)
+SELECT *
+FROM (
+  SELECT
+    t0."id"
+  FROM "user_account" AS t0
+  WHERE
+    (t0."name" = $1)
+) AS s0
 UNION
-SELECT
-  t0."id"
-FROM "user_account" AS t0
-WHERE
-  (t0."name" = $2)
+SELECT *
+FROM (
+  SELECT
+    t0."id"
+  FROM "user_account" AS t0
+  WHERE
+    (t0."name" = $2)
+) AS s0
 ```
 
 ### SA-12. Оконная функция
@@ -752,8 +759,11 @@ let sqlalchemy13 =
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy13);;
-INSERT INTO "user_account" ("name")
-VALUES ($1)
+INSERT INTO "user_account" (
+  "name"
+)
+VALUES
+  ($1)
 RETURNING
   "id"
 ```
@@ -814,19 +824,18 @@ let sqlalchemy14 =
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy14);;
 UPDATE "user_account" AS t0
-SET "fullname" = (
-  SELECT
-    t2."email_address"
-  FROM "address" AS t2
-  WHERE
-    (t2."user_id" = t0."id")
-  ORDER BY
-    t2."id" ASC
-  LIMIT 1
-)
+SET
+  "fullname" = (
+    SELECT
+      t2."email_address"
+    FROM "address" AS t2
+    WHERE
+      (t2."user_id" = t0."id")
+    ORDER BY
+      t2."id" ASC
+    LIMIT 1
+  )
 FROM "user_account" AS t1
-WHERE
-  (t0."id" = t1."id")
 ```
 
 ### SA-15. DELETE RETURNING
@@ -946,7 +955,10 @@ SELECT
   t0."id"
 FROM "user_account" AS t0
 WHERE
-  (t0."name" IN ($1, $2))
+  (t0."name" IN (
+    $1,
+    $2
+  ))
 ```
 
 ### SA-18. Сопоставление шаблону LIKE
@@ -1011,7 +1023,7 @@ stmt = select(address_table.c.id).where(address_table.c.email_address.is_(None))
 ```ocaml
 let sqlalchemy19 =
   Statement.Portable.query_many_exn (fun _ ->
-    Query.(from Address.table |> where (fun address -> Expr.is_null (Address.nullable_email address)) |> select (fun address -> Projection.expr (Address.id address))))
+    Query.(from Address.table |> where (fun address -> Expr.is_null (Expr.to_nullable (Address.email address))) |> select (fun address -> Projection.expr (Address.id address))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1062,7 +1074,10 @@ let sqlalchemy20 =
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy20);;
 SELECT
   t0."id",
-  CASE WHEN (t0."name" = $1) THEN $2 ELSE $3 END
+  (CASE
+    WHEN (t0."name" = $1) THEN $2
+    ELSE $3
+  END)
 FROM "user_account" AS t0
 ```
 
@@ -1095,9 +1110,9 @@ let sqlalchemy21 =
   Statement.Portable.query_many_exn (fun _ ->
     Query.(
       from Address.table
-      |> order_by (fun address -> Expr.case [ Expr.is_null (Address.nullable_email address), Expr.constant Db_type.int 1 ] ~else_:(Expr.constant Db_type.int 0)) `Asc
-      |> order_by Address.nullable_email `Asc
-      |> select (fun address -> Projection.pair (Address.id address) (Address.nullable_email address))))
+      |> order_by (fun address -> Expr.case [ Expr.is_null (Expr.to_nullable (Address.email address)), Expr.constant Db_type.int 1 ] ~else_:(Expr.constant Db_type.int 0)) `Asc
+      |> order_by (fun address -> Expr.to_nullable (Address.email address)) `Asc
+      |> select (fun address -> Projection.pair (Address.id address) (Expr.to_nullable (Address.email address)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1109,7 +1124,10 @@ SELECT
   t0."email_address"
 FROM "address" AS t0
 ORDER BY
-  CASE WHEN (t0."email_address" IS NULL) THEN $1 ELSE $2 END ASC,
+  (CASE
+    WHEN (t0."email_address" IS NULL) THEN $1
+    ELSE $2
+  END) ASC,
   t0."email_address" ASC
 ```
 
@@ -1242,19 +1260,25 @@ let sqlalchemy24 = Statement.Portable.query_many_exn (fun _ -> Query.union_all s
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy24);;
-SELECT
-  t0."id",
-  t1."id"
-FROM "user_account" AS t0
-LEFT JOIN "address" AS t1
-  ON (t0."id" = t1."user_id")
+SELECT *
+FROM (
+  SELECT
+    t0."id",
+    t1."id"
+  FROM "user_account" AS t0
+  LEFT JOIN "address" AS t1
+    ON (t0."id" = t1."user_id")
+) AS s0
 UNION ALL
-SELECT
-  t1."id",
-  t0."id"
-FROM "address" AS t0
-LEFT JOIN "user_account" AS t1
-  ON (t1."id" = t0."user_id")
+SELECT *
+FROM (
+  SELECT
+    t1."id",
+    t0."id"
+  FROM "address" AS t0
+  LEFT JOIN "user_account" AS t1
+    ON (t1."id" = t0."user_id")
+) AS s0
 ```
 
 ### SA-25. Коррелированный LATERAL-подзапрос
@@ -1364,17 +1388,23 @@ let sqlalchemy26 = Statement.Portable.query_many_exn (fun _ -> Query.union_all s
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy26);;
-SELECT
-  t0."id"
-FROM "user_account" AS t0
-WHERE
-  (t0."name" = $1)
+SELECT *
+FROM (
+  SELECT
+    t0."id"
+  FROM "user_account" AS t0
+  WHERE
+    (t0."name" = $1)
+) AS s0
 UNION ALL
-SELECT
-  t0."id"
-FROM "user_account" AS t0
-WHERE
-  (t0."name" = $2)
+SELECT *
+FROM (
+  SELECT
+    t0."id"
+  FROM "user_account" AS t0
+  WHERE
+    (t0."name" = $2)
+) AS s0
 ```
 
 ### SA-27. INTERSECT
@@ -1413,17 +1443,23 @@ let sqlalchemy27 = Statement.Portable.query_many_exn (fun _ -> Query.intersect s
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy27);;
-SELECT
-  t0."user_id"
-FROM "address" AS t0
-WHERE
-  (t0."email_address" LIKE $1)
+SELECT *
+FROM (
+  SELECT
+    t0."user_id"
+  FROM "address" AS t0
+  WHERE
+    (t0."email_address" LIKE $1)
+) AS s0
 INTERSECT
-SELECT
-  t0."user_id"
-FROM "address" AS t0
-WHERE
-  (t0."id" > $2)
+SELECT *
+FROM (
+  SELECT
+    t0."user_id"
+  FROM "address" AS t0
+  WHERE
+    (t0."id" > $2)
+) AS s0
 ```
 
 ### SA-28. EXCEPT
@@ -1460,13 +1496,19 @@ let sqlalchemy28 = Statement.Portable.query_many_exn (fun _ -> Query.except sqla
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy28);;
-SELECT
-  t0."id"
-FROM "user_account" AS t0
+SELECT *
+FROM (
+  SELECT
+    t0."id"
+  FROM "user_account" AS t0
+) AS s0
 EXCEPT
-SELECT
-  t0."user_id"
-FROM "address" AS t0
+SELECT *
+FROM (
+  SELECT
+    t0."user_id"
+  FROM "address" AS t0
+) AS s0
 ```
 
 ### SA-29. VALUES как источник строк
@@ -1537,7 +1579,7 @@ let sqlalchemy30 =
         Derived_table.create
           ~table:Address.table
           ~columns:(fun address -> Projection.expr (Address.id address))
-          Query.(from_cte numbers |> where (fun number -> Address.id number <$ 5L) |> select (fun number -> Projection.expr Expr.Int64.(Address.id number +. Expr.constant Db_type.int64 1L))))
+          Query.(from_cte numbers |> where (fun number -> Address.id number <$ 5L) |> select (fun number -> Projection.expr Expr.Int64.Infix.(Address.id number +. Expr.constant Db_type.int64 1L))))
   in
   Statement.Portable.query_many_exn (fun _ ->
     Cte.with_result definition ~f:(fun numbers -> Query.(from_cte numbers |> select (fun number -> Projection.expr (Address.id number)))))
@@ -1607,8 +1649,13 @@ let sqlalchemy31 =
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy31);;
-INSERT INTO "user_account" ("name", "fullname")
-VALUES ($1, $2), ($3, $4)
+INSERT INTO "user_account" (
+  "name",
+  "fullname"
+)
+VALUES
+  ($1, $2),
+  ($3, $4)
 ```
 
 ### SA-32. INSERT из SELECT
@@ -1681,7 +1728,8 @@ let sqlalchemy33 =
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy33);;
 UPDATE "user_account" AS t0
-SET "fullname" = t1."email_address"
+SET
+  "fullname" = t1."email_address"
 FROM "address" AS t1
 WHERE
   (t0."id" = t1."user_id")
@@ -1732,14 +1780,18 @@ let sqlalchemy34 =
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy34);;
-DELETE FROM "address" AS t0
+DELETE FROM "address"
 WHERE
-  EXISTS (
-    SELECT 1
+  (EXISTS (
+    SELECT
+      1
     FROM "user_account" AS t1
     WHERE
-      ((t1."id" = t0."user_id") AND (t1."name" = $1))
-  )
+      (
+        (t1."id" = "user_id")
+        AND (t1."name" = $1)
+      )
+  ))
 ```
 
 ### SA-35. PostgreSQL UPSERT через ON CONFLICT
@@ -1784,9 +1836,18 @@ let sqlalchemy35 =
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy35);;
-INSERT INTO "user_account" ("name", "fullname")
-VALUES ($1, $2)
-ON CONFLICT ("name") DO UPDATE SET "fullname" = EXCLUDED."fullname"
+INSERT INTO "user_account" AS t0 (
+  "name",
+  "fullname"
+)
+VALUES
+  ($1, $2)
+ON CONFLICT (
+  "name"
+)
+DO UPDATE
+SET
+  "fullname" = excluded."fullname"
 ```
 
 ### SA-36. Пользователи без адресов через NOT EXISTS
@@ -1836,9 +1897,13 @@ SELECT
   t0."name"
 FROM "user_account" AS t0
 WHERE
-  NOT EXISTS (
-    SELECT 1 FROM "address" AS t1 WHERE (t1."user_id" = t0."id")
-  )
+  (NOT EXISTS (
+    SELECT
+      1
+    FROM "address" AS t1
+    WHERE
+      (t1."user_id" = t0."id")
+  ))
 ```
 
 ### SA-37. Условный агрегат FILTER после LEFT JOIN
@@ -1900,7 +1965,10 @@ SELECT
   COUNT(t1."id")
 FROM "user_account" AS t0
 LEFT JOIN "address" AS t1
-  ON ((t0."id" = t1."user_id") AND (t1."email_address" LIKE $1))
+  ON (
+    (t0."id" = t1."user_id")
+    AND (t1."email_address" LIKE $1)
+  )
 GROUP BY
   t0."id"
 ```
@@ -1978,10 +2046,16 @@ FROM "address" AS t0
 INNER JOIN "user_account" AS t1
   ON (t0."user_id" = t1."id")
 WHERE
-  NOT EXISTS (
-    SELECT 1 FROM "address" AS t2
-    WHERE ((t2."user_id" = t0."user_id") AND (t2."id" > t0."id"))
-  )
+  (NOT EXISTS (
+    SELECT
+      1
+    FROM "address" AS t2
+    WHERE
+      (
+        (t2."user_id" = t0."user_id")
+        AND (t2."id" > t0."id")
+      )
+  ))
 ```
 
 ### SA-39. Страница строк с FOR UPDATE SKIP LOCKED
@@ -2101,7 +2175,10 @@ SELECT
   t0."name"
 FROM "user_account" AS t0
 WHERE
-  ((t0."name" = $1) AND (t0."id" >= $2))
+  (
+    (t0."name" = $1)
+    AND (t0."id" >= $2)
+  )
 ORDER BY
   t0."id" ASC
 ```
@@ -2135,7 +2212,7 @@ let sqlalchemy42 =
               from Address.table
               |> where (fun address ->
                 (Address.user_id address =. User_account.id user)
-                &&. (Address.email address =~$ "%@example.com")))
+                &&. (Address.email address =~$ "%@example.com"))))
         in
         let lacks_blocked_domain =
           Query.not_exists
@@ -2143,7 +2220,7 @@ let sqlalchemy42 =
               from Address.table
               |> where (fun address ->
                 (Address.user_id address =. User_account.id user)
-                &&. (Address.email address =~$ "%@blocked.test")))
+                &&. (Address.email address =~$ "%@blocked.test"))))
         in
         has_allowed_domain &&. lacks_blocked_domain)
       |> select (fun user -> Projection.expr (User_account.id user))))
@@ -2157,9 +2234,28 @@ SELECT
   t0."id"
 FROM "user_account" AS t0
 WHERE
-  (EXISTS (SELECT 1 FROM "address" AS t1 WHERE ((t1."user_id" = t0."id") AND (t1."email_address" LIKE $1))
-  ) AND NOT EXISTS (SELECT 1 FROM "address" AS t2 WHERE ((t2."user_id" = t0."id") AND (t2."email_address" LIKE $2))
-  ))
+  (
+    (EXISTS (
+      SELECT
+        1
+      FROM "address" AS t1
+      WHERE
+        (
+          (t1."user_id" = t0."id")
+          AND (t1."email_address" LIKE $1)
+        )
+    ))
+    AND (NOT EXISTS (
+      SELECT
+        1
+      FROM "address" AS t1
+      WHERE
+        (
+          (t1."user_id" = t0."id")
+          AND (t1."email_address" LIKE $2)
+        )
+    ))
+  )
 ```
 
 ### SA-43. Scalar subquery с COALESCE
@@ -2204,7 +2300,16 @@ let sqlalchemy43 =
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy43);;
 SELECT
   t0."id",
-  COALESCE((SELECT t1."email_address" FROM "address" AS t1 WHERE (t1."user_id" = t0."id") ORDER BY t1."id" ASC LIMIT 1), $1)
+  COALESCE((
+    SELECT
+      t1."email_address"
+    FROM "address" AS t1
+    WHERE
+      (t1."user_id" = t0."id")
+    ORDER BY
+      t1."id" ASC
+    LIMIT 1
+  ), $1)
 FROM "user_account" AS t0
 ```
 
@@ -2290,7 +2395,13 @@ SELECT
   t0."id"
 FROM "user_account" AS t0
 WHERE
-  ((t0."name" > $1) OR ((t0."name" = $2) AND (t0."id" > $3)))
+  (
+    (t0."name" > $1)
+    OR (
+      (t0."name" = $2)
+      AND (t0."id" > $3)
+    )
+  )
 ORDER BY
   t0."name" ASC,
   t0."id" ASC
@@ -2330,10 +2441,14 @@ let sqlalchemy46 =
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy46);;
 UPDATE "user_account" AS t0
-SET "fullname" = t1."email_address"
+SET
+  "fullname" = t1."email_address"
 FROM "address" AS t1
 WHERE
-  ((t0."id" = t1."user_id") AND (t1."id" = $1))
+  (
+    (t0."id" = t1."user_id")
+    AND (t1."id" = $1)
+  )
 ```
 
 ### SA-47. UPSERT только при изменении имени
@@ -2372,10 +2487,20 @@ let sqlalchemy47 =
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy47);;
-INSERT INTO "user_account" ("name", "fullname")
-VALUES ($1, $2)
-ON CONFLICT ("name") DO UPDATE SET "fullname" = EXCLUDED."fullname"
-WHERE ("fullname" IS DISTINCT FROM EXCLUDED."fullname")
+INSERT INTO "user_account" AS t0 (
+  "name",
+  "fullname"
+)
+VALUES
+  ($1, $2)
+ON CONFLICT (
+  "name"
+)
+DO UPDATE
+SET
+  "fullname" = excluded."fullname"
+WHERE
+  (t0."fullname" IS DISTINCT FROM excluded."fullname")
 ```
 
 ### SA-48. Удаление адресов с возвратом ключей
@@ -2408,7 +2533,10 @@ let sqlalchemy48 =
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy48);;
 DELETE FROM "address"
 WHERE
-  (("user_id" = $1) AND ("email_address" LIKE $2))
+  (
+    ("user_id" = $1)
+    AND ("email_address" LIKE $2)
+  )
 RETURNING
   "id"
 ```
@@ -2440,11 +2568,31 @@ let sqlalchemy49 = Statement.Portable.query_many_exn (fun _ -> Query.except (Que
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy49);;
-SELECT t0."id" FROM "user_account" AS t0
-INTERSECT
-SELECT t0."user_id" FROM "address" AS t0
+SELECT *
+FROM (
+  SELECT *
+  FROM (
+    SELECT
+      t0."id"
+    FROM "user_account" AS t0
+  ) AS s0
+  INTERSECT
+  SELECT *
+  FROM (
+    SELECT
+      t0."user_id"
+    FROM "address" AS t0
+  ) AS s0
+) AS s0
 EXCEPT
-SELECT t0."user_id" FROM "address" AS t0 WHERE (t0."email_address" LIKE $1)
+SELECT *
+FROM (
+  SELECT
+    t0."user_id"
+  FROM "address" AS t0
+  WHERE
+    (t0."email_address" LIKE $1)
+) AS s0
 ```
 
 ### SA-50. Отчёт по пользователям с несколькими адресами

@@ -94,7 +94,7 @@ let diesel01 =
     let name = params.expr Db_type.text ~get:Fn.id in
     Query.(
       from Users.table
-      |> where (fun user -> Users.name user =$ name)
+      |> where (fun user -> Users.name user =. name)
       |> select (fun user ->
         Projection.pair (Users.id user) (Users.name user))))
 ```
@@ -145,7 +145,7 @@ let diesel02 =
     Query.(
       from Users.table
       |> where (fun user ->
-        (Users.id user >$ min_id) &&. (Users.name user =~$ name_pattern))
+        (Users.id user >. min_id) &&. (Users.name user =~. name_pattern))
       |> select (fun user ->
         Projection.pair (Users.id user) (Users.name user))))
 ```
@@ -355,7 +355,7 @@ let diesel06 =
       |> inner_join Posts.table ~on:(fun user post ->
         Users.id user =. Posts.user_id post)
       |> group_by (fun (user, _post) -> Users.id user)
-      |> having (fun (_user, post) -> Expr.count (Posts.id post) >$ min_posts)
+      |> having (fun (_user, post) -> Expr.count (Posts.id post) >. min_posts)
       |> select (fun (user, post) ->
         Projection.pair (Users.id user) (Expr.count (Posts.id post)))))
 ```
@@ -421,7 +421,7 @@ let diesel07 =
             from Posts.table
             |> where (fun post ->
               (Posts.user_id post =. Users.id user)
-              &&. (Posts.title post =~$ title_pattern))))
+              &&. (Posts.title post =~. title_pattern))))
       |> select (fun user ->
         Projection.pair (Users.id user) (Users.name user))))
 ```
@@ -490,7 +490,7 @@ let diesel08 =
         let post_user_ids =
           Query.(
             from Posts.table
-            |> where (fun post -> Posts.title post =~$ title_pattern)
+            |> where (fun post -> Posts.title post =~. title_pattern)
             |> select_scalar Posts.user_id)
         in
         Query.in_subquery (Users.id user) post_user_ids)
@@ -560,13 +560,13 @@ let diesel09 =
     let by_owner =
       Query.(
         from Posts.table
-        |> where (fun post -> Posts.user_id post =$ owner_id)
+        |> where (fun post -> Posts.user_id post =. owner_id)
         |> select (fun post -> Projection.expr (Posts.title post)))
     in
     let by_title =
       Query.(
         from Posts.table
-        |> where (fun post -> Posts.title post =~$ title_pattern)
+        |> where (fun post -> Posts.title post =~. title_pattern)
         |> select (fun post -> Projection.expr (Posts.title post)))
     in
     Query.union_all by_owner by_title)
@@ -657,7 +657,13 @@ let diesel10 =
 SELECT
   t0."id",
   t0."user_id",
-  COALESCE((SELECT COUNT(*) FROM "posts" AS t1 WHERE (t1."user_id" = t0."user_id")), $1)
+  COALESCE((
+    SELECT
+      COUNT(*)
+    FROM "posts" AS t1
+    WHERE
+      (t1."user_id" = t0."user_id")
+  ), $1)
 FROM "posts" AS t0
 ORDER BY
   t0."user_id" ASC,
@@ -1064,7 +1070,13 @@ SELECT
   t0."title"
 FROM "posts" AS t0
 WHERE
-  ((t0."user_id" > $1) OR ((t0."user_id" = $2) AND (t0."id" > $3)))
+  (
+    (t0."user_id" > $1)
+    OR (
+      (t0."user_id" = $2)
+      AND (t0."id" > $3)
+    )
+  )
 ORDER BY
   t0."user_id" ASC,
   t0."id" ASC
@@ -1105,9 +1117,13 @@ SELECT
   t0."name"
 FROM "users" AS t0
 WHERE
-  NOT EXISTS (
-    SELECT 1 FROM "posts" AS t1 WHERE (t1."user_id" = t0."id")
-  )
+  (NOT EXISTS (
+    SELECT
+      1
+    FROM "posts" AS t1
+    WHERE
+      (t1."user_id" = t0."id")
+  ))
 ```
 
 ### DI-19. Удаление публикаций с возвратом ID
@@ -1170,11 +1186,17 @@ let diesel20 = Statement.Portable.query_many_exn (fun _ -> Query.intersect diese
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel20);;
-SELECT
-  t0."id"
-FROM "users" AS t0
+SELECT *
+FROM (
+  SELECT
+    t0."id"
+  FROM "users" AS t0
+) AS s0
 INTERSECT
-SELECT
-  t0."user_id"
-FROM "posts" AS t0
+SELECT *
+FROM (
+  SELECT
+    t0."user_id"
+  FROM "posts" AS t0
+) AS s0
 ```

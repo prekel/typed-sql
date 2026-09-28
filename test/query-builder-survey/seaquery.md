@@ -731,7 +731,13 @@ let seaquery10 =
 SELECT
   t0."id",
   t0."user_id",
-  COALESCE((SELECT COUNT(*) FROM "posts" AS t1 WHERE (t1."user_id" = t0."user_id")), $1)
+  COALESCE((
+    SELECT
+      COUNT(*)
+    FROM "posts" AS t1
+    WHERE
+      (t1."user_id" = t0."user_id")
+  ), $1)
 FROM "posts" AS t0
 ORDER BY
   t0."user_id" ASC,
@@ -1116,7 +1122,10 @@ SELECT
   COUNT(t1."id")
 FROM "users" AS t0
 LEFT JOIN "posts" AS t1
-  ON ((t0."id" = t1."user_id") AND (t1."title" LIKE $1))
+  ON (
+    (t0."id" = t1."user_id")
+    AND (t1."title" LIKE $1)
+  )
 GROUP BY
   t0."id"
 ```
@@ -1211,10 +1220,21 @@ let seaquery18 =
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery18);;
-INSERT INTO "posts" ("id", "user_id", "title")
-VALUES ($1, $2, $3)
-ON CONFLICT ("id") DO UPDATE SET "title" = EXCLUDED."title"
-WHERE ("title" IS DISTINCT FROM EXCLUDED."title")
+INSERT INTO "posts" AS t0 (
+  "id",
+  "user_id",
+  "title"
+)
+VALUES
+  ($1, $2, $3)
+ON CONFLICT (
+  "id"
+)
+DO UPDATE
+SET
+  "title" = excluded."title"
+WHERE
+  (t0."title" IS DISTINCT FROM excluded."title")
 ```
 
 ### SQ-19. UPDATE FROM с возвратом изменённой строки
@@ -1251,10 +1271,14 @@ let seaquery19 =
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery19);;
 UPDATE "posts" AS t0
-SET "title" = t1."name"
+SET
+  "title" = t1."name"
 FROM "users" AS t1
 WHERE
-  ((t0."user_id" = t1."id") AND (t1."id" = $1))
+  (
+    (t0."user_id" = t1."id")
+    AND (t1."id" = $1)
+  )
 RETURNING
   "id"
 ```
@@ -1284,11 +1308,17 @@ let seaquery20 = Statement.Portable.query_many_exn (fun _ -> Query.except seaque
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery20);;
-SELECT
-  t0."id"
-FROM "users" AS t0
+SELECT *
+FROM (
+  SELECT
+    t0."id"
+  FROM "users" AS t0
+) AS s0
 EXCEPT
-SELECT
-  t0."user_id"
-FROM "posts" AS t0
+SELECT *
+FROM (
+  SELECT
+    t0."user_id"
+  FROM "posts" AS t0
+) AS s0
 ```

@@ -596,7 +596,16 @@ let be09 =
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql be09);;
 SELECT
   t0."InvoiceId",
-  (COALESCE((SELECT COUNT(*) FROM "Invoice" AS t1 WHERE ((t1."CustomerId" = t0."CustomerId") AND (t1."Total" > t0."Total"))), $1) + $2)
+  (COALESCE((
+    SELECT
+      COUNT(*)
+    FROM "Invoice" AS t1
+    WHERE
+      (
+        (t1."CustomerId" = t0."CustomerId")
+        AND (t1."Total" > t0."Total")
+      )
+  ), $1) + $2)
 FROM "Invoice" AS t0
 ```
 
@@ -1120,7 +1129,13 @@ let beam17 =
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam17);;
 SELECT
   t0."CustomerId",
-  (SELECT MAX(t1."Total") FROM "Invoice" AS t1 WHERE (t1."CustomerId" = t0."CustomerId"))
+  (
+    SELECT
+      MAX(t1."Total")
+    FROM "Invoice" AS t1
+    WHERE
+      (t1."CustomerId" = t0."CustomerId")
+  )
 FROM "Customer" AS t0
 ```
 
@@ -1160,7 +1175,10 @@ SELECT
   t0."Country"
 FROM "Customer" AS t0
 WHERE
-  ((t0."Country" = $1) AND (t0."FirstName" LIKE $2))
+  (
+    (t0."Country" = $1)
+    AND (t0."FirstName" LIKE $2)
+  )
 ```
 
 ### BE-19. Страны с более чем одной покупкой
@@ -1240,7 +1258,8 @@ let beam20 =
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam20);;
 UPDATE "Invoice"
-SET "Total" = $1
+SET
+  "Total" = $1
 WHERE
   ("Total" < $2)
 RETURNING

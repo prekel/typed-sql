@@ -47,6 +47,7 @@ module Eq_blog_post = struct
   let id row = Expr.column row id_column
   let title row = Expr.column row title_column
   let author_id row = Expr.column row author_id_column
+  let nullable_title row = Expr.nullable_column row title_column
 end
 
 module Eq_post_counts = struct
@@ -1182,7 +1183,7 @@ let esqueleto18_people =
     |> select (fun (person, post) ->
       Projection.pair
         (Expr.to_nullable (Eq_person.name person))
-        (Eq_blog_post.nullable_title post)))
+        (Expr.nullable_column post Eq_blog_post.title_column)))
 
 let esqueleto18_orphan_posts =
   Query.(

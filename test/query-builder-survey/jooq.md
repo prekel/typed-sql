@@ -892,7 +892,13 @@ let jq11 =
 SELECT
   t0."id",
   t0."author_id",
-  COALESCE((SELECT COUNT(*) FROM "book" AS t1 WHERE (t1."author_id" = t0."author_id")), $1)
+  COALESCE((
+    SELECT
+      COUNT(*)
+    FROM "book" AS t1
+    WHERE
+      (t1."author_id" = t0."author_id")
+  ), $1)
 FROM "book" AS t0
 ORDER BY
   t0."id" ASC
@@ -1154,6 +1160,10 @@ module Book_archive = struct
   let table : row Table.t = Table.v_exn "book_archive"
   let id_column = Column.v_exn table "id" Db_type.int
   let title_column = Column.v_exn table "title" Db_type.text
+  let archived_at_column = Column.nullable_v_exn table "archived_at" Db_type.timestamp
+  let id row = Expr.column row id_column
+  let title row = Expr.column row title_column
+  let archived_at row = Expr.column row archived_at_column
 end
 
 let jq15 =
@@ -1237,12 +1247,13 @@ SELECT
   t0."last_name"
 FROM "author" AS t0
 WHERE
-  NOT EXISTS (
-    SELECT 1
+  (NOT EXISTS (
+    SELECT
+      1
     FROM "book" AS t1
     WHERE
       (t1."author_id" = t0."id")
-  )
+  ))
 ORDER BY
   t0."id" ASC
 ```
@@ -1406,16 +1417,14 @@ let jq19 =
       from Author.table
       |> inner_join Book.table ~on:(fun author book -> Author.id author =. Book.author_id book)
       |> where (fun (author, book) ->
-        Book.id book =.
-        Expr.coalesce
-          (Expr.scalar_subquery_nullable
-             (Query.(
-               from Book.table
-               |> where (fun candidate -> Book.author_id candidate =. Author.id author)
-               |> order_by Book.id `Desc
-               |> limit_one
-               |> select_scalar Book.id)))
-          ~default:(Expr.constant Db_type.int (-1)))
+        Expr.to_nullable (Book.id book) =.
+        Expr.scalar_subquery
+          (Query.(
+            from Book.table
+            |> where (fun candidate -> Book.author_id candidate =. Author.id author)
+            |> order_by Book.id `Desc
+            |> limit_one
+            |> select_scalar Book.id)))
       |> select (fun (author, book) -> Projection.pair (Author.id author) (Book.id book))))
 ```
 
@@ -1539,8 +1548,8 @@ let jq21_columns directory =
   jq21_fields
     ~directory_id:(Projection.expr (Directory_tree.id directory))
     ~parent_id:(Projection.expr (Directory_tree.parent_id directory))
-    ~label:(Projection.expr (Directory_tree.label directory))
-    ~depth:(Projection.expr (Directory_tree.depth directory))
+    ~label:(Directory_tree.label directory)
+    ~depth:(Directory_tree.depth directory)
 
 let jq21_anchor =
   Derived_table.create
@@ -1553,8 +1562,8 @@ let jq21_anchor =
         jq21_fields
           ~directory_id:(Projection.expr (Directory.id directory))
           ~parent_id:(Projection.expr (Directory.parent_id directory))
-          ~label:(Projection.expr (Directory.label directory))
-          ~depth:(Projection.expr (Expr.constant Db_type.int 0))))
+          ~label:(Directory.label directory)
+          ~depth:(Expr.constant Db_type.int 0)))
 
 let jq21 =
   let definition =
@@ -1573,8 +1582,8 @@ let jq21 =
               jq21_fields
                 ~directory_id:(Projection.expr (Directory.id directory))
                 ~parent_id:(Projection.expr (Directory.parent_id directory))
-                ~label:(Projection.expr (Directory.label directory))
-                ~depth:(Projection.expr Expr.Int.Infix.(Directory_tree.depth parent +. Expr.constant Db_type.int 1)))))
+                ~label:(Directory.label directory)
+                ~depth:(Expr.Int.Infix.(Directory_tree.depth parent +. Expr.constant Db_type.int 1)))))
   in
   Statement.Portable.query_many_exn (fun _ ->
     Cte.with_result definition ~f:(fun directory_cte ->
@@ -1727,12 +1736,22 @@ SELECT
   t0."id"
 FROM "book" AS t0
 WHERE
-  NOT EXISTS (
-    SELECT 1
+  (NOT EXISTS (
+    SELECT
+      1
     FROM "book" AS t1
     WHERE
-      ((t1."language_id" = t0."language_id") AND ((t1."published_in" < t0."published_in") OR ((t1."published_in" = t0."published_in") AND (t1."id" < t0."id"))))
-  )
+      (
+        (t1."language_id" = t0."language_id")
+        AND (
+          (t1."published_in" < t0."published_in")
+          OR (
+            (t1."published_in" = t0."published_in")
+            AND (t1."id" < t0."id")
+          )
+        )
+      )
+  ))
 ORDER BY
   t0."language_id" ASC
 ```
@@ -1787,7 +1806,10 @@ let jq24 =
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq24);;
 SELECT
   t0."id",
-  CASE WHEN (t0."published_in" < $1) THEN $2 ELSE $3 END
+  (CASE
+    WHEN (t0."published_in" < $1) THEN $2
+    ELSE $3
+  END)
 FROM "book" AS t0
 ```
 
@@ -1840,7 +1862,10 @@ SELECT
   t0."archived_at"
 FROM "book_archive" AS t0
 ORDER BY
-  CASE WHEN (t0."archived_at" IS NULL) THEN $1 ELSE $2 END ASC,
+  (CASE
+    WHEN (t0."archived_at" IS NULL) THEN $1
+    ELSE $2
+  END) ASC,
   t0."archived_at" ASC
 ```
 
@@ -1986,7 +2011,13 @@ SELECT
   t0."id"
 FROM "book" AS t0
 WHERE
-  ((t0."published_in" > $1) OR ((t0."published_in" = $2) AND (t0."id" > $3)))
+  (
+    (t0."published_in" > $1)
+    OR (
+      (t0."published_in" = $2)
+      AND (t0."id" > $3)
+    )
+  )
 ```
 
 ### JQ-29. GROUP BY ROLLUP для подытогов
@@ -2072,7 +2103,10 @@ let jq30 =
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq30);;
 SELECT
   t0."author_id",
-  SUM(CASE WHEN (t0."published_in" > $1) THEN $2 ELSE $3 END)
+  SUM((CASE
+    WHEN (t0."published_in" > $1) THEN $2
+    ELSE $3
+  END))
 FROM "book" AS t0
 GROUP BY
   t0."author_id"
@@ -2174,12 +2208,22 @@ SELECT
   t0."id"
 FROM "book" AS t0
 WHERE
-  NOT EXISTS (
-    SELECT 1
+  (NOT EXISTS (
+    SELECT
+      1
     FROM "book" AS t1
     WHERE
-      ((t1."author_id" = t0."author_id") AND ((t1."published_in" > t0."published_in") OR ((t1."published_in" = t0."published_in") AND (t1."id" > t0."id"))))
-  )
+      (
+        (t1."author_id" = t0."author_id")
+        AND (
+          (t1."published_in" > t0."published_in")
+          OR (
+            (t1."published_in" = t0."published_in")
+            AND (t1."id" > t0."id")
+          )
+        )
+      )
+  ))
 ```
 
 ### JQ-33. INTERSECT двух выборок
@@ -2235,17 +2279,23 @@ let jq33 = Statement.Portable.query_many_exn (fun _ -> Query.intersect jq33_left
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq33);;
-SELECT
-  t0."author_id"
-FROM "book" AS t0
-WHERE
-  (t0."published_in" < $1)
+SELECT *
+FROM (
+  SELECT
+    t0."author_id"
+  FROM "book" AS t0
+  WHERE
+    (t0."published_in" < $1)
+) AS s0
 INTERSECT
-SELECT
-  t0."author_id"
-FROM "book" AS t0
-WHERE
-  (t0."published_in" > $2)
+SELECT *
+FROM (
+  SELECT
+    t0."author_id"
+  FROM "book" AS t0
+  WHERE
+    (t0."published_in" > $2)
+) AS s0
 ```
 
 ### JQ-34. EXCEPT для разности выборок
@@ -2300,15 +2350,21 @@ let jq34 = Statement.Portable.query_many_exn (fun _ -> Query.except jq34_left jq
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq34);;
-SELECT
-  t0."id"
-FROM "author" AS t0
+SELECT *
+FROM (
+  SELECT
+    t0."id"
+  FROM "author" AS t0
+) AS s0
 EXCEPT
-SELECT
-  t0."author_id"
-FROM "book" AS t0
-WHERE
-  (t0."published_in" > $1)
+SELECT *
+FROM (
+  SELECT
+    t0."author_id"
+  FROM "book" AS t0
+  WHERE
+    (t0."published_in" > $1)
+) AS s0
 ```
 
 ### JQ-35. LISTAGG с порядком элементов
@@ -2407,8 +2463,12 @@ let jq37 =
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq37);;
-INSERT INTO "book" ("title", "author_id")
-VALUES ($1, $2)
+INSERT INTO "book" (
+  "title",
+  "author_id"
+)
+VALUES
+  ($1, $2)
 RETURNING
   "id",
   "title"
@@ -2457,10 +2517,14 @@ let jq38 =
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq38);;
 UPDATE "book" AS t0
-SET "published_in" = (t1."published_in" + $1)
+SET
+  "published_in" = (t0."published_in" + $1)
 FROM "book" AS t1
 WHERE
-  ((t0."id" = t1."id") AND (t0."published_in" < $2))
+  (
+    (t0."id" = t1."id")
+    AND (t0."published_in" < $2)
+  )
 ```
 
 ### JQ-39. DELETE USING
@@ -2509,14 +2573,15 @@ let jq39 =
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq39);;
-DELETE FROM "book" AS t0
+DELETE FROM "book"
 WHERE
-  EXISTS (
-    SELECT 1
+  (EXISTS (
+    SELECT
+      1
     FROM "author" AS t1
     WHERE
-      (t1."id" = t0."author_id")
-  )
+      (t1."id" = "author_id")
+  ))
 ```
 
 ### JQ-40. MERGE с UPDATE и INSERT
@@ -2610,7 +2675,13 @@ SELECT
   t0."title"
 FROM "book" AS t0
 WHERE
-  ((t0."published_in" > $1) OR ((t0."published_in" = $2) AND (t0."id" > $3)))
+  (
+    (t0."published_in" > $1)
+    OR (
+      (t0."published_in" = $2)
+      AND (t0."id" > $3)
+    )
+  )
 ORDER BY
   t0."published_in" ASC,
   t0."id" ASC
@@ -2923,9 +2994,19 @@ let jq49 =
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq49);;
-INSERT INTO "book" ("id", "title", "author_id")
-VALUES ($1, $2, $3)
-ON CONFLICT ("id") DO UPDATE SET "title" = EXCLUDED."title"
+INSERT INTO "book" AS t0 (
+  "id",
+  "title",
+  "author_id"
+)
+VALUES
+  ($1, $2, $3)
+ON CONFLICT (
+  "id"
+)
+DO UPDATE
+SET
+  "title" = excluded."title"
 RETURNING
   "id",
   "title"
@@ -3044,7 +3125,11 @@ SELECT
   t0."id"
 FROM "book" AS t0
 WHERE
-  (t0."id" NOT IN ($1, $2, $3))
+  (t0."id" NOT IN (
+    $1,
+    $2,
+    $3
+  ))
 ```
 
 ### JQ-53. Группировка и порог числа книг
@@ -3130,7 +3215,10 @@ let jq54 =
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq54);;
 SELECT
   t0."id",
-  CASE WHEN (t0."published_in" >= $1) THEN $2 ELSE $3 END
+  (CASE
+    WHEN (t0."published_in" >= $1) THEN $2
+    ELSE $3
+  END)
 FROM "book" AS t0
 WHERE
   (t0."author_id" = $4)
@@ -3166,7 +3254,8 @@ let jq55 =
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq55);;
 UPDATE "book"
-SET "published_in" = $1
+SET
+  "published_in" = $1
 WHERE
   ("published_in" < $2)
 RETURNING
@@ -3203,8 +3292,14 @@ let jq56 =
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq56);;
-INSERT INTO "book" ("id", "title", "author_id")
-VALUES ($1, $2, $3), ($4, $5, $6)
+INSERT INTO "book" (
+  "id",
+  "title",
+  "author_id"
+)
+VALUES
+  ($1, $2, $3),
+  ($4, $5, $6)
 ```
 
 ### JQ-57. UNION ALL сохраняет повторы
@@ -3233,17 +3328,23 @@ let jq57 = Statement.Portable.query_many_exn (fun _ -> Query.union_all jq57_old 
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq57);;
-SELECT
-  t0."author_id"
-FROM "book" AS t0
-WHERE
-  (t0."published_in" < $1)
+SELECT *
+FROM (
+  SELECT
+    t0."author_id"
+  FROM "book" AS t0
+  WHERE
+    (t0."published_in" < $1)
+) AS s0
 UNION ALL
-SELECT
-  t0."author_id"
-FROM "book" AS t0
-WHERE
-  (t0."published_in" > $2)
+SELECT *
+FROM (
+  SELECT
+    t0."author_id"
+  FROM "book" AS t0
+  WHERE
+    (t0."published_in" > $2)
+) AS s0
 ```
 
 ### JQ-58. Книги дешевле максимального ID в группе
@@ -3326,7 +3427,7 @@ let jq59 =
               from Book.table
               |> where (fun book ->
                 (Book.author_id book =. Author.id author)
-                &&. (Book.published_in book <$ 1950)))
+                &&. (Book.published_in book <$ 1950))))
         in
         let lacks_recent_book =
           Query.not_exists
@@ -3334,7 +3435,7 @@ let jq59 =
               from Book.table
               |> where (fun book ->
                 (Book.author_id book =. Author.id author)
-                &&. (Book.published_in book >$ 2000)))
+                &&. (Book.published_in book >$ 2000))))
         in
         has_old_book &&. lacks_recent_book)
       |> select (fun author -> Projection.expr (Author.id author))))
@@ -3348,11 +3449,28 @@ SELECT
   t0."id"
 FROM "author" AS t0
 WHERE
-  (EXISTS (
-    SELECT 1 FROM "book" AS t1 WHERE ((t1."author_id" = t0."id") AND (t1."published_in" < $1))
-  ) AND NOT EXISTS (
-    SELECT 1 FROM "book" AS t2 WHERE ((t2."author_id" = t0."id") AND (t2."published_in" > $2))
-  ))
+  (
+    (EXISTS (
+      SELECT
+        1
+      FROM "book" AS t1
+      WHERE
+        (
+          (t1."author_id" = t0."id")
+          AND (t1."published_in" < $1)
+        )
+    ))
+    AND (NOT EXISTS (
+      SELECT
+        1
+      FROM "book" AS t1
+      WHERE
+        (
+          (t1."author_id" = t0."id")
+          AND (t1."published_in" > $2)
+        )
+    ))
+  )
 ```
 
 ### JQ-60. JOIN, группировка, HAVING и стабильная страница
