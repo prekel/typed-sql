@@ -8,7 +8,7 @@
 
 Diesel распространяется по [MIT или Apache-2.0](https://github.com/diesel-rs/diesel#license). Здесь используется вариант MIT для уведомления об авторских правах. Примеры кода адаптированы; указание источника не означает одобрения со стороны авторов Diesel.
 
-Для DI-01–DI-09 и DI-11–DI-15 приведены реализации через публичный API typed-sql и SQL компилятора для PostgreSQL. Оконные выражения DI-10 пока не входят в публичный API.
+Для DI-01–DI-09 и DI-11–DI-20 приведены реализации через публичный API typed-sql и SQL компилятора для PostgreSQL. Оконные выражения DI-10 пока не входят в публичный API.
 
 ```rust
 use diesel::prelude::*;
@@ -590,11 +590,12 @@ FROM (
 ### DI-10. Оконный подсчёт постов
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [Diesel 2.3: window functions](https://diesel.rs/news/2_3_0_release) и [WindowExpressionMethods](https://docs.diesel.rs/master/diesel/expression_methods/trait.WindowExpressionMethods.html).
 - Проверяет: число постов каждого пользователя рядом с каждой строкой без схлопывания результата в группы.
+- Ограничение: Публичный API typed-sql не строит оконные выражения; GROUP BY схлопнул бы строки и изменил проверяемую семантику.
 
 ```sql
 SELECT posts.id, posts.user_id,
@@ -928,3 +929,206 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+### DI-16. Группировка по автору с порогом публикаций
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [Diesel grouping](https://diesel.rs/guides/all-about-selects/#group-by).
+- Проверяет: JOIN, GROUP BY, HAVING и сортировку результата.
+
+```sql
+SELECT users.id, COUNT(posts.id)
+FROM users JOIN posts ON posts.user_id = users.id
+GROUP BY users.id HAVING COUNT(posts.id) >= 2
+ORDER BY users.id
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let diesel16 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Users.table
+      |> inner_join Posts.table ~on:(fun user post -> Users.id user =. Posts.user_id post)
+      |> group_by (fun (user, _post) -> Users.id user)
+      |> having (fun (_user, post) -> Expr.count (Posts.id post) >=$ 2L)
+      |> order_by (fun (user, _post) -> Users.id user) `Asc
+      |> select (fun (user, post) -> Projection.pair (Users.id user) (Expr.count (Posts.id post)))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel16);;
+SELECT
+  t0."id",
+  COUNT(t1."id")
+FROM "users" AS t0
+INNER JOIN "posts" AS t1
+  ON (t0."id" = t1."user_id")
+GROUP BY
+  t0."id"
+HAVING
+  (COUNT(t1."id") >= $1)
+ORDER BY
+  t0."id" ASC
+```
+
+### DI-17. Keyset-страница публикаций
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [Diesel pagination](https://diesel.rs/guides/all-about-selects/).
+- Проверяет: cursor по `user_id` и `id`, составной порядок и размер страницы.
+
+```sql
+SELECT id, user_id, title FROM posts
+WHERE user_id > 2 OR (user_id = 2 AND id > 10)
+ORDER BY user_id, id LIMIT 20
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let diesel17 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Posts.table
+      |> where (fun post -> (Posts.user_id post >$ 2) ||. ((Posts.user_id post =$ 2) &&. (Posts.id post >$ 10)))
+      |> order_by Posts.user_id `Asc
+      |> order_by Posts.id `Asc
+      |> limit 20
+      |> select (fun post -> Projection.map3 ~f:(fun id user_id title -> id, user_id, title) (Projection.expr (Posts.id post)) (Projection.expr (Posts.user_id post)) (Projection.expr (Posts.title post)))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel17);;
+SELECT
+  t0."id",
+  t0."user_id",
+  t0."title"
+FROM "posts" AS t0
+WHERE
+  ((t0."user_id" > $1) OR ((t0."user_id" = $2) AND (t0."id" > $3)))
+ORDER BY
+  t0."user_id" ASC,
+  t0."id" ASC
+LIMIT 20
+```
+
+### DI-18. Пользователи без публикаций
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [Diesel associations](https://diesel.rs/guides/relations/).
+- Проверяет: коррелированный NOT EXISTS и отсутствие дубликатов пользователей.
+
+```sql
+SELECT users.id, users.name FROM users
+WHERE NOT EXISTS (SELECT 1 FROM posts WHERE posts.user_id = users.id)
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let diesel18 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Users.table
+      |> where (fun user -> not_exists (Query.(from Posts.table |> where (fun post -> Posts.user_id post =. Users.id user))))
+      |> select (fun user -> Projection.pair (Users.id user) (Users.name user))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel18);;
+SELECT
+  t0."id",
+  t0."name"
+FROM "users" AS t0
+WHERE
+  NOT EXISTS (
+    SELECT 1 FROM "posts" AS t1 WHERE (t1."user_id" = t0."id")
+  )
+```
+
+### DI-19. Удаление публикаций с возвратом ID
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [Diesel delete](https://diesel.rs/guides/all-about-updates.html).
+- Проверяет: фильтр по шаблону и `DELETE RETURNING`.
+
+```sql
+DELETE FROM posts WHERE title LIKE '%draft%' RETURNING id
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let diesel19 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Delete.(
+      from Posts.table
+      |> where (fun post -> Posts.title post =~$ "%draft%")
+      |> returning (fun post -> Projection.expr (Posts.id post))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel19);;
+DELETE FROM "posts"
+WHERE
+  ("title" LIKE $1)
+RETURNING
+  "id"
+```
+
+### DI-20. Пересечение пользователей с авторами публикаций
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [Diesel select](https://diesel.rs/guides/all-about-selects/).
+- Проверяет: совместимую проекцию ключа и дедупликацию INTERSECT.
+
+```sql
+SELECT id FROM users INTERSECT SELECT user_id FROM posts
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let diesel20_users = Query.(from Users.table |> select (fun user -> Projection.expr (Users.id user)))
+let diesel20_posts = Query.(from Posts.table |> select (fun post -> Projection.expr (Posts.user_id post)))
+let diesel20 = Statement.Portable.query_many_exn (fun _ -> Query.intersect diesel20_users diesel20_posts)
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel20);;
+SELECT
+  t0."id"
+FROM "users" AS t0
+INTERSECT
+SELECT
+  t0."user_id"
+FROM "posts" AS t0
+```

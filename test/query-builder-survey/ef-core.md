@@ -1,6 +1,6 @@
 # Сценарии запросов из EF Core
 
-40 сценариев по [документации EF Core](https://learn.microsoft.com/en-us/ef/core/) (доступ 28.09.2026). LINQ и SQL сокращены и адаптированы. SQL показывает существенную форму перевода, а не точный лог конкретной версии провайдера. Квадратные скобки и `@parameter` относятся к SQL Server; EF-10 использует синтаксис PostgreSQL, как в источнике. Условия переноса зависят от версии EF Core и провайдера, поэтому при дальнейшем сравнении нужно фиксировать оба.
+50 сценариев по [документации EF Core](https://learn.microsoft.com/en-us/ef/core/) (доступ 28.09.2026). LINQ и SQL сокращены и адаптированы. SQL показывает существенную форму перевода, а не точный лог конкретной версии провайдера. Квадратные скобки и `@parameter` относятся к SQL Server; EF-10 использует синтаксис PostgreSQL, как в источнике. Условия переноса зависят от версии EF Core и провайдера, поэтому при дальнейшем сравнении нужно фиксировать оба.
 
 **Желаемый таргет: 50–70 сценариев.**
 
@@ -14,7 +14,7 @@
 
 ## Общие дескрипторы
 
-Эти descriptors используются во всех пяти примерах этого файла.
+Эти descriptors используются во всех typed-sql примерах этого файла.
 
 ```ocaml
 open! Base
@@ -98,7 +98,7 @@ end
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗
+- Семантика: ✗ (добавлено в роадмап)
 - Без доработок typed-sql: ✓
 - Замечание: `skip` и `take` заменены фиксированными `20` и `10`.
 - Источник: [offset pagination](https://learn.microsoft.com/en-us/ef/core/querying/pagination#offset-pagination).
@@ -151,7 +151,7 @@ OFFSET 20
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗
+- Семантика: ✗ (добавлено в роадмап)
 - Без доработок typed-sql: ✓
 - Замечание: `lastDate`, `lastId` и `take` заменены фиксированными значениями.
 - Источник: [multiple pagination keys](https://learn.microsoft.com/en-us/ef/core/querying/pagination#multiple-pagination-keys).
@@ -627,7 +627,7 @@ WHERE
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗
+- Семантика: ✗ (добавлено в роадмап)
 - Без доработок typed-sql: ✓
 - Источник: [GroupBy without aggregate](https://learn.microsoft.com/en-us/ef/core/querying/complex-query-operators#groupby).
 - Проверяет: различие между SQL-строками и итоговыми группами; EF Core 7+ собирает группы после чтения.
@@ -682,7 +682,7 @@ ORDER BY
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗
+- Семантика: ✗ (добавлено в роадмап)
 - Без доработок typed-sql: ✗
 - Источник: [cartesian explosion](https://learn.microsoft.com/en-us/ef/core/querying/single-split-queries#cartesian-explosion).
 - Проверяет: два `LEFT JOIN`, умножение строк на сервере и сборку двух коллекций на клиенте.
@@ -747,7 +747,7 @@ ORDER BY
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗
+- Семантика: ✗ (добавлено в роадмап)
 - Без доработок typed-sql: ✗
 - Источник: [split queries](https://learn.microsoft.com/en-us/ef/core/querying/single-split-queries#split-queries).
 - Проверяет: два серверных запроса, порядок строк и сборку коллекции на клиенте.
@@ -822,11 +822,12 @@ ORDER BY
 ### EF-14. ExecuteUpdate с коррелированным агрегатом
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [updating from related entities](https://learn.microsoft.com/en-us/ef/core/saving/execute-insert-update-delete#navigations-and-related-entities).
 - Проверяет: выражение для `SET` на основе связанных строк и поведение при пустой коллекции.
+- Ограничение: Текущий DSL не содержит `AVG` или преобразования результата агрегата; scalar subquery для пустой коллекции также даёт NULL, несовместимый с non-nullable Rating.
 
 ```sql
 UPDATE [b]
@@ -1464,7 +1465,7 @@ WHERE
 ### EF-27. Filtered Include для коллекции
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [Eager Loading: filtered include](https://learn.microsoft.com/en-us/ef/core/querying/related-data/eager#filtered-include).
@@ -1596,7 +1597,7 @@ ORDER BY
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗
+- Семантика: ✗ (добавлено в роадмап)
 - Без доработок typed-sql: ✗
 - Источник: [Tracking vs. No-Tracking Queries](https://learn.microsoft.com/en-us/ef/core/querying/tracking).
 - Проверяет: одинаковый серверный запрос при разной работе change tracker и identity resolution.
@@ -1697,7 +1698,7 @@ ORDER BY
 ### EF-31. Непереводимый helper в WHERE
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [Client vs. Server Evaluation: unsupported client evaluation](https://learn.microsoft.com/en-us/ef/core/querying/client-eval#unsupported-client-evaluation).
@@ -1772,7 +1773,7 @@ WHERE
 ### EF-33. Поиск элемента в JSON-коллекции колонки
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [What's New in EF Core 8: primitive collections](https://learn.microsoft.com/en-us/ef/core/what-is-new/ef-core-8.0/whatsnew#primitive-collections-in-json-columns).
@@ -1799,7 +1800,7 @@ var pubs = await context.Pubs
 ### EF-34. CLR-метод, отображённый в SQL UDF
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [User-defined function mapping](https://learn.microsoft.com/en-us/ef/core/querying/user-defined-function-mapping#mapping-a-method-to-a-sql-function).
@@ -1823,7 +1824,7 @@ CLR-метод должен быть зарегистрирован через `
 ### EF-35. FromSql с LINQ-композицией
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [SQL Queries: composing with LINQ](https://learn.microsoft.com/en-us/ef/core/querying/sql-queries#composing-with-linq).
@@ -1965,7 +1966,7 @@ WHERE
 ### EF-38. Сравнение с явным правилом сопоставления строк
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [Collations and case sensitivity](https://learn.microsoft.com/en-us/ef/core/miscellaneous/collations-and-case-sensitivity).
@@ -1989,7 +1990,7 @@ var blogs = await context.Blogs
 ### EF-39. Снимок temporal-таблицы на момент времени
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [SQL Server temporal tables](https://learn.microsoft.com/en-us/ef/core/providers/sql-server/temporal-tables#querying-historical-data).
@@ -2016,7 +2017,7 @@ var snapshot = await context.Blogs
 ### EF-40. LIKE с экранированным процентом
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [SQL Server function mappings](https://learn.microsoft.com/en-us/ef/core/providers/sql-server/functions).
@@ -2057,3 +2058,394 @@ NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPO
 IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
 WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+### EF-41. Проекция публикаций с фильтром и составной сортировкой
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [Efficient Querying](https://learn.microsoft.com/en-us/ef/core/performance/efficient-querying).
+- Проверяет: фильтр рейтинга, tie-break по ключу и ограничение результата.
+
+```sql
+SELECT PostId, BlogId, Title FROM Posts
+WHERE Rating >= @minimum ORDER BY Rating DESC, PostId LIMIT @take
+```
+
+```csharp
+var posts = await context.Posts.Where(p => p.Rating >= minimum)
+    .OrderByDescending(p => p.Rating).ThenBy(p => p.PostId).Take(take)
+    .Select(p => new { p.PostId, p.BlogId, p.Title }).ToListAsync();
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let ef41 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Post.table
+      |> where (fun post -> Post.rating post >=$ 4)
+      |> order_by Post.rating `Desc
+      |> order_by Post.id `Asc
+      |> limit 10
+      |> select (fun post -> Projection.map3 ~f:(fun id blog_id title -> id, blog_id, title) (Projection.expr (Post.id post)) (Projection.expr (Post.blog_id post)) (Projection.expr (Post.title post)))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef41);;
+SELECT
+  t0."PostId",
+  t0."BlogId",
+  t0."Title"
+FROM "Posts" AS t0
+WHERE
+  (t0."Rating" >= $1)
+ORDER BY
+  t0."Rating" DESC,
+  t0."PostId" ASC
+LIMIT 10
+```
+
+### EF-42. Максимальная дата публикации для блога
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [Complex Query Operators](https://learn.microsoft.com/en-us/ef/core/querying/complex-query-operators).
+- Проверяет: коррелированный nullable scalar subquery с `MAX`.
+
+```sql
+SELECT BlogId,
+  (SELECT MAX(Date) FROM Posts WHERE Posts.BlogId = Blogs.BlogId)
+FROM Blogs
+```
+
+```csharp
+var result = await context.Blogs.Select(b => new {
+    b.BlogId,
+    Latest = b.Posts.Max(p => (DateTime?)p.Date)
+}).ToListAsync();
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let ef42 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Blog.table
+      |> select (fun blog ->
+        Projection.pair
+          (Blog.id blog)
+          (Expr.scalar_subquery
+             (Query.(from Post.table |> where (fun post -> Post.blog_id post =. Blog.id blog) |> select_scalar (fun post -> Expr.max Db_type.Orderable.timestamp (Post.date post))))))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef42);;
+SELECT
+  t0."BlogId",
+  (SELECT MAX(t1."Date") FROM "Posts" AS t1 WHERE (t1."BlogId" = t0."BlogId"))
+FROM "Blogs" AS t0
+```
+
+### EF-43. DISTINCT авторы после фильтра публикаций
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [Efficient Querying](https://learn.microsoft.com/en-us/ef/core/performance/efficient-querying).
+- Проверяет: фильтрацию перед distinct-проекцией и порядок ключей.
+
+```sql
+SELECT DISTINCT AuthorId FROM Posts WHERE Rating >= @minimum ORDER BY AuthorId
+```
+
+```csharp
+var ids = await context.Posts.Where(p => p.Rating >= minimum)
+    .Select(p => p.AuthorId).Distinct().OrderBy(id => id).ToListAsync();
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let ef43 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(from Post.table |> where (fun post -> Post.rating post >=$ 4) |> distinct |> order_by Post.author_id `Asc |> select (fun post -> Projection.expr (Post.author_id post))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef43);;
+SELECT DISTINCT
+  t0."AuthorId"
+FROM "Posts" AS t0
+WHERE
+  (t0."Rating" >= $1)
+ORDER BY
+  t0."AuthorId" ASC
+```
+
+### EF-44. Книги, у которых нет автора с заданным именем
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [Complex Query Operators](https://learn.microsoft.com/en-us/ef/core/querying/complex-query-operators).
+- Проверяет: коррелированный `NOT EXISTS` по отношению авторов.
+
+```sql
+SELECT Id, Price FROM Books
+WHERE NOT EXISTS (SELECT 1 FROM Authors WHERE Authors.AuthorId = Books.AuthorId AND Name = @name)
+```
+
+```csharp
+var books = await context.Books.Where(b => !context.Authors
+    .Any(a => a.AuthorId == b.AuthorId && a.Name == name)).ToListAsync();
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let ef44 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(from Book.table |> where (fun book -> not_exists (Query.(from Author.table |> where (fun author -> (Author.id author =. Book.author_id book) &&. (Author.name author =$ "Ada")))) ) |> select (fun book -> Projection.pair (Book.id book) (Book.price book))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef44);;
+SELECT
+  t0."Id",
+  t0."Price"
+FROM "Books" AS t0
+WHERE
+  NOT EXISTS (
+    SELECT 1 FROM "Authors" AS t1 WHERE ((t1."AuthorId" = t0."AuthorId") AND (t1."Name" = $1))
+  )
+```
+
+### EF-45. Условный DELETE с возвратом удалённых ключей
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [ExecuteDelete](https://learn.microsoft.com/en-us/ef/core/saving/execute-insert-update-delete#executedelete).
+- Проверяет: массовое удаление по фильтру без загрузки сущностей.
+
+```sql
+DELETE FROM Posts WHERE Rating < @threshold
+```
+
+```csharp
+var removed = await context.Posts.Where(p => p.Rating < threshold).ExecuteDeleteAsync();
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let ef45 = Statement.Portable.command_exn (fun _ -> Delete.(from Post.table |> where (fun post -> Post.rating post <$ 2) |> command))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef45);;
+DELETE FROM "Posts"
+WHERE
+  ("Rating" < $1)
+```
+
+### EF-46. Фильтр по набору author ID
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [LINQ Contains](https://learn.microsoft.com/en-us/ef/core/what-is-new/ef-core-8.0/whatsnew#better-use-of-in-queries).
+- Проверяет: membership по нескольким значениям и проекцию только нужных столбцов.
+
+```sql
+SELECT PostId, AuthorId FROM Posts WHERE AuthorId IN (@id1, @id2)
+```
+
+```csharp
+var posts = await context.Posts.Where(p => authorIds.Contains(p.AuthorId))
+    .Select(p => new { p.PostId, p.AuthorId }).ToListAsync();
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let ef46 = Statement.Portable.query_many_exn (fun _ -> Query.(from Post.table |> where (fun post -> Expr.in_ (Post.author_id post) [ 1L; 2L ]) |> select (fun post -> Projection.pair (Post.id post) (Post.author_id post))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef46);;
+SELECT
+  t0."PostId",
+  t0."AuthorId"
+FROM "Posts" AS t0
+WHERE
+  (t0."AuthorId" IN ($1, $2))
+```
+
+### EF-47. Постраничная выборка с nullable-значением по умолчанию
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [Database functions](https://learn.microsoft.com/en-us/ef/core/querying/database-functions).
+- Проверяет: `COALESCE`, стабильный порядок и ограничение числа строк.
+
+```sql
+SELECT BlogId, COALESCE(NullableUrl, N'(missing)')
+FROM Blogs ORDER BY BlogId OFFSET 5 ROWS FETCH NEXT 10 ROWS ONLY
+```
+
+```csharp
+var page = await context.Blogs.OrderBy(b => b.BlogId).Skip(5).Take(10)
+    .Select(b => new { b.BlogId, Url = b.NullableUrl ?? "(missing)" }).ToListAsync();
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let ef47 = Statement.Portable.query_many_exn (fun _ -> Query.(from Blog.table |> order_by Blog.id `Asc |> limit 10 |> offset 5 |> select (fun blog -> Projection.pair (Blog.id blog) (Expr.coalesce (Blog.nullable_url blog) ~default:(Expr.constant Db_type.text "(missing)")))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef47);;
+SELECT
+  t0."BlogId",
+  COALESCE(t0."NullableUrl", $1)
+FROM "Blogs" AS t0
+ORDER BY
+  t0."BlogId" ASC
+LIMIT 10
+OFFSET 5
+```
+
+### EF-48. CTE с рейтингом блога
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [Complex Query Operators](https://learn.microsoft.com/en-us/ef/core/querying/complex-query-operators).
+- Проверяет: CTE relation, внешний фильтр и сортировку.
+
+```sql
+WITH selected AS (SELECT BlogId, Rating FROM Blogs WHERE Rating >= 4)
+SELECT BlogId, Rating FROM selected ORDER BY Rating DESC
+```
+
+```csharp
+var blogs = await context.Blogs.Where(b => b.Rating >= 4)
+    .OrderByDescending(b => b.Rating).Select(b => new { b.BlogId, b.Rating }).ToListAsync();
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let ef48_relation = Derived_table.create ~table:Blog.table ~columns:(fun blog -> Projection.pair (Blog.id blog) (Blog.rating blog)) Query.(from Blog.table |> where (fun blog -> Blog.rating blog >=$ 4) |> select (fun blog -> Projection.pair (Blog.id blog) (Blog.rating blog)))
+let ef48_cte = Cte.select ef48_relation
+let ef48 = Statement.Portable.query_many_exn (fun _ -> Cte.with_result ef48_cte ~f:(fun selected -> Query.(from_cte selected |> order_by Blog.rating `Desc |> select (fun blog -> Projection.pair (Blog.id blog) (Blog.rating blog)))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef48);;
+WITH t0 AS (SELECT t1."BlogId", t1."Rating" FROM "Blogs" AS t1 WHERE (t1."Rating" >= $1))
+SELECT t0."BlogId", t0."Rating" FROM t0 AS t0 ORDER BY t0."Rating" DESC
+```
+
+### EF-49. UNION ALL идентификаторов блогов и публикаций
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [LINQ Concat](https://learn.microsoft.com/en-us/dotnet/api/system.linq.queryable.concat).
+- Проверяет: совместимую проекцию и сохранение дублей через `UNION ALL`.
+
+```sql
+SELECT BlogId FROM Blogs WHERE Rating >= 4
+UNION ALL SELECT BlogId FROM Posts WHERE Rating >= 4
+```
+
+```csharp
+var ids = context.Blogs.Where(b => b.Rating >= 4).Select(b => b.BlogId)
+    .Concat(context.Posts.Where(p => p.Rating >= 4).Select(p => p.BlogId));
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let ef49_blogs = Query.(from Blog.table |> where (fun blog -> Blog.rating blog >=$ 4) |> select (fun blog -> Projection.expr (Blog.id blog)))
+let ef49_posts = Query.(from Post.table |> where (fun post -> Post.rating post >=$ 4) |> select (fun post -> Projection.expr (Post.blog_id post)))
+let ef49 = Statement.Portable.query_many_exn (fun _ -> Query.union_all ef49_blogs ef49_posts)
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef49);;
+SELECT t0."BlogId" FROM "Blogs" AS t0 WHERE (t0."Rating" >= $1)
+UNION ALL
+SELECT t0."BlogId" FROM "Posts" AS t0 WHERE (t0."Rating" >= $2)
+```
+
+### EF-50. Блоги минимум с двумя публикациями
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [aggregate functions](https://learn.microsoft.com/en-us/ef/core/querying/complex-query-operators#aggregate-functions).
+- Проверяет: LEFT JOIN, подсчёт дочерних строк, HAVING и сортировку.
+
+```sql
+SELECT Blogs.BlogId, COUNT(Posts.PostId)
+FROM Blogs LEFT JOIN Posts ON Posts.BlogId = Blogs.BlogId
+GROUP BY Blogs.BlogId HAVING COUNT(Posts.PostId) >= 2 ORDER BY Blogs.BlogId
+```
+
+```csharp
+var counts = await context.Blogs.Select(b => new { b.BlogId, Count = b.Posts.Count() })
+    .Where(x => x.Count >= 2).OrderBy(x => x.BlogId).ToListAsync();
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let ef50 = Statement.Portable.query_many_exn (fun _ -> Query.(from Blog.table |> left_join Post.table ~on:(fun blog post -> Blog.id blog =. Post.blog_id post) |> group_by (fun (blog, _post) -> Blog.id blog) |> having (fun (_blog, post) -> Expr.count (Post.nullable_id post) >=$ 2L) |> order_by (fun (blog, _post) -> Blog.id blog) `Asc |> select (fun (blog, post) -> Projection.pair (Blog.id blog) (Expr.count (Post.nullable_id post)))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef50);;
+SELECT t0."BlogId", COUNT(t1."PostId") FROM "Blogs" AS t0
+LEFT JOIN "Posts" AS t1 ON (t0."BlogId" = t1."BlogId")
+GROUP BY t0."BlogId" HAVING (COUNT(t1."PostId") >= $1) ORDER BY t0."BlogId" ASC
+```

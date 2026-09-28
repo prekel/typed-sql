@@ -8,7 +8,7 @@
 
 SeaQuery распространяется по [MIT или Apache-2.0](https://github.com/SeaQL/sea-query#license). Здесь используется вариант MIT для уведомления об авторских правах. Примеры кода адаптированы; указание источника не означает одобрения со стороны SeaQL.
 
-Для SQ-01–SQ-09 и SQ-11–SQ-15 приведены реализации через публичный API typed-sql и SQL компилятора. Оконные выражения SQ-10 пока не входят в публичный API.
+Для SQ-01–SQ-09 и SQ-11–SQ-20 приведены реализации через публичный API typed-sql и SQL компилятора. Оконные выражения SQ-10 пока не входят в публичный API.
 
 ```rust
 use sea_query::{Cond, Expr, Iden, JoinType, OnConflict, Order, PostgresQueryBuilder, Query, UnionType, WindowStatement};
@@ -666,11 +666,12 @@ FROM (
 ### SQ-10. Оконный подсчёт постов
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [expr_window_as](https://docs.rs/sea-query/latest/sea_query/query/struct.SelectStatement.html#method.expr_window_as).
 - Проверяет: число постов пользователя рядом с каждой строкой без свёртывания строк в группы.
+- Ограничение: Оконные функции отсутствуют в публичном API typed-sql; обычная группировка схлопывает строки и не сохраняет нужный результат.
 
 ```sql
 SELECT posts.id, posts.user_id,
@@ -1037,3 +1038,204 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+### SQ-16. Подсчёт совпавших публикаций по пользователю
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [SeaQuery select and aggregate](https://docs.rs/sea-query/latest/sea_query/query/struct.SelectStatement.html).
+- Проверяет: `LEFT JOIN`, фильтр внутри ON и count ненулевых ID.
+
+```sql
+SELECT users.id, COUNT(posts.id)
+FROM users LEFT JOIN posts
+  ON posts.user_id = users.id AND posts.title LIKE '%guide%'
+GROUP BY users.id
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let seaquery16 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Users.table
+      |> left_join Posts.table ~on:(fun user post -> (Users.id user =. Posts.user_id post) &&. (Posts.title post =~$ "%guide%"))
+      |> group_by (fun (user, _post) -> Users.id user)
+      |> select (fun (user, post) -> Projection.pair (Users.id user) (Expr.count (Posts.nullable_id post)))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery16);;
+SELECT
+  t0."id",
+  COUNT(t1."id")
+FROM "users" AS t0
+LEFT JOIN "posts" AS t1
+  ON ((t0."id" = t1."user_id") AND (t1."title" LIKE $1))
+GROUP BY
+  t0."id"
+```
+
+### SQ-17. CTE с отфильтрованными пользователями
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [SeaQuery common table expressions](https://docs.rs/sea-query/latest/sea_query/query/struct.SelectStatement.html).
+- Проверяет: фильтр в CTE и сортировку через его typed handle.
+
+```sql
+WITH selected_users AS (SELECT id, name FROM users WHERE id > 10)
+SELECT id, name FROM selected_users ORDER BY id
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let seaquery17_relation =
+  Derived_table.create
+    ~table:Users.table
+    ~columns:(fun user -> Projection.pair (Users.id user) (Users.name user))
+    Query.(from Users.table |> where (fun user -> Users.id user >$ 10L) |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))
+let seaquery17_cte = Cte.select seaquery17_relation
+let seaquery17 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Cte.with_result seaquery17_cte ~f:(fun selected ->
+      Query.(from_cte selected |> order_by Users.id `Asc |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery17);;
+WITH t0 AS (
+  SELECT t1."id", t1."name" FROM "users" AS t1 WHERE (t1."id" > $1)
+)
+SELECT t0."id", t0."name" FROM t0 AS t0 ORDER BY t0."id" ASC
+```
+
+### SQ-18. UPSERT с обновлением только при новом заголовке
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [SeaQuery OnConflict](https://docs.rs/sea-query/latest/sea_query/query/struct.OnConflict.html).
+- Проверяет: conflict target и условие изменения конфликтующей строки.
+
+```sql
+INSERT INTO posts (id, user_id, title) VALUES (8, 2, 'Revised')
+ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title
+WHERE posts.title IS DISTINCT FROM EXCLUDED.title
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let seaquery18 =
+  Statement.Portable.command_exn (fun _ ->
+    Insert.(
+      into Posts.table
+      |> set Posts.id_column 8L
+      |> set Posts.user_id_column 2L
+      |> set Posts.title_column "Revised"
+      |> on_conflict (Conflict_target.column Posts.id_column)
+      |> do_update (fun ~existing ~excluded ->
+        Conflict_update.empty
+        |> Conflict_update.set_expr Posts.title_column (Posts.title excluded)
+        |> Conflict_update.where (Expr.is_distinct_from (Posts.title existing) (Posts.title excluded)))
+      |> command))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery18);;
+INSERT INTO "posts" ("id", "user_id", "title")
+VALUES ($1, $2, $3)
+ON CONFLICT ("id") DO UPDATE SET "title" = EXCLUDED."title"
+WHERE ("title" IS DISTINCT FROM EXCLUDED."title")
+```
+
+### SQ-19. UPDATE FROM с возвратом изменённой строки
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [SeaQuery update statement](https://docs.rs/sea-query/latest/sea_query/query/struct.UpdateStatement.html).
+- Проверяет: update target, join predicate, фильтр пользователя и `RETURNING`.
+
+```sql
+UPDATE posts SET title = users.name
+FROM users WHERE users.id = posts.user_id AND users.id = 2
+RETURNING posts.id
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let seaquery19 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Update.(
+      table Posts.table
+      |> from Users.table ~f:(fun post user update ->
+        update
+        |> set_expr Posts.title_column (Users.name user)
+        |> where (fun _ -> (Posts.user_id post =. Users.id user) &&. (Users.id user =$ 2L)))
+      |> returning (fun post -> Projection.expr (Posts.id post))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery19);;
+UPDATE "posts" AS t0
+SET "title" = t1."name"
+FROM "users" AS t1
+WHERE
+  ((t0."user_id" = t1."id") AND (t1."id" = $1))
+RETURNING
+  "id"
+```
+
+### SQ-20. Пользователи без публикаций через EXCEPT
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [SeaQuery set operations](https://docs.rs/sea-query/latest/sea_query/query/struct.SelectStatement.html).
+- Проверяет: set difference между всеми ID и ID авторов публикаций.
+
+```sql
+SELECT id FROM users EXCEPT SELECT user_id FROM posts
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let seaquery20_users = Query.(from Users.table |> select (fun user -> Projection.expr (Users.id user)))
+let seaquery20_posts = Query.(from Posts.table |> select (fun post -> Projection.expr (Posts.user_id post)))
+let seaquery20 = Statement.Portable.query_many_exn (fun _ -> Query.except seaquery20_users seaquery20_posts)
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery20);;
+SELECT
+  t0."id"
+FROM "users" AS t0
+EXCEPT
+SELECT
+  t0."user_id"
+FROM "posts" AS t0
+```

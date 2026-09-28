@@ -576,6 +576,14 @@ PG'OCaml возвращает `Affected_rows.Unknown`; native JSON и array code
   `COUNT(*) OVER ()` для страницы с общим числом результатов. Для пустой
   страницы общее число понадобится получать отдельно. API должен выразить
   `PARTITION BY`, порядок и границы window frame без строковых SQL-фрагментов.
+  Сценарии: [BE-09](../test/query-builder-survey/beam.md#be-09-ранг-счета-внутри-покупателя),
+  [DI-10](../test/query-builder-survey/diesel.md#di-10-оконный-подсчёт-постов),
+  [JQ-11](../test/query-builder-survey/jooq.md#jq-11-оконный-агрегат-без-схлопывания-строк),
+  [JQ-31](../test/query-builder-survey/jooq.md#jq-31-оконная-сумма-с-явным-frame),
+  [KY-32](../test/query-builder-survey/kysely.md#ky-32-накопительная-оконная-сумма),
+  [SA-12](../test/query-builder-survey/sqlalchemy.md#sa-12-оконная-функция),
+  [SQ-10](../test/query-builder-survey/seaquery.md#sq-10-оконный-подсчёт-постов) и
+  top-N коллекций в [EF-27](../test/query-builder-survey/ef-core.md#ef-27-filtered-include-для-коллекции).
 - [ ] `LATERAL`: подзапрос в `FROM`, зависящий от предшествующей строки, например
   несколько последних комментариев каждой статьи. Сначала следует проверить,
   покрывает ли конкретный запрос существующий correlated `Query.multiset`.
@@ -583,6 +591,8 @@ PG'OCaml возвращает `Affected_rows.Unknown`; native JSON и array code
   нужен именно JSON или PostgreSQL array. Позиционные JSON-массивы для
   `multiset` сейчас остаются внутренним transport. Низкоуровневые
   `array_agg`, `json_agg` и `json_group_array` потребуют отдельного API.
+  Типизированное извлечение JSONB-поля проверяется в
+  [KY-41](../test/query-builder-survey/kysely.md#ky-41-извлечение-поля-из-jsonb).
 - [ ] Список идентификаторов в одном параметре: PostgreSQL `column = ANY($1)`
   с native array codec и постоянной SQL shape. Контракт и проверки описаны
   выше в пункте о PostgreSQL array parameters; portable `IN` по-прежнему
@@ -604,8 +614,10 @@ PostgreSQL-возможностями. Portable approximation с другой с
   показал 1,96× через adapter (0,510 с против 0,260 с). Результат зависит от
   запроса и окружения;
 - [ ] Определить отдельный `Unsafe`/`Raw_sql` API с typed bind fragments, когда
-  появится запрос, который нельзя выразить descriptors. Выбранные рамки и
-  открытые решения записаны в [ADR 0002](adr/0002-raw-sql-escape-hatch.md);
+  появится запрос, который нельзя выразить descriptors. В том числе проверить
+  композицию raw relation с внешним SELECT ([EF-35](../test/query-builder-survey/ef-core.md#ef-35-fromsql-с-linq-композицией)).
+  Выбранные рамки и открытые решения записаны в
+  [ADR 0002](adr/0002-raw-sql-escape-hatch.md);
 - [ ] Оптимизировать построение больших condition/order lists только по benchmark;
 - [ ] Проектировать PPX после проверки ручного API внешним RealWorld-приложением.
 
@@ -632,6 +644,69 @@ lowering и rendering не повторяются. Runtime `LIMIT`/`OFFSET` по
 reconnect и eviction. Решение по core API и рассмотренные альтернативы описаны
 в [ADR 0001](adr/0001-static-statement-api.md).
 
+### 7. Закрыть разрывы query-builder survey
+
+- [ ] Показать передачу входных значений через bind parameters в сценариях
+  [EF-01](../test/query-builder-survey/ef-core.md#ef-01-страница-через-offset),
+  [EF-02](../test/query-builder-survey/ef-core.md#ef-02-keyset-по-двум-колонкам),
+  [KY-01](../test/query-builder-survey/kysely.md#ky-01-фильтр-и-проекция),
+  [KY-03](../test/query-builder-survey/kysely.md#ky-03-вложенные-and-и-or),
+  [SA-01](../test/query-builder-survey/sqlalchemy.md#sa-01-фильтр-и-проекция),
+  [SA-02](../test/query-builder-survey/sqlalchemy.md#sa-02-составной-предикат) и
+  [SA-03](../test/query-builder-survey/sqlalchemy.md#sa-03-сортировка-и-страница).
+  Публичный API параметров уже есть; нужно, чтобы примеры сохраняли зависимость
+  фильтров и пагинации от входных значений.
+- [ ] Задать финальный `ORDER BY` для результата set operation
+  ([JQ-08](../test/query-builder-survey/jooq.md#jq-08-union-двух-select)); ветви
+  `UNION` уже поддерживаются, но builder не позволяет упорядочить общий результат.
+- [ ] Добавить типизированный `VALUES` relation для `FROM` и JOIN, включая
+  проверку формы и database types строк
+  ([JQ-20](../test/query-builder-survey/jooq.md#jq-20-values-как-табличный-источник),
+  [SA-29](../test/query-builder-survey/sqlalchemy.md#sa-29-values-как-источник-строк)).
+- [ ] Расширить типизированную форму рекурсивного CTE так, чтобы anchor и step
+  могли передавать дополнительные вычисляемые поля вместе с исходными полями
+  relation; начальные строки без `FROM` зависят от `VALUES` relation
+  ([JQ-21](../test/query-builder-survey/jooq.md#jq-21-рекурсивный-cte-для-дерева-каталогов),
+  [SA-30](../test/query-builder-survey/sqlalchemy.md#sa-30-рекурсивный-cte)).
+- [ ] Поддержать `FETCH FIRST ... WITH TIES` с явным ключом порядка и сохранением
+  всех строк на границе страницы
+  ([JQ-26](../test/query-builder-survey/jooq.md#jq-26-fetch-first-with-ties)).
+- [ ] Добавить grouping sets, `ROLLUP` и `CUBE` с типизированным описанием
+  свёрнутых ключей ([JQ-29](../test/query-builder-survey/jooq.md#jq-29-group-by-rollup-для-подытогов),
+  [JQ-43](../test/query-builder-survey/jooq.md#jq-43-cube-по-автору-и-году-издания)).
+- [ ] Добавить строковый aggregate с `ORDER BY` внутри агрегата и явным
+  разделителем ([JQ-35](../test/query-builder-survey/jooq.md#jq-35-listagg-с-порядком-элементов)).
+- [ ] Добавить `INSERT ... SELECT` с проверкой порядка, формы и database types
+  целевых и выбранных колонок. Сочетать этот источник с существующим conflict
+  action для `INSERT ... SELECT ... ON CONFLICT DO NOTHING`
+  ([JQ-36](../test/query-builder-survey/jooq.md#jq-36-insert-select),
+  [JQ-45](../test/query-builder-survey/jooq.md#jq-45-insert-из-select-с-пропуском-конфликтов),
+  [KY-44](../test/query-builder-survey/kysely.md#ky-44-insert-из-select),
+  [SA-32](../test/query-builder-survey/sqlalchemy.md#sa-32-insert-из-select),
+  [SK-09](../test/query-builder-survey/sqlkata.md#sk-09-insert-в-архив-из-select)).
+- [ ] Добавить dialect-aware `MERGE` с проверяемыми `WHEN MATCHED` и
+  `WHEN NOT MATCHED` ветвями, сохраняя атомарность statement
+  ([JQ-40](../test/query-builder-survey/jooq.md#jq-40-merge-с-update-и-insert),
+  [KY-50](../test/query-builder-survey/kysely.md#ky-50-merge-из-таблицы-импорта)).
+- [ ] Добавить dialect-aware `FOR UPDATE` и `SKIP LOCKED`; определить допустимый
+  порядок вместе с `ORDER BY`/`LIMIT` и проверить конкурентное выполнение в
+  транзакциях ([EQ-19](../test/query-builder-survey/esqueleto.md#eq-19-захват-первых-незаблокированных-строк),
+  [JQ-42](../test/query-builder-survey/jooq.md#jq-42-конкурентный-выбор-строк-с-skip-locked),
+  [SA-39](../test/query-builder-survey/sqlalchemy.md#sa-39-страница-строк-с-for-update-skip-locked),
+  [KY-47](../test/query-builder-survey/kysely.md#ky-47-for-update-skip-locked)).
+- [ ] Расширить aggregate expressions для correlated `UPDATE SET`: добавить
+  `AVG` и явное преобразование результата, а также сохранить поведение пустой
+  связанной коллекции при записи в колонку `NOT NULL`
+  ([EF-14](../test/query-builder-survey/ef-core.md#ef-14-executeupdate-с-коррелированным-агрегатом)).
+- [ ] Добавить безопасные descriptors и вызовы схемных SQL scalar functions
+  ([EF-34](../test/query-builder-survey/ef-core.md#ef-34-clr-метод-отображённый-в-sql-udf)).
+- [ ] Добавить `LIKE ... ESCAPE` с параметризованным escape character и одинаково
+  явными правилами для поддерживаемых dialects
+  ([EF-40](../test/query-builder-survey/ef-core.md#ef-40-like-с-экранированным-процентом)).
+- [ ] Сверить [SA-40](../test/query-builder-survey/sqlalchemy.md#sa-40-update-returning-как-источник-cte)
+  с уже доступным `Postgresql.Cte.returning`: привести в карточке проверяемый
+  typed-sql пример и обновить ее оценку, не добавляя дубликат API.
+
 ## Definition of done текущего релизного среза
 
 - portable expression, aggregate, subquery, timestamp и DML API документированы
@@ -648,3 +723,33 @@ reconnect и eviction. Решение по core API и рассмотренны�
 
 После выполнения этих пунктов дальнейшее расширение API должно опираться на
 внешний RealWorld-сценарий или отдельный подтверждённый use case.
+
+## Вопросы о границах проекта по результатам survey
+
+- [ ] Нужны ли проекту клиентская сборка `GroupBy` без SQL aggregate
+  ([EF-11](../test/query-builder-survey/ef-core.md#ef-11-groupby-с-финальной-группировкой-на-клиенте)),
+  загрузка соседних navigation collections и split-query orchestration
+  ([EF-12](../test/query-builder-survey/ef-core.md#ef-12-include-двух-соседних-коллекций),
+  [EF-13](../test/query-builder-survey/ef-core.md#ef-13-split-query-для-коллекции)),
+  а также identity resolution/change tracking
+  ([EF-29](../test/query-builder-survey/ef-core.md#ef-29-tracking-и-asnotracking))?
+  Эти сценарии относятся к материализации графа объектов и работе ORM после
+  чтения SQL-строк.
+- [ ] Нужно ли проекту воспроизводить клиентскую оценку и ошибку при
+  невозможности перевести произвольный helper в SQL
+  ([EF-31](../test/query-builder-survey/ef-core.md#ef-31-непереводимый-helper-в-where))?
+  Typed query builder проверяет выражения при построении и не исполняет
+  пользовательские функции на стороне клиента.
+- [ ] Входит ли SQL Server dialect в планы проекта? Только при положительном
+  ответе имеют смысл SQL Server-specific `OPENJSON` для JSON-колонок
+  ([EF-33](../test/query-builder-survey/ef-core.md#ef-33-поиск-элемента-в-json-коллекции-колонки)),
+  `COLLATE` с SQL Server collation
+  ([EF-38](../test/query-builder-survey/ef-core.md#ef-38-сравнение-с-явным-правилом-сопоставления-строк))
+  и `FOR SYSTEM_TIME AS OF`
+  ([EF-39](../test/query-builder-survey/ef-core.md#ef-39-снимок-temporal-таблицы-на-момент-времени));
+  текущая реализация нацелена на PostgreSQL и SQLite.
+- [ ] Нужно ли поддерживать сборку navigation collections для filtered include
+  после получения top-N строк для каждой родительской строки
+  ([EF-27](../test/query-builder-survey/ef-core.md#ef-27-filtered-include-для-коллекции))?
+  Оконный SQL-запрос уже учтён в кандидатах выше; сборка объектного графа
+  находится за пределами query builder.

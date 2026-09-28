@@ -2,17 +2,17 @@
 
 # Сценарии запросов из Beam
 
-**Желаемый таргет: 20 сценариев — 5 обычных и 15 сложных.** Сейчас заведены пять обычных и десять сложных сценариев.
+**Желаемый таргет: 20 сценариев — 5 обычных и 15 сложных.** Каталог включает пять обычных и пятнадцать сложных сценариев.
 
 Источники — [руководство Beam](https://haskell-beam.github.io/beam/user-guide/queries/) и его [примеры на базе Chinook](https://haskell-beam.github.io/beam/user-guide/queries/relationships/). Запросы и SQL сокращены и адаптированы. В примерах используется схема `Customer`, `Invoice`, `InvoiceLine`, `Album` из Chinook и имя базы `chinookDb` из руководства. Синтаксис соответствует Beam 0.10.
 
 Код примеров Beam распространяется по [MIT](https://haskell-beam.github.io/beam/about/license/). В конце файла приведено уведомление об авторских правах и лицензии. Это независимая подборка; указание источника не означает одобрения со стороны авторов Beam.
 
-OCaml-примеры typed-sql добавлены для BE-01–BE-08 и BE-10–BE-15. BE-09 требует оконных выражений, которых пока нет в DSL.
+OCaml-примеры typed-sql приведены для BE-01–BE-08 и BE-10–BE-20. BE-09 требует оконных выражений, которых пока нет в DSL.
 
 В новых примерах с `as_ @Int32` предполагаются расширение `TypeApplications` и импорт `Int32` из `Data.Int`.
 
-## Общие descriptors typed-sql для BE-01–BE-15
+## Общие descriptors typed-sql для BE-01–BE-20
 
 ```ocaml
 open! Base
@@ -537,11 +537,12 @@ INNER JOIN (
 ### BE-09. Ранг счета внутри покупателя
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [window functions](https://haskell-beam.github.io/beam/user-guide/queries/window-functions/).
 - Проверяет: оконный `RANK` по сумме счета без схлопывания строк; равные суммы получают одинаковый ранг.
+- Ограничение: В публичном API нет оконных выражений `RANK` и определения `PARTITION BY`; обычная сортировка не присваивает одинаковый ранг равным суммам.
 
 `OVER (PARTITION BY ... ORDER BY ...)` отсутствует в публичном API и semantic AST typed-sql.
 
@@ -1004,3 +1005,210 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+### BE-16. Счётчик счетов с сохранением клиентов без счетов
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [relationships and aggregation](https://haskell-beam.github.io/beam/user-guide/queries/relationships/).
+- Проверяет: `LEFT JOIN`, группировку и `COUNT` только существующих счетов.
+
+```sql
+SELECT Customer.CustomerId, COUNT(Invoice.InvoiceId)
+FROM Customer LEFT JOIN Invoice ON Invoice.CustomerId = Customer.CustomerId
+GROUP BY Customer.CustomerId
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let beam16 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Customer.table
+      |> left_join Invoice.table ~on:(fun customer invoice -> Customer.id customer =. Invoice.customer_id invoice)
+      |> group_by (fun (customer, _invoice) -> Customer.id customer)
+      |> select (fun (customer, invoice) -> Projection.pair (Customer.id customer) (Expr.count (Invoice.nullable_id invoice)))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam16);;
+SELECT
+  t0."CustomerId",
+  COUNT(t1."InvoiceId")
+FROM "Customer" AS t0
+LEFT JOIN "Invoice" AS t1
+  ON (t0."CustomerId" = t1."CustomerId")
+GROUP BY
+  t0."CustomerId"
+```
+
+### BE-17. Максимальная сумма счёта для каждого клиента
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [scalar queries](https://haskell-beam.github.io/beam/user-guide/queries/basic/).
+- Проверяет: коррелированный scalar subquery и nullable результат для клиента без счетов.
+
+```sql
+SELECT Customer.CustomerId,
+       (SELECT MAX(Invoice.Total) FROM Invoice WHERE Invoice.CustomerId = Customer.CustomerId)
+FROM Customer
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let beam17 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Customer.table
+      |> select (fun customer ->
+        Projection.pair
+          (Customer.id customer)
+          (Expr.scalar_subquery
+             (Query.(
+               from Invoice.table
+               |> where (fun invoice -> Invoice.customer_id invoice =. Customer.id customer)
+               |> select_scalar (fun invoice -> Expr.max Db_type.Orderable.float (Invoice.total invoice)))))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam17);;
+SELECT
+  t0."CustomerId",
+  (SELECT MAX(t1."Total") FROM "Invoice" AS t1 WHERE (t1."CustomerId" = t0."CustomerId"))
+FROM "Customer" AS t0
+```
+
+### BE-18. Два необязательных фильтра
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [conditional filtering](https://haskell-beam.github.io/beam/user-guide/queries/basic/).
+- Проверяет: независимое включение условия по стране и началу имени.
+
+```sql
+SELECT CustomerId, FirstName, Country FROM Customer
+WHERE Country = ? AND FirstName LIKE ?
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let beam18 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Customer.table
+      |> where_opt (Some "USA") ~f:(fun customer country -> Customer.country customer =$ country)
+      |> where_opt (Some "A%") ~f:(fun customer pattern -> Customer.first_name customer =~$ pattern)
+      |> select (fun customer -> Projection.map3 ~f:(fun id name country -> id, name, country) (Projection.expr (Customer.id customer)) (Projection.expr (Customer.first_name customer)) (Projection.expr (Customer.country customer)))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam18);;
+SELECT
+  t0."CustomerId",
+  t0."FirstName",
+  t0."Country"
+FROM "Customer" AS t0
+WHERE
+  ((t0."Country" = $1) AND (t0."FirstName" LIKE $2))
+```
+
+### BE-19. Страны с более чем одной покупкой
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [grouping and aggregate filters](https://haskell-beam.github.io/beam/user-guide/queries/basic/).
+- Проверяет: JOIN по клиенту, группировку по стране и `HAVING COUNT(*)`.
+
+```sql
+SELECT Customer.Country, COUNT(*)
+FROM Customer JOIN Invoice ON Invoice.CustomerId = Customer.CustomerId
+GROUP BY Customer.Country HAVING COUNT(*) > 1
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let beam19 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Query.(
+      from Customer.table
+      |> inner_join Invoice.table ~on:(fun customer invoice -> Customer.id customer =. Invoice.customer_id invoice)
+      |> group_by (fun (customer, _invoice) -> Customer.country customer)
+      |> having (fun _ -> Expr.count_all >$ 1L)
+      |> order_by (fun (customer, _invoice) -> Customer.country customer) `Asc
+      |> select (fun (customer, _invoice) -> Projection.pair (Customer.country customer) Expr.count_all)))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam19);;
+SELECT
+  t0."Country",
+  COUNT(*)
+FROM "Customer" AS t0
+INNER JOIN "Invoice" AS t1
+  ON (t0."CustomerId" = t1."CustomerId")
+GROUP BY
+  t0."Country"
+HAVING
+  (COUNT(*) > $1)
+ORDER BY
+  t0."Country" ASC
+```
+
+### BE-20. Массовое обновление счёта с возвратом ключей
+
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Источник: [UPDATE statements](https://haskell-beam.github.io/beam/user-guide/manipulation/update/).
+- Проверяет: условный UPDATE и получение ID изменённых строк.
+
+```sql
+UPDATE Invoice SET Total = 0 WHERE Total < 1 RETURNING InvoiceId
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let beam20 =
+  Statement.Portable.query_many_exn (fun _ ->
+    Update.(
+      table Invoice.table
+      |> set Invoice.total_column 0.0
+      |> where (fun invoice -> Invoice.total invoice <$ 1.0)
+      |> returning (fun invoice -> Projection.expr (Invoice.id invoice))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam20);;
+UPDATE "Invoice"
+SET "Total" = $1
+WHERE
+  ("Total" < $2)
+RETURNING
+  "InvoiceId"
+```

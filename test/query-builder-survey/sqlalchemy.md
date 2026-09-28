@@ -12,9 +12,9 @@
 
 Статусы в карточках: `✓` — подтверждено; `✗` — условие не выполнено; `—` — не оценивалось. «Семантика» учитывает входные параметры, результат, `NULL` и заданный порядок относительно сценария в карточке. «Без доработок» относится к публичному API typed-sql, а не к необходимости улучшить пример. Реализуемость оценивается после попытки написать OCaml-код.
 
-## Общие дескрипторы для SA-01–SA-05
+## Общие дескрипторы для SA-01–SA-50
 
-Эти descriptors используются во всех пяти примерах этого файла.
+Эти descriptors используются во всех typed-sql примерах этого файла.
 
 ```ocaml
 open! Base
@@ -52,7 +52,7 @@ end
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗
+- Семантика: ✗ (добавлено в роадмап)
 - Без доработок typed-sql: ✓
 - Замечание: `name` заменён фиксированным значением `sandy`.
 - Источник: [SELECT и WHERE](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#the-where-clause).
@@ -100,7 +100,7 @@ WHERE
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗
+- Семантика: ✗ (добавлено в роадмап)
 - Без доработок typed-sql: ✓
 - Замечание: `name1`, `name2` и `min_id` заменены фиксированными значениями.
 - Источник: [WHERE clause](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#the-where-clause).
@@ -157,7 +157,7 @@ WHERE
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗
+- Семантика: ✗ (добавлено в роадмап)
 - Без доработок typed-sql: ✓
 - Замечание: `page_size` и `page_offset` заменены фиксированными значениями.
 - Источник: [ORDER BY](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#order-by), [limit/offset](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.GenerativeSelect.limit).
@@ -674,7 +674,7 @@ WHERE
 ### SA-12. Оконная функция
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [using window functions](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#using-window-functions).
@@ -1460,7 +1460,7 @@ FROM "address" AS t0
 ### SA-29. VALUES как источник строк
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [конструктор VALUES](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.values).
@@ -1482,7 +1482,7 @@ stmt = select(selected_ids.c.id)
 ### SA-30. Рекурсивный CTE
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [рекурсивные CTE](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.HasCTE.cte).
@@ -1553,7 +1553,7 @@ VALUES ($1, $2), ($3, $4)
 ### SA-32. INSERT из SELECT
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [INSERT FROM SELECT](https://docs.sqlalchemy.org/en/20/tutorial/data_insert.html#insertfromselect).
@@ -1926,7 +1926,7 @@ WHERE
 ### SA-39. Страница строк с FOR UPDATE SKIP LOCKED
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [`Select.with_for_update`](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.Select.with_for_update).
@@ -1953,7 +1953,7 @@ stmt = (
 ### SA-40. UPDATE RETURNING как источник CTE
 
 - OCaml-пример: ✗
-- Реализуемость: ✗
+- Реализуемость: ✗ (добавлено в роадмап)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [CTE with DML](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.HasCTE.cte).
