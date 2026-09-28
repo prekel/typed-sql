@@ -646,28 +646,18 @@ reconnect и eviction. Решение по core API и рассмотренны�
 
 ### 7. Закрыть разрывы query-builder survey
 
-- [ ] Показать передачу входных значений через bind parameters в сценариях
-  [EF-01](../test/query-builder-survey/ef-core.md#ef-01-страница-через-offset),
-  [EF-02](../test/query-builder-survey/ef-core.md#ef-02-keyset-по-двум-колонкам),
-  [KY-01](../test/query-builder-survey/kysely.md#ky-01-фильтр-и-проекция),
-  [KY-03](../test/query-builder-survey/kysely.md#ky-03-вложенные-and-и-or),
-  [SA-01](../test/query-builder-survey/sqlalchemy.md#sa-01-фильтр-и-проекция),
-  [SA-02](../test/query-builder-survey/sqlalchemy.md#sa-02-составной-предикат) и
-  [SA-03](../test/query-builder-survey/sqlalchemy.md#sa-03-сортировка-и-страница).
-  Публичный API параметров уже есть; нужно, чтобы примеры сохраняли зависимость
-  фильтров и пагинации от входных значений.
 - [ ] Задать финальный `ORDER BY` для результата set operation
   ([JQ-08](../test/query-builder-survey/jooq.md#jq-08-union-двух-select)); ветви
   `UNION` уже поддерживаются, но builder не позволяет упорядочить общий результат.
 - [ ] Добавить типизированный `VALUES` relation для `FROM` и JOIN, включая
   проверку формы и database types строк
   ([JQ-20](../test/query-builder-survey/jooq.md#jq-20-values-как-табличный-источник),
-  [SA-29](../test/query-builder-survey/sqlalchemy.md#sa-29-values-как-источник-строк)).
-- [ ] Расширить типизированную форму рекурсивного CTE так, чтобы anchor и step
-  могли передавать дополнительные вычисляемые поля вместе с исходными полями
-  relation; начальные строки без `FROM` зависят от `VALUES` relation
-  ([JQ-21](../test/query-builder-survey/jooq.md#jq-21-рекурсивный-cte-для-дерева-каталогов),
-  [SA-30](../test/query-builder-survey/sqlalchemy.md#sa-30-рекурсивный-cte)).
+  [SA-29](../test/query-builder-survey/sqlalchemy.md#sa-29-values-как-источник-строк),
+  [SA-30](../test/query-builder-survey/sqlalchemy.md#sa-30-рекурсивный-cte)); literal anchor
+  из SA-30 должен давать одну стартовую строку независимо от содержимого таблиц.
+- [ ] Расширить типизированный рекурсивный CTE, чтобы anchor и step могли
+  передавать вычисляемые поля вместе с полями исходных relations
+  ([JQ-21](../test/query-builder-survey/jooq.md#jq-21-рекурсивный-cte-для-дерева-каталогов)).
 - [ ] Поддержать `FETCH FIRST ... WITH TIES` с явным ключом порядка и сохранением
   всех строк на границе страницы
   ([JQ-26](../test/query-builder-survey/jooq.md#jq-26-fetch-first-with-ties)).
