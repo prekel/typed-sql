@@ -652,12 +652,12 @@ reconnect и eviction. Решение по core API и рассмотренны�
 - [ ] Добавить типизированный `VALUES` relation для `FROM` и JOIN, включая
   проверку формы и database types строк
   ([JQ-20](../test/query-builder-survey/jooq.md#jq-20-values-как-табличный-источник),
-  [SA-29](../test/query-builder-survey/sqlalchemy.md#sa-29-values-как-источник-строк),
-  [SA-30](../test/query-builder-survey/sqlalchemy.md#sa-30-рекурсивный-cte)); literal anchor
-  из SA-30 должен давать одну стартовую строку независимо от содержимого таблиц.
-- [ ] Расширить типизированный рекурсивный CTE, чтобы anchor и step могли
-  передавать вычисляемые поля вместе с полями исходных relations
-  ([JQ-21](../test/query-builder-survey/jooq.md#jq-21-рекурсивный-cte-для-дерева-каталогов)).
+  [SA-29](../test/query-builder-survey/sqlalchemy.md#sa-29-values-как-источник-строк)).
+- [ ] Расширить типизированный рекурсивный CTE: поддержать вычисляемые поля в
+  anchor и step вместе с полями исходных relations, а также литеральный anchor,
+  создающий стартовую строку независимо от содержимого таблиц
+  ([JQ-21](../test/query-builder-survey/jooq.md#jq-21-рекурсивный-cte-для-дерева-каталогов),
+  [SA-30](../test/query-builder-survey/sqlalchemy.md#sa-30-рекурсивный-cte)).
 - [ ] Поддержать `FETCH FIRST ... WITH TIES` с явным ключом порядка и сохранением
   всех строк на границе страницы
   ([JQ-26](../test/query-builder-survey/jooq.md#jq-26-fetch-first-with-ties)).

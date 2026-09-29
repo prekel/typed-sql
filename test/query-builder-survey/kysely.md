@@ -2013,8 +2013,8 @@ WHERE
 ### KY-32. Накопительная оконная сумма
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
-- Семантика: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
+- Семантика: ✗ (добавлено в роадмап ✓)
 - Без доработок typed-sql: ✗
 - Ограничение: В публичном API нет оконных функций; эмуляция потребовала бы других SQL-возможностей и дополнительных ограничений.
 - Источник: [over](https://kysely-org.github.io/kysely-apidoc/classes/AggregateFunctionBuilder.html#over).
@@ -2568,8 +2568,8 @@ WHERE
 ### KY-41. Извлечение поля из JSONB
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
-- Семантика: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
+- Семантика: ✗ (добавлено в роадмап ✓)
 - Без доработок typed-sql: ✗
 - Ограничение: В typed-sql пока нет типизированных JSONB path/extraction expressions.
 - Источник: [JSON reference expressions](https://kysely-org.github.io/kysely-apidoc/interfaces/ExpressionBuilder.html#ref).
@@ -2755,8 +2755,8 @@ VALUES
 ### KY-44. INSERT из SELECT
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
-- Семантика: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
+- Семантика: ✗ (добавлено в роадмап ✓)
 - Без доработок typed-sql: ✗
 - Ограничение: Публичный INSERT API не принимает SELECT как источник строк.
 - Источник: [expression](https://kysely-org.github.io/kysely-apidoc/classes/InsertQueryBuilder.html#expression).
@@ -2918,8 +2918,8 @@ RETURNING
 ### KY-47. FOR UPDATE SKIP LOCKED
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
-- Семантика: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
+- Семантика: ✗ (добавлено в роадмап ✓)
 - Без доработок typed-sql: ✗
 - Ограничение: В публичном API пока нет `FOR UPDATE` и `SKIP LOCKED`.
 - Источник: [forUpdate и skipLocked](https://kysely-org.github.io/kysely-apidoc/interfaces/SelectQueryBuilder.html#forUpdate).
@@ -3072,8 +3072,8 @@ RETURNING
 ### KY-50. MERGE из таблицы импорта
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
-- Семантика: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
+- Семантика: ✗ (добавлено в роадмап ✓)
 - Без доработок typed-sql: ✗
 - Ограничение: В публичном API пока нет `MERGE`; разбиение на команды не сохраняло бы атомарность исходного оператора.
 - Источник: [mergeInto](https://kysely-org.github.io/kysely-apidoc/classes/QueryCreator.html#mergeInto), [MergeQueryBuilder](https://kysely-org.github.io/kysely-apidoc/classes/MergeQueryBuilder.html).

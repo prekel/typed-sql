@@ -653,7 +653,7 @@ ORDER BY
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап ✗)
+- Семантика: ✗ (добавлено в роадмап ✓)
 - Без доработок typed-sql: ✗
 - Источник: [Set operations](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/set-operations/).
 - Проверяет: объединение строк с удалением дубликатов, одинаковую степень и типы колонок.
@@ -1454,7 +1454,7 @@ WHERE
 ### JQ-20. VALUES как табличный источник
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [VALUES table constructor](https://www.jooq.org/doc/3.21/manual/sql-building/table-expressions/values/).
@@ -1872,7 +1872,7 @@ ORDER BY
 ### JQ-26. FETCH FIRST WITH TIES
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [WITH TIES clause](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/with-ties-clause/).
@@ -2023,7 +2023,7 @@ WHERE
 ### JQ-29. GROUP BY ROLLUP для подытогов
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [GROUP BY ROLLUP](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/group-by-clause/group-by-rollup/).
@@ -2115,7 +2115,7 @@ GROUP BY
 ### JQ-31. Оконная сумма с явным frame
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [Window frame clause](https://www.jooq.org/doc/3.21/manual/sql-building/column-expressions/window-functions/window-frame/).
@@ -2370,7 +2370,7 @@ FROM (
 ### JQ-35. LISTAGG с порядком элементов
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [LISTAGG](https://www.jooq.org/doc/3.21/manual/sql-building/column-expressions/aggregate-functions/listagg-function/).
@@ -2400,7 +2400,7 @@ create.select(
 ### JQ-36. INSERT .. SELECT
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [INSERT .. SELECT](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/insert-statement/insert-select/).
@@ -2587,7 +2587,7 @@ WHERE
 ### JQ-40. MERGE с UPDATE и INSERT
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [MERGE statement](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/merge-statement/).
@@ -2691,7 +2691,7 @@ LIMIT 20
 ### JQ-42. Конкурентный выбор строк с SKIP LOCKED
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [FOR UPDATE clause](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/for-update-clause/).
@@ -2721,7 +2721,7 @@ create.select(BOOK.ID, BOOK.TITLE)
 ### JQ-43. CUBE по автору и году издания
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [GROUP BY CUBE](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/group-by-clause/group-by-cube/).
@@ -2791,7 +2791,7 @@ RETURNING
 ### JQ-45. INSERT из SELECT с пропуском конфликтов
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [INSERT statement](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/insert-statement/), раздел `ON CONFLICT`.

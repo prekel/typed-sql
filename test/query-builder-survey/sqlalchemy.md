@@ -692,7 +692,7 @@ FROM (
 ### SA-12. Оконная функция
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: ✓
 - Без доработок typed-sql: ✓
 - Источник: [using window functions](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#using-window-functions).
@@ -1514,7 +1514,7 @@ FROM (
 ### SA-29. VALUES как источник строк
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [конструктор VALUES](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.values).
@@ -1537,7 +1537,7 @@ stmt = select(selected_ids.c.id)
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап ✗)
+- Семантика: ✗ (добавлено в роадмап ✓)
 - Без доработок typed-sql: ✓
 - Источник: [рекурсивные CTE](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.HasCTE.cte).
 - Проверяет: рекурсивное расширение результата с условием завершения.
@@ -1661,7 +1661,7 @@ VALUES
 ### SA-32. INSERT из SELECT
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [INSERT FROM SELECT](https://docs.sqlalchemy.org/en/20/tutorial/data_insert.html#insertfromselect).
@@ -2061,7 +2061,7 @@ WHERE
 ### SA-39. Страница строк с FOR UPDATE SKIP LOCKED
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [`Select.with_for_update`](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.Select.with_for_update).
@@ -2088,7 +2088,7 @@ stmt = (
 ### SA-40. UPDATE RETURNING как источник CTE
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [CTE with DML](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.HasCTE.cte).

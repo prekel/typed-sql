@@ -632,7 +632,7 @@ WHERE
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап ✗)
+- Семантика: ✗ (добавлено в роадмап ✓)
 - Без доработок typed-sql: ✓
 - Источник: [GroupBy without aggregate](https://learn.microsoft.com/en-us/ef/core/querying/complex-query-operators#groupby).
 - Проверяет: различие между SQL-строками и итоговыми группами; EF Core 7+ собирает группы после чтения.
@@ -687,7 +687,7 @@ ORDER BY
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап ✗)
+- Семантика: ✗ (добавлено в роадмап ✓)
 - Без доработок typed-sql: ✗
 - Источник: [cartesian explosion](https://learn.microsoft.com/en-us/ef/core/querying/single-split-queries#cartesian-explosion).
 - Проверяет: два `LEFT JOIN`, умножение строк на сервере и сборку двух коллекций на клиенте.
@@ -752,7 +752,7 @@ ORDER BY
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап ✗)
+- Семантика: ✗ (добавлено в роадмап ✓)
 - Без доработок typed-sql: ✗
 - Источник: [split queries](https://learn.microsoft.com/en-us/ef/core/querying/single-split-queries#split-queries).
 - Проверяет: два серверных запроса, порядок строк и сборку коллекции на клиенте.
@@ -827,7 +827,7 @@ ORDER BY
 ### EF-14. ExecuteUpdate с коррелированным агрегатом
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [updating from related entities](https://learn.microsoft.com/en-us/ef/core/saving/execute-insert-update-delete#navigations-and-related-entities).
@@ -1471,7 +1471,7 @@ WHERE
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап ✗)
+- Семантика: ✗ (добавлено в роадмап ✓)
 - Без доработок typed-sql: ✓
 - Источник: [Eager Loading: filtered include](https://learn.microsoft.com/en-us/ef/core/querying/related-data/eager#filtered-include).
 - Проверяет: фильтрацию, сортировку и ограничение элементов включённой коллекции.
@@ -1588,7 +1588,7 @@ ORDER BY
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап ✗)
+- Семантика: ✗ (добавлено в роадмап ✓)
 - Без доработок typed-sql: ✓
 - Источник: [Eager Loading: including multiple levels](https://learn.microsoft.com/en-us/ef/core/querying/related-data/eager#including-multiple-levels).
 - Проверяет: загрузку цепочки Blog → Posts → Author одним запросом.
@@ -1656,7 +1656,7 @@ ORDER BY
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап ✗)
+- Семантика: ✗ (добавлено в роадмап ✓)
 - Без доработок typed-sql: ✗
 - Источник: [Tracking vs. No-Tracking Queries](https://learn.microsoft.com/en-us/ef/core/querying/tracking).
 - Проверяет: одинаковый серверный запрос при разной работе change tracker и identity resolution.
@@ -1757,7 +1757,7 @@ ORDER BY
 ### EF-31. Непереводимый helper в WHERE
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [Client vs. Server Evaluation: unsupported client evaluation](https://learn.microsoft.com/en-us/ef/core/querying/client-eval#unsupported-client-evaluation).
@@ -1832,7 +1832,7 @@ WHERE
 ### EF-33. Поиск элемента в JSON-коллекции колонки
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [What's New in EF Core 8: primitive collections](https://learn.microsoft.com/en-us/ef/core/what-is-new/ef-core-8.0/whatsnew#primitive-collections-in-json-columns).
@@ -1859,7 +1859,7 @@ var pubs = await context.Pubs
 ### EF-34. CLR-метод, отображённый в SQL UDF
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [User-defined function mapping](https://learn.microsoft.com/en-us/ef/core/querying/user-defined-function-mapping#mapping-a-method-to-a-sql-function).
@@ -1883,7 +1883,7 @@ CLR-метод должен быть зарегистрирован через `
 ### EF-35. FromSql с LINQ-композицией
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [SQL Queries: composing with LINQ](https://learn.microsoft.com/en-us/ef/core/querying/sql-queries#composing-with-linq).
@@ -2035,7 +2035,7 @@ WHERE
 ### EF-38. Сравнение с явным правилом сопоставления строк
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [Collations and case sensitivity](https://learn.microsoft.com/en-us/ef/core/miscellaneous/collations-and-case-sensitivity).
@@ -2059,7 +2059,7 @@ var blogs = await context.Blogs
 ### EF-39. Снимок temporal-таблицы на момент времени
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [SQL Server temporal tables](https://learn.microsoft.com/en-us/ef/core/providers/sql-server/temporal-tables#querying-historical-data).
@@ -2086,7 +2086,7 @@ var snapshot = await context.Blogs
 ### EF-40. LIKE с экранированным процентом
 
 - OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✗)
+- Реализуемость: ✗ (добавлено в роадмап ✓)
 - Семантика: —
 - Без доработок typed-sql: ✗
 - Источник: [SQL Server function mappings](https://learn.microsoft.com/en-us/ef/core/providers/sql-server/functions).
