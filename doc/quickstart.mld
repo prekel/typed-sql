@@ -140,9 +140,11 @@ end
 превращает его в готовый [Result_query.t].
 
 Scalar query и [EXISTS] строятся тем же [Query.(...)] и могут захватывать table
-reference из внешнего callback. Если вход меняет саму форму SQL, заранее
-создаются конечные варианты и объединяются через [Statement.choose]. Для
-рекурсивного языка предикатов или другого неограниченного набора форм есть
+reference из внешнего callback. Если input выбирает форму SQL, конечные
+варианты объединяются через [Statement.choose]. Если реализация должна
+отличаться между PostgreSQL и SQLite, готовые statements объединяются через
+[Statement.choose_dialect]; типы input и output у обеих веток должны совпадать.
+Для рекурсивного языка предикатов или другого неограниченного набора форм есть
 [Statement.Dynamic.Portable]; полный пример находится на странице
 {!page-dynamic_statements}.
 
@@ -160,13 +162,17 @@ let sql =
 заранее скомпилированный template с placeholders. Переданный [~input] также
 запускает getters и validation параметров. Dynamic statements и
 [Statement.choose] требуют input, поскольку он определяет форму SQL.
+[Statement.choose_dialect] выбирает ветку по dialect и работает без input, если
+выбранная ветка статическая.
 
 [Statement.Portable] проверяет одну форму для PostgreSQL и SQLite. Для
 dialect-specific SQL используется [Statement.For_dialect] с
 [Dialect.postgresql] или [Dialect.sqlite]. Witness одновременно проверяет
 требования query. Например, SQL [DEFAULT] в [Insert] и [Update] добавляет
 требование PostgreSQL, поэтому такой statement нельзя создать с
-[Dialect.sqlite].
+[Dialect.sqlite]. Такие PostgreSQL и SQLite statements можно объединить через
+[Statement.choose_dialect] в один statement, который adapter разрешает по
+dialect соединения.
 
 Portable [Query.having] доступен только после [Query.group_by]. PostgreSQL
 разрешает [HAVING] без [GROUP BY] как одну aggregate group; этот вариант явно

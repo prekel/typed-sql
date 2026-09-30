@@ -80,8 +80,10 @@ Typed_sql_caqti_lwt.run
 
 Доступны [query_many], [query_one], [query_optional] и [command]. Их
 cardinality проверяется adapter так же, как у статических statements.
-[Statement.choose] может объединять статические и динамические ветки; callback
-запускается только у выбранной динамической ветки.
+[Statement.choose] выбирает ветку по input и может объединять статические и
+динамические statements; callback запускается только у выбранной динамической
+ветки. [Statement.choose_dialect] выбирает готовую PostgreSQL или SQLite ветку
+по dialect соединения и требует одинаковые типы input и output.
 
 {1 Ошибки и стоимость}
 

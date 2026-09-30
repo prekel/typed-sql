@@ -60,7 +60,12 @@ type 'input command_plan =
   ; slots : 'input slot list
   }
 
-type ('input, 'output, +'requirements) t =
+type ('input, 'output) packed_statement =
+  | Packed_statement :
+      ('input, 'output, 'requirements) t
+      -> ('input, 'output) packed_statement
+
+and ('input, 'output, +'requirements) t =
   | Dynamic_query :
       { cardinality : ('row, 'output) cardinality
       ; build : 'input -> ('row, 'kind, 'query_cardinality, 'requirements) Result_query.t
@@ -83,6 +88,10 @@ type ('input, 'output, +'requirements) t =
       ; if_false : ('input, 'output, 'requirements) t
       }
       -> ('input, 'output, 'requirements) t
+  | Choose_dialect of
+      { postgresql : ('input, 'output) packed_statement
+      ; sqlite : ('input, 'output) packed_statement
+      }
 
 type 'output execution =
   | Query_execution :
@@ -222,6 +231,17 @@ end
 
 let choose ~when_ ~if_true ~if_false = Choose { when_; if_true; if_false }
 
+let choose_dialect
+  : type input output.
+    postgresql:(input, output, Dialect.postgresql) t
+    -> sqlite:(input, output, Dialect.sqlite) t
+    -> (input, output, Dialect.portable) t
+  =
+  fun ~postgresql ~sqlite ->
+  Choose_dialect
+    { postgresql = Packed_statement postgresql; sqlite = Packed_statement sqlite }
+;;
+
 module Dynamic = struct
   module Portable = struct
     let query_many build = Dynamic_query { cardinality = Many; build }
@@ -296,6 +316,13 @@ let rec resolve
          if_true
        else
          if_false)
+  | Choose_dialect { postgresql; sqlite } ->
+    let (Packed_statement statement) =
+      match dialect with
+      | Dialect.Postgresql -> postgresql
+      | Dialect.Sqlite -> sqlite
+    in
+    resolve ~dialect input statement
   | Query { cardinality; plans } ->
     (match find_query_plan dialect plans with
      | None -> Error Dialect_mismatch
@@ -327,6 +354,32 @@ let rec resolve
            |> fun compiled -> Command_execution compiled))
 ;;
 
+let rec sql_without_input
+  : type input output requirements.
+    dialect:Dialect.t -> (input, output, requirements) t -> (string, sql_error) Result.t
+  =
+  fun ~dialect statement ->
+  match statement with
+  | Query { plans; _ } ->
+    (match find_query_plan dialect plans with
+     | None -> Error (Unsupported_dialect dialect)
+     | Some plan ->
+       Ok (Template.to_sql ~dialect:plan.compiled.dialect plan.compiled.template))
+  | Command { plans } ->
+    (match find_command_plan dialect plans with
+     | None -> Error (Unsupported_dialect dialect)
+     | Some plan ->
+       Ok (Template.to_sql ~dialect:plan.compiled.dialect plan.compiled.template))
+  | Choose_dialect { postgresql; sqlite } ->
+    let (Packed_statement statement) =
+      match dialect with
+      | Dialect.Postgresql -> postgresql
+      | Dialect.Sqlite -> sqlite
+    in
+    sql_without_input ~dialect statement
+  | Dynamic_query _ | Dynamic_command _ | Choose _ -> Error Dynamic_input_required
+;;
+
 let sql
   : type input output requirements.
     dialect:Dialect.t
@@ -343,19 +396,7 @@ let sql
      | Error Dialect_mismatch -> Error (Unsupported_dialect dialect)
      | Error (Binding error) -> Error (Invalid_parameter error)
      | Error (Compilation error) -> Error (Compilation_error error))
-  | None ->
-    (match statement with
-     | Query { plans; _ } ->
-       (match find_query_plan dialect plans with
-        | None -> Error (Unsupported_dialect dialect)
-        | Some plan ->
-          Ok (Template.to_sql ~dialect:plan.compiled.dialect plan.compiled.template))
-     | Command { plans } ->
-       (match find_command_plan dialect plans with
-        | None -> Error (Unsupported_dialect dialect)
-        | Some plan ->
-          Ok (Template.to_sql ~dialect:plan.compiled.dialect plan.compiled.template))
-     | Dynamic_query _ | Dynamic_command _ | Choose _ -> Error Dynamic_input_required)
+  | None -> sql_without_input ~dialect statement
 ;;
 
 let sql_exn ~dialect ?input statement =

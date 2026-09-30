@@ -101,6 +101,31 @@ module Person = struct
   ;;
 end
 
+type dialect_choice_input =
+  { id : int64
+  ; name : string
+  }
+
+let dialect_choice_statement =
+  let postgresql =
+    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun parameters ->
+      let id = parameters.column Person.id_column ~get:(fun input -> input.id) in
+      Query.(
+        from Person.table
+        |> where (fun person -> Person.id person =. id)
+        |> select (fun person -> Projection.expr (Person.name person))))
+  in
+  let sqlite =
+    Statement.For_dialect.query_many_exn ~dialect:Dialect.sqlite (fun parameters ->
+      let name = parameters.column Person.name_column ~get:(fun input -> input.name) in
+      Query.(
+        from Person.table
+        |> where (fun person -> Person.name person =. name)
+        |> select (fun person -> Projection.expr (Person.name person))))
+  in
+  Statement.choose_dialect ~postgresql ~sqlite
+;;
+
 module Selected_person = struct
   type row
 
@@ -485,6 +510,12 @@ let run conn =
       ()
     |> caqti_or_fail
   in
+  let* dialect_choice_rows =
+    Adapter.run ~conn dialect_choice_statement { id = 1L; name = "Grace" }
+    >>= adapter_or_fail
+  in
+  if not (List.equal String.equal dialect_choice_rows [ "Grace" ]) then
+    failwith "SQLite did not select the SQLite statement branch";
   let value_table : unit Table.t = Table.v_exn "selected_ids" in
   let value_id = Column.v_exn value_table "id" Db_type.int64 in
   let selected_ids =

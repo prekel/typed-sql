@@ -34,6 +34,31 @@ module Item = struct
   let name row = Expr.column row name_column
 end
 
+type dialect_choice_input =
+  { id : int64
+  ; name : string
+  }
+
+let dialect_choice_statement =
+  let postgresql =
+    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun parameters ->
+      let id = parameters.column Item.id_column ~get:(fun input -> input.id) in
+      Query.(
+        from Item.table
+        |> where (fun item -> Item.id item =. id)
+        |> select (fun item -> Projection.expr (Item.name item))))
+  in
+  let sqlite =
+    Statement.For_dialect.query_many_exn ~dialect:Dialect.sqlite (fun parameters ->
+      let name = parameters.column Item.name_column ~get:(fun input -> input.name) in
+      Query.(
+        from Item.table
+        |> where (fun item -> Item.name item =. name)
+        |> select (fun item -> Projection.expr (Item.name item))))
+  in
+  Statement.choose_dialect ~postgresql ~sqlite
+;;
+
 module Department = struct
   type row
 
@@ -951,6 +976,15 @@ let run conn =
       ()
     |> or_fail
   in
+  let* dialect_choice_rows =
+    Adapter.run ~conn dialect_choice_statement { id = 1L; name = "Grace" }
+    >>= adapter_or_fail
+  in
+  assert_rows
+    ~name:"dialect choice selects the PostgreSQL statement branch"
+    ~equal:String.equal
+    [ "Ada" ]
+    dialect_choice_rows;
   let* () =
     Connection.exec
       (direct

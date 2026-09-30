@@ -2574,11 +2574,20 @@ module Statement : sig
     -> if_false:('input, 'output, 'requirements) t
     -> ('input, 'output, 'requirements) t
 
+  (** Select the PostgreSQL or SQLite statement from the dialect used to
+      resolve it. Both branches must have the same input and output types; the
+      result supports both dialects. *)
+  val choose_dialect
+    :  postgresql:('input, 'output, Dialect.postgresql) t
+    -> sqlite:('input, 'output, Dialect.sqlite) t
+    -> ('input, 'output, Dialect.portable) t
+
   (** Render the selected plan. For a static statement, [input] may be omitted:
       the SQL template is read from the precompiled dialect plan without
       evaluating parameter getters. Dynamic statements and [choose] require
-      [input] because it determines the SQL shape. When supplied, [input] is
-      also used to validate static parameter bindings. *)
+      [input] because it determines the SQL shape. [choose_dialect] selects by
+      dialect and requires [input] only if its selected branch needs it. When
+      supplied, [input] is also used to validate static parameter bindings. *)
   val sql
     :  dialect:Dialect.t
     -> ?input:'input

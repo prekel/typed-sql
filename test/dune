@@ -2,6 +2,7 @@
  (name typed_sql_expect_tests)
  (modules
   capability_test
+  dialect_choice_test
   dynamic_statement_test
   insert_select_test
   operation_module_test
