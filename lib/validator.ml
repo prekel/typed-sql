@@ -710,6 +710,15 @@ let validate_relation_schema (relation : Ast.relation) =
     ~result_types:relation.result_types
 ;;
 
+let rec select_query_output_field_names = function
+  | Ast.Simple select ->
+    List.map select.Ast.projection ~f:(function
+      | Ast.Column { name; _ } -> Some name
+      | _ -> None)
+  | Ast.Source_free _ -> [ None ]
+  | Ast.Compound compound -> select_query_output_field_names compound.left
+;;
+
 let rec validate_select_query_full
           ?(outer_visible = [])
           ?(allow_empty = false)
@@ -757,6 +766,22 @@ let rec validate_select_query_full
           Compile_error.Mismatched_set_projection { expected; actual })
         compound.left_types
         compound.right_types
+    in
+    let%bind () =
+      let output_fields = select_query_output_field_names compound.left in
+      List.fold compound.order_by ~init:(Ok ()) ~f:(fun result order ->
+        let%bind () = result in
+        let matches =
+          List.count output_fields ~f:(function
+            | Some field -> Identifier.equal field order.Ast.field
+            | None -> false)
+        in
+        if Int.equal matches 1 then
+          Ok ()
+        else
+          Error
+            (Compile_error.Invalid_set_order_field
+               { field = Identifier.to_string order.field; matches }))
     in
     let%bind () =
       validate_select_query_full

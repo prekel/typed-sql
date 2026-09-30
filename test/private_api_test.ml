@@ -1022,6 +1022,7 @@ let%test_module "lowering capability traversal" =
            ; right = A.Simple select
            ; left_types = [ Db_type.Pack Db_type.int ]
            ; right_types = [ Db_type.Pack Db_type.int ]
+           ; order_by = []
            })
     ;;
 

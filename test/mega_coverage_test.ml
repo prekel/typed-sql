@@ -425,10 +425,13 @@ let input_rows_query ~limit_parameter ~offset_parameter =
       |> offset_param offset_parameter
       |> limit_param limit_parameter
       |> select (fun (((person_id, _), tag), _) ->
-        Projection.pair person_id (Tag.label tag)))
+        Projection.pair person_id (Expr.lower (Tag.label tag))))
   in
   let values_branch = Query.(from_values static_tags |> select Tag.projection) in
-  Query.union_all inferred_branch values_branch
+  Query.union_all
+    ~order_by:[ Identifier.of_string_exn "field_1", `Asc ]
+    inferred_branch
+    values_branch
 ;;
 
 let input_rows_relation ~limit_parameter ~offset_parameter
@@ -580,7 +583,10 @@ let sequence_relation query =
 let recursive_sequence =
   Cte.recursive
     ~union:`Union_all
-    ~anchor:(sequence_relation (Query.select_one (Expr.constant Db_type.int64 1L)))
+    ~anchor:
+      (sequence_relation
+         (let one = Expr.constant Db_type.int64 1L in
+          Query.union (Query.select_one one) (Query.select_one Expr.count_all)))
     ~step:(fun sequence ->
       sequence_relation
         Query.(
@@ -981,19 +987,37 @@ let mega_query ~label_parameter ~limit_parameter ~offset_parameter =
                                 (Updated.person_id changed)
                                 (Updated.score changed)))
                         in
-                        let all_rows = Query.union_all removed changed in
-                        let distinct_rows = Query.union removed changed in
+                        let order_by_person =
+                          [ Column.name Deleted.person_id_column, `Asc
+                          ; Column.name Deleted.score_column, `Desc
+                          ]
+                        in
+                        let all_rows =
+                          Query.union_all ~order_by:order_by_person removed changed
+                        in
+                        let distinct_rows =
+                          Query.union ~order_by:order_by_person removed changed
+                        in
                         let common_rows = Query.intersect distinct_rows changed in
                         let common_rows_with_duplicates =
-                          Query.intersect all_rows common_rows
+                          Postgresql.Query.intersect_all
+                            ~order_by:order_by_person
+                            all_rows
+                            common_rows
                         in
                         let except_rows =
-                          Query.except common_rows_with_duplicates removed
+                          Query.except
+                            ~order_by:order_by_person
+                            common_rows_with_duplicates
+                            removed
                         in
                         let empty_except_all =
-                          Postgresql.Query.except_all changed changed
+                          Postgresql.Query.except_all
+                            ~order_by:order_by_person
+                            changed
+                            changed
                         in
-                        Query.union except_rows empty_except_all
+                        Query.union ~order_by:order_by_person except_rows empty_except_all
                       in
                       let combined_definition =
                         Cte.select
@@ -1017,6 +1041,7 @@ let mega_query ~label_parameter ~limit_parameter ~offset_parameter =
                             |> having (fun _ -> Expr.count_all <$ 100L)
                             |> order_by (fun (row, _) -> Combined.person_id row) `Desc
                             |> limit 10
+                            |> offset 0
                             |> select (fun (row, _) ->
                               Projection.map3
                                 ~f:(fun person_id event_count total_score ->
@@ -1075,8 +1100,17 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
       "c2" (
         "value"
       ) AS (
-        SELECT
-          $2
+        SELECT *
+        FROM (
+          SELECT
+            $2
+        ) AS s0
+        UNION
+        SELECT *
+        FROM (
+          SELECT
+            COUNT(*)
+        ) AS s0
         UNION ALL
         SELECT
           (t0."value" + $3)
@@ -1092,7 +1126,7 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
         FROM (
           SELECT DISTINCT
             t0."field_1",
-            t1."label"
+            LOWER(t1."label")
           FROM (
             SELECT
               t3."id" AS "field_1",
@@ -1160,6 +1194,8 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
             )
           ) AS "v") AS t0
         ) AS s0
+        ORDER BY
+          "field_1" ASC
       ),
       "c4" (
         "id",
@@ -1352,8 +1388,11 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
                   t0."score"
                 FROM "c8" AS t0
               ) AS s0
+              ORDER BY
+                "person_id" ASC,
+                "score" DESC
             ) AS s0
-            INTERSECT
+            INTERSECT ALL
             SELECT *
             FROM (
               SELECT *
@@ -1373,6 +1412,9 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
                     t0."score"
                   FROM "c8" AS t0
                 ) AS s0
+                ORDER BY
+                  "person_id" ASC,
+                  "score" DESC
               ) AS s0
               INTERSECT
               SELECT *
@@ -1383,6 +1425,9 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
                 FROM "c8" AS t0
               ) AS s0
             ) AS s0
+            ORDER BY
+              "person_id" ASC,
+              "score" DESC
           ) AS s0
           EXCEPT
           SELECT *
@@ -1392,6 +1437,9 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
               t0."score"
             FROM "c7" AS t0
           ) AS s0
+          ORDER BY
+            "person_id" ASC,
+            "score" DESC
         ) AS s0
         UNION
         SELECT *
@@ -1411,7 +1459,13 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
               t0."score"
             FROM "c8" AS t0
           ) AS s0
+          ORDER BY
+            "person_id" ASC,
+            "score" DESC
         ) AS s0
+        ORDER BY
+          "person_id" ASC,
+          "score" DESC
       ),
       "c11" (
         "person_id",
@@ -1440,6 +1494,7 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
         ORDER BY
           t0."person_id" DESC
         LIMIT 10
+        OFFSET 0
       )
     UPDATE "public"."mega_people" AS t0
     SET
@@ -1458,7 +1513,7 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
         FROM (
           SELECT DISTINCT
             t5."field_1" AS "id",
-            t6."label" AS "label"
+            LOWER(t6."label") AS "label"
           FROM (
             SELECT
               t8."id" AS "field_1",
@@ -1526,6 +1581,8 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
             )
           ) AS "v") AS t5
         ) AS s0
+        ORDER BY
+          "id" ASC
       ) AS t2,
       (
         SELECT

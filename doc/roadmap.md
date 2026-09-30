@@ -646,9 +646,9 @@ reconnect и eviction. Решение по core API и рассмотренны�
 
 ### 7. Закрыть разрывы query-builder survey
 
-- [ ] Задать финальный `ORDER BY` для результата set operation
-  ([JQ-08](../test/query-builder-survey/jooq.md#jq-08-union-двух-select)); ветви
-  `UNION` уже поддерживаются, но builder не позволяет упорядочить общий результат.
+- [x] Задать финальный `ORDER BY` для результата set operation по выбранным
+  выходным полям; покрыты portable и PostgreSQL-only варианты
+  ([JQ-08](../test/query-builder-survey/jooq.md#jq-08-union-двух-select)).
 - [x] Добавить типизированный `VALUES` relation для `FROM` и JOIN, включая
   проверку формы и database types строк
   ([JQ-20](../test/query-builder-survey/jooq.md#jq-20-values-как-табличный-источник),

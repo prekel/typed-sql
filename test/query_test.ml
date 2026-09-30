@@ -418,6 +418,111 @@ let%test_module "portable query rendering" =
   end)
 ;;
 
+let%test_module "set operation output ordering" =
+  (module struct
+    let alternate_id_column = Column.v_exn Person.table "person_key" Db_type.int64
+
+    let left_branch =
+      Query.(
+        from Person.table |> select (fun person -> Projection.expr (Person.id person)))
+    ;;
+
+    let right_branch =
+      Query.(
+        from Person.table
+        |> select (fun person -> Projection.expr (Expr.column person alternate_id_column)))
+    ;;
+
+    let ordered_union =
+      Query.union
+        ~order_by:[ Column.name Person.id_column, `Asc ]
+        left_branch
+        right_branch
+    ;;
+
+    let%expect_test "PostgreSQL orders by the left output field name" =
+      ordered_union
+      |> compile_exn Dialect.Postgresql
+      |> Compiled_query.sql
+      |> Stdlib.print_endline;
+      [%expect
+        {|
+        SELECT *
+        FROM (
+          SELECT
+            t0."id"
+          FROM "public"."people" AS t0
+        ) AS s0
+        UNION
+        SELECT *
+        FROM (
+          SELECT
+            t0."person_key"
+          FROM "public"."people" AS t0
+        ) AS s0
+        ORDER BY
+          "id" ASC
+        |}]
+    ;;
+
+    let%expect_test "SQLite orders by the left output field name" =
+      ordered_union
+      |> compile_exn Dialect.Sqlite
+      |> Compiled_query.sql
+      |> Stdlib.print_endline;
+      [%expect
+        {|
+        SELECT *
+        FROM (
+          SELECT
+            t0."id"
+          FROM "public"."people" AS t0
+        ) AS s0
+        UNION
+        SELECT *
+        FROM (
+          SELECT
+            t0."person_key"
+          FROM "public"."people" AS t0
+        ) AS s0
+        ORDER BY
+          "id" ASC
+        |}]
+    ;;
+
+    let%expect_test "right-only output fields are rejected" =
+      ( Query.union
+          ~order_by:[ Column.name alternate_id_column, `Asc ]
+          left_branch
+          right_branch
+        |> Compiler.compile_portable ~dialect:Dialect.Postgresql
+      |> function
+        | Ok _ -> failwith "set operation accepted a field absent from its left output"
+        | Error error -> Stdlib.print_endline (Compile_error.to_string error) );
+      [%expect
+        {| set operation ORDER BY field person_key matches 0 output fields; expected exactly one |}]
+    ;;
+
+    let%expect_test "source-free outputs have no orderable field names" =
+      let left = Query.select_one (Expr.constant Db_type.int64 1L) in
+      let right = Query.select_one (Expr.constant Db_type.int64 2L) in
+      ( Query.union ~order_by:[ Identifier.of_string_exn "value", `Asc ] left right
+        |> Compiler.compile_portable ~dialect:Dialect.Postgresql
+      |> function
+        | Ok _ -> failwith "set operation ordered an unnamed source-free output"
+        | Error error -> Stdlib.print_endline (Compile_error.to_string error) );
+      [%expect
+        {| set operation ORDER BY field value matches 0 output fields; expected exactly one |}]
+    ;;
+
+    let%test "an empty order list leaves the set result unordered" =
+      let query = Query.union ~order_by:[] left_branch right_branch in
+      let sql = query |> compile_exn Dialect.Sqlite |> Compiled_query.sql in
+      not (String.is_substring sql ~substring:"ORDER BY")
+    ;;
+  end)
+;;
+
 let%test_unit "multiset validation rejects unsupported and empty fields" =
   let bytes =
     Query.(

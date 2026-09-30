@@ -301,7 +301,7 @@ let select_relation make_fields query =
   Derived_table.create_inferred fields query.ast
 ;;
 
-let set_operation operator left right =
+let set_operation ?(order_by = []) operator left right =
   let left_ast =
     match Result_query.ast left with
     | Ast.Select query -> query
@@ -319,17 +319,29 @@ let set_operation operator left right =
     ; right = right_ast
     ; left_types = Projection.types (Result_query.projection left)
     ; right_types = Projection.types (Result_query.projection right)
+    ; order_by =
+        List.map order_by ~f:(fun (field, direction) ->
+          { Ast.field
+          ; direction =
+              (match direction with
+               | `Asc -> Ast.Asc
+               | `Desc -> Ast.Desc)
+          })
     }
   in
   Result_query.create_select (Ast.Compound compound) (Result_query.projection left)
 ;;
 
-let union left right = set_operation Ast.Union left right
-let union_all left right = set_operation Ast.Union_all left right
-let intersect left right = set_operation Ast.Intersect left right
-let intersect_all left right = set_operation Ast.Intersect_all left right
-let except left right = set_operation Ast.Except left right
-let except_all left right = set_operation Ast.Except_all left right
+let union ?order_by left right = set_operation ?order_by Ast.Union left right
+let union_all ?order_by left right = set_operation ?order_by Ast.Union_all left right
+let intersect ?order_by left right = set_operation ?order_by Ast.Intersect left right
+
+let intersect_all ?order_by left right =
+  set_operation ?order_by Ast.Intersect_all left right
+;;
+
+let except ?order_by left right = set_operation ?order_by Ast.Except left right
+let except_all ?order_by left right = set_operation ?order_by Ast.Except_all left right
 
 let select_scalar make_expression query =
   let expression = make_expression query.context in

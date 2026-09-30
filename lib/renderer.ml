@@ -26,6 +26,15 @@ let concat templates = Template.concat templates
 let nest template = Template.Nest template
 let separate templates ~by = List.intersperse templates ~sep:by |> concat
 
+let rec select_query_output_field_names = function
+  | Ast.Simple select ->
+    List.map select.Ast.projection ~f:(function
+      | Ast.Column { name; _ } -> Some name
+      | _ -> None)
+  | Ast.Source_free _ -> [ None ]
+  | Ast.Compound compound -> select_query_output_field_names compound.left
+;;
+
 let quote_identifier identifier =
   let value = Identifier.to_string identifier in
   let escaped = String.substr_replace_all value ~pattern:"\"" ~with_:"\"\"" in
@@ -777,6 +786,34 @@ and set_operator = function
   | Ast.Except -> "EXCEPT"
   | Ast.Except_all -> "EXCEPT ALL"
 
+and render_set_order_by ~output_names ~left orders =
+  match orders with
+  | [] -> Template.Empty
+  | _ ->
+    let orders =
+      List.map orders ~f:(fun order ->
+        let field =
+          match output_names with
+          | [] -> order.Ast.field
+          | _ ->
+            (match
+               List.findi (select_query_output_field_names left) ~f:(fun _ -> function
+                 | Some field -> Identifier.equal field order.field
+                 | None -> false)
+             with
+             | Some (index, _) -> List.nth_exn output_names index
+             | None -> order.field)
+        in
+        let direction =
+          match order.Ast.direction with
+          | Ast.Asc -> text " ASC"
+          | Ast.Desc -> text " DESC"
+        in
+        concat [ quote_identifier field; direction ])
+    in
+    let orders = separate orders ~by:(concat [ text ","; break " " ]) in
+    concat [ break " "; text "ORDER BY"; nest (concat [ break " "; orders ]) ]
+
 and render_compound_branch
       ?(sqlite_insert_upsert = false)
       ~json_projection
@@ -865,7 +902,14 @@ and render_select_query
           compound.right
           state
       in
-      ( concat [ left; break " "; text (set_operator compound.operator); break " "; right ]
+      ( concat
+          [ left
+          ; break " "
+          ; text (set_operator compound.operator)
+          ; break " "
+          ; right
+          ; render_set_order_by ~output_names ~left:compound.left compound.order_by
+          ]
       , state )
     in
     render_with compound.ctes ~render_body state

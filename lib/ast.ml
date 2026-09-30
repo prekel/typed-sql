@@ -98,6 +98,11 @@ and order =
   ; direction : direction
   }
 
+and set_order =
+  { field : Identifier.t
+  ; direction : direction
+  }
+
 and table_source =
   { schema : Identifier.t option
   ; table : Identifier.t
@@ -179,6 +184,7 @@ and compound =
   ; right : select_query
   ; left_types : Db_type.packed list
   ; right_types : Db_type.packed list
+  ; order_by : set_order list
   }
 
 and pagination =

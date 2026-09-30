@@ -242,7 +242,19 @@ let selected_people =
 `Postgresql.Query.intersect_all` и `Postgresql.Query.except_all` добавляют
 требование PostgreSQL к statement. Каждый operand set operation renderer
 оборачивает в derived branch, поэтому локальные `ORDER BY`, `LIMIT` и `OFFSET`
-сохраняют семантику до объединения результатов.
+сохраняют семантику до объединения результатов. Финальную сортировку общего
+результата задаёт необязательный аргумент `~order_by` у функций объединения.
+Ключ — checked identifier выходного поля, например:
+
+```ocaml
+Query.union
+  ~order_by:[ (Column.name Book.id_column, `Asc) ]
+  first_ids
+  second_ids
+```
+
+Поле должно быть выбрано ровно один раз простой колонкой в левой ветви
+объединения. Пустой `order_by` не добавляет финальную сортировку.
 
 `Cte.select` создаёт именованную relation из derived table, а
 `Cte.with_result` и `Cte.with_command` делают её handle видимым только внутри

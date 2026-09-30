@@ -544,6 +544,267 @@ let%test_unit "PostgreSQL exposes duplicate-preserving set operations" =
   assert (String.is_substring except_all ~substring:"EXCEPT ALL")
 ;;
 
+let ordered_set_left =
+  Query.(from Person.table |> select (fun person -> Projection.expr (Person.id person)))
+;;
+
+let ordered_set_right =
+  Query.(from Person.table |> select (fun person -> Projection.expr (Person.id person)))
+;;
+
+let ordered_union_query =
+  Query.union
+    ~order_by:[ Column.name Person.id_column, `Asc ]
+    ordered_set_left
+    ordered_set_right
+;;
+
+let ordered_union_all_query =
+  Query.union_all
+    ~order_by:[ Column.name Person.id_column, `Asc ]
+    first_branch
+    second_branch
+;;
+
+let%test_module "ordered set operation relation aliases" =
+  (module struct
+    module Ordered_field = struct
+      type row
+
+      let table : row Table.t = Table.v_exn "ordered_result"
+      let id_column = Column.v_exn table "alias_id" Db_type.int64
+      let id reference = Expr.column reference id_column
+    end
+
+    let relation =
+      Derived_table.create
+        ~table:Ordered_field.table
+        ~columns:(fun reference -> Projection.expr (Ordered_field.id reference))
+        ordered_union_query
+    ;;
+
+    module Ordered_pair_field = struct
+      type row
+
+      let table : row Table.t = Table.v_exn "ordered_pair_result"
+      let name_column = Column.v_exn table "alias_name" Db_type.text
+      let id_column = Column.v_exn table "alias_id" Db_type.int64
+      let name reference = Expr.column reference name_column
+      let id reference = Expr.column reference id_column
+      let projection reference = Projection.pair (name reference) (id reference)
+    end
+
+    let ordered_pair_branch =
+      Query.(
+        from Person.table
+        |> select (fun person ->
+          Projection.pair (Expr.lower (Person.name person)) (Person.id person)))
+    ;;
+
+    let ordered_nested_union_query =
+      let nested = Query.union ordered_pair_branch ordered_pair_branch in
+      Query.union
+        ~order_by:[ Column.name Person.id_column, `Asc ]
+        nested
+        ordered_pair_branch
+    ;;
+
+    let ordered_pair_relation =
+      Derived_table.create
+        ~table:Ordered_pair_field.table
+        ~columns:Ordered_pair_field.projection
+        ordered_nested_union_query
+    ;;
+
+    let has_alias_order dialect =
+      let query =
+        Query.(
+          from_derived relation
+          |> select (fun row -> Projection.expr (Ordered_field.id row)))
+      in
+      let sql = query |> compile_portable_exn dialect |> Compiled_query.sql in
+      let sql =
+        String.filter sql ~f:(function
+          | ' ' | '\n' | '\r' | '\t' -> false
+          | _ -> true)
+      in
+      String.is_substring sql ~substring:"ORDERBY\"alias_id\"ASC"
+    ;;
+
+    let%test "nested set ordering follows a renamed output field" =
+      has_alias_order Dialect.Postgresql && has_alias_order Dialect.Sqlite
+    ;;
+
+    let has_pair_alias_order dialect =
+      let query =
+        Query.(from_derived ordered_pair_relation |> select Ordered_pair_field.projection)
+      in
+      let sql = query |> compile_portable_exn dialect |> Compiled_query.sql in
+      let sql =
+        String.filter sql ~f:(function
+          | ' ' | '\n' | '\r' | '\t' -> false
+          | _ -> true)
+      in
+      String.is_substring sql ~substring:"ORDERBY\"alias_id\"ASC"
+    ;;
+
+    let%test "nested set ordering maps fields after computed outputs" =
+      has_pair_alias_order Dialect.Postgresql && has_pair_alias_order Dialect.Sqlite
+    ;;
+  end)
+;;
+
+let%expect_test "ordered UNION renders final ORDER BY in PostgreSQL" =
+  ordered_union_query
+  |> compile_portable_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT *
+    FROM (
+      SELECT
+        t0."id"
+      FROM "public"."people" AS t0
+    ) AS s0
+    UNION
+    SELECT *
+    FROM (
+      SELECT
+        t0."id"
+      FROM "public"."people" AS t0
+    ) AS s0
+    ORDER BY
+      "id" ASC
+    |}]
+;;
+
+let%expect_test "ordered UNION renders final ORDER BY in SQLite" =
+  ordered_union_query
+  |> compile_portable_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT *
+    FROM (
+      SELECT
+        t0."id"
+      FROM "public"."people" AS t0
+    ) AS s0
+    UNION
+    SELECT *
+    FROM (
+      SELECT
+        t0."id"
+      FROM "public"."people" AS t0
+    ) AS s0
+    ORDER BY
+      "id" ASC
+    |}]
+;;
+
+let%test "ordered set operations preserve multiple key order" =
+  let pair_query = Query.(from Person.table |> select Person.projection) in
+  let sql =
+    Query.union_all
+      ~order_by:
+        [ Column.name Person.name_column, `Desc; Column.name Person.id_column, `Asc ]
+      pair_query
+      pair_query
+    |> compile_portable_exn Dialect.Postgresql
+    |> Compiled_query.sql
+  in
+  String.is_substring sql ~substring:"ORDER BY\n  \"name\" DESC,\n  \"id\" ASC"
+;;
+
+let%expect_test "ordered set operation rejects an unknown output field" =
+  ( Query.union
+      ~order_by:[ Identifier.of_string_exn "missing", `Asc ]
+      ordered_set_left
+      ordered_set_right
+    |> Compiler.compile_portable ~dialect:Dialect.Postgresql
+  |> function
+    | Ok _ -> failwith "ordered set operation accepted an unknown output field"
+    | Error error -> Stdlib.print_endline (Compile_error.to_string error) );
+  [%expect
+    {| set operation ORDER BY field missing matches 0 output fields; expected exactly one |}]
+;;
+
+let%expect_test "ordered set operation rejects an ambiguous output field" =
+  let duplicate_field_query =
+    Query.(
+      from Person.table
+      |> select (fun person -> Projection.pair (Person.id person) (Person.id person)))
+  in
+  ( Query.union
+      ~order_by:[ Column.name Person.id_column, `Asc ]
+      duplicate_field_query
+      duplicate_field_query
+    |> Compiler.compile_portable ~dialect:Dialect.Postgresql
+  |> function
+    | Ok _ -> failwith "ordered set operation accepted an ambiguous output field"
+    | Error error -> Stdlib.print_endline (Compile_error.to_string error) );
+  [%expect
+    {| set operation ORDER BY field id matches 2 output fields; expected exactly one |}]
+;;
+
+let has_final_order query dialect =
+  let sql = query |> compile_portable_exn dialect |> Compiled_query.sql in
+  String.is_substring sql ~substring:"ORDER BY\n  \"id\" ASC"
+;;
+
+let%test "UNION ALL ordered builder emits the final order" =
+  has_final_order
+    (Query.union_all
+       ~order_by:[ Column.name Person.id_column, `Asc ]
+       ordered_set_left
+       ordered_set_right)
+    Dialect.Sqlite
+;;
+
+let%test "INTERSECT ordered builder emits the final order" =
+  has_final_order
+    (Query.intersect
+       ~order_by:[ Column.name Person.id_column, `Asc ]
+       ordered_set_left
+       ordered_set_right)
+    Dialect.Postgresql
+;;
+
+let%test "EXCEPT ordered builder emits the final order" =
+  has_final_order
+    (Query.except
+       ~order_by:[ Column.name Person.id_column, `Asc ]
+       ordered_set_left
+       ordered_set_right)
+    Dialect.Sqlite
+;;
+
+let%test "PostgreSQL INTERSECT ALL ordered builder emits the final order" =
+  let query =
+    Postgresql.Query.intersect_all
+      ~order_by:[ Column.name Person.id_column, `Asc ]
+      ordered_set_left
+      ordered_set_right
+  in
+  let sql = query |> compile_dialect_exn Dialect.postgresql |> Compiled_query.sql in
+  String.is_substring sql ~substring:"INTERSECT ALL"
+  && String.is_substring sql ~substring:"ORDER BY\n  \"id\" ASC"
+;;
+
+let%test "PostgreSQL EXCEPT ALL ordered builder emits the final order" =
+  let query =
+    Postgresql.Query.except_all
+      ~order_by:[ Column.name Person.id_column, `Asc ]
+      ordered_set_left
+      ordered_set_right
+  in
+  let sql = query |> compile_dialect_exn Dialect.postgresql |> Compiled_query.sql in
+  String.is_substring sql ~substring:"EXCEPT ALL"
+  && String.is_substring sql ~substring:"ORDER BY\n  \"id\" ASC"
+;;
+
 let%expect_test "set operations reject different database-type vectors" =
   let alternate_int64 =
     Db_type.map

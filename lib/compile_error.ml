@@ -54,6 +54,10 @@ type t =
       { expected : string list
       ; actual : string list
       }
+  | Invalid_set_order_field of
+      { field : string
+      ; matches : int
+      }
   | Mismatched_values_row_arity of
       { row : int
       ; expected : int
@@ -155,6 +159,12 @@ let to_string = function
     ^ "] do not match right types ["
     ^ String.concat ~sep:", " actual
     ^ "]"
+  | Invalid_set_order_field { field; matches } ->
+    "set operation ORDER BY field "
+    ^ field
+    ^ " matches "
+    ^ Int.to_string matches
+    ^ " output fields; expected exactly one"
   | Mismatched_values_row_arity { row; expected; actual } ->
     "VALUES row "
     ^ Int.to_string row

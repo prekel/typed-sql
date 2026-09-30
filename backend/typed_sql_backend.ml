@@ -106,6 +106,8 @@ module Statement = struct
       Mismatched_relation_projection { expected; actual }
     | P.Mismatched_set_projection { expected; actual } ->
       Mismatched_set_projection { expected; actual }
+    | P.Invalid_set_order_field { field; matches } ->
+      Invalid_set_order_field { field; matches }
     | P.Mismatched_values_row_arity { row; expected; actual } ->
       Mismatched_values_row_arity { row; expected; actual }
     | P.Mismatched_values_row_types { row; expected; actual } ->

@@ -661,8 +661,8 @@ ORDER BY
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап ✓)
-- Без доработок typed-sql: ✗
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Set operations](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/set-operations/).
 - Проверяет: объединение строк с удалением дубликатов, одинаковую степень и типы колонок.
 
@@ -707,10 +707,15 @@ let jq08 =
         |> where (fun book -> Book.title book =~$ "A%")
         |> select (fun book -> Projection.expr (Book.id book)))
     in
-    Query.union by_year by_title)
+    Query.union
+      ~order_by:[ (Column.name Book.id_column, `Asc) ]
+      by_year
+      by_title)
 ```
 
-Обе ветви используют те же фильтры, что и исходный сценарий. Финальный `ORDER BY` пока нельзя задать через публичный API после `Query.union`.
+Обе ветви используют те же фильтры, что и исходный сценарий. Финальный порядок
+задаётся по выбранному полю `id`; компилятор проверяет, что поле присутствует
+ровно один раз в проекции левой ветви.
 
 #### SQL typed-sql (PostgreSQL)
 
@@ -733,9 +738,9 @@ FROM (
   WHERE
     (t0."title" LIKE $2)
 ) AS s0
+ORDER BY
+  "id" ASC
 ```
-
-`Query.union` возвращает готовый результат и пока не предоставляет общий `ORDER BY` после объединения. Сортировка из исходного примера не выражается текущим публичным API.
 
 ## Агрегация и аналитика
 

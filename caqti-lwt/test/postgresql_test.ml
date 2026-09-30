@@ -526,6 +526,14 @@ let run_goldens ~postgresql conn =
   let* () =
     check_golden
       conn
+      ~name:"final UNION ALL ordering golden"
+      ~equal:equal_pair
+      ~expected:[ 1L, "Ada"; 2L, "Grace"; 3L, "Linus" ]
+      R.ordered_union_all_query
+  in
+  let* () =
+    check_golden
+      conn
       ~name:"grouped aggregates golden"
       ~equal:(fun (a, b, c) (d, e, f) ->
         String.equal a d && Int64.(b = e) && Int64.(c = f))

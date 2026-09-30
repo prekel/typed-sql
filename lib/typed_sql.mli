@@ -1527,27 +1527,38 @@ module Query : sig
       compiler verifies that both projected database-type sequences match.
       Every set operation resets cardinality to [Cardinality.many], regardless
       of operand proofs. The combined result uses the left projection's
-      decoder. *)
+      decoder. The optional [order_by] orders by selected output fields using
+      checked SQL identifiers, such as [Column.name Book.id_column]. Each field
+      must occur exactly once in the left projection. *)
   val union
-    :  ('result, Result_query.select, 'left_cardinality, 'requirements) Result_query.t
+    :  ?order_by:(Identifier.t * direction) list
+    -> ('result, Result_query.select, 'left_cardinality, 'requirements) Result_query.t
     -> ('result, Result_query.select, 'right_cardinality, 'requirements) Result_query.t
     -> ('result, Result_query.select, Cardinality.many, 'requirements) Result_query.t
 
-  (** Combine results with duplicate-preserving [UNION ALL]. *)
+  (** Combine results with duplicate-preserving [UNION ALL]. An optional
+      [order_by] orders by selected output fields using checked SQL identifiers. *)
   val union_all
-    :  ('result, Result_query.select, 'left_cardinality, 'requirements) Result_query.t
+    :  ?order_by:(Identifier.t * direction) list
+    -> ('result, Result_query.select, 'left_cardinality, 'requirements) Result_query.t
     -> ('result, Result_query.select, 'right_cardinality, 'requirements) Result_query.t
     -> ('result, Result_query.select, Cardinality.many, 'requirements) Result_query.t
 
-  (** Return distinct rows present in both operands with [INTERSECT]. *)
+  (** Return distinct rows present in both operands with [INTERSECT]. An
+      optional [order_by] orders by selected output fields using checked SQL
+      identifiers. *)
   val intersect
-    :  ('result, Result_query.select, 'left_cardinality, 'requirements) Result_query.t
+    :  ?order_by:(Identifier.t * direction) list
+    -> ('result, Result_query.select, 'left_cardinality, 'requirements) Result_query.t
     -> ('result, Result_query.select, 'right_cardinality, 'requirements) Result_query.t
     -> ('result, Result_query.select, Cardinality.many, 'requirements) Result_query.t
 
-  (** Return distinct left rows absent from the right operand with [EXCEPT]. *)
+  (** Return distinct left rows absent from the right operand with [EXCEPT]. An
+      optional [order_by] orders by selected output fields using checked SQL
+      identifiers. *)
   val except
-    :  ('result, Result_query.select, 'left_cardinality, 'requirements) Result_query.t
+    :  ?order_by:(Identifier.t * direction) list
+    -> ('result, Result_query.select, 'left_cardinality, 'requirements) Result_query.t
     -> ('result, Result_query.select, 'right_cardinality, 'requirements) Result_query.t
     -> ('result, Result_query.select, Cardinality.many, 'requirements) Result_query.t
 end
@@ -2028,10 +2039,12 @@ module Postgresql : sig
            Query.t
       -> ('ctx, Query.ungrouped, 'cardinality, 'requirements) Query.t
 
-    (** PostgreSQL's duplicate-preserving set operations. Both reset result
-        cardinality to [Cardinality.many]. *)
+    (** PostgreSQL's duplicate-preserving [INTERSECT ALL]. It resets result
+        cardinality to [Cardinality.many]. The optional [order_by] orders the
+        rows by selected output fields using checked SQL identifiers. *)
     val intersect_all
-      :  ( 'result
+      :  ?order_by:(Identifier.t * [ `Asc | `Desc ]) list
+      -> ( 'result
            , Result_query.select
            , 'left_cardinality
            , ([> `Postgresql ] as 'requirements) )
@@ -2039,9 +2052,12 @@ module Postgresql : sig
       -> ('result, Result_query.select, 'right_cardinality, 'requirements) Result_query.t
       -> ('result, Result_query.select, Cardinality.many, 'requirements) Result_query.t
 
-    (** Return duplicate-preserving left rows absent from the right operand. *)
+    (** Return duplicate-preserving left rows absent from the right operand
+        with [EXCEPT ALL]. The optional [order_by] orders the combined rows by
+        selected output fields using checked SQL identifiers. *)
     val except_all
-      :  ( 'result
+      :  ?order_by:(Identifier.t * [ `Asc | `Desc ]) list
+      -> ( 'result
            , Result_query.select
            , 'left_cardinality
            , ([> `Postgresql ] as 'requirements) )
@@ -2166,6 +2182,12 @@ module Compile_error : sig
         }
     (** The two operands of a set operation have different database-type
         sequences. *)
+    | Invalid_set_order_field of
+        { field : string
+        ; matches : int
+        }
+    (** A final set-operation ordering field does not identify exactly one
+        output field. *)
     | Mismatched_values_row_arity of
         { row : int
         ; expected : int
