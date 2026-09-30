@@ -2,7 +2,7 @@
 
   # Сценарии запросов из SqlKata
 
-Десять сценариев по [документации SqlKata](https://sqlkata.com/docs) (доступ 28.09.2026). Примеры C# сокращены и адаптированы. Для поддерживаемых сценариев приведены реализация на typed-sql и SQL, полученный его компилятором для PostgreSQL. SK-09 требует `INSERT ... SELECT`, которого нет в публичном API typed-sql.
+Десять сценариев по [документации SqlKata](https://sqlkata.com/docs) (доступ 28.09.2026). Примеры C# сокращены и адаптированы. Для поддерживаемых сценариев приведены реализация на typed-sql и SQL, полученный его компилятором для PostgreSQL.
 
 Источник: проект SqlKata, лицензия [MIT](https://github.com/sqlkata/querybuilder/blob/main/LICENSE). Используется схема `author(id, name)` и `book(id, author_id, title, published_in)`; для SK-09 добавлена таблица `book_archive` с теми же колонками, что у `book`. Идентификаторы и годы имеют тип `int64`.
 
@@ -37,6 +37,16 @@ module Book = struct
   let author_id row = Expr.column row author_id_column
   let title row = Expr.column row title_column
   let published_in row = Expr.column row published_in_column
+end
+
+module Book_archive = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "book_archive"
+  let id_column = Column.v_exn table "id" Db_type.int64
+  let author_id_column = Column.v_exn table "author_id" Db_type.int64
+  let title_column = Column.v_exn table "title" Db_type.text
+  let published_in_column = Column.v_exn table "published_in" Db_type.int64
 end
 
 module Book_counts = struct
@@ -540,11 +550,10 @@ FROM (
 
 ### SK-09. INSERT в архив из SELECT
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✓)
-- Семантика: —
-- Без доработок typed-sql: ✗
-- Ограничение: `Insert` пока принимает только значения и строки; публичного конструктора для `INSERT ... SELECT` нет.
+- OCaml-пример: ✓
+- Реализуемость: ✓ (добавлено в роадмап ✓)
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [Insert from Query](https://sqlkata.com/docs/update#insert-from-query).
 - Проверяет: согласование порядка четырёх колонок в INSERT и SELECT и перенос только книг до заданного года.
 
@@ -560,6 +569,53 @@ var source = new Query("book")
     .Where("published_in", "<", cutoff);
 var query = new Query("book_archive")
     .AsInsert(new[] { "id", "author_id", "title", "published_in" }, source);
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let sk09 =
+  Statement.Portable.command_exn (fun params ->
+    let cutoff = params.expr Db_type.int64 ~get:Fn.id in
+    let source =
+      Query.(
+        from Book.table
+        |> where (fun book -> Book.published_in book <. cutoff)
+        |> select (fun book ->
+          Projection.map2
+            ~f:(fun (id, author_id) (title, published_in) ->
+              id, author_id, title, published_in)
+            (Projection.pair (Book.id book) (Book.author_id book))
+            (Projection.pair (Book.title book) (Book.published_in book))))
+    in
+    let columns =
+      Insert.Columns.
+        (column Book_archive.id_column
+         |> add Book_archive.author_id_column
+         |> add Book_archive.title_column
+         |> add Book_archive.published_in_column)
+    in
+    Insert.(into Book_archive.table |> from_select columns source |> command))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:1990L sk09);;
+INSERT INTO "book_archive" (
+  "id",
+  "author_id",
+  "title",
+  "published_in"
+)
+SELECT
+  t0."id",
+  t0."author_id",
+  t0."title",
+  t0."published_in"
+FROM "book" AS t0
+WHERE
+  (t0."published_in" < $1)
 ```
 
 ### SK-10. Условный UPDATE нескольких строк

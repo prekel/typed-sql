@@ -59,6 +59,23 @@ schema-nullable колонки.
 [Statement.parameters]. Оба вида значения кодируются как bind values, поэтому
 строка SQL не строится из пользовательского значения.
 
+[Values] задаёт строки relation вместе с output columns. Структурная форма
+фиксируется [Values.Row], а dynamic вариант принимает списки [Values.Cell].
+Compiler проверяет ширину и database type каждой строки, а также отклоняет
+ссылки на внешние источники и агрегаты. Литеральные значения ячеек остаются
+bind parameters; relation доступна в [FROM], [INNER JOIN] и [LEFT JOIN].
+
+[Query.exists_expr] сохраняет коррелированный SELECT в semantic AST как
+не-NULL булево выражение. Его projection не участвует в результате: renderer
+выводит [EXISTS (SELECT 1 ...)], а validator проверяет область видимости
+захваченных источников.
+
+[Insert.from_select] сохраняет завершённый SELECT как источник строк INSERT.
+Отдельный упорядоченный список целевых колонок проверяется на принадлежность
+таблице, уникальность и совпадение database types с projection источника.
+Варианты VALUES и SELECT взаимоисключаются. При SQLite UPSERT renderer добавляет
+[WHERE TRUE] к SELECT без фильтра для однозначного разбора [ON CONFLICT].
+
 [Statement.Dynamic.Portable] сохраняет callback вместо готовых планов. При
 каждом resolution callback получает input, после чего AST проходит тот же
 normalization, validation, lowering и rendering для dialect соединения.

@@ -2,8 +2,11 @@ open! Base
 
 let rec expression_sources = function
   | Ast.Column { source_id; _ } -> [ source_id ]
-  | Ast.Param _ | Ast.Current_timestamp | Ast.Scalar_subquery _ | Ast.Multiset_subquery _
-    -> []
+  | Ast.Param _
+  | Ast.Current_timestamp
+  | Ast.Scalar_subquery _
+  | Ast.Multiset_subquery _
+  | Ast.Exists_expr _ -> []
   | Ast.Arithmetic (_, left, right) | Ast.Concat (left, right) | Ast.Coalesce (left, right)
     -> expression_sources left @ expression_sources right
   | Ast.String_function (_, expression) -> expression_sources expression
@@ -57,7 +60,8 @@ let rec expression_has_local_aggregate ~sources = function
   | Ast.Column _
   | Ast.Current_timestamp
   | Ast.Scalar_subquery _
-  | Ast.Multiset_subquery _ -> false
+  | Ast.Multiset_subquery _
+  | Ast.Exists_expr _ -> false
   | Ast.Arithmetic (_, left, right) | Ast.Concat (left, right) | Ast.Coalesce (left, right)
     ->
     expression_has_local_aggregate ~sources left

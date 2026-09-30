@@ -1021,7 +1021,7 @@ var hasPosts = await context.Blogs
 
 #### OCaml (typed-sql)
 
-Условие существования помещено в `CASE`, чтобы проекция оставалась списком bool, как в LINQ-примере.
+`Query.exists_expr` возвращает не-`NULL` `bool` и выражает проекцию напрямую.
 
 ```ocaml
 let ef18 =
@@ -1030,13 +1030,10 @@ let ef18 =
       from Blog.table
       |> select (fun blog ->
         Projection.expr
-          (Expr.case
-             [ ( Query.exists
-                   Query.(
-                     from Post.table
-                     |> where (fun post -> Post.blog_id post =. Blog.id blog))
-               , Expr.constant Db_type.bool true ) ]
-             ~else_:(Expr.constant Db_type.bool false)))))
+          (Query.exists_expr
+             Query.(
+               from Post.table
+               |> where (fun post -> Post.blog_id post =. Blog.id blog))))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1044,16 +1041,13 @@ let ef18 =
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ef18);;
 SELECT
-  (CASE
-    WHEN (EXISTS (
-      SELECT
-        1
-      FROM "Posts" AS t1
-      WHERE
-        (t1."BlogId" = t0."BlogId")
-    )) THEN $1
-    ELSE $2
-  END)
+  (EXISTS (
+    SELECT
+      1
+    FROM "Posts" AS t1
+    WHERE
+      (t1."BlogId" = t0."BlogId")
+  ))
 FROM "Blogs" AS t0
 ```
 

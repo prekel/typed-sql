@@ -3,6 +3,7 @@
  (modules
   capability_test
   dynamic_statement_test
+  insert_select_test
   operation_module_test
   query_test
   relational_query_test
@@ -21,6 +22,14 @@
  (inline_tests)
  (preprocess
   (pps ppx_expect ppx_fields_conv ppx_let)))
+
+(library
+ (name typed_sql_mega_coverage_tests)
+ (modules mega_coverage_test)
+ (libraries base typed-sql typed_sql_test_support)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect ppx_let)))
 
 (library
  (name typed_sql_named_tuple_expect_tests)

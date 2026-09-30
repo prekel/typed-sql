@@ -236,3 +236,130 @@ let%test_unit "tuple, manual record, and PPX record describe the same statement"
   assert (String.equal tuple_sql record_sql);
   assert (String.equal record_sql ppx_record_sql)
 ;;
+
+let%test_module "choosing among ten static sort variants" =
+  (module struct
+    type sort =
+      | Id_asc
+      | Id_desc
+      | Name_asc
+      | Name_desc
+      | Email_asc
+      | Email_desc
+      | Age_asc
+      | Age_desc
+      | City_asc
+      | City_desc
+
+    let same_sort left right =
+      match left, right with
+      | Id_asc, Id_asc
+      | Id_desc, Id_desc
+      | Name_asc, Name_asc
+      | Name_desc, Name_desc
+      | Email_asc, Email_asc
+      | Email_desc, Email_desc
+      | Age_asc, Age_asc
+      | Age_desc, Age_desc
+      | City_asc, City_asc
+      | City_desc, City_desc -> true
+      | _ -> false
+    ;;
+
+    let ordered_statement expression direction =
+      Statement.Portable.query_many_exn
+        (fun (_ : (sort, Dialect.portable) Statement.parameters) ->
+           Query.(
+             from Person.table
+             |> order_by expression direction
+             |> select Person.projection))
+    ;;
+
+    let variants =
+      [ Id_asc, ordered_statement Person.id `Asc
+      ; Id_desc, ordered_statement Person.id `Desc
+      ; Name_asc, ordered_statement Person.name `Asc
+      ; Name_desc, ordered_statement Person.name `Desc
+      ; Email_asc, ordered_statement Person.email `Asc
+      ; Email_desc, ordered_statement Person.email `Desc
+      ; Age_asc, ordered_statement Person.age `Asc
+      ; Age_desc, ordered_statement Person.age `Desc
+      ; City_asc, ordered_statement Person.city `Asc
+      ; City_desc, ordered_statement Person.city `Desc
+      ]
+    ;;
+
+    let rec choose_variants = function
+      | [] -> failwith "expected at least one sort variant"
+      | [ (_, statement) ] -> statement
+      | (sort, statement) :: rest ->
+        Statement.choose
+          ~when_:(fun input -> same_sort sort input)
+          ~if_true:statement
+          ~if_false:(choose_variants rest)
+    ;;
+
+    let statement = choose_variants variants
+    let sql input = Statement.sql_exn ~dialect:Dialect.Postgresql ~input statement
+
+    let%test "selects ascending id order" =
+      String.is_substring (sql Id_asc) ~substring:"ORDER BY\n  t0.\"id\" ASC"
+    ;;
+
+    let%test "selects descending id order" =
+      String.is_substring (sql Id_desc) ~substring:"ORDER BY\n  t0.\"id\" DESC"
+    ;;
+
+    let%test "selects ascending name order" =
+      String.is_substring (sql Name_asc) ~substring:"ORDER BY\n  t0.\"name\" ASC"
+    ;;
+
+    let%test "selects descending name order" =
+      String.is_substring (sql Name_desc) ~substring:"ORDER BY\n  t0.\"name\" DESC"
+    ;;
+
+    let%test "selects ascending email order" =
+      String.is_substring (sql Email_asc) ~substring:"ORDER BY\n  t0.\"email\" ASC"
+    ;;
+
+    let%test "selects descending email order" =
+      String.is_substring (sql Email_desc) ~substring:"ORDER BY\n  t0.\"email\" DESC"
+    ;;
+
+    let%test "selects ascending age order" =
+      String.is_substring (sql Age_asc) ~substring:"ORDER BY\n  t0.\"age\" ASC"
+    ;;
+
+    let%test "selects descending age order" =
+      String.is_substring (sql Age_desc) ~substring:"ORDER BY\n  t0.\"age\" DESC"
+    ;;
+
+    let%test "selects ascending city order" =
+      String.is_substring (sql City_asc) ~substring:"ORDER BY\n  t0.\"city\" ASC"
+    ;;
+
+    let%test "selects descending city order" =
+      String.is_substring (sql City_desc) ~substring:"ORDER BY\n  t0.\"city\" DESC"
+    ;;
+  end)
+;;
+
+let%test "a slot from another statement returns an explicit binding error" =
+  let captured = ref None in
+  let _first =
+    Statement.Portable.query_many_exn (fun params ->
+      let expression = params.expr Db_type.int64 ~get:Fn.id in
+      captured := Some expression;
+      Query.(from Person.table |> select (fun _ -> Projection.expr expression)))
+  in
+  let expression = Option.value_exn !captured in
+  let second =
+    Statement.Portable.query_many_exn (fun _ ->
+      Query.(from Person.table |> select (fun _ -> Projection.expr expression)))
+  in
+  match Statement.sql ~dialect:Dialect.Postgresql ~input:7L second with
+  | Error
+      (Statement.Invalid_parameter { name = None; message = "unknown parameter slot" }) ->
+    true
+  | Ok _ | Error _ -> false
+;;

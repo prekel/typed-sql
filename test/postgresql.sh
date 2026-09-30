@@ -33,6 +33,8 @@ fi
 echo "Testing against PostgreSQL $("$pg_bindir/psql" -Atqc 'SHOW server_version')"
 
 dune exec --root . caqti-lwt/test/postgresql_test.exe
+dune exec --root . caqti-lwt/test/mega_coverage_server_test.exe
+dune exec --root . caqti-lwt/test/insert_select_test.exe -- --postgres
 dune exec --root . pgocaml-lwt/test/postgresql_test.exe
 if [[ "${TYPED_SQL_PREPARE_BENCH:-0}" == 1 ]]; then
   dune exec --root . pgocaml-lwt/test/prepare_bench.exe

@@ -46,6 +46,7 @@ let rec normalize_expr = function
   | Ast.Multiset_subquery multiset ->
     Ast.Multiset_subquery
       { multiset with Ast.query = normalize_select_query multiset.query }
+  | Ast.Exists_expr select -> Ast.Exists_expr (normalize_select select)
   | Ast.Current_timestamp as expression -> expression
 
 and normalize_condition condition =
@@ -177,6 +178,13 @@ and normalize_source (source : Ast.source) =
     match source.Ast.kind with
     | (Ast.Table _ | Ast.Cte _) as kind -> kind
     | Ast.Derived relation -> Ast.Derived (normalize_relation relation)
+    | Ast.Values values ->
+      Ast.Values
+        { values with
+          Ast.rows =
+            List.map values.rows ~f:(fun row ->
+              { row with Ast.expressions = List.map row.expressions ~f:normalize_expr })
+        }
   in
   { source with Ast.kind }
 
@@ -206,10 +214,16 @@ and normalize_command (command : Ast.command) =
   ; source = normalize_source command.source
   ; from = List.map command.from ~f:normalize_source
   ; assignments = List.map command.assignments ~f:normalize_assignment
-  ; rows = List.map command.rows ~f:(List.map ~f:normalize_assignment)
+  ; insert_input = Option.map command.insert_input ~f:normalize_insert_input
   ; conflict = Option.map command.conflict ~f:normalize_conflict
   ; where_ = optional_condition command.where_
   }
+
+and normalize_insert_input = function
+  | Ast.Rows rows -> Ast.Rows (List.map rows ~f:(List.map ~f:normalize_assignment))
+  | Ast.Select_rows selected ->
+    Ast.Select_rows { selected with query = normalize_select_query selected.query }
+  | Ast.Mixed_sources -> Ast.Mixed_sources
 
 and optional_condition = function
   | None -> None

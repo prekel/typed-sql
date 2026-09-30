@@ -47,6 +47,14 @@ module Address = struct
   let nullable_email row = Expr.nullable_column row email_column
   let nullable_id row = Expr.nullable_column row id_column
 end
+
+module Selected_ids = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "selected_ids"
+  let id_column = Column.v_exn table "id" Db_type.int64
+  let id row = Expr.column row id_column
+end
 ```
 
 ### SA-01. Фильтр и проекция
@@ -1513,13 +1521,13 @@ FROM (
 
 ### SA-29. VALUES как источник строк
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✓)
-- Семантика: —
-- Без доработок typed-sql: ✗
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [конструктор VALUES](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.values).
 - Проверяет: использование набора заданных значений как FROM-источника.
-- Ограничение: Публичное ядро не принимает `VALUES` relation как FROM-source, а inferred relation строится только из SELECT с источником.
+- Ограничение: relation требует descriptors колонок; compiler проверяет ширину и database types каждой строки. Для динамической формы ошибки возвращаются при compilation.
 
 ```sql
 SELECT selected_ids.id
@@ -1531,6 +1539,22 @@ selected_ids = values(
     column("id", Integer), name="selected_ids"
 ).data([(1,), (2,)]).alias()
 stmt = select(selected_ids.c.id)
+```
+
+```ocaml
+let selected_ids =
+  Values.create
+    ~table:Selected_ids.table
+    ~columns:(fun selected -> Projection.expr (Selected_ids.id selected))
+    ~first:(Values.Row.expr (Expr.constant Db_type.int64 1L))
+    ~rest:[ Values.Row.expr (Expr.constant Db_type.int64 2L) ]
+;;
+
+let query =
+  Query.(
+    from_values selected_ids
+    |> select (fun selected -> Projection.expr (Selected_ids.id selected)))
+;;
 ```
 
 ### SA-30. Рекурсивный CTE
@@ -1660,13 +1684,12 @@ VALUES
 
 ### SA-32. INSERT из SELECT
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✓)
-- Семантика: —
-- Без доработок typed-sql: ✗
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [INSERT FROM SELECT](https://docs.sqlalchemy.org/en/20/tutorial/data_insert.html#insertfromselect).
 - Проверяет: вставку результата запроса с соответствующим списком целевых колонок.
-- Ограничение: Публичный `Insert` строит VALUES, но не принимает SELECT как источник вставки.
 
 ```sql
 INSERT INTO address (user_id, email_address)
@@ -1682,6 +1705,45 @@ source = select(user_table.c.id, bindparam("email")).where(
 stmt = insert(address_table).from_select(
     ["user_id", "email_address"], source
 )
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let sqlalchemy32_columns =
+  Insert.Columns.(column Address.user_id_column |> add Address.email_column)
+
+let sqlalchemy32 =
+  Statement.Portable.command_exn (fun params ->
+    let email =
+      params.expr Db_type.text ~get:(fun (email, _) -> email)
+    in
+    let name =
+      params.expr Db_type.text ~get:(fun (_, name) -> name)
+    in
+    let source =
+      Query.(
+        from User_account.table
+        |> where (fun user -> User_account.name user =. name)
+        |> select (fun user -> Projection.pair (User_account.id user) email))
+    in
+    Insert.(into Address.table |> from_select sqlalchemy32_columns source |> command))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:("sandy@example.com", "sandy") sqlalchemy32);;
+INSERT INTO "address" (
+  "user_id",
+  "email_address"
+)
+SELECT
+  t0."id",
+  $1
+FROM "user_account" AS t0
+WHERE
+  (t0."name" = $2)
 ```
 
 ### SA-33. UPDATE ... FROM

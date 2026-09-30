@@ -3,9 +3,25 @@ open! Base
 type ('row, +'requirements) t =
   { reference : 'row Table_ref.t
   ; source : Ast.source
-  ; rows : Ast.assignment list list
+  ; input : Ast.insert_input
   ; conflict : Ast.conflict option
   }
+
+module Columns = struct
+  type 'row column = Column : ('row, 'base, 'value) Column.t -> 'row column
+  type 'row t = 'row column list
+
+  let column column = [ Column column ]
+  let add column columns = columns @ [ Column column ]
+
+  let targets reference columns =
+    List.map columns ~f:(fun (Column column) ->
+      { Ast.target_source_id = Column.source_id_for reference column
+      ; target_column = Column.name column
+      ; target_type = Db_type.Pack (Column.db_type column)
+      })
+  ;;
+end
 
 module Conflict_target = struct
   type 'row column = Column : ('row, 'base, 'value) Column.t -> 'row column
@@ -82,7 +98,7 @@ let into table =
       { Ast.source_id = Table_ref.source_id reference
       ; kind = Ast.Table { schema = Table.schema table; table = Table.name table }
       }
-  ; rows = [ [] ]
+  ; input = Ast.Rows [ [] ]
   ; conflict = None
   }
 ;;
@@ -94,12 +110,18 @@ let set_expr column expression insert =
     ; value = Ast.Expression (Expr.node expression)
     }
   in
-  let rows =
-    match List.rev insert.rows with
-    | [] -> [ [ assignment ] ]
-    | row :: rest -> List.rev ((row @ [ assignment ]) :: rest)
+  let input =
+    match insert.input with
+    | Ast.Rows rows ->
+      let rows =
+        match List.rev rows with
+        | [] -> [ [ assignment ] ]
+        | row :: rest -> List.rev ((row @ [ assignment ]) :: rest)
+      in
+      Ast.Rows rows
+    | Ast.Select_rows _ | Ast.Mixed_sources -> Ast.Mixed_sources
   in
-  { insert with rows }
+  { insert with input }
 ;;
 
 let set column value insert =
@@ -113,22 +135,49 @@ let default column insert =
     ; value = Ast.Default
     }
   in
-  let rows =
-    match List.rev insert.rows with
-    | [] -> [ [ assignment ] ]
-    | row :: rest -> List.rev ((row @ [ assignment ]) :: rest)
+  let input =
+    match insert.input with
+    | Ast.Rows rows ->
+      let rows =
+        match List.rev rows with
+        | [] -> [ [ assignment ] ]
+        | row :: rest -> List.rev ((row @ [ assignment ]) :: rest)
+      in
+      Ast.Rows rows
+    | Ast.Select_rows _ | Ast.Mixed_sources -> Ast.Mixed_sources
   in
-  { insert with rows }
+  { insert with input }
 ;;
 
 let rows table builders =
   let empty = into table in
-  let rows =
-    List.concat_map builders ~f:(fun build ->
-      let built = build empty in
-      built.rows)
+  let input =
+    List.fold builders ~init:(Ast.Rows []) ~f:(fun input build ->
+      match input, (build empty).input with
+      | Ast.Rows accumulated, Ast.Rows rows -> Ast.Rows (accumulated @ rows)
+      | _ -> Ast.Mixed_sources)
   in
-  { empty with rows }
+  { empty with input }
+;;
+
+let from_select columns query insert =
+  let input =
+    match insert.input with
+    | Ast.Rows [ [] ] ->
+      let result_types = Projection.types (Result_query.projection query) in
+      let query_ast =
+        match Result_query.ast query with
+        | Ast.Select query -> query
+        | Ast.Returning _ -> assert false
+      in
+      Ast.Select_rows
+        { columns = Columns.targets insert.reference columns
+        ; query = query_ast
+        ; result_types
+        }
+    | Ast.Rows _ | Ast.Select_rows _ | Ast.Mixed_sources -> Ast.Mixed_sources
+  in
+  { insert with input }
 ;;
 
 let on_conflict_do_nothing insert = { insert with conflict = Some (Ast.Do_nothing None) }
@@ -171,7 +220,7 @@ let ast insert =
   ; kind = Ast.Insert
   ; source = insert.source
   ; assignments = []
-  ; rows = insert.rows
+  ; insert_input = Some insert.input
   ; from = []
   ; conflict = insert.conflict
   ; where_ = None

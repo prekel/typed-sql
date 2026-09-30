@@ -303,15 +303,15 @@ idempotent inserts, count queries, correlated flags и batch loading tags чер
   JSON не выходит в публичный тип. Aggregate-local ordering и filtering доступны
   через `Aggregate_order` и именованные аргументы `multiset_agg`.
 
-- [ ] **`EXISTS` в проекции как `bool` expression.** В `typed-realworld`
-  флаг `following` сейчас получается через коррелированный scalar subquery,
-  выборку `followed_id` и `Option.is_some`: `Query.exists` возвращает
-  `Condition.t`, который нельзя передать в `Projection.expr`. Добавить
-  `Query.exists_expr` для незавершённого SELECT с результатом
-  `(bool, 'requirements) Expr.t` и прямым `EXISTS (SELECT 1 ...)` в проекции.
-  Проверить корреляцию, отсутствующего viewer, пустой результат и выполнение
-  на SQLite и PostgreSQL. Общее преобразование `Condition.t` в не-`NULL` `bool`
-  сюда не входит: произвольный SQL-предикат может иметь значение `UNKNOWN`.
+- [x] **`EXISTS` в проекции как `bool` expression.** Это закрывает пробел из
+  `typed-realworld`, где флаг `following` приходилось получать через
+  коррелированный scalar subquery, выборку `followed_id` и `Option.is_some`.
+  `Query.exists` остаётся условием для `WHERE`, а `Query.exists_expr` принимает
+  незавершённый SELECT, возвращает `(bool, 'requirements) Expr.t` и рендерит
+  `EXISTS (SELECT 1 ...)` прямо в проекции. Корреляция, отсутствующий viewer и
+  пустой результат проверяются на SQLite и PostgreSQL. Общее преобразование
+  `Condition.t` в не-`NULL` `bool` сюда не входит: произвольный SQL-предикат
+  может иметь значение `UNKNOWN`.
 
 - [ ] **Повторное использование фильтров страницы и count.** В
   `typed-realworld` условия для списка статей и подсчёта повторяются при
@@ -649,7 +649,7 @@ reconnect и eviction. Решение по core API и рассмотренны�
 - [ ] Задать финальный `ORDER BY` для результата set operation
   ([JQ-08](../test/query-builder-survey/jooq.md#jq-08-union-двух-select)); ветви
   `UNION` уже поддерживаются, но builder не позволяет упорядочить общий результат.
-- [ ] Добавить типизированный `VALUES` relation для `FROM` и JOIN, включая
+- [x] Добавить типизированный `VALUES` relation для `FROM` и JOIN, включая
   проверку формы и database types строк
   ([JQ-20](../test/query-builder-survey/jooq.md#jq-20-values-как-табличный-источник),
   [SA-29](../test/query-builder-survey/sqlalchemy.md#sa-29-values-как-источник-строк)).
@@ -666,14 +666,16 @@ reconnect и eviction. Решение по core API и рассмотренны�
   [JQ-43](../test/query-builder-survey/jooq.md#jq-43-cube-по-автору-и-году-издания)).
 - [ ] Добавить строковый aggregate с `ORDER BY` внутри агрегата и явным
   разделителем ([JQ-35](../test/query-builder-survey/jooq.md#jq-35-listagg-с-порядком-элементов)).
-- [ ] Добавить `INSERT ... SELECT` с проверкой порядка, формы и database types
+- [x] Добавить `INSERT ... SELECT` с проверкой порядка, формы и database types
   целевых и выбранных колонок. Сочетать этот источник с существующим conflict
   action для `INSERT ... SELECT ... ON CONFLICT DO NOTHING`
   ([JQ-36](../test/query-builder-survey/jooq.md#jq-36-insert-select),
   [JQ-45](../test/query-builder-survey/jooq.md#jq-45-insert-из-select-с-пропуском-конфликтов),
   [KY-44](../test/query-builder-survey/kysely.md#ky-44-insert-из-select),
   [SA-32](../test/query-builder-survey/sqlalchemy.md#sa-32-insert-из-select),
-  [SK-09](../test/query-builder-survey/sqlkata.md#sk-09-insert-в-архив-из-select)).
+  [SK-09](../test/query-builder-survey/sqlkata.md#sk-09-insert-в-архив-из-select)). Реализованы
+  проверки колонок и типов, RETURNING, compound SELECT и интеграционные тесты
+  на SQLite и PostgreSQL.
 - [ ] Добавить dialect-aware `MERGE` с проверяемыми `WHEN MATCHED` и
   `WHEN NOT MATCHED` ветвями, сохраняя атомарность statement
   ([JQ-40](../test/query-builder-survey/jooq.md#jq-40-merge-с-update-и-insert),

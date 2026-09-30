@@ -15,6 +15,22 @@
  (preprocess
   (pps ppx_let)))
 
+(test
+ (name insert_select_test)
+ (modules insert_select_test)
+ (package typed-sql-caqti-lwt)
+ (libraries
+  base
+  caqti
+  caqti-driver-postgresql
+  caqti-driver-sqlite3
+  caqti-lwt
+  caqti-lwt.unix
+  lwt.unix
+  typed-sql
+  typed-sql-caqti-lwt
+  uri))
+
 (executable
  (name postgresql_test)
  (modules postgresql_test)
@@ -32,3 +48,18 @@
   uri)
  (preprocess
   (pps ppx_let)))
+
+(executable
+ (name mega_coverage_server_test)
+ (modules mega_coverage_server_test)
+ (libraries
+  base
+  caqti
+  caqti-driver-postgresql
+  caqti-lwt
+  caqti-lwt.unix
+  lwt.unix
+  typed-sql
+  typed-sql-caqti-lwt
+  typed_sql_mega_coverage_tests
+  uri))

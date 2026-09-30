@@ -202,6 +202,7 @@ let run_goldens ~postgresql conn =
   let statements =
     [ people_ddl
     ; "CREATE TABLE \"public\".\"departments\" (person_id BIGINT, name TEXT NOT NULL)"
+    ; "CREATE TABLE \"public\".\"follows\" (follower_id BIGINT NOT NULL, followed_id BIGINT NOT NULL)"
     ; "CREATE TABLE \"public\".\"sales\" (person_id BIGINT, quantity INTEGER, unit_price DOUBLE PRECISION, amount NUMERIC, region TEXT)"
     ; "CREATE TABLE \"public\".\"events\" (occurred_at TIMESTAMP WITH TIME ZONE)"
     ; "CREATE TABLE \"public\".\"calendar_days\" (calendar_date DATE)"
@@ -212,6 +213,7 @@ let run_goldens ~postgresql conn =
     ; "CREATE TABLE excluded (id BIGINT NOT NULL, name TEXT NOT NULL, nickname TEXT, UNIQUE (id, name))"
     ; "INSERT INTO \"public\".\"people\" VALUES (1, 'Ada', NULL), (2, 'Grace', 'Amazing'), (3, 'Linus', 'Lin'), (4, 'Edsger', NULL)"
     ; "INSERT INTO \"public\".\"departments\" VALUES (1, 'Math'), (3, 'Computing')"
+    ; "INSERT INTO \"public\".\"follows\" VALUES (1, 2), (1, 4)"
     ; "INSERT INTO \"public\".\"sales\" VALUES (1, 2, 3.0, 6.0, 'north'), (2, 1, 4.0, 4.0, 'south')"
     ; "INSERT INTO \"public\".\"events\" VALUES ('2020-01-01T00:00:00Z')"
     ; "INSERT INTO \"public\".\"calendar_days\" VALUES ('2026-09-12')"
@@ -250,6 +252,24 @@ let run_goldens ~postgresql conn =
     let ids = List.map rows ~f:(fun (row : Q.Person.t) -> row.id) in
     assert_rows ~name ~equal:Int64.equal expected ids;
     Lwt.return_unit
+  in
+  let* () =
+    check_golden
+      conn
+      ~name:"correlated EXISTS projection golden"
+      ~equal:(fun (left_name, left_following) (right_name, right_following) ->
+        String.equal left_name right_name && Bool.equal left_following right_following)
+      ~expected:[ "Ada", false; "Grace", true; "Linus", false; "Edsger", true ]
+      Q.following_for_viewer_query
+  in
+  let* () =
+    check_golden
+      conn
+      ~name:"EXISTS projection without viewer golden"
+      ~equal:(fun (left_name, left_following) (right_name, right_following) ->
+        String.equal left_name right_name && Bool.equal left_following right_following)
+      ~expected:[ "Ada", false; "Grace", false; "Linus", false; "Edsger", false ]
+      Q.following_without_viewer_query
   in
   let* () = check_person_ids "empty IN golden" [] Q.empty_in_query in
   let* () =

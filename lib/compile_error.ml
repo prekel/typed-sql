@@ -2,6 +2,8 @@ open! Base
 
 type t =
   | Empty_projection
+  | Empty_values_columns
+  | Empty_values_rows
   | Foreign_source of
       { visible : int list
       ; actual : int
@@ -15,6 +17,12 @@ type t =
       { row : int
       ; expected : Identifier.t list
       ; actual : Identifier.t list
+      }
+  | Missing_insert_source
+  | Mixed_insert_sources
+  | Mismatched_insert_select_projection of
+      { expected : string list
+      ; actual : string list
       }
   | Empty_conflict_target
   | Duplicate_conflict_target of Identifier.t
@@ -46,6 +54,16 @@ type t =
       { expected : string list
       ; actual : string list
       }
+  | Mismatched_values_row_arity of
+      { row : int
+      ; expected : int
+      ; actual : int
+      }
+  | Mismatched_values_row_types of
+      { row : int
+      ; expected : string list
+      ; actual : string list
+      }
   | Unknown_cte of int
   | Invalid_recursive_reference of int
   | Unsupported_multiset_field_type of
@@ -55,6 +73,8 @@ type t =
 
 let to_string = function
   | Empty_projection -> "SELECT projection must contain at least one expression"
+  | Empty_values_columns -> "VALUES relation must declare at least one column"
+  | Empty_values_rows -> "VALUES relation must contain at least one row"
   | Foreign_source { visible; actual } ->
     String.concat
       [ "expression references source #"
@@ -82,6 +102,14 @@ let to_string = function
       ; columns expected
       ; "]"
       ]
+  | Missing_insert_source -> "INSERT has no row source"
+  | Mixed_insert_sources -> "INSERT cannot combine VALUES and SELECT sources"
+  | Mismatched_insert_select_projection { expected; actual } ->
+    "INSERT target types ["
+    ^ String.concat ~sep:", " expected
+    ^ "] do not match SELECT types ["
+    ^ String.concat ~sep:", " actual
+    ^ "]"
   | Empty_conflict_target -> "ON CONFLICT target must contain at least one column"
   | Duplicate_conflict_target column ->
     Stdlib.Format.asprintf
@@ -126,6 +154,21 @@ let to_string = function
     ^ String.concat ~sep:", " expected
     ^ "] do not match right types ["
     ^ String.concat ~sep:", " actual
+    ^ "]"
+  | Mismatched_values_row_arity { row; expected; actual } ->
+    "VALUES row "
+    ^ Int.to_string row
+    ^ " has "
+    ^ Int.to_string actual
+    ^ " fields, expected "
+    ^ Int.to_string expected
+  | Mismatched_values_row_types { row; expected; actual } ->
+    "VALUES row "
+    ^ Int.to_string row
+    ^ " has types ["
+    ^ String.concat ~sep:", " actual
+    ^ "], expected ["
+    ^ String.concat ~sep:", " expected
     ^ "]"
   | Unknown_cte id -> "query references unavailable CTE #" ^ Int.to_string id
   | Invalid_recursive_reference id ->

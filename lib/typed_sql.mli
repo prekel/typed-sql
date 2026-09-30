@@ -409,8 +409,9 @@ end
 
 (** Query-local references to regular table occurrences. *)
 module Table_ref : sig
-  (** An occurrence of a table in one query. Values are created by [Query.from];
-      an escaped reference from another query is rejected by the compiler. *)
+  (** An occurrence of a table in one query. Values are created by
+      [Query.from], [Query.from_values], or a join callback; an escaped
+      reference from another query is rejected by the compiler. *)
   type 'row t
 end
 
@@ -950,6 +951,78 @@ module Derived_table : sig
     -> ('row, 'requirements) t
 end
 
+(** Typed SQL [VALUES] rows used as a [FROM] or join source. The [Table.t] and
+    column descriptors name the virtual relation; they do not cause a read from
+    a database table. Literal cell values remain bind parameters. *)
+module Values : sig
+  type ('row, +'requirements) t
+
+  (** Structurally typed rows. Every row in [create] has the same field shape;
+      the compiler also checks the ordered database types, including
+      nullability and mapped codec identity, against the declared columns. *)
+  module Row : sig
+    type ('fields, 'nullable_fields, 'requirements) t =
+      ('fields, 'nullable_fields, 'requirements) Derived_table.Fields.t
+
+    (** Make a one-field row. *)
+    val expr
+      :  ('value, 'requirements) Expr.t
+      -> ( ('value, 'requirements) Expr.t
+           , ('value option, 'requirements) Expr.t
+           , 'requirements )
+           t
+
+    (** Concatenate row shapes, preserving their nested OCaml pair. *)
+    val both
+      :  ('left, 'nullable_left, 'requirements) t
+      -> ('right, 'nullable_right, 'requirements) t
+      -> ('left * 'right, 'nullable_left * 'nullable_right, 'requirements) t
+
+    (** Make a two-field row. *)
+    val pair
+      :  ('left, 'requirements) Expr.t
+      -> ('right, 'requirements) Expr.t
+      -> ( ('left, 'requirements) Expr.t * ('right, 'requirements) Expr.t
+           , ('left option, 'requirements) Expr.t * ('right option, 'requirements) Expr.t
+           , 'requirements )
+           t
+  end
+
+  (** A dynamically shaped row cell. Its type is checked against the declared
+      column descriptors during compilation. *)
+  module Cell : sig
+    type +'requirements t
+
+    (** Package one typed expression for a dynamic row; compilation checks its
+        database type against the corresponding relation column. *)
+    val expr : ('value, 'requirements) Expr.t -> 'requirements t
+  end
+
+  (** Create named columns and rows whose OCaml field structure is checked at
+      construction sites. Rows must match the declared columns in width and
+      database types when compiled. [columns] must describe distinct direct
+      columns of [table]. The [first] argument ensures the relation has a row.
+      Cell expressions may contain independent scalar subqueries; references
+      to enclosing sources and aggregates are rejected. *)
+  val create
+    :  table:'row Table.t
+    -> columns:('row Table_ref.t -> ('columns, 'requirements) Projection.t)
+    -> first:('fields, 'nullable_fields, 'requirements) Row.t
+    -> rest:('fields, 'nullable_fields, 'requirements) Row.t list
+    -> ('row, 'requirements) t
+
+  (** Create rows from dynamically shaped cell lists. The compiler checks that
+      each row has the declared number and database types of fields. An empty
+      row list is a compilation error. Cells may contain independent
+      expressions and scalar subqueries; references to enclosing sources and
+      aggregates are rejected. *)
+  val create_dynamic
+    :  table:'row Table.t
+    -> columns:('row Table_ref.t -> ('columns, 'requirements) Projection.t)
+    -> rows:'requirements Cell.t list list
+    -> ('row, 'requirements) t
+end
+
 (** Common table expressions. A definition has a typed handle which is valid
     only in the callback passed to [with_result] or [with_command]. *)
 module Cte : sig
@@ -1032,6 +1105,9 @@ module Query : sig
       :  ('fields, 'nullable_fields, 'r) Derived_table.inferred
       -> ('fields, 'r) t
 
+    (** Start with a typed [VALUES] relation. *)
+    val from_values : ('row, 'r) Values.t -> ('row Table_ref.t, 'r) t
+
     (** Start with a CTE visible in the current lexical scope. *)
     val from_cte : 'row Cte.t -> ('row Table_ref.t, 'r) t
 
@@ -1076,6 +1152,20 @@ module Query : sig
       -> on:('ctx -> 'fields -> 'r Condition.t)
       -> ('ctx, 'r) t
       -> ('ctx * 'nullable_fields, 'r) t
+
+    (** Join a typed [VALUES] relation. *)
+    val inner_join_values
+      :  ('row, 'r) Values.t
+      -> on:('ctx -> 'row Table_ref.t -> 'r Condition.t)
+      -> ('ctx, 'r) t
+      -> ('ctx * 'row Table_ref.t, 'r) t
+
+    (** Left join a typed [VALUES] relation; its fields become nullable. *)
+    val left_join_values
+      :  ('row, 'r) Values.t
+      -> on:('ctx -> 'row Table_ref.t -> 'r Condition.t)
+      -> ('ctx, 'r) t
+      -> ('ctx * 'row Nullable_table_ref.t, 'r) t
 
     (** Inner join a CTE in scope. *)
     val inner_join_cte
@@ -1135,6 +1225,11 @@ module Query : sig
   val from_relation
     :  ('fields, 'nullable_fields, 'requirements) Derived_table.inferred
     -> ('fields, ungrouped, Cardinality.many, 'requirements) t
+
+  (** Start a SELECT from a typed [VALUES] relation. *)
+  val from_values
+    :  ('row, 'requirements) Values.t
+    -> ('row Table_ref.t, ungrouped, Cardinality.many, 'requirements) t
 
   (** Start a SELECT builder from a CTE handle in lexical scope. The new outer
       SELECT starts with [Cardinality.many]. *)
@@ -1222,6 +1317,15 @@ module Query : sig
     :  ('inner_ctx, 'grouping, 'cardinality, 'requirements) t
     -> 'requirements Condition.t
 
+  (** Test whether an unfinished SELECT returns at least one row and use the
+      result as a non-null boolean expression in a projection. An empty result
+      gives [false]. The SELECT projection is intentionally omitted and
+      rendered as [SELECT 1]. The query may capture references from the
+      enclosing callback; invalid source references fail compilation. *)
+  val exists_expr
+    :  ('inner_ctx, 'grouping, 'cardinality, 'requirements) t
+    -> (bool, 'requirements) Expr.t
+
   (** Negated [EXISTS]. *)
   val not_exists
     :  ('inner_ctx, 'grouping, 'cardinality, 'requirements) t
@@ -1289,6 +1393,21 @@ module Query : sig
     -> on:('ctx -> 'fields -> 'requirements Condition.t)
     -> ('ctx, 'grouping, 'cardinality, 'requirements) t
     -> ('ctx * 'nullable_fields, 'grouping, 'cardinality, 'requirements) t
+
+  (** Join a typed [VALUES] relation while preserving the current cardinality
+      bound. *)
+  val inner_join_values
+    :  ('row, 'requirements) Values.t
+    -> on:('ctx -> 'row Table_ref.t -> 'requirements Condition.t)
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx * 'row Table_ref.t, 'grouping, 'cardinality, 'requirements) t
+
+  (** Left join a typed [VALUES] relation; the appended reference is nullable. *)
+  val left_join_values
+    :  ('row, 'requirements) Values.t
+    -> on:('ctx -> 'row Table_ref.t -> 'requirements Condition.t)
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx * 'row Nullable_table_ref.t, 'grouping, 'cardinality, 'requirements) t
 
   (** Join a CTE handle in lexical scope while preserving the current
       cardinality bound. *)
@@ -1436,9 +1555,24 @@ end
 (** Immutable INSERT builders. *)
 module Insert : sig
   (** An INSERT builder. The compiler rejects empty rows, duplicate target
-      columns, and different column sets across rows. Values passed to [set]
-      are current-AST constants encoded as bind values. *)
+      columns, different column sets across VALUES rows, and mixing VALUES
+      assignments with a SELECT source. Values passed to [set] are current-AST
+      constants encoded as bind values. *)
   type ('row, +'requirements) t
+
+  (** Non-empty ordered target columns for [from_select]. The order must match
+      the SQL projection of the SELECT. All columns belong to the same phantom
+      row type; compilation also checks their table descriptor, uniqueness,
+      and exact database types, including nullability and mapped codecs. *)
+  module Columns : sig
+    type 'row t
+
+    (** Start a nonempty ordered target list. *)
+    val column : ('row, 'base, 'value) Column.t -> 'row t
+
+    (** Append a target column without changing the preceding order. *)
+    val add : ('row, 'base, 'value) Column.t -> 'row t -> 'row t
+  end
 
   (** Non-empty columns identifying a unique key. The database checks that a
       matching unique index or constraint exists. Every column carries the
@@ -1544,6 +1678,18 @@ module Insert : sig
   val rows
     :  'row Table.t
     -> (('row, 'requirements) t -> ('row, 'requirements) t) list
+    -> ('row, 'requirements) t
+
+  (** Replace the untouched empty VALUES row with a SELECT source. The SELECT
+      may contain CTEs or set operations, but cannot refer to the INSERT target
+      without introducing it as its own source. Compilation checks target
+      ownership, uniqueness, and ordered database types, including nullability
+      and mapped codec identity. Mixing this source with [set], [default], or
+      [rows] is rejected; conflict actions and [returning] remain available. *)
+  val from_select
+    :  'row Columns.t
+    -> ('result, Result_query.select, 'cardinality, 'requirements) Result_query.t
+    -> ('row, 'requirements) t
     -> ('row, 'requirements) t
 
   (** Ignore rows rejected by a unique or exclusion conflict. PostgreSQL and
@@ -1932,6 +2078,8 @@ module Compile_error : sig
     | Empty_projection
     (** SELECT or RETURNING has no SQL expression. Applicative constants alone
           do not form a valid projection. *)
+    | Empty_values_columns (** A [VALUES] relation declares no output columns. *)
+    | Empty_values_rows (** A [VALUES] relation contains no rows. *)
     | Foreign_source of
         { visible : int list (** Source identities available at the invalid expression. *)
         ; actual : int (** The source identity used by the invalid expression. *)
@@ -1953,6 +2101,16 @@ module Compile_error : sig
         }
     (** A multi-row INSERT contains different column sets. Ordering may differ
         and is normalized to the first row during rendering. *)
+    | Missing_insert_source
+    (** A malformed internal INSERT has neither VALUES rows nor a SELECT. *)
+    | Mixed_insert_sources
+    (** An INSERT builder combined VALUES assignments and a SELECT source. *)
+    | Mismatched_insert_select_projection of
+        { expected : string list
+        ; actual : string list
+        }
+    (** Target columns and SELECT projection have different ordered database
+        type fingerprints, including nullability and mapped codec identity. *)
     | Empty_conflict_target
     (** A malformed private AST contains an empty [ON CONFLICT] target. Public
         [Insert.Conflict_target] values are non-empty by construction. *)
@@ -1977,7 +2135,7 @@ module Compile_error : sig
         compiler reports this during lowering and does not render substitute
         SQL. *)
     | Aggregate_not_allowed of string
-    (** An aggregate appears in [WHERE], [JOIN ON], or [GROUP BY]. The string
+    (** An aggregate appears in a clause that does not allow it. The string
         names the rejected SQL clause. *)
     | Nested_aggregate (** One aggregate expression is used inside another aggregate. *)
     | Ungrouped_expression
@@ -1992,15 +2150,15 @@ module Compile_error : sig
         [HAVING], [OFFSET], a parameterized [LIMIT], or a literal [LIMIT]
         below one. *)
     | Invalid_relation_column of int
-    (** A derived-table or CTE output descriptor is not a direct column. The
-        integer is its one-based position. *)
+    (** A relation output descriptor is not a direct column. The integer is
+        its one-based position. *)
     | Duplicate_relation_column of Identifier.t
-    (** A derived-table or CTE exposes one column name more than once. *)
+    (** A relation exposes one column name more than once. *)
     | Mismatched_relation_projection of
         { expected : string list
         ; actual : string list
         }
-    (** Relation descriptor and SELECT output have different database-type
+    (** Relation descriptor and query output have different database-type
         sequences. *)
     | Mismatched_set_projection of
         { expected : string list
@@ -2008,6 +2166,18 @@ module Compile_error : sig
         }
     (** The two operands of a set operation have different database-type
         sequences. *)
+    | Mismatched_values_row_arity of
+        { row : int
+        ; expected : int
+        ; actual : int
+        } (** A one-based row has a different field count from the relation. *)
+    | Mismatched_values_row_types of
+        { row : int
+        ; expected : string list
+        ; actual : string list
+        }
+    (** A one-based row has database types different from the declared
+               columns, in projection order. *)
     | Unknown_cte of int (** A source refers to a CTE outside its lexical scope. *)
     | Invalid_recursive_reference of int
     (** The recursive term must use its own CTE exactly once as a top-level

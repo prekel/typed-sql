@@ -40,6 +40,16 @@ module Department = struct
   let nullable_name reference = Expr.nullable_column reference name_column
 end
 
+module Follow = struct
+  type row
+
+  let table : row Table.t = Table.v_exn ~schema:"public" "follows"
+  let follower_id_column = Column.v_exn table "follower_id" Db_type.int64
+  let followed_id_column = Column.v_exn table "followed_id" Db_type.int64
+  let follower_id reference = Expr.column reference follower_id_column
+  let followed_id reference = Expr.column reference followed_id_column
+end
+
 module Event = struct
   type row
 
@@ -212,17 +222,30 @@ let%test_module "portable query rendering" =
         {|
         SELECT
           t0."name",
-          CAST((SELECT COALESCE(JSONB_AGG(JSONB_BUILD_ARRAY(m0."v0")), JSONB_BUILD_ARRAY())
-          FROM LATERAL (
-            SELECT
-              t1."name" AS "v0"
-            FROM "public"."departments" AS t1
-            WHERE
-              (t1."person_id" = t0."id")
-            ORDER BY
-              t1."name" ASC
-            LIMIT 3
-          ) AS m0) AS TEXT)
+          CAST(
+            (
+              SELECT
+                COALESCE(
+                  JSONB_AGG(
+                    JSONB_BUILD_ARRAY(
+                      m0."v0"
+                    )
+                  ),
+                  JSONB_BUILD_ARRAY()
+                )
+              FROM LATERAL (
+                SELECT
+                  t1."name" AS "v0"
+                FROM "public"."departments" AS t1
+                WHERE
+                  (t1."person_id" = t0."id")
+                ORDER BY
+                  t1."name" ASC
+                LIMIT 3
+              ) AS m0
+            )
+            AS TEXT
+          )
         FROM "public"."people" AS t0
         |}]
     ;;
@@ -236,17 +259,27 @@ let%test_module "portable query rendering" =
         {|
         SELECT
           t0."name",
-          (SELECT COALESCE(JSON_GROUP_ARRAY(JSON_ARRAY(m0."v0")), JSON_ARRAY())
-          FROM (
+          (
             SELECT
-              t1."name" AS "v0"
-            FROM "public"."departments" AS t1
-            WHERE
-              (t1."person_id" = t0."id")
-            ORDER BY
-              t1."name" ASC
-            LIMIT 3
-          ) AS m0)
+              COALESCE(
+                JSON_GROUP_ARRAY(
+                  JSON_ARRAY(
+                    m0."v0"
+                  )
+                ),
+                JSON_ARRAY()
+              )
+            FROM (
+              SELECT
+                t1."name" AS "v0"
+              FROM "public"."departments" AS t1
+              WHERE
+                (t1."person_id" = t0."id")
+              ORDER BY
+                t1."name" ASC
+              LIMIT 3
+            ) AS m0
+          )
         FROM "public"."people" AS t0
         |}]
     ;;
@@ -315,14 +348,24 @@ let%test_module "portable query rendering" =
               JSONB_AGG(
                 JSONB_BUILD_ARRAY(
                   t0."name",
-                  (SELECT COALESCE(JSONB_AGG(JSONB_BUILD_ARRAY(m0."v0")), JSONB_BUILD_ARRAY())
-                  FROM LATERAL (
+                  (
                     SELECT
-                      t1."name" AS "v0"
-                    FROM "public"."departments" AS t1
-                    WHERE
-                      (t1."person_id" = t0."id")
-                  ) AS m0)
+                      COALESCE(
+                        JSONB_AGG(
+                          JSONB_BUILD_ARRAY(
+                            m0."v0"
+                          )
+                        ),
+                        JSONB_BUILD_ARRAY()
+                      )
+                    FROM LATERAL (
+                      SELECT
+                        t1."name" AS "v0"
+                      FROM "public"."departments" AS t1
+                      WHERE
+                        (t1."person_id" = t0."id")
+                    ) AS m0
+                  )
                 )
                 ORDER BY t0."id" ASC
               ),
@@ -346,14 +389,24 @@ let%test_module "portable query rendering" =
             JSON_GROUP_ARRAY(
               JSON_ARRAY(
                 t0."name",
-                JSON((SELECT COALESCE(JSON_GROUP_ARRAY(JSON_ARRAY(m0."v0")), JSON_ARRAY())
-                FROM (
+                JSON((
                   SELECT
-                    t1."name" AS "v0"
-                  FROM "public"."departments" AS t1
-                  WHERE
-                    (t1."person_id" = t0."id")
-                ) AS m0))
+                    COALESCE(
+                      JSON_GROUP_ARRAY(
+                        JSON_ARRAY(
+                          m0."v0"
+                        )
+                      ),
+                      JSON_ARRAY()
+                    )
+                  FROM (
+                    SELECT
+                      t1."name" AS "v0"
+                    FROM "public"."departments" AS t1
+                    WHERE
+                      (t1."person_id" = t0."id")
+                  ) AS m0
+                ))
               )
               ORDER BY t0."id" ASC
             ),
@@ -2083,6 +2136,165 @@ let correlated_subquery_query =
         |> Expr.scalar_subquery
       in
       Projection.pair (Person.name person) department_name))
+;;
+
+let following_query viewer_id =
+  Query.(
+    from Person.table
+    |> select (fun person ->
+      let following =
+        match viewer_id with
+        | None -> Expr.constant Db_type.bool false
+        | Some viewer_id ->
+          Query.(
+            from Follow.table
+            |> where (fun follow ->
+              Follow.follower_id follow
+              =$ viewer_id
+              &&. (Follow.followed_id follow =. Person.id person))
+            |> exists_expr)
+      in
+      Projection.pair (Person.name person) following))
+;;
+
+let following_without_viewer_query = following_query None
+let following_for_viewer_query = following_query (Some 1L)
+
+let%test_unit "EXISTS expression rejects a foreign captured source" =
+  let escaped = ref None in
+  let _ =
+    Query.(
+      from Department.table
+      |> select_scalar (fun department ->
+        escaped := Some department;
+        Department.person_id department))
+  in
+  let foreign = Option.value_exn !escaped in
+  let query =
+    Query.(
+      from Person.table
+      |> select (fun person ->
+        Projection.expr
+          Query.(
+            from Department.table
+            |> where (fun _ -> Department.person_id foreign =. Person.id person)
+            |> exists_expr)))
+  in
+  match Compiler.compile_portable ~dialect:Dialect.Sqlite query with
+  | Error (Compile_error.Foreign_source _) -> ()
+  | Error error -> failwith (Compile_error.to_string error)
+  | Ok _ -> failwith "foreign source was accepted in EXISTS expression"
+;;
+
+let%expect_test "EXISTS expression renders in PostgreSQL projection" =
+  following_for_viewer_query
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      t0."name",
+      (EXISTS (
+        SELECT
+          1
+        FROM "public"."follows" AS t1
+        WHERE
+          (
+            (t1."follower_id" = $1)
+            AND (t1."followed_id" = t0."id")
+          )
+      ))
+    FROM "public"."people" AS t0
+    |}]
+;;
+
+let%expect_test "EXISTS expression renders in SQLite projection" =
+  following_for_viewer_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      t0."name",
+      (EXISTS (
+        SELECT
+          1
+        FROM "public"."follows" AS t1
+        WHERE
+          (
+            (t1."follower_id" = ?1)
+            AND (t1."followed_id" = t0."id")
+          )
+      ))
+    FROM "public"."people" AS t0
+    |}]
+;;
+
+let%test "EXISTS remains a scalar expression beside an aggregate" =
+  let query =
+    Query.(
+      from Person.table
+      |> select (fun _ ->
+        Projection.pair Query.(from Follow.table |> exists_expr) Expr.count_all))
+  in
+  Result.is_ok (Compiler.compile_portable ~dialect:Dialect.Postgresql query)
+  && Result.is_ok (Compiler.compile_portable ~dialect:Dialect.Sqlite query)
+;;
+
+let%test "EXISTS beside COUNT preserves the exactly-one proof" =
+  let query =
+    Query.(
+      from Person.table
+      |> select_exactly_one (fun _ ->
+        Projection.pair Query.(from Follow.table |> exists_expr) Expr.count_all))
+  in
+  Result.is_ok (Compiler.compile_portable ~dialect:Dialect.Postgresql query)
+  && Result.is_ok (Compiler.compile_portable ~dialect:Dialect.Sqlite query)
+;;
+
+let%test "COUNT of CURRENT_TIMESTAMP has one aggregate result" =
+  let query =
+    Query.Aggregate.(from Person.table)
+    |> Query.aggregate_one (fun _ -> Aggregate_projection.count Expr.current_timestamp)
+  in
+  Result.is_ok (Compiler.compile_portable ~dialect:Dialect.Postgresql query)
+  && Result.is_ok (Compiler.compile_portable ~dialect:Dialect.Sqlite query)
+;;
+
+let%test "an aggregate can count non-null EXISTS results" =
+  let query =
+    Query.Aggregate.(from Person.table)
+    |> Query.aggregate_one (fun person ->
+      Aggregate_projection.count
+        Query.(
+          from Follow.table
+          |> where (fun follow -> Follow.followed_id follow =. Person.id person)
+          |> exists_expr))
+  in
+  Result.is_ok (Compiler.compile_portable ~dialect:Dialect.Postgresql query)
+  && Result.is_ok (Compiler.compile_portable ~dialect:Dialect.Sqlite query)
+;;
+
+let%test_unit "SQLite rejects unsupported types inside EXISTS expression" =
+  let query =
+    Query.(
+      from Person.table
+      |> select (fun _ ->
+        Projection.expr
+          Query.(
+            from Sale.table
+            |> where (fun sale -> Sale.amount sale =. Sale.amount sale)
+            |> exists_expr)))
+  in
+  (match Compiler.compile ~dialect:Dialect.postgresql query with
+   | Ok _ -> ()
+   | Error error -> failwith (Compile_error.to_string error));
+  match Compiler.compile ~dialect:Dialect.sqlite query with
+  | Error (Compile_error.Unsupported_operation { operation = "numeric"; _ }) -> ()
+  | Error error -> failwith (Compile_error.to_string error)
+  | Ok _ -> failwith "SQLite accepted numeric inside EXISTS expression"
 ;;
 
 let%expect_test "correlated subqueries render in PostgreSQL" =

@@ -77,6 +77,14 @@ module Book_archive = struct
   let archived_at row = Expr.column row archived_at_column
 end
 
+module Threshold = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "thresholds"
+  let min_year_column = Column.v_exn table "min_year" Db_type.int
+  let min_year row = Expr.column row min_year_column
+end
+
 module Directory = struct
   type row
 
@@ -966,15 +974,29 @@ let jq12 =
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq12);;
 SELECT
   t0."id",
-  CAST((SELECT COALESCE(JSONB_AGG(JSONB_BUILD_ARRAY(m0."v0", m0."v1")), JSONB_BUILD_ARRAY())
-  FROM LATERAL (
-    SELECT
-      t1."id" AS "v0",
-      t1."title" AS "v1"
-    FROM "book" AS t1
-    WHERE
-      (t1."author_id" = t0."id")
-  ) AS m0) AS TEXT)
+  CAST(
+    (
+      SELECT
+        COALESCE(
+          JSONB_AGG(
+            JSONB_BUILD_ARRAY(
+              m0."v0",
+              m0."v1"
+            )
+          ),
+          JSONB_BUILD_ARRAY()
+        )
+      FROM LATERAL (
+        SELECT
+          t1."id" AS "v0",
+          t1."title" AS "v1"
+        FROM "book" AS t1
+        WHERE
+          (t1."author_id" = t0."id")
+      ) AS m0
+    )
+    AS TEXT
+  )
 FROM "author" AS t0
 ORDER BY
   t0."id" ASC
@@ -1453,13 +1475,13 @@ WHERE
 
 ### JQ-20. VALUES как табличный источник
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✓)
-- Семантика: —
-- Без доработок typed-sql: ✗
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [VALUES table constructor](https://www.jooq.org/doc/3.21/manual/sql-building/table-expressions/values/).
 - Проверяет: использование набора констант как relation с именованной колонкой.
-- Ограничение: Публичное ядро не предоставляет `VALUES` как FROM-источник; отдельные скалярные SELECT нельзя передать в `FROM` без relation descriptor.
+- Ограничение: имена и database types объявляются relation descriptor; compiler проверяет каждую строку до рендеринга. Динамические строки проверяются при compilation.
 
 ```sql
 SELECT THRESHOLDS.MIN_YEAR, BOOK.ID
@@ -1480,6 +1502,26 @@ create.select(minYear, BOOK.ID)
       .join(BOOK).on(BOOK.PUBLISHED_IN.ge(minYear))
       .orderBy(minYear, BOOK.ID)
       .fetch();
+```
+
+```ocaml
+let thresholds =
+  Values.create
+    ~table:Threshold.table
+    ~columns:(fun threshold -> Projection.expr (Threshold.min_year threshold))
+    ~first:(Values.Row.expr (Expr.constant Db_type.int 1940))
+    ~rest:[ Values.Row.expr (Expr.constant Db_type.int 1950) ]
+;;
+
+let query =
+  Query.(
+    from_values thresholds
+    |> inner_join Book.table ~on:(fun threshold book ->
+      Book.published_in book >=. Threshold.min_year threshold)
+    |> order_by (fun (threshold, book) -> Threshold.min_year threshold) `Asc
+    |> select (fun (threshold, book) ->
+      Projection.pair (Threshold.min_year threshold) (Book.id book)))
+;;
 ```
 
 ## Формы SELECT и выражения
@@ -2399,13 +2441,12 @@ create.select(
 
 ### JQ-36. INSERT .. SELECT
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✓)
-- Семантика: —
-- Без доработок typed-sql: ✗
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [INSERT .. SELECT](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/insert-statement/insert-select/).
 - Проверяет: вставку набора строк, выбранного из другой таблицы.
-- Ограничение: `Insert` принимает VALUES-строки; публичного `INSERT ... SELECT` конструктора нет.
 
 ```sql
 INSERT INTO BOOK_ARCHIVE (ID, TITLE)
@@ -2420,6 +2461,40 @@ create.insertInto(BOOK_ARCHIVE, BOOK_ARCHIVE.ID, BOOK_ARCHIVE.TITLE)
           .from(BOOK)
           .where(BOOK.PUBLISHED_IN.lt(1900)))
       .execute();
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let jq36_columns =
+  Insert.Columns.(column Book_archive.id_column |> add Book_archive.title_column)
+
+let jq36 =
+  Statement.Portable.command_exn (fun params ->
+    let cutoff = params.expr Db_type.int ~get:Fn.id in
+    let source =
+      Query.(
+        from Book.table
+        |> where (fun book -> Book.published_in book <. cutoff)
+        |> select (fun book -> Projection.pair (Book.id book) (Book.title book)))
+    in
+    Insert.(into Book_archive.table |> from_select jq36_columns source |> command))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:1900 jq36);;
+INSERT INTO "book_archive" (
+  "id",
+  "title"
+)
+SELECT
+  t0."id",
+  t0."title"
+FROM "book" AS t0
+WHERE
+  (t0."published_in" < $1)
 ```
 
 ### JQ-37. INSERT RETURNING
@@ -2790,13 +2865,12 @@ RETURNING
 
 ### JQ-45. INSERT из SELECT с пропуском конфликтов
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✓)
-- Семантика: —
-- Без доработок typed-sql: ✗
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [INSERT statement](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/insert-statement/), раздел `ON CONFLICT`.
 - Проверяет: вставку набора старых книг в архив и пропуск уже архивированных ID без обновления их заголовков; показана форма PostgreSQL.
-- Ограничение: UPSERT conflict action поддержан, но источник `INSERT ... SELECT` отсутствует в публичном API.
 
 ```sql
 INSERT INTO BOOK_ARCHIVE (ID, TITLE)
@@ -2814,6 +2888,46 @@ create.insertInto(BOOK_ARCHIVE, BOOK_ARCHIVE.ID, BOOK_ARCHIVE.TITLE)
       .onConflict(BOOK_ARCHIVE.ID)
       .doNothing()
       .execute();
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let jq45 =
+  Statement.Portable.command_exn (fun params ->
+    let cutoff = params.expr Db_type.int ~get:Fn.id in
+    let source =
+      Query.(
+        from Book.table
+        |> where (fun book -> Book.published_in book <. cutoff)
+        |> select (fun book -> Projection.pair (Book.id book) (Book.title book)))
+    in
+    Insert.(
+      into Book_archive.table
+      |> from_select jq36_columns source
+      |> on_conflict (Conflict_target.column Book_archive.id_column)
+      |> do_nothing
+      |> command))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:1900 jq45);;
+INSERT INTO "book_archive" (
+  "id",
+  "title"
+)
+SELECT
+  t0."id",
+  t0."title"
+FROM "book" AS t0
+WHERE
+  (t0."published_in" < $1)
+ON CONFLICT (
+  "id"
+)
+DO NOTHING
 ```
 
 

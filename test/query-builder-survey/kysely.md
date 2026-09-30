@@ -40,6 +40,20 @@ module Person = struct
   let nullable_last_name row = Expr.to_nullable (last_name row)
 end
 
+module Person_import = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "person_import"
+  let id_column = Column.v_exn table "id" Db_type.int64
+  let first_name_column = Column.v_exn table "first_name" Db_type.text
+  let last_name_column = Column.v_exn table "last_name" Db_type.text
+  let age_column = Column.v_exn table "age" Db_type.int
+  let id row = Expr.column row id_column
+  let first_name row = Expr.column row first_name_column
+  let last_name row = Expr.column row last_name_column
+  let age row = Expr.column row age_column
+end
+
 module Pet = struct
   type row
 
@@ -913,8 +927,8 @@ WHERE
     AND (t0."id" = t1."id")
   )
 RETURNING
-  "id",
-  "age"
+  t0."id",
+  t0."age"
 ```
 ### KY-15. DELETE RETURNING
 
@@ -2754,11 +2768,10 @@ VALUES
 ```
 ### KY-44. INSERT из SELECT
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✓)
-- Семантика: ✗ (добавлено в роадмап ✓)
-- Без доработок typed-sql: ✗
-- Ограничение: Публичный INSERT API не принимает SELECT как источник строк.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [expression](https://kysely-org.github.io/kysely-apidoc/classes/InsertQueryBuilder.html#expression).
 - Проверяет: перенос набора строк между отношениями с совпадающей формой проекции.
 
@@ -2778,6 +2791,55 @@ await db.insertInto('person')
       .where('age', '>=', minAge),
   )
   .execute()
+```
+
+#### OCaml (typed-sql)
+
+```ocaml
+let kysely44_columns =
+  Insert.Columns.(
+    column Person.id_column
+    |> add Person.first_name_column
+    |> add Person.last_name_column
+    |> add Person.age_column)
+
+let kysely44 =
+  Statement.Portable.command_exn (fun params ->
+    let min_age = params.expr Db_type.int ~get:Fn.id in
+    let source =
+      Query.(
+        from Person_import.table
+        |> where (fun person -> Person_import.age person >=. min_age)
+        |> select (fun person ->
+          Projection.both
+            (Projection.pair
+               (Person_import.id person)
+               (Person_import.first_name person))
+            (Projection.pair
+               (Person_import.last_name person)
+               (Person_import.age person))))
+    in
+    Insert.(into Person.table |> from_select kysely44_columns source |> command))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:18 kysely44);;
+INSERT INTO "person" (
+  "id",
+  "first_name",
+  "last_name",
+  "age"
+)
+SELECT
+  t0."id",
+  t0."first_name",
+  t0."last_name",
+  t0."age"
+FROM "person_import" AS t0
+WHERE
+  (t0."age" >= $1)
 ```
 
 ### KY-45. ON CONFLICT DO NOTHING

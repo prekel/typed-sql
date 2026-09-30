@@ -66,6 +66,8 @@ module Statement = struct
     let open Typed_sql.Compile_error in
     function
     | P.Empty_projection -> Empty_projection
+    | P.Empty_values_columns -> Empty_values_columns
+    | P.Empty_values_rows -> Empty_values_rows
     | P.Foreign_source { visible; actual } -> Foreign_source { visible; actual }
     | P.Negative_limit value -> Negative_limit value
     | P.Negative_offset value -> Negative_offset value
@@ -78,6 +80,10 @@ module Statement = struct
         ; expected = List.map expected ~f:public_identifier
         ; actual = List.map actual ~f:public_identifier
         }
+    | P.Missing_insert_source -> Missing_insert_source
+    | P.Mixed_insert_sources -> Mixed_insert_sources
+    | P.Mismatched_insert_select_projection { expected; actual } ->
+      Mismatched_insert_select_projection { expected; actual }
     | P.Empty_conflict_target -> Empty_conflict_target
     | P.Duplicate_conflict_target column ->
       Duplicate_conflict_target (public_identifier column)
@@ -100,6 +106,10 @@ module Statement = struct
       Mismatched_relation_projection { expected; actual }
     | P.Mismatched_set_projection { expected; actual } ->
       Mismatched_set_projection { expected; actual }
+    | P.Mismatched_values_row_arity { row; expected; actual } ->
+      Mismatched_values_row_arity { row; expected; actual }
+    | P.Mismatched_values_row_types { row; expected; actual } ->
+      Mismatched_values_row_types { row; expected; actual }
     | P.Unknown_cte id -> Unknown_cte id
     | P.Invalid_recursive_reference id -> Invalid_recursive_reference id
     | P.Unsupported_multiset_field_type { path; type_name } ->

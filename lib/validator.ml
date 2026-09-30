@@ -61,6 +61,8 @@ let rec validate_expr ~validate_subquery ~visible = function
       validate_subquery ~outer_visible:visible ~allow_empty:false multiset.query
     in
     validate_multiset_types multiset.field_types
+  | Ast.Exists_expr select ->
+    validate_subquery ~outer_visible:visible ~allow_empty:true (Ast.Simple select)
   | Ast.Current_timestamp -> Ok ()
 
 and validate_condition ~validate_subquery ~visible = function
@@ -203,7 +205,8 @@ let rec analyze_expression ~groups ~inside_aggregate expression =
     | Ast.Param _
     | Ast.Current_timestamp
     | Ast.Scalar_subquery _
-    | Ast.Multiset_subquery _ -> plain ~grouped:true
+    | Ast.Multiset_subquery _
+    | Ast.Exists_expr _ -> plain ~grouped:true
     | Ast.Arithmetic (_, left, right)
     | Ast.Concat (left, right)
     | Ast.Coalesce (left, right) ->
@@ -282,6 +285,72 @@ let ensure_no_aggregate clause condition =
     Ok ()
 ;;
 
+let validate_values ~validate_subquery (values : Ast.values) =
+  let open Result.Let_syntax in
+  if List.is_empty values.columns then
+    Error Compile_error.Empty_values_columns
+  else if List.is_empty values.rows then
+    Error Compile_error.Empty_values_rows
+  else (
+    let%bind names =
+      List.mapi values.columns ~f:(fun index -> function
+        | Ast.Column { source_id; name; _ }
+          when Int.equal source_id values.descriptor_source_id -> Ok name
+        | _ -> Error (Compile_error.Invalid_relation_column (index + 1)))
+      |> Result.all
+    in
+    let rec find_duplicate seen = function
+      | [] -> None
+      | name :: rest ->
+        if List.mem seen name ~equal:Identifier.equal then
+          Some name
+        else
+          find_duplicate (name :: seen) rest
+    in
+    let%bind () =
+      match find_duplicate [] names with
+      | None -> Ok ()
+      | Some name -> Error (Compile_error.Duplicate_relation_column name)
+    in
+    let fingerprints types =
+      List.map types ~f:(fun (Db_type.Pack db_type) -> Db_type.fingerprint db_type)
+    in
+    let column_types =
+      List.map values.columns ~f:(function
+        | Ast.Column { db_type; _ } -> db_type
+        | _ -> assert false)
+    in
+    let expected_row_types = fingerprints column_types in
+    List.foldi values.rows ~init:(Ok ()) ~f:(fun index result row ->
+      let%bind () = result in
+      let row_number = index + 1 in
+      let actual_width = List.length row.expressions in
+      let expected_width = List.length values.columns in
+      if not (Int.equal actual_width expected_width) then
+        Error
+          (Compile_error.Mismatched_values_row_arity
+             { row = row_number; expected = expected_width; actual = actual_width })
+      else (
+        let actual_types = fingerprints row.types in
+        if not (List.equal String.equal expected_row_types actual_types) then
+          Error
+            (Compile_error.Mismatched_values_row_types
+               { row = row_number; expected = expected_row_types; actual = actual_types })
+        else (
+          let%bind () =
+            validate_expressions ~validate_subquery ~visible:[] row.expressions
+          in
+          List.fold row.expressions ~init:(Ok ()) ~f:(fun result expression ->
+            let%bind () = result in
+            if
+              (analyze_expression ~groups:[] ~inside_aggregate:false expression)
+                .has_aggregate
+            then
+              Error (Compile_error.Aggregate_not_allowed "VALUES")
+            else
+              Ok ())))))
+;;
+
 let validate_select_with
       ~validate_subquery
       ~outer_visible
@@ -312,6 +381,17 @@ let validate_select_with
     | Ast.Parameter _ -> assert false)
   else
     let open Result.Let_syntax in
+    let validate_values_source (source : Ast.source) =
+      match source.Ast.kind with
+      | Ast.Values values -> validate_values ~validate_subquery values
+      | Ast.Table _ | Ast.Derived _ | Ast.Cte _ -> Ok ()
+    in
+    let%bind () = validate_values_source select.source in
+    let%bind () =
+      List.fold select.joins ~init:(Ok ()) ~f:(fun result join ->
+        let%bind () = result in
+        validate_values_source join.Ast.source)
+    in
     let%bind visible =
       validate_joins
         ~validate_subquery
@@ -509,7 +589,46 @@ let validate_command_with ~validate_subquery (command : Ast.command) =
   | Ast.Insert ->
     let open Result.Let_syntax in
     let source_id = command.source.source_id in
-    let%bind () = validate_insert_rows ~validate_subquery ~source_id command.rows in
+    let%bind () =
+      match command.insert_input with
+      | None -> Error Compile_error.Missing_insert_source
+      | Some Ast.Mixed_sources -> Error Compile_error.Mixed_insert_sources
+      | Some (Ast.Rows rows) -> validate_insert_rows ~validate_subquery ~source_id rows
+      | Some (Ast.Select_rows { columns; query; result_types }) ->
+        let%bind () = validate_subquery ~outer_visible:[] ~allow_empty:false query in
+        let%bind () =
+          if List.is_empty columns then
+            Error (Compile_error.Empty_assignments `Insert)
+          else
+            Ok ()
+        in
+        let%bind () =
+          List.fold columns ~init:(Ok []) ~f:(fun result column ->
+            let%bind seen = result in
+            if Int.(column.Ast.target_source_id <> source_id) then
+              Error
+                (Compile_error.Invalid_assignment_source
+                   { expected = source_id; actual = column.target_source_id })
+            else if List.mem seen column.target_column ~equal:Identifier.equal then
+              Error (Compile_error.Duplicate_assignment column.target_column)
+            else
+              Ok (column.target_column :: seen))
+          |> Result.map ~f:(fun _ -> ())
+        in
+        let expected =
+          List.map columns ~f:(fun column ->
+            let (Db_type.Pack db_type) = column.Ast.target_type in
+            Db_type.fingerprint db_type)
+        in
+        let actual =
+          List.map result_types ~f:(fun (Db_type.Pack db_type) ->
+            Db_type.fingerprint db_type)
+        in
+        if List.equal String.equal expected actual then
+          Ok ()
+        else
+          Error (Compile_error.Mismatched_insert_select_projection { expected; actual })
+    in
     (match command.conflict with
      | None -> Ok ()
      | Some conflict -> validate_conflict ~validate_subquery ~source_id conflict)
@@ -682,6 +801,7 @@ and validate_select_full
 and validate_source_full ~forbidden_ctes ~available_ctes source =
   match source.Ast.kind with
   | Ast.Table _ -> Ok ()
+  | Ast.Values _ -> Ok ()
   | Ast.Cte id ->
     if List.mem forbidden_ctes id ~equal:Int.equal then
       Error (Compile_error.Invalid_recursive_reference id)
@@ -756,7 +876,7 @@ and validate_recursive_step ~forbidden_ctes ~available_ctes ~cte_id step =
     let is_self (source : Ast.source) =
       match source.Ast.kind with
       | Ast.Cte id -> Int.equal id cte_id
-      | Ast.Table _ | Ast.Derived _ -> false
+      | Ast.Table _ | Ast.Derived _ | Ast.Values _ -> false
     in
     if not (Int.equal (List.count sources ~f:is_self) 1) then
       Error (Compile_error.Invalid_recursive_reference cte_id)

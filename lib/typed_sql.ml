@@ -29,6 +29,7 @@ module Query = Typed_sql_private.Query
 module Result_query = Typed_sql_private.Result_query
 module Command = Typed_sql_private.Command
 module Derived_table = Typed_sql_private.Derived_table
+module Values = Typed_sql_private.Values
 module Cte = Typed_sql_private.Cte
 module Insert = Typed_sql_private.Insert
 module Update = Typed_sql_private.Update

@@ -71,6 +71,7 @@ let rec expression ~dialect = function
   | Ast.Multiset_subquery multiset ->
     Ast.Multiset_subquery
       { multiset with Ast.query = select_query ~dialect multiset.query }
+  | Ast.Exists_expr select_ -> Ast.Exists_expr (select ~dialect select_)
   | Ast.Current_timestamp as value -> value
 
 and condition ~dialect = function
@@ -145,6 +146,15 @@ and source ~dialect (source : Ast.source) =
     match source.Ast.kind with
     | (Ast.Table _ | Ast.Cte _) as kind -> kind
     | Ast.Derived relation_ -> Ast.Derived (relation ~dialect relation_)
+    | Ast.Values values ->
+      Ast.Values
+        { values with
+          Ast.rows =
+            List.map values.rows ~f:(fun row ->
+              { row with
+                Ast.expressions = List.map row.expressions ~f:(expression ~dialect)
+              })
+        }
   in
   { source with Ast.kind }
 
@@ -181,13 +191,19 @@ and conflict ~dialect = function
       ; where_ = Option.map update.where_ ~f:(condition ~dialect)
       }
 
+and insert_input ~dialect = function
+  | Ast.Rows rows -> Ast.Rows (List.map rows ~f:(List.map ~f:(assignment ~dialect)))
+  | Ast.Select_rows selected ->
+    Ast.Select_rows { selected with query = select_query ~dialect selected.query }
+  | Ast.Mixed_sources -> Ast.Mixed_sources
+
 and lower_command ~dialect (command : Ast.command) =
   { command with
     Ast.ctes = List.map command.ctes ~f:(cte ~dialect)
   ; source = source ~dialect command.source
   ; from = List.map command.from ~f:(source ~dialect)
   ; assignments = List.map command.assignments ~f:(assignment ~dialect)
-  ; rows = List.map command.rows ~f:(List.map ~f:(assignment ~dialect))
+  ; insert_input = Option.map command.insert_input ~f:(insert_input ~dialect)
   ; conflict = Option.map command.conflict ~f:(conflict ~dialect)
   ; where_ = Option.map command.where_ ~f:(condition ~dialect)
   }
@@ -231,6 +247,7 @@ let rec expression_has_unsupported_having ~dialect = function
   | Ast.Scalar_subquery select_ -> select_has_unsupported_having ~dialect select_
   | Ast.Multiset_subquery multiset ->
     select_query_has_unsupported_having ~dialect multiset.query
+  | Ast.Exists_expr select_ -> select_has_unsupported_having ~dialect select_
 
 and condition_has_unsupported_having ~dialect = function
   | Ast.True | Ast.False -> false
@@ -296,6 +313,9 @@ and source_has_unsupported_having ~dialect source =
   match source.Ast.kind with
   | Ast.Table _ | Ast.Cte _ -> false
   | Ast.Derived relation -> select_query_has_unsupported_having ~dialect relation.query
+  | Ast.Values values ->
+    List.exists values.rows ~f:(fun row ->
+      List.exists row.Ast.expressions ~f:(expression_has_unsupported_having ~dialect))
 
 and cte_has_unsupported_having ~dialect cte =
   match cte.Ast.body with
@@ -315,8 +335,13 @@ and assignment_has_unsupported_having ~dialect assignment =
 
 and command_has_unsupported_having ~dialect command =
   List.exists command.Ast.assignments ~f:(assignment_has_unsupported_having ~dialect)
-  || List.exists command.rows ~f:(fun row ->
-    List.exists row ~f:(assignment_has_unsupported_having ~dialect))
+  || Option.value_map command.insert_input ~default:false ~f:(function
+    | Ast.Rows rows ->
+      List.exists rows ~f:(fun row ->
+        List.exists row ~f:(assignment_has_unsupported_having ~dialect))
+    | Ast.Select_rows selected ->
+      select_query_has_unsupported_having ~dialect selected.query
+    | Ast.Mixed_sources -> false)
   || Option.value_map command.conflict ~default:false ~f:(function
     | Ast.Do_nothing _ -> false
     | Ast.Do_update update ->
@@ -377,6 +402,7 @@ let rec sqlite_unsupported_expression = function
     |> fun branches -> first_unsupported (sqlite_unsupported_expression else_ :: branches)
   | Ast.Scalar_subquery select -> sqlite_unsupported_select select
   | Ast.Multiset_subquery multiset -> sqlite_unsupported_query multiset.query
+  | Ast.Exists_expr select -> sqlite_unsupported_select select
 
 and sqlite_unsupported_condition = function
   | Ast.True | Ast.False -> None
@@ -451,6 +477,9 @@ and sqlite_unsupported_source source =
   match source.Ast.kind with
   | Ast.Table _ | Ast.Cte _ -> None
   | Ast.Derived relation -> sqlite_unsupported_relation relation
+  | Ast.Values values ->
+    List.find_map values.rows ~f:(fun row ->
+      List.find_map row.Ast.expressions ~f:sqlite_unsupported_expression)
 
 and sqlite_unsupported_cte cte =
   match cte.Ast.body with
@@ -479,8 +508,12 @@ and sqlite_unsupported_command (command : Ast.command) =
     ; sqlite_unsupported_source command.source
     ; List.find_map command.from ~f:sqlite_unsupported_source
     ; List.find_map command.assignments ~f:sqlite_unsupported_assignment
-    ; List.find_map command.rows ~f:(fun row ->
-        List.find_map row ~f:sqlite_unsupported_assignment)
+    ; Option.bind command.insert_input ~f:(function
+        | Ast.Rows rows ->
+          List.find_map rows ~f:(fun row ->
+            List.find_map row ~f:sqlite_unsupported_assignment)
+        | Ast.Select_rows selected -> sqlite_unsupported_query selected.query
+        | Ast.Mixed_sources -> None)
     ; Option.bind command.conflict ~f:sqlite_unsupported_conflict
     ; Option.bind command.where_ ~f:sqlite_unsupported_condition
     ]
@@ -497,7 +530,10 @@ let command ~dialect command =
   | Dialect.Sqlite, Some operation, _ -> unsupported operation dialect
   | Dialect.Sqlite, None, _ when command_has_unsupported_having ~dialect command ->
     unsupported "HAVING without GROUP BY or an aggregate projection" dialect
-  | Dialect.Sqlite, None, Ast.Insert when List.exists command.rows ~f:has_default ->
+  | Dialect.Sqlite, None, Ast.Insert
+    when Option.value_map command.insert_input ~default:false ~f:(function
+           | Ast.Rows rows -> List.exists rows ~f:has_default
+           | Ast.Select_rows _ | Ast.Mixed_sources -> false) ->
     unsupported "INSERT DEFAULT" dialect
   | Dialect.Sqlite, None, Ast.Update when has_default command.assignments ->
     unsupported "UPDATE SET DEFAULT" dialect

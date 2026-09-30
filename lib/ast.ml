@@ -39,6 +39,7 @@ and expr =
   | Aggregate of aggregate
   | Scalar_subquery of select
   | Multiset_subquery of multiset_subquery
+  | Exists_expr of select
   | Current_timestamp
 
 and multiset_aggregate =
@@ -109,9 +110,21 @@ and relation =
   ; result_types : Db_type.packed list
   }
 
+and values =
+  { descriptor_source_id : int
+  ; columns : expr list
+  ; rows : values_row list
+  }
+
+and values_row =
+  { expressions : expr list
+  ; types : Db_type.packed list
+  }
+
 and source_kind =
   | Table of table_source
   | Derived of relation
+  | Values of values
   | Cte of int
 
 and source =
@@ -182,6 +195,21 @@ and assignment_value =
   | Expression of expr
   | Default
 
+and insert_target =
+  { target_source_id : int
+  ; target_column : Identifier.t
+  ; target_type : Db_type.packed
+  }
+
+and insert_input =
+  | Rows of assignment list list
+  | Select_rows of
+      { columns : insert_target list
+      ; query : select_query
+      ; result_types : Db_type.packed list
+      }
+  | Mixed_sources
+
 and command_kind =
   | Insert
   | Update
@@ -206,7 +234,7 @@ and command =
   ; kind : command_kind
   ; source : source
   ; assignments : assignment list
-  ; rows : assignment list list
+  ; insert_input : insert_input option
   ; from : source list
   ; conflict : conflict option
   ; where_ : condition option

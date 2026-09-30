@@ -4,7 +4,7 @@
 
 (name typed-sql)
 
-(version 0.3.4)
+(version 0.3.5)
 
 (generate_opam_files true)
 

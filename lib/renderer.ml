@@ -183,21 +183,17 @@ let rec render_expr ~aliases expression state =
     concat [ text "MAX("; expression; text ")" ], state
   | Ast.Aggregate (Ast.Multiset_agg multiset) ->
     let multiset, state = render_multiset_aggregate_raw ~aliases multiset state in
-    render_multiset_aggregate_output multiset state
+    render_multiset_output multiset state
   | Ast.Scalar_subquery select ->
     let select, state = render_select ~parent_aliases:aliases select state in
     concat [ text "("; nest (concat [ break ""; select ]); break ""; text ")" ], state
   | Ast.Multiset_subquery multiset ->
     let multiset, state = render_multiset_subquery_raw ~aliases multiset state in
     render_multiset_output multiset state
+  | Ast.Exists_expr select -> render_exists ~aliases ~operator:"EXISTS" select state
   | Ast.Current_timestamp -> text "CURRENT_TIMESTAMP", state
 
 and render_multiset_output multiset state =
-  match state.dialect with
-  | Dialect.Postgresql -> concat [ text "CAST("; multiset; text " AS TEXT)" ], state
-  | Dialect.Sqlite -> multiset, state
-
-and render_multiset_aggregate_output multiset state =
   match state.dialect with
   | Dialect.Postgresql ->
     ( concat
@@ -308,7 +304,7 @@ and render_multiset_columns alias names types state =
       concat [ text "JSON("; column; text ")" ]
     | Dialect.Sqlite | Dialect.Postgresql -> column
   in
-  List.map columns ~f:render |> separate ~by:(text ", ")
+  List.map columns ~f:render |> separate ~by:(concat [ text ","; break " " ])
 
 and render_multiset_subquery_raw ~aliases multiset state =
   let names =
@@ -335,25 +331,44 @@ and render_multiset_subquery_raw ~aliases multiset state =
     | Dialect.Postgresql -> text "LATERAL "
     | Dialect.Sqlite -> Template.Empty
   in
-  ( concat
-      [ text "(SELECT COALESCE("
-      ; text aggregate
+  let row =
+    concat
+      [ text row_function
       ; text "("
-      ; text row_function
-      ; text "("
-      ; fields
-      ; text "))"
-      ; text ", "
-      ; text empty
-      ; text ")"
-      ; break " "
-      ; text "FROM "
-      ; lateral
-      ; text "("
-      ; nest (concat [ break ""; query ])
+      ; nest (concat [ break ""; fields ])
       ; break ""
-      ; text ") AS "
-      ; text alias
+      ; text ")"
+      ]
+  in
+  let aggregate_call =
+    concat
+      [ text aggregate; text "("; nest (concat [ break ""; row ]); break ""; text ")" ]
+  in
+  let coalesce =
+    concat
+      [ text "COALESCE("
+      ; nest (concat [ break ""; aggregate_call; text ","; break " "; text empty ])
+      ; break ""
+      ; text ")"
+      ]
+  in
+  ( concat
+      [ text "("
+      ; nest
+          (concat
+             [ break ""
+             ; text "SELECT"
+             ; nest (concat [ break " "; coalesce ])
+             ; break " "
+             ; text "FROM "
+             ; lateral
+             ; text "("
+             ; nest (concat [ break ""; query ])
+             ; break ""
+             ; text ") AS "
+             ; text alias
+             ])
+      ; break ""
       ; text ")"
       ]
   , state )
@@ -496,10 +511,54 @@ and relation_column_names (relation : Ast.relation) =
     | Ast.Column { name; _ } -> name
     | _ -> assert false)
 
+and render_values_rows ~aliases rows state =
+  let rows_rev, state =
+    List.fold rows ~init:([], state) ~f:(fun (rows_rev, state) row ->
+      let expressions, state =
+        render_expressions
+          ~aliases
+          ~separator:(concat [ text ","; break " " ])
+          row.Ast.expressions
+          state
+      in
+      let rendered =
+        concat [ text "("; nest (concat [ break ""; expressions ]); break ""; text ")" ]
+      in
+      rendered :: rows_rev, state)
+  in
+  separate (List.rev rows_rev) ~by:(concat [ text ","; break " " ]), state
+
+and render_values_source ~aliases (values : Ast.values) state =
+  let columns =
+    List.mapi values.columns ~f:(fun index -> function
+      | Ast.Column { name; _ } ->
+        concat
+          [ text "\"v\"."
+          ; quote_identifier
+              (Identifier.of_string_exn ("column" ^ Int.to_string (index + 1)))
+          ; text " AS "
+          ; quote_identifier name
+          ]
+      | _ -> assert false)
+    |> separate ~by:(concat [ text ","; break " " ])
+  in
+  let rows, state = render_values_rows ~aliases values.rows state in
+  ( concat
+      [ text "(SELECT"
+      ; nest (concat [ break " "; columns ])
+      ; break " "
+      ; text "FROM (VALUES"
+      ; nest (concat [ break " "; rows ])
+      ; break " "
+      ; text ") AS \"v\")"
+      ]
+  , state )
+
 and render_source ?(lateral = false) ~aliases (source : Ast.source) state =
   match source.kind with
   | Ast.Table table -> render_table_source table, state
   | Ast.Cte id -> quote_identifier (Identifier.of_string_exn (cte_name state id)), state
+  | Ast.Values values -> render_values_source ~aliases values state
   | Ast.Derived relation ->
     let query, state =
       render_select_query
@@ -607,6 +666,7 @@ and render_projection ~aliases ~json_projection ~output_names expressions state 
 and render_select
       ?(json_projection = false)
       ?(output_names = [])
+      ?(sqlite_insert_upsert = false)
       ~parent_aliases
       (select : Ast.select)
       state
@@ -646,6 +706,8 @@ and render_select
     in
     let parts, state =
       match select.where_ with
+      | None when sqlite_insert_upsert ->
+        concat [ parts; break " "; text "WHERE TRUE" ], state
       | None -> parts, state
       | Some condition ->
         let condition, state = render_condition ~aliases condition state in
@@ -715,7 +777,14 @@ and set_operator = function
   | Ast.Except -> "EXCEPT"
   | Ast.Except_all -> "EXCEPT ALL"
 
-and render_compound_branch ~json_projection ~parent_aliases ~output_names query state =
+and render_compound_branch
+      ?(sqlite_insert_upsert = false)
+      ~json_projection
+      ~parent_aliases
+      ~output_names
+      query
+      state
+  =
   let query, state =
     render_select_query ~json_projection ~parent_aliases ~output_names query state
   in
@@ -724,7 +793,8 @@ and render_compound_branch ~json_projection ~parent_aliases ~output_names query 
     | true, Dialect.Postgresql -> text "LATERAL "
     | false, _ | true, Dialect.Sqlite -> Template.Empty
   in
-  ( concat
+  let branch =
+    concat
       [ text "SELECT *"
       ; break " "
       ; text "FROM "
@@ -734,18 +804,30 @@ and render_compound_branch ~json_projection ~parent_aliases ~output_names query 
       ; break ""
       ; text ") AS s0"
       ]
+  in
+  ( (if sqlite_insert_upsert then
+       concat [ branch; break " "; text "WHERE TRUE" ]
+     else
+       branch)
   , state )
 
 and render_select_query
       ?(json_projection = false)
       ?(output_names = [])
+      ?(sqlite_insert_upsert = false)
       ~parent_aliases
       query
       state
   =
   match query with
   | Ast.Simple select ->
-    render_select ~json_projection ~output_names ~parent_aliases select state
+    render_select
+      ~json_projection
+      ~output_names
+      ~sqlite_insert_upsert
+      ~parent_aliases
+      select
+      state
   | Ast.Source_free source_free ->
     let render_body state =
       let projection, state =
@@ -756,7 +838,12 @@ and render_select_query
           [ source_free.expression ]
           state
       in
-      concat [ text "SELECT"; nest (concat [ break " "; projection ]) ], state
+      let select = concat [ text "SELECT"; nest (concat [ break " "; projection ]) ] in
+      ( (if sqlite_insert_upsert then
+           concat [ select; break " "; text "WHERE TRUE" ]
+         else
+           select)
+      , state )
     in
     render_with source_free.ctes ~render_body state
   | Ast.Compound compound ->
@@ -771,6 +858,7 @@ and render_select_query
       in
       let right, state =
         render_compound_branch
+          ~sqlite_insert_upsert
           ~json_projection
           ~parent_aliases
           ~output_names
@@ -986,7 +1074,7 @@ and render_conflict ~aliases conflict parts state =
 and render_target_source (source : Ast.source) =
   match source.Ast.kind with
   | Ast.Table table -> render_table_source table
-  | Ast.Derived _ | Ast.Cte _ -> assert false
+  | Ast.Derived _ | Ast.Values _ | Ast.Cte _ -> assert false
 
 and render_from_sources ~aliases (sources : Ast.source list) state =
   match sources with
@@ -1006,13 +1094,36 @@ and render_command_ast (command : Ast.command) state =
     let aliases = aliases_for_command command in
     match command.kind with
     | Ast.Insert ->
-      let first_row = List.hd_exn command.rows in
-      let columns = List.map first_row ~f:(fun assignment -> assignment.Ast.column) in
+      let columns, input, state =
+        match command.insert_input with
+        | Some (Ast.Rows rows) ->
+          let first_row = List.hd_exn rows in
+          let columns = List.map first_row ~f:(fun assignment -> assignment.Ast.column) in
+          let rows, state = render_insert_rows ~aliases ~columns rows state in
+          columns, concat [ text "VALUES"; nest (concat [ break " "; rows ]) ], state
+        | Some (Ast.Select_rows selected) ->
+          let columns =
+            List.map selected.columns ~f:(fun column -> column.Ast.target_column)
+          in
+          let sqlite_insert_upsert =
+            match state.dialect, command.conflict with
+            | Dialect.Sqlite, Some _ -> true
+            | Dialect.Postgresql, _ | Dialect.Sqlite, None -> false
+          in
+          let query, state =
+            render_select_query
+              ~parent_aliases:[]
+              ~sqlite_insert_upsert
+              selected.query
+              state
+          in
+          columns, query, state
+        | None | Some Ast.Mixed_sources -> assert false
+      in
       let rendered_columns =
         List.map columns ~f:quote_identifier
         |> separate ~by:(concat [ text ","; break " " ])
       in
-      let rows, state = render_insert_rows ~aliases ~columns command.rows state in
       let target_alias =
         let alias = alias_for aliases command.source.source_id in
         if String.is_empty alias then
@@ -1030,8 +1141,7 @@ and render_command_ast (command : Ast.command) state =
           ; break ""
           ; text ")"
           ; break " "
-          ; text "VALUES"
-          ; nest (concat [ break " "; rows ])
+          ; input
           ]
       in
       (match command.conflict with
@@ -1072,7 +1182,13 @@ and render_command_ast (command : Ast.command) state =
 
 and render_returning (returning : Ast.returning) state =
   let parts, state = render_command_ast returning.command state in
-  let aliases = [ returning.command.source.source_id, "" ] in
+  let aliases =
+    match state.dialect, returning.command.kind with
+    | Dialect.Postgresql, Ast.Update -> aliases_for_command returning.command
+    | Dialect.Postgresql, (Ast.Insert | Ast.Delete)
+    | Dialect.Sqlite, (Ast.Insert | Ast.Update | Ast.Delete) ->
+      [ returning.command.source.source_id, "" ]
+  in
   let projection, state =
     render_expressions
       ~aliases

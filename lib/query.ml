@@ -95,6 +95,25 @@ let from_relation relation =
   }
 ;;
 
+let from_values values =
+  let reference = Table_ref.create (Values.table values) in
+  { context = reference
+  ; ast =
+      { ctes = []
+      ; source = Values.source values reference
+      ; joins = []
+      ; distinct = false
+      ; projection = []
+      ; where_ = None
+      ; group_by = []
+      ; having = None
+      ; order_by = []
+      ; limit = None
+      ; offset = None
+      }
+  }
+;;
+
 let from_cte cte =
   let reference = Table_ref.create (Cte.table cte) in
   { context = reference
@@ -204,6 +223,30 @@ let left_join_relation relation ~on query =
   }
 ;;
 
+let inner_join_values values ~on query =
+  let reference, query =
+    join_source
+      Ast.Inner
+      ~table:(Values.table values)
+      ~source:(fun reference -> Values.source values reference)
+      ~on
+      query
+  in
+  { context = query.context, reference; ast = query.ast }
+;;
+
+let left_join_values values ~on query =
+  let reference, query =
+    join_source
+      Ast.Left
+      ~table:(Values.table values)
+      ~source:(fun reference -> Values.source values reference)
+      ~on
+      query
+  in
+  { context = query.context, Nullable_table_ref.of_table_ref reference; ast = query.ast }
+;;
+
 let inner_join_cte cte ~on query =
   let reference, query =
     join_source
@@ -297,6 +340,11 @@ let select_scalar make_expression query =
 let exists query =
   let ast = { query.ast with projection = [] } in
   Condition.create (Ast.Exists ast)
+;;
+
+let exists_expr query =
+  let ast = { query.ast with projection = [] } in
+  { Expr.node = Ast.Exists_expr ast; db_type = Db_type.bool }
 ;;
 
 let not_exists query =
@@ -401,6 +449,7 @@ module Aggregate = struct
   let from = from
   let from_derived = from_derived
   let from_relation = from_relation
+  let from_values = from_values
   let from_cte = from_cte
   let inner_join = inner_join
   let left_join = left_join
@@ -408,6 +457,8 @@ module Aggregate = struct
   let left_join_derived = left_join_derived
   let inner_join_relation = inner_join_relation
   let left_join_relation = left_join_relation
+  let inner_join_values = inner_join_values
+  let left_join_values = left_join_values
   let inner_join_cte = inner_join_cte
   let left_join_cte = left_join_cte
   let where = where

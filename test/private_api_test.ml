@@ -74,17 +74,17 @@ let conflict_column ?(source_id = 0) column : A.conflict_target_column =
 ;;
 
 let command kind assignments : A.command =
-  let assignments, rows =
+  let assignments, insert_input =
     match kind with
-    | A.Insert -> [], [ assignments ]
-    | A.Update -> assignments, []
-    | A.Delete -> [], []
+    | A.Insert -> [], Some (A.Rows [ assignments ])
+    | A.Update -> assignments, None
+    | A.Delete -> [], None
   in
   { ctes = []
   ; kind
   ; source = source 0
   ; assignments
-  ; rows
+  ; insert_input
   ; from = []
   ; conflict = None
   ; where_ = None
@@ -132,6 +132,12 @@ let%test_module "private query inspection" =
       Shape.equal
         (Compiled_query.shape compiled_original)
         (Compiled_query.shape compiled_rebuilt)
+    ;;
+
+    let%test "compiled query formatter matches SQL" =
+      String.equal
+        (Stdlib.Format.asprintf "%a" Compiled_query.pp compiled_original)
+        (Compiled_query.sql compiled_original)
     ;;
 
     let%test "projection keeps source identity" =
@@ -261,6 +267,31 @@ let%test_module "DML validator diagnostics" =
       [%expect {| INSERT must assign at least one column |}]
     ;;
 
+    let%expect_test "missing INSERT row source" =
+      validate { (command A.Insert [ assignment ]) with insert_input = None };
+      [%expect {| INSERT has no row source |}]
+    ;;
+
+    let%expect_test "mixed INSERT row sources" =
+      validate
+        { (command A.Insert [ assignment ]) with insert_input = Some A.Mixed_sources };
+      [%expect {| INSERT cannot combine VALUES and SELECT sources |}]
+    ;;
+
+    let%expect_test "INSERT SELECT with no target columns" =
+      validate
+        { (command A.Insert [ assignment ]) with
+          insert_input =
+            Some
+              (A.Select_rows
+                 { columns = []
+                 ; query = A.Simple select
+                 ; result_types = [ Db_type.Pack Db_type.int ]
+                 })
+        };
+      [%expect {| INSERT must assign at least one column |}]
+    ;;
+
     let%expect_test "empty UPDATE assignments" =
       validate (command A.Update []);
       [%expect {| UPDATE must assign at least one column |}]
@@ -303,6 +334,23 @@ let%test_module "DML validator diagnostics" =
     ;;
 
     let%test_unit "valid INSERT" = Validator.command insert |> ok_exn
+
+    let%test "compiled command formatter matches SQL" =
+      let template, parameters = Renderer.command ~dialect:Dialect.Postgresql insert in
+      let compiled =
+        Compiled_command.create
+          ~dialect:Dialect.Postgresql
+          ~template
+          ~parameters:
+            (List.filter_map parameters ~f:(function
+               | A.Value value -> Some value
+               | A.Slot _ -> None))
+          ~shape:(Shape.create "insert")
+      in
+      String.equal
+        (Stdlib.Format.asprintf "%a" Compiled_command.pp compiled)
+        (Compiled_command.sql compiled)
+    ;;
   end)
 ;;
 
@@ -400,6 +448,27 @@ let%test_unit "validator rejects incompatible recursive anchor and step types" =
   | Error error ->
     failwith ("expected Mismatched_set_projection, got " ^ Compile_error.to_string error)
   | Ok () -> failwith "recursive CTE accepted incompatible type vectors"
+;;
+
+let%test_unit "validator rejects a recursive anchor with the wrong CTE type" =
+  let cte_id = 704 in
+  let cte = recursive_cte ~cte_id ~step:(int_relation (cte_source ~cte_id 2)) in
+  let cte =
+    { cte with
+      body =
+        A.Recursive_body
+          { union = A.Recursive_union_all
+          ; anchor = text_relation (source 1)
+          ; step = int_relation (cte_source ~cte_id 2)
+          }
+    }
+  in
+  match Validator.result_query (query_with_cte cte) with
+  | Error (Compile_error.Mismatched_relation_projection _) -> ()
+  | Error error ->
+    failwith
+      ("expected Mismatched_relation_projection, got " ^ Compile_error.to_string error)
+  | Ok () -> failwith "recursive CTE accepted an anchor with the wrong type"
 ;;
 
 let%test_module "recursive CTE self-reference validation" =
@@ -865,7 +934,9 @@ let%test_module "private helper boundary cases" =
     ;;
 
     let%test "rejects INSERT with no rows" =
-      match Validator.command { (command A.Insert []) with rows = [] } with
+      match
+        Validator.command { (command A.Insert []) with insert_input = Some (A.Rows []) }
+      with
       | Error (Compile_error.Empty_assignments `Insert) -> true
       | _ -> false
     ;;
@@ -958,6 +1029,24 @@ let%test_module "lowering capability traversal" =
       | Error (Compile_error.Unsupported_operation { dialect = Dialect.Sqlite; _ }) ->
         true
       | Error _ | Ok _ -> false
+    ;;
+
+    let%test "lowering preserves the mixed-source marker until validation" =
+      let insert =
+        { (command A.Insert [ assignment ]) with insert_input = Some A.Mixed_sources }
+      in
+      match Lower.command ~dialect:Dialect.Postgresql insert with
+      | Ok { A.insert_input = Some A.Mixed_sources; _ } -> true
+      | Ok _ | Error _ -> false
+    ;;
+
+    let%test "SQLite capability scan tolerates the mixed-source marker" =
+      let insert =
+        { (command A.Insert [ assignment ]) with insert_input = Some A.Mixed_sources }
+      in
+      match Lower.command ~dialect:Dialect.Sqlite insert with
+      | Ok { A.insert_input = Some A.Mixed_sources; _ } -> true
+      | Ok _ | Error _ -> false
     ;;
 
     let%test "supported SQLite SELECT has no unsupported HAVING" =

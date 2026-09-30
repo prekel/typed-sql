@@ -485,6 +485,49 @@ let run conn =
       ()
     |> caqti_or_fail
   in
+  let value_table : unit Table.t = Table.v_exn "selected_ids" in
+  let value_id = Column.v_exn value_table "id" Db_type.int64 in
+  let selected_ids =
+    Values.create
+      ~table:value_table
+      ~columns:(fun selected -> Projection.expr (Expr.column selected value_id))
+      ~first:(Values.Row.expr (Expr.constant Db_type.int64 1L))
+      ~rest:[ Values.Row.expr (Expr.constant Db_type.int64 3L) ]
+  in
+  let joined_values =
+    Query.(
+      from Person.table
+      |> inner_join_values selected_ids ~on:(fun person selected ->
+        Person.id person =. Expr.column selected value_id)
+      |> order_by (fun (person, _selected) -> Person.id person) `Asc
+      |> select (fun (person, _selected) -> Projection.expr (Person.name person)))
+  in
+  let* joined_names = Typed_sql_caqti_lwt.fetch ~conn joined_values >>= adapter_or_fail in
+  if not (List.equal String.equal joined_names [ "Ada"; "Linus" ]) then
+    failwith "VALUES join returned unexpected SQLite rows";
+  let left_joined_values =
+    Query.(
+      from Person.table
+      |> left_join_values selected_ids ~on:(fun person selected ->
+        Person.id person =. Expr.column selected value_id)
+      |> order_by (fun (person, _selected) -> Person.id person) `Asc
+      |> select (fun (person, selected) ->
+        Projection.pair (Person.name person) (Expr.nullable_column selected value_id)))
+  in
+  let* nullable_ids =
+    Typed_sql_caqti_lwt.fetch ~conn left_joined_values >>= adapter_or_fail
+  in
+  let equal_row (left_name, left_id) (right_name, right_id) =
+    String.equal left_name right_name && Option.equal Int64.equal left_id right_id
+  in
+  if
+    not
+      (List.equal
+         equal_row
+         nullable_ids
+         [ "Ada", Some 1L; "Grace", None; "Linus", Some 3L ])
+  then
+    failwith "LEFT JOIN VALUES did not null-extend unmatched rows";
   let* () =
     Connection.exec
       (direct "INSERT INTO multiset_numbers (value) VALUES (9223372036854775807)")
@@ -893,15 +936,21 @@ let run conn =
       ~columns:(fun number -> Projection.expr (Number.value number))
       query
   in
+  let recursive_start =
+    Values.create
+      ~table:value_table
+      ~columns:(fun selected -> Projection.expr (Expr.column selected value_id))
+      ~first:(Values.Row.expr (Expr.constant Db_type.int64 1L))
+      ~rest:[]
+  in
   let recursive_numbers =
     Cte.recursive
       ~union:`Union_all
       ~anchor:
         (numbers_relation
            Query.(
-             from Person.table
-             |> where (fun person -> Person.id person =$ 1L)
-             |> select (fun person -> Projection.expr (Person.id person))))
+             from_values recursive_start
+             |> select (fun selected -> Projection.expr (Expr.column selected value_id))))
       ~step:(fun numbers ->
         numbers_relation
           Query.(

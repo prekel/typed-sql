@@ -6,10 +6,11 @@
 может безопасно строиться из типизированного input при каждом вызове.
 
 Текущий срез поддерживает типизированные `SELECT` с joins, derived tables,
-CTE, portable set operations, выражениями, aggregates, `GROUP BY`, correlated
-subqueries и вложенными коллекциями, calendar date, timestamp и UUID. DML
-включает multi-row `INSERT`, portable UPSERT, scoped `UPDATE`/`DELETE`,
-`DEFAULT`, `UPDATE FROM`, условные assignments и `RETURNING`.
+CTE, `VALUES` relations, portable set operations, выражениями, aggregates,
+`GROUP BY`, correlated subqueries, `EXISTS` в проекции и вложенными коллекциями,
+calendar date, timestamp и UUID. DML включает multi-row `INSERT`,
+`INSERT ... SELECT`, portable UPSERT, scoped `UPDATE`/`DELETE`, `DEFAULT`,
+`UPDATE FROM`, условные assignments и `RETURNING`.
 Пакет `typed-sql-caqti-lwt` содержит адаптеры Caqti для PostgreSQL и SQLite и
 умеет читать их схему; `typed-sql-pgocaml-lwt` содержит PostgreSQL-адаптер для
 PG'OCaml. Runtime-набор проверен на PostgreSQL 18.6 через оба адаптера; другие
@@ -112,6 +113,25 @@ let department_name person =
 Для уже nullable expression есть `Expr.scalar_subquery_nullable`: SQL не
 различает отсутствие строки и строку с `NULL`, поэтому оба случая дают `None`.
 
+`Query.exists_expr` превращает незавершённый SELECT в булево выражение для
+проекции. Оно возвращает `false` для пустой выборки и допускает корреляцию с
+внешним запросом:
+
+```ocaml
+let has_department person =
+  Query.(
+    from Department.table
+    |> where (fun department ->
+      Department.person_id department =. Person.id person)
+    |> exists_expr)
+
+let people_with_department =
+  Query.(
+    from Person.table
+    |> select (fun person ->
+      Projection.pair (Person.name person) (has_department person)))
+```
+
 ## Вложенные коллекции
 
 `Query.multiset` превращает завершённый SELECT в одну типизированную
@@ -181,6 +201,34 @@ let query =
 глубины. Такие relation также принимают `Query.inner_join_relation`,
 `Query.left_join_relation` и `Update.from_relation`.
 
+`Values.create` строит виртуальную relation из типизированных строк. Дескрипторы
+задают имена и типы её колонок; таблица с таким именем в базе не требуется.
+`Values.create_dynamic` принимает строки переменной формы и сообщает ошибку
+компиляции при несовпадении ширины или database types. Доступны
+`Query.from_values`, `Query.inner_join_values` и `Query.left_join_values`:
+
+```ocaml
+module Selected_id = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "selected_ids"
+  let id_col = Column.v_exn table "id" Db_type.int64
+  let id row = Expr.column row id_col
+end
+
+let selected_ids =
+  Values.create
+    ~table:Selected_id.table
+    ~columns:(fun row -> Projection.expr (Selected_id.id row))
+    ~first:(Values.Row.expr (Expr.constant Db_type.int64 1L))
+    ~rest:[ Values.Row.expr (Expr.constant Db_type.int64 3L) ]
+
+let selected_people =
+  Query.(
+    from_values selected_ids
+    |> select (fun row -> Projection.expr (Selected_id.id row)))
+```
+
 Когда нужны заданные вручную SQL-имена и descriptors, низкоуровневый
 `Derived_table.create` связывает готовый `SELECT` с `Table.t` и `Column.t`.
 Такой результат передаётся в `Query.from_derived`, join-варианты или
@@ -229,6 +277,36 @@ let rename =
     |> set Person.name_col "Ada Lovelace"
     |> where (fun person -> Person.id person =$ 1L)
     |> command)
+```
+
+Для `INSERT ... SELECT` задайте целевые колонки в порядке проекции источника.
+Компилятор сверяет их принадлежность таблице и точные database types, включая
+`NULL` и mapped codecs. Источником может быть SELECT с CTE или операцией
+множеств; `ON CONFLICT` и `RETURNING` доступны как для обычного `INSERT`:
+
+```ocaml
+module Archive = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "people_archive"
+  let id_col = Column.v_exn table "id" Db_type.int64
+  let name_col = Column.v_exn table "name" Db_type.text
+end
+
+let archive_people =
+  Statement.Portable.command_exn (fun _ ->
+    let source =
+      Query.(
+        from Person.table
+        |> select (fun person ->
+          Projection.pair (Person.id person) (Person.name person)))
+    in
+    let columns = Insert.Columns.(column Archive.id_col |> add Archive.name_col) in
+    Insert.(
+      into Archive.table
+      |> from_select columns source
+      |> on_conflict_do_nothing
+      |> command))
 ```
 
 Идемпотентная вставка для поддерживаемых dialect записывается в основном API:
@@ -397,7 +475,7 @@ codec, шаблоны, shape и декодеры. Она разрешает `Sta
 
 ## Сборка
 
-Проект использует локальный switch OCaml 5.5.1:
+Проект использует локальный switch OCaml 5.1.1:
 
 ```sh
 make create_switch
@@ -406,6 +484,7 @@ make check
 make release-check
 make coverage
 make coverage-all
+make coverage-mega
 ```
 
 Benchmark compiler для маленького запроса и shapes с 20/100 условиями или
@@ -475,3 +554,8 @@ test. White-box tests и `typed-sql.backend` в этот прогон не вх�
 пишет отчёт в `_coverage/all/html/index.html`. Для локального switch с OCaml
 5.1.1 `make deps_all` закрепляет `bisect_ppx` на upstream commit, совместимом с
 используемым `ppxlib`.
+
+`make coverage-mega` отдельно измеряет, какие ветви компилятора проходит один
+сложный PostgreSQL-запрос из `test/mega_coverage_test.ml`. Этот диагностический
+прогон требует не менее 60% и не заменяет `make coverage` или
+`make coverage-all`; отчёт находится в `_coverage/mega/html/index.html`.
