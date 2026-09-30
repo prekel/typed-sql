@@ -949,7 +949,7 @@ let run_goldens ~postgresql conn =
   Lwt.return_unit
 ;;
 
-let run conn =
+let run ~postgresql conn =
   let module Connection = (val conn : Caqti_lwt.CONNECTION) in
   let* () =
     Connection.exec
@@ -981,9 +981,12 @@ let run conn =
     >>= adapter_or_fail
   in
   assert_rows
-    ~name:"dialect choice selects the PostgreSQL statement branch"
+    ~name:"dialect choice selects the connection's statement branch"
     ~equal:String.equal
-    [ "Ada" ]
+    (if postgresql then
+       [ "Ada" ]
+     else
+       [ "Grace" ])
     dialect_choice_rows;
   let* () =
     Connection.exec
@@ -1528,13 +1531,13 @@ let test_caqti_prepared conn =
 let main () =
   let* () =
     with_connection "postgresql://" (fun conn ->
-      let* () = run conn in
+      let* () = run ~postgresql:true conn in
       let* () = test_caqti_prepared conn in
       let* () = postgres_only conn in
       run_goldens ~postgresql:true conn)
   in
   with_connection "sqlite3::memory:" (fun conn ->
-    let* () = run conn in
+    let* () = run ~postgresql:false conn in
     run_goldens ~postgresql:false conn)
 ;;
 
