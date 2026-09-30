@@ -815,8 +815,10 @@ let final_update
                 from Event.table
                 |> where (fun event -> Event.person_id event =. Person.id person)
                 |> order_by Event.id `Asc
-                |> Postgresql.Query.fetch_with_ties 1
+                |> limit_one
                 |> Postgresql.Query.for_update
+                     ~of_:(fun event -> [ Postgresql.Query.target event ])
+                     ~skip_locked:true
                 |> exists_expr)
             in
             let has_input_row =
@@ -1698,8 +1700,8 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
             (t5."person_id" = t0."id")
           ORDER BY
             t5."id" ASC
-          FETCH FIRST 1 ROWS WITH TIES
-          FOR UPDATE
+          LIMIT 1
+          FOR UPDATE OF t5 SKIP LOCKED
         )) = $69)
         AND ((EXISTS (
           SELECT
