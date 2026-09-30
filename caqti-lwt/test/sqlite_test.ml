@@ -120,6 +120,81 @@ module Number = struct
   let value reference = Expr.column reference value_column
 end
 
+module Directory = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "recursive_directories"
+  let id_column = Column.v_exn table "id" Db_type.int
+  let parent_id_column = Column.nullable_v_exn table "parent_id" Db_type.int
+  let label_column = Column.v_exn table "label" Db_type.text
+  let id row = Expr.column row id_column
+  let parent_id row = Expr.column row parent_id_column
+  let label row = Expr.column row label_column
+end
+
+let directory_tree_fields id parent_id label depth =
+  Derived_table.Fields.both
+    (Derived_table.Fields.both
+       (Derived_table.Fields.expr id)
+       (Derived_table.Fields.expr parent_id))
+    (Derived_table.Fields.both
+       (Derived_table.Fields.expr label)
+       (Derived_table.Fields.expr depth))
+;;
+
+let directory_tree_query =
+  let anchor =
+    Query.(
+      from Directory.table
+      |> where (fun directory -> Expr.is_null (Directory.parent_id directory))
+      |> select_relation (fun directory ->
+        directory_tree_fields
+          (Directory.id directory)
+          (Directory.parent_id directory)
+          (Directory.label directory)
+          (Expr.constant Db_type.int 0)))
+  in
+  let definition =
+    Cte.recursive_relation ~union:`Union_all ~anchor ~step:(fun tree ->
+      Query.(
+        from Directory.table
+        |> inner_join_cte_relation tree ~on:(fun directory ((parent_id, _), _) ->
+          Directory.parent_id directory =. Expr.to_nullable parent_id)
+        |> select_relation (fun (directory, ((_, _), (_, depth))) ->
+          directory_tree_fields
+            (Directory.id directory)
+            (Directory.parent_id directory)
+            (Directory.label directory)
+            Expr.Int.Infix.(depth +. Expr.constant Db_type.int 1))))
+  in
+  Cte.with_result definition ~f:(fun tree ->
+    Query.(
+      from_cte_relation tree
+      |> order_by (fun ((_, _), (_, depth)) -> depth) `Asc
+      |> order_by (fun ((id, _), _) -> id) `Asc
+      |> select (fun ((id, parent_id), (label, depth)) ->
+        Projection.both
+          (Projection.both (Projection.expr id) (Projection.expr parent_id))
+          (Projection.both (Projection.expr label) (Projection.expr depth)))))
+;;
+
+let literal_recursive_numbers_query =
+  let definition =
+    Cte.recursive_relation
+      ~union:`Union_all
+      ~anchor:(Query.select_one_relation (Expr.constant Db_type.int 1))
+      ~step:(fun numbers ->
+        Query.(
+          from_cte_relation numbers
+          |> where (fun value -> value <$ 5)
+          |> select_relation (fun value ->
+            Derived_table.Fields.expr
+              Expr.Int.Infix.(value +. Expr.constant Db_type.int 1))))
+  in
+  Cte.with_result definition ~f:(fun numbers ->
+    Query.(from_cte_relation numbers |> select Projection.expr))
+;;
+
 type person_lookup =
   { person_id : int64
   ; maximum_rows : int
@@ -972,6 +1047,48 @@ let run conn =
   in
   if not (List.equal Int64.equal recursive_numbers [ 1L; 2L; 3L; 4L ]) then
     failwith "recursive CTE returned unexpected rows";
+  let* literal_recursive_numbers =
+    Typed_sql_caqti_lwt.fetch ~conn literal_recursive_numbers_query >>= adapter_or_fail
+  in
+  if not (List.equal Int.equal [ 1; 2; 3; 4; 5 ] literal_recursive_numbers) then
+    failwith "source-free recursive CTE returned unexpected rows";
+  let* () =
+    Connection.exec
+      (direct
+         "CREATE TABLE recursive_directories (id INTEGER PRIMARY KEY, parent_id INTEGER NULL, label TEXT NOT NULL)")
+      ()
+    |> caqti_or_fail
+  in
+  let* () =
+    Connection.exec
+      (direct
+         "INSERT INTO recursive_directories (id, parent_id, label) VALUES (1, NULL, 'root'), (2, 1, 'left'), (3, 1, 'right'), (4, 2, 'leaf')")
+      ()
+    |> caqti_or_fail
+  in
+  let* directory_rows =
+    Typed_sql_caqti_lwt.fetch ~conn directory_tree_query >>= adapter_or_fail
+  in
+  let equal_directory_row
+        ((left_id, left_parent), (left_label, left_depth))
+        ((right_id, right_parent), (right_label, right_depth))
+    =
+    Int.equal left_id right_id
+    && Option.equal Int.equal left_parent right_parent
+    && String.equal left_label right_label
+    && Int.equal left_depth right_depth
+  in
+  assert_equal
+    ~equal:equal_directory_row
+    [ (1, None), ("root", 0)
+    ; (2, Some 1), ("left", 1)
+    ; (3, Some 1), ("right", 1)
+    ; (4, Some 2), ("leaf", 2)
+    ]
+    directory_rows;
+  let* () =
+    Connection.exec (direct "DROP TABLE recursive_directories") () |> caqti_or_fail
+  in
   let* lookup =
     Typed_sql_caqti_lwt.run
       ~conn

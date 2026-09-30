@@ -128,6 +128,22 @@ let create_inferred fields query =
   }
 ;;
 
+let create_inferred_one expression =
+  let fields = Fields.expr expression in
+  let descriptor_reference = Table_ref.create inferred_table in
+  let source_id = Table_ref.source_id descriptor_reference in
+  let types = Fields.types fields in
+  { ast_relation =
+      { Ast.query = Ast.Source_free { ctes = []; expression = Expr.node expression }
+      ; columns = Fields.columns fields ~source_id
+      ; column_types = types
+      ; result_types = types
+      }
+  ; fields = (fun source_id -> Fields.fields fields ~source_id)
+  ; nullable_fields = (fun source_id -> Fields.nullable_fields fields ~source_id)
+  }
+;;
+
 let inferred_reference _relation = Table_ref.create inferred_table
 let inferred_relation relation = relation.ast_relation
 let inferred_fields relation reference = relation.fields (Table_ref.source_id reference)

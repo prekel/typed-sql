@@ -5,6 +5,11 @@ type 'row t =
   ; table : 'row Table.t
   }
 
+type ('fields, 'nullable_fields, 'requirements) inferred =
+  { id : int
+  ; relation : ('fields, 'nullable_fields, 'requirements) Derived_table.inferred
+  }
+
 type ('handle, +'requirements) definition =
   { cte : Ast.cte
   ; handle : 'handle
@@ -67,6 +72,27 @@ let recursive ~union ~anchor ~step =
   }
 ;;
 
+let recursive_relation ~union ~anchor ~step =
+  let handle = { id = Atomic.fetch_and_add next_id 1; relation = anchor } in
+  let anchor = Derived_table.inferred_relation anchor in
+  let step = step handle |> Derived_table.inferred_relation in
+  let union =
+    match union with
+    | `Union -> Ast.Recursive_union
+    | `Union_all -> Ast.Recursive_union_all
+  in
+  { handle
+  ; cte =
+      { Ast.cte_id = handle.id
+      ; columns = anchor.columns
+      ; column_types = anchor.column_types
+      ; result_types = anchor.result_types
+      ; materialization = None
+      ; body = Ast.Recursive_body { union; anchor; step }
+      }
+  }
+;;
+
 let add_cte_to_result cte result =
   let ast =
     match Result_query.ast result with
@@ -92,8 +118,21 @@ let with_command definition ~f =
   Command.create { command with Ast.ctes = definition.cte :: command.ctes }
 ;;
 
-let id cte = cte.id
-let table cte = cte.table
+let id (cte : _ t) = cte.id
+let table (cte : _ t) = cte.table
+let inferred_id (cte : (_, _, _) inferred) = cte.id
+
+let inferred_reference (_cte : (_, _, _) inferred) =
+  Table_ref.create Derived_table.inferred_table
+;;
+
+let inferred_fields (cte : (_, _, _) inferred) reference =
+  Derived_table.inferred_fields cte.relation reference
+;;
+
+let inferred_nullable_fields (cte : (_, _, _) inferred) reference =
+  Derived_table.inferred_nullable_fields cte.relation reference
+;;
 
 module Postgresql = struct
   let returning ~table ~columns query =
