@@ -344,6 +344,125 @@ let%test_module "choosing among ten static sort variants" =
   end)
 ;;
 
+let%test_module "page and total statements share runtime filters" =
+  (module struct
+    type input =
+      { min_age : int
+      ; city : string
+      ; maximum_rows : int
+      ; start_at : int
+      }
+
+    let filtered_people ~min_age ~city =
+      Query.(
+        from Person.table
+        |> where (fun person ->
+          Person.age person >=. min_age &&. (Person.city person =. city)))
+    ;;
+
+    let page_statement =
+      Statement.Portable.query_many_exn (fun params ->
+        let min_age = params.column Person.age_column ~get:(fun input -> input.min_age) in
+        let city = params.column Person.city_column ~get:(fun input -> input.city) in
+        let maximum_rows =
+          params.non_negative_int ~name:"maximum_rows" ~get:(fun input ->
+            input.maximum_rows)
+        in
+        let start_at =
+          params.non_negative_int ~name:"start_at" ~get:(fun input -> input.start_at)
+        in
+        Query.(
+          filtered_people ~min_age ~city
+          |> order_by Person.id `Asc
+          |> limit_param maximum_rows
+          |> offset_param start_at
+          |> select Person.projection))
+    ;;
+
+    let total_statement =
+      Statement.Portable.query_one_exn (fun params ->
+        let min_age = params.column Person.age_column ~get:(fun input -> input.min_age) in
+        let city = params.column Person.city_column ~get:(fun input -> input.city) in
+        Query.(
+          filtered_people ~min_age ~city
+          |> select_exactly_one (fun _ -> Projection.expr Expr.count_all)))
+    ;;
+
+    let input = { min_age = 18; city = "London"; maximum_rows = 20; start_at = 40 }
+    let sql dialect statement = Statement.sql_exn ~dialect ~input statement
+
+    let%expect_test "PostgreSQL page statement applies shared filters and pagination" =
+      sql Dialect.Postgresql page_statement |> Stdlib.print_endline;
+      [%expect
+        {|
+        SELECT
+          t0."id",
+          t0."name"
+        FROM "people" AS t0
+        WHERE
+          (
+            (t0."age" >= $1)
+            AND (t0."city" = $2)
+          )
+        ORDER BY
+          t0."id" ASC
+        LIMIT $3
+        OFFSET $4
+        |}]
+    ;;
+
+    let%expect_test "PostgreSQL total statement counts the same filtered rows" =
+      sql Dialect.Postgresql total_statement |> Stdlib.print_endline;
+      [%expect
+        {|
+        SELECT
+          COUNT(*)
+        FROM "people" AS t0
+        WHERE
+          (
+            (t0."age" >= $1)
+            AND (t0."city" = $2)
+          )
+        |}]
+    ;;
+
+    let%expect_test "SQLite page statement applies shared filters and pagination" =
+      sql Dialect.Sqlite page_statement |> Stdlib.print_endline;
+      [%expect
+        {|
+        SELECT
+          t0."id",
+          t0."name"
+        FROM "people" AS t0
+        WHERE
+          (
+            (t0."age" >= ?1)
+            AND (t0."city" = ?2)
+          )
+        ORDER BY
+          t0."id" ASC
+        LIMIT ?3
+        OFFSET ?4
+        |}]
+    ;;
+
+    let%expect_test "SQLite total statement counts the same filtered rows" =
+      sql Dialect.Sqlite total_statement |> Stdlib.print_endline;
+      [%expect
+        {|
+        SELECT
+          COUNT(*)
+        FROM "people" AS t0
+        WHERE
+          (
+            (t0."age" >= ?1)
+            AND (t0."city" = ?2)
+          )
+        |}]
+    ;;
+  end)
+;;
+
 let%test "a slot from another statement returns an explicit binding error" =
   let captured = ref None in
   let _first =
