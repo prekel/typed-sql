@@ -423,10 +423,28 @@ let order_by make_expression direction query =
 ;;
 
 let limit limit query =
-  { query with ast = { query.ast with limit = Some (Ast.Literal limit) } }
+  { query with ast = { query.ast with limit = Some (Ast.Limit (Ast.Literal limit)) } }
 ;;
 
-let limit_one query = { query with ast = { query.ast with limit = Some (Ast.Literal 1) } }
+let limit_one query =
+  { query with ast = { query.ast with limit = Some (Ast.Limit (Ast.Literal 1)) } }
+;;
+
+let fetch_with_ties limit query =
+  { query with
+    ast = { query.ast with limit = Some (Ast.Fetch_with_ties (Ast.Literal limit)) }
+  }
+;;
+
+let fetch_with_ties_param parameter query =
+  { query with
+    ast =
+      { query.ast with
+        limit =
+          Some (Ast.Fetch_with_ties (Ast.Parameter (Pagination_parameter.node parameter)))
+      }
+  }
+;;
 
 let offset offset query =
   { query with ast = { query.ast with offset = Some (Ast.Literal offset) } }
@@ -436,7 +454,7 @@ let limit_param parameter query =
   { query with
     ast =
       { query.ast with
-        limit = Some (Ast.Parameter (Pagination_parameter.node parameter))
+        limit = Some (Ast.Limit (Ast.Parameter (Pagination_parameter.node parameter)))
       }
   }
 ;;

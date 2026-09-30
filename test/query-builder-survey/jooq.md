@@ -1918,13 +1918,13 @@ ORDER BY
 
 ### JQ-26. FETCH FIRST WITH TIES
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✓)
-- Семантика: —
-- Без доработок typed-sql: ✗
+- OCaml-пример: ✓
+- Реализуемость: ✓ (PostgreSQL 13+)
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [WITH TIES clause](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/with-ties-clause/).
 - Проверяет: включение всех строк, связанных с последней строкой ограниченной страницы по ключу сортировки.
-- Ограничение: Без оконного ранга или `FETCH WITH TIES` ядро не может сохранить динамическую границу всех строк, равных последнему ключу страницы.
+- Ограничение: PostgreSQL требует `ORDER BY`; равенство определяется всеми ключами порядка. Если добавить в порядок уникальный ключ, строки обычно перестанут совпадать на границе страницы.
 
 ```sql
 SELECT BOOK.ID, BOOK.PUBLISHED_IN
@@ -1941,7 +1941,32 @@ create.select(BOOK.ID, BOOK.PUBLISHED_IN)
       .fetch();
 ```
 
-Чтобы отличить WITH TIES от обычного LIMIT, две или более книги должны иметь одинаковый PUBLISHED_IN на границе страницы.
+```ocaml
+let jq26 =
+  Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun _ ->
+    Query.(
+      from Book.table
+      |> order_by Book.published_in `Asc
+      |> Postgresql.Query.fetch_with_ties 2
+      |> select (fun book ->
+        Projection.pair (Book.id book) (Book.published_in book))))
+;;
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq26);;
+SELECT
+  t0."id",
+  t0."published_in"
+FROM "book" AS t0
+ORDER BY
+  t0."published_in" ASC
+FETCH FIRST 2 ROWS WITH TIES
+```
+
+Чтобы проверить семантику, две или более книги должны иметь одинаковый `PUBLISHED_IN` на границе страницы.
 
 ### JQ-27. IN с подзапросом
 

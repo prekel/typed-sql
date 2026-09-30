@@ -723,6 +723,109 @@ let%expect_test "negative limits are rejected" =
   [%expect {| LIMIT must be non-negative, got -1 |}]
 ;;
 
+let%test_module "PostgreSQL FETCH FIRST WITH TIES" =
+  (module struct
+    let query =
+      Query.(
+        from Person.table
+        |> order_by Person.name `Asc
+        |> order_by Person.id `Desc
+        |> Postgresql.Query.fetch_with_ties 2
+        |> select Person.projection)
+    ;;
+
+    let%expect_test "renders all order keys and FETCH syntax" =
+      query |> compile_postgresql_exn |> Compiled_query.sql |> Stdlib.print_endline;
+      [%expect
+        {|
+        SELECT
+          t0."id",
+          t0."name",
+          t0."nickname"
+        FROM "public"."people" AS t0
+        ORDER BY
+          t0."name" ASC,
+          t0."id" DESC
+        FETCH FIRST 2 ROWS WITH TIES
+        |}]
+    ;;
+
+    let%test "a later LIMIT replaces FETCH WITH TIES" =
+      let query =
+        Query.(
+          from Person.table
+          |> order_by Person.id `Asc
+          |> Postgresql.Query.fetch_with_ties 2
+          |> limit 3
+          |> select Person.projection)
+      in
+      let sql = query |> compile_postgresql_exn |> Compiled_query.sql in
+      String.is_substring sql ~substring:"LIMIT 3"
+      && not (String.is_substring sql ~substring:"FETCH FIRST")
+    ;;
+
+    let%test_unit "requires a final ORDER BY" =
+      let query =
+        Query.(
+          from Person.table
+          |> Postgresql.Query.fetch_with_ties 2
+          |> select Person.projection)
+      in
+      match Compiler.compile ~dialect:Dialect.postgresql query with
+      | Error (Compile_error.Fetch_with_ties_requires_order_by as error) ->
+        assert (
+          String.equal
+            (Compile_error.to_string error)
+            "FETCH FIRST WITH TIES requires ORDER BY")
+      | Error error -> failwith (Compile_error.to_string error)
+      | Ok _ -> failwith "FETCH WITH TIES compiled without ORDER BY"
+    ;;
+
+    let%test_unit "rejects a negative literal row count" =
+      let query =
+        Query.(
+          from Person.table
+          |> order_by Person.id `Asc
+          |> Postgresql.Query.fetch_with_ties (-1)
+          |> select Person.projection)
+      in
+      match Compiler.compile ~dialect:Dialect.postgresql query with
+      | Error (Compile_error.Negative_fetch_count -1 as error) ->
+        assert (
+          String.equal
+            (Compile_error.to_string error)
+            "FETCH FIRST row count must be non-negative, got -1")
+      | Error error -> failwith (Compile_error.to_string error)
+      | Ok _ -> failwith "negative FETCH row count compiled"
+    ;;
+
+    let%test "parameterized FETCH does not prove exactly one aggregate row" =
+      match
+        Statement.For_dialect.query_one ~dialect:Dialect.postgresql (fun parameters ->
+          let page_size = parameters.non_negative_int ~name:"page_size" ~get:Fn.id in
+          Query.(
+            from Person.table
+            |> order_by (fun _ -> Expr.count_all) `Asc
+            |> Postgresql.Query.fetch_with_ties_param page_size
+            |> select_exactly_one (fun _ -> Projection.expr Expr.count_all)))
+      with
+      | Error { error = Compile_error.Exactly_one_query_not_proven; _ } -> true
+      | Error _ | Ok _ -> false
+    ;;
+
+    let%test "positive FETCH count preserves exactly-one aggregate proof" =
+      let query =
+        Query.(
+          from Person.table
+          |> order_by (fun _ -> Expr.count_all) `Asc
+          |> Postgresql.Query.fetch_with_ties 1
+          |> select_exactly_one (fun _ -> Projection.expr Expr.count_all))
+      in
+      Result.is_ok (Compiler.compile ~dialect:Dialect.postgresql query)
+    ;;
+  end)
+;;
+
 let%expect_test "identifiers are always quoted" =
   let table : unit Table.t = Table.v_exn "select" in
   let column = Column.v_exn table "quoted\"name" Db_type.text in

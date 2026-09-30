@@ -655,6 +655,8 @@ let final_update
               Query.(
                 from Event.table
                 |> where (fun event -> Event.person_id event =. Person.id person)
+                |> order_by Event.id `Asc
+                |> Postgresql.Query.fetch_with_ties 1
                 |> exists_expr)
             in
             let has_input_row =
@@ -1040,8 +1042,8 @@ let mega_query ~label_parameter ~limit_parameter ~offset_parameter =
                             |> having (fun _ -> Expr.count_all >$ 0L)
                             |> having (fun _ -> Expr.count_all <$ 100L)
                             |> order_by (fun (row, _) -> Combined.person_id row) `Desc
-                            |> limit 10
                             |> offset 0
+                            |> Postgresql.Query.fetch_with_ties_param limit_parameter
                             |> select (fun (row, _) ->
                               Projection.map3
                                 ~f:(fun person_id event_count total_score ->
@@ -1493,8 +1495,8 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
           )
         ORDER BY
           t0."person_id" DESC
-        LIMIT 10
         OFFSET 0
+        FETCH FIRST $16 ROWS WITH TIES
       )
     UPDATE "public"."mega_people" AS t0
     SET
@@ -1622,6 +1624,9 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
           FROM "mega_events" AS t5
           WHERE
             (t5."person_id" = t0."id")
+          ORDER BY
+            t5."id" ASC
+          FETCH FIRST 1 ROWS WITH TIES
         )) = $66)
         AND ((EXISTS (
           SELECT

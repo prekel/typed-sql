@@ -62,6 +62,8 @@ module Postgresql = struct
 
   module Query = struct
     let having = Typed_sql_private.Query.having
+    let fetch_with_ties = Typed_sql_private.Query.fetch_with_ties
+    let fetch_with_ties_param = Typed_sql_private.Query.fetch_with_ties_param
     let intersect_all = Typed_sql_private.Query.intersect_all
     let except_all = Typed_sql_private.Query.except_all
   end

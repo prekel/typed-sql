@@ -9,7 +9,9 @@ type t =
       ; actual : int
       }
   | Negative_limit of int
+  | Negative_fetch_count of int
   | Negative_offset of int
+  | Fetch_with_ties_requires_order_by
   | Empty_assignments of [ `Insert | `Update ]
   | Empty_insert_row of int
   | Duplicate_assignment of Identifier.t
@@ -87,7 +89,10 @@ let to_string = function
       ; List.map visible ~f:Int.to_string |> String.concat ~sep:", "
       ]
   | Negative_limit value -> "LIMIT must be non-negative, got " ^ Int.to_string value
+  | Negative_fetch_count value ->
+    "FETCH FIRST row count must be non-negative, got " ^ Int.to_string value
   | Negative_offset value -> "OFFSET must be non-negative, got " ^ Int.to_string value
+  | Fetch_with_ties_requires_order_by -> "FETCH FIRST WITH TIES requires ORDER BY"
   | Empty_assignments `Insert -> "INSERT must assign at least one column"
   | Empty_assignments `Update -> "UPDATE must assign at least one column"
   | Empty_insert_row row -> "INSERT row " ^ Int.to_string row ^ " has no assignments"
@@ -142,7 +147,7 @@ let to_string = function
   | Scalar_subquery_may_return_many_rows ->
     "scalar subquery requires LIMIT 0/1 or a local aggregate without GROUP BY"
   | Exactly_one_query_not_proven ->
-    "exactly-one SELECT requires an ungrouped aggregate without HAVING, OFFSET, or LIMIT 0"
+    "exactly-one SELECT requires an ungrouped aggregate without HAVING, OFFSET, or row limit 0"
   | Invalid_relation_column position ->
     "relation output #" ^ Int.to_string position ^ " must be a direct descriptor column"
   | Duplicate_relation_column column ->

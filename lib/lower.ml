@@ -444,6 +444,9 @@ and sqlite_unsupported_select (select : Ast.select) =
     ; Option.bind select.having ~f:sqlite_unsupported_condition
     ; List.find_map select.order_by ~f:(fun order ->
         sqlite_unsupported_expression order.Ast.expr)
+    ; (match select.limit with
+       | Some (Ast.Fetch_with_ties _) -> Some "FETCH FIRST WITH TIES"
+       | None | Some (Ast.Limit _) -> None)
     ]
 
 and sqlite_unsupported_query = function

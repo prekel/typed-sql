@@ -361,14 +361,23 @@ let validate_select_with
     Error Compile_error.Empty_projection
   else if
     Option.exists select.limit ~f:(function
-      | Ast.Literal value -> value < 0
-      | Ast.Parameter _ -> false)
+      | Ast.Limit (Ast.Literal value) | Ast.Fetch_with_ties (Ast.Literal value) ->
+        value < 0
+      | Ast.Limit (Ast.Parameter _) | Ast.Fetch_with_ties (Ast.Parameter _) -> false)
   then (
     match
       Option.value_exn select.limit
     with
-    | Ast.Literal value -> Error (Compile_error.Negative_limit value)
-    | Ast.Parameter _ -> assert false)
+    | Ast.Limit (Ast.Literal value) -> Error (Compile_error.Negative_limit value)
+    | Ast.Fetch_with_ties (Ast.Literal value) ->
+      Error (Compile_error.Negative_fetch_count value)
+    | Ast.Limit (Ast.Parameter _) | Ast.Fetch_with_ties (Ast.Parameter _) -> assert false)
+  else if
+    Option.exists select.limit ~f:(function
+      | Ast.Fetch_with_ties _ -> List.is_empty select.order_by
+      | Ast.Limit _ -> false)
+  then
+    Error Compile_error.Fetch_with_ties_requires_order_by
   else if
     Option.exists select.offset ~f:(function
       | Ast.Literal value -> value < 0

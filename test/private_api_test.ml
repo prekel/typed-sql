@@ -216,7 +216,7 @@ let%test_module "SELECT validator diagnostics" =
     ;;
 
     let%expect_test "negative limit" =
-      validate { select with limit = Some (A.Literal (-1)) };
+      validate { select with limit = Some (A.Limit (A.Literal (-1))) };
       [%expect {| LIMIT must be non-negative, got -1 |}]
     ;;
 
@@ -254,6 +254,43 @@ let%test_module "SELECT validator diagnostics" =
       validate
         { select with joins = [ { first with on = A.Is_not_null (column 2) }; second ] };
       [%expect {| expression references source #2, but the visible sources are 0, 1 |}]
+    ;;
+  end)
+;;
+
+let%test_module "FETCH WITH TIES cardinality proofs" =
+  (module struct
+    let fetch_with_ties =
+      { select with
+        order_by = [ { expr = column 0; direction = A.Asc } ]
+      ; limit = Some (A.Fetch_with_ties (A.Literal 1))
+      }
+    ;;
+
+    let%test "does not prove at most one row" =
+      not (Aggregate_scope.at_most_one fetch_with_ties)
+    ;;
+
+    let aggregate =
+      { fetch_with_ties with
+        projection = [ A.Aggregate A.Count_all ]
+      ; order_by = [ { expr = A.Aggregate A.Count_all; direction = A.Asc } ]
+      }
+    ;;
+
+    let%test "positive count preserves ungrouped aggregate exactly-one proof" =
+      Aggregate_scope.exactly_one aggregate
+    ;;
+
+    let%test_unit "SQLite lowering rejects the PostgreSQL-only clause" =
+      match
+        Lower.result_query ~dialect:Dialect.Sqlite (A.Select (A.Simple fetch_with_ties))
+      with
+      | Error
+          (Compile_error.Unsupported_operation
+             { operation = "FETCH FIRST WITH TIES"; dialect = Dialect.Sqlite }) -> ()
+      | Error error -> failwith (Compile_error.to_string error)
+      | Ok _ -> failwith "SQLite lowering accepted FETCH WITH TIES"
     ;;
   end)
 ;;
@@ -414,7 +451,7 @@ let%test_module "unavailable CTE diagnostics" =
       { select with
         source = nested_source
       ; projection = [ column nested_source.source_id ]
-      ; limit = Some (A.Literal 1)
+      ; limit = Some (A.Limit (A.Literal 1))
       }
     ;;
 
