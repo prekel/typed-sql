@@ -53,14 +53,14 @@ let setup_statements =
   ; "INSERT INTO mega_cleanup VALUES (1)"
   ; "CREATE TABLE mega_maintenance (enabled BOOLEAN NOT NULL)"
   ; "INSERT INTO mega_maintenance VALUES (FALSE)"
-  ; "CREATE TABLE mega_events (id BIGINT PRIMARY KEY, person_id BIGINT NOT NULL, label TEXT NOT NULL, nullable_label TEXT, value INTEGER NOT NULL, nullable_value INTEGER, float_value DOUBLE PRECISION NOT NULL, nullable_float_value DOUBLE PRECISION, nullable_id BIGINT, numeric_value NUMERIC NOT NULL, nullable_numeric_value NUMERIC)"
-  ; "INSERT INTO mega_events VALUES (10, 1, 'event', 'optional', 2, NULL, 1.5, NULL, 10, 2.5, NULL)"
+  ; "CREATE TABLE mega_events (id BIGINT PRIMARY KEY, person_id BIGINT NOT NULL, label TEXT NOT NULL, nullable_label TEXT, value INTEGER NOT NULL, nullable_value INTEGER, float_value DOUBLE PRECISION NOT NULL, nullable_float_value DOUBLE PRECISION, nullable_id BIGINT, numeric_value NUMERIC NOT NULL, nullable_numeric_value NUMERIC, happened_on DATE NOT NULL, external_id UUID NOT NULL, mapped_label TEXT)"
+  ; "INSERT INTO mega_events VALUES (10, 1, 'event', 'optional', 2, NULL, 1.5, NULL, 10, 2.5, NULL, '2026-09-30', '550e8400-e29b-41d4-a716-446655440000', 'mapped')"
   ; "CREATE TABLE mega_expired (id BIGINT PRIMARY KEY, person_id BIGINT NOT NULL, label TEXT NOT NULL, score INTEGER NOT NULL)"
   ; "INSERT INTO mega_expired VALUES (201, 1, 'expired', -1)"
   ; "CREATE TABLE mega_archive (id BIGINT PRIMARY KEY, person_id BIGINT NOT NULL, label TEXT NOT NULL, score INTEGER NOT NULL)"
   ; "INSERT INTO mega_archive VALUES (201, 1, 'archived', 10)"
-  ; "CREATE TABLE mega_audit (id BIGINT PRIMARY KEY, person_id BIGINT NOT NULL, label TEXT NOT NULL, score INTEGER NOT NULL)"
-  ; "INSERT INTO mega_audit VALUES (201, 1, 'before upsert', 0)"
+  ; "CREATE TABLE mega_audit (id BIGINT PRIMARY KEY, person_id BIGINT NOT NULL, label TEXT NOT NULL, score INTEGER NOT NULL, UNIQUE (person_id, score))"
+  ; "INSERT INTO mega_audit VALUES (201, 1, 'before upsert', -1)"
   ; "CREATE TABLE mega_outbox (id BIGINT PRIMARY KEY, label TEXT NOT NULL)"
   ; "INSERT INTO mega_outbox VALUES (101, 'already queued')"
   ]
@@ -73,11 +73,7 @@ let run conn =
       (fun sql -> Connection.exec (direct sql) () |> or_fail)
       setup_statements
   in
-  let statement =
-    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun _ ->
-      Mega.mega_query)
-  in
-  let* rows = Adapter.run ~conn statement () |> adapter_or_fail in
+  let* rows = Adapter.run ~conn Mega.statement (20, 1) |> adapter_or_fail in
   let* () =
     match rows with
     | [ ((person_id, name), (has_events, (events, (aggregate_rows, aggregate_value)))) ]
@@ -116,6 +112,10 @@ let run conn =
     Connection.find (string_request "SELECT label FROM mega_audit WHERE id = 201") ()
     |> or_fail
   in
+  let* audit_score =
+    Connection.find (int64_request "SELECT score FROM mega_audit WHERE id = 201") ()
+    |> or_fail
+  in
   let* outbox_count =
     Connection.find (int64_request "SELECT count(*) FROM mega_outbox") () |> or_fail
   in
@@ -130,6 +130,7 @@ let run conn =
       (Int64.equal score 19L
        && Int64.equal archive_score 9L
        && String.equal audit_label "expired"
+       && Int64.equal audit_score (-1L)
        && Int64.equal outbox_count 2L
        && Int64.equal cleanup_count 0L
        && maintenance_enabled)

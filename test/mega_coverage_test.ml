@@ -1,7 +1,14 @@
 open! Base
 open Typed_sql
-open Statement_compile
 open Infix
+
+let mapped_text_type : string Db_type.t =
+  Db_type.map
+    ~name:"mega_text"
+    ~encode:(fun value -> Ok value)
+    ~decode:(fun value -> Ok value)
+    Db_type.text
+;;
 
 module Person = struct
   type row
@@ -170,6 +177,9 @@ module Event = struct
   let person_id_column = Column.v_exn table "person_id" Db_type.int64
   let label_column = Column.v_exn table "label" Db_type.text
   let nullable_label_column = Column.nullable_v_exn table "nullable_label" Db_type.text
+  let mapped_label_column = Column.nullable_v_exn table "mapped_label" mapped_text_type
+  let date_column = Column.v_exn table "happened_on" Db_type.date
+  let uuid_column = Column.v_exn table "external_id" Db_type.uuid
   let value_column = Column.v_exn table "value" Db_type.int
   let nullable_value_column = Column.nullable_v_exn table "nullable_value" Db_type.int
   let float_value_column = Column.v_exn table "float_value" Db_type.float
@@ -189,6 +199,9 @@ module Event = struct
   let person_id reference = Expr.column reference person_id_column
   let label reference = Expr.column reference label_column
   let nullable_label reference = Expr.column reference nullable_label_column
+  let mapped_label reference = Expr.column reference mapped_label_column
+  let happened_on reference = Expr.column reference date_column
+  let external_id reference = Expr.column reference uuid_column
   let value reference = Expr.column reference value_column
   let nullable_value reference = Expr.column reference nullable_value_column
   let float_value reference = Expr.column reference float_value_column
@@ -358,6 +371,20 @@ module Outbox = struct
 end
 
 let selected_tags : (Tag.row, Dialect.postgresql) Values.t =
+  Values.create_dynamic
+    ~table:Tag.table
+    ~columns:Tag.projection
+    ~rows:
+      [ [ Values.Cell.expr (Expr.constant Db_type.int64 1L)
+        ; Values.Cell.expr (Expr.constant Db_type.text "one")
+        ]
+      ; [ Values.Cell.expr (Expr.constant Db_type.int64 2L)
+        ; Values.Cell.expr (Expr.constant Db_type.text "two")
+        ]
+      ]
+;;
+
+let static_tags : (Tag.row, Dialect.postgresql) Values.t =
   Values.create
     ~table:Tag.table
     ~columns:Tag.projection
@@ -379,7 +406,7 @@ let inferred_people : (_, _, Dialect.postgresql) Derived_table.inferred =
       Derived_table.Fields.pair (Person.id person) (Person.score person)))
 ;;
 
-let input_rows_query =
+let input_rows_query ~limit_parameter ~offset_parameter =
   let inferred_branch =
     Query.(
       from_relation inferred_people
@@ -387,6 +414,7 @@ let input_rows_query =
         person_id =. Tag.id tag)
       |> left_join_values selected_tags ~on:(fun ((person_id, _), _) tag ->
         person_id =. Tag.id tag)
+      |> where_opt None ~f:(fun _ _ -> Condition.true_)
       |> where_opt (Some 0L) ~f:(fun (((person_id, _), _), _) minimum ->
         person_id >$ minimum)
       |> where_optional_param
@@ -394,23 +422,23 @@ let input_rows_query =
            ~f:(fun _ parameter -> Expr.is_not_null parameter)
       |> distinct
       |> order_by (fun (((person_id, _), _), _) -> person_id) `Asc
-      |> offset 1
-      |> limit 20
+      |> offset_param offset_parameter
+      |> limit_param limit_parameter
       |> select (fun (((person_id, _), tag), _) ->
         Projection.pair person_id (Tag.label tag)))
   in
-  let values_branch = Query.(from_values selected_tags |> select Tag.projection) in
+  let values_branch = Query.(from_values static_tags |> select Tag.projection) in
   Query.union_all inferred_branch values_branch
 ;;
 
-let input_rows_relation : (Input_rows.row, Dialect.postgresql) Derived_table.t =
+let input_rows_relation ~limit_parameter ~offset_parameter
+  : (Input_rows.row, Dialect.postgresql) Derived_table.t
+  =
   Derived_table.create
     ~table:Input_rows.table
     ~columns:Input_rows.projection
-    input_rows_query
+    (input_rows_query ~limit_parameter ~offset_parameter)
 ;;
-
-let input_rows = Cte.select input_rows_relation
 
 let event_relation : (Event.row, Dialect.postgresql) Derived_table.t =
   Derived_table.create
@@ -526,10 +554,12 @@ let aggregate_metrics =
        aggregate_query)
 ;;
 
-let compile_exn query =
-  match Compiler.compile ~dialect:Dialect.postgresql query with
-  | Ok compiled -> compiled
-  | Error error -> failwith (Compile_error.to_string error)
+let calendar_date = Date.of_ymd_exn ~year:2026 ~month:9 ~day:30
+let external_uuid = Uuid.of_string_exn "550e8400-e29b-41d4-a716-446655440000"
+let exact_amount = Decimal.of_string "12.3400e-2" |> Option.value_exn
+
+let is_not_null_parameter db_type value =
+  Expr.is_not_null (Expr.to_nullable (Expr.constant db_type value))
 ;;
 
 let delete_expired =
@@ -574,7 +604,16 @@ let maintenance_effect =
       |> command)
 ;;
 
-let final_update ~sequence ~inputs ~joined_events ~metrics ~outbox ~summary =
+let final_update
+      ~sequence
+      ~inputs
+      ~input_rows_relation
+      ~label_parameter
+      ~joined_events
+      ~metrics
+      ~outbox
+      ~summary
+  =
   Update.(
     table Person.table
     |> from Event.table ~f:(fun person event update ->
@@ -618,10 +657,24 @@ let final_update ~sequence ~inputs ~joined_events ~metrics ~outbox ~summary =
                 |> where (fun input -> Input_rows.id input =. Person.id person)
                 |> exists_expr)
             in
+            let has_rejoined_inferred_people =
+              Query.(
+                from_relation inferred_people
+                |> inner_join_relation
+                     inferred_people
+                     ~on:(fun (person_id, _) (joined_id, _) -> person_id =. joined_id)
+                |> left_join_relation
+                     inferred_people
+                     ~on:(fun ((person_id, _), _) (joined_id, _) ->
+                       person_id =. joined_id)
+                |> exists_expr)
+            in
             let has_joined_event =
               Query.(
                 from_cte joined_events
-                |> where (fun joined -> Event.person_id joined =. Person.id person)
+                |> inner_join_cte joined_events ~on:(fun event joined ->
+                  Event.id event =. Event.id joined)
+                |> where (fun (event, _) -> Event.person_id event =. Person.id person)
                 |> exists_expr)
             in
             let has_aggregate_metrics =
@@ -664,13 +717,26 @@ let final_update ~sequence ~inputs ~joined_events ~metrics ~outbox ~summary =
             |> where (fun _ ->
               Person.id person
               =. Summary.person_id totals
+              &&. is_not_null_parameter Db_type.bool true
+              &&. is_not_null_parameter Db_type.int 1
+              &&. is_not_null_parameter Db_type.int64 1L
+              &&. is_not_null_parameter Db_type.float 1.5
+              &&. is_not_null_parameter Db_type.numeric exact_amount
+              &&. Expr.is_not_null (Expr.to_nullable label_parameter)
+              &&. is_not_null_parameter Db_type.bytes (Bytes.of_string "mega")
+              &&. is_not_null_parameter Db_type.date calendar_date
+              &&. is_not_null_parameter Db_type.timestamp Ptime.epoch
+              &&. is_not_null_parameter Db_type.uuid external_uuid
+              &&. Expr.is_not_null
+                    (Expr.constant (Db_type.option mapped_text_type) (Some "mapped"))
               &&. (Event.person_id event =. Person.id person)
               &&. (Input_rows.id input =. Person.id person)
               &&. (inferred_person_id =. Person.id person)
-              &&. Expr.is_distinct_from_value (Person.name person) ""
+              &&. Expr.is_distinct_from (Person.name person) label_parameter
               &&. (has_sequence_value =$ true)
               &&. (has_related_event =$ true)
               &&. (has_input_row =$ true)
+              &&. (has_rejoined_inferred_people =$ true)
               &&. (has_joined_event =$ true)
               &&. (has_aggregate_metrics =$ true)
               &&. (has_outbox_rows =$ true)
@@ -718,10 +784,20 @@ let final_update ~sequence ~inputs ~joined_events ~metrics ~outbox ~summary =
                 |> where (fun nested -> Event.person_id nested =. Person.id person)
                 |> select (fun nested -> Projection.expr (Event.id nested)))
             in
+            let typed_scalar_metadata =
+              Projection.both
+                (Projection.expr (Event.happened_on event))
+                (Projection.both
+                   (Projection.expr (Event.external_id event))
+                   (Projection.expr (Event.mapped_label event)))
+            in
+            let event_and_nested =
+              Projection.both (Event.projection event) (Query.multiset nested_events)
+            in
             Projection.multiset_agg
               ~filter
               ~order_by:[ Aggregate_order.asc (Event.id event) ]
-              (Projection.both (Event.projection event) (Query.multiset nested_events))))
+              (Projection.both event_and_nested typed_scalar_metadata)))
       in
       let aggregate_analysis =
         Query.(
@@ -734,6 +810,13 @@ let final_update ~sequence ~inputs ~joined_events ~metrics ~outbox ~summary =
                 |> limit_one
                 |> select_scalar Event.id)
             in
+            let nullable_scalar_id =
+              Query.(
+                from Event.table
+                |> where (fun nested -> Event.id nested =. Event.id event)
+                |> limit_one
+                |> select_scalar Event.nullable_id)
+            in
             let related_events =
               Query.(
                 from Event.table
@@ -742,6 +825,19 @@ let final_update ~sequence ~inputs ~joined_events ~metrics ~outbox ~summary =
             let compound_condition =
               Event.id event
               =. Expr.Int64.Infix.(Event.id event +. Expr.constant Db_type.int64 1L)
+              &&. (Expr.Int64.Infix.(Event.id event -. Expr.constant Db_type.int64 1L)
+                   =. Expr.constant Db_type.int64 9L)
+              &&. (Expr.Int64.Infix.(Event.id event *. Expr.constant Db_type.int64 1L)
+                   =. Event.id event)
+              &&. (Expr.Int64.Infix.(Event.id event /. Expr.constant Db_type.int64 1L)
+                   =. Event.id event)
+              &&. (Event.id event <>. Expr.constant Db_type.int64 0L)
+              &&. (Event.id event <>$ 0L)
+              &&. (Event.id event <. Expr.constant Db_type.int64 100L)
+              &&. (Event.id event <=. Expr.constant Db_type.int64 100L)
+              &&. (Event.id event >=. Expr.constant Db_type.int64 0L)
+              &&. (Event.id event <=$ 100L)
+              &&. (Event.id event >=$ 0L)
               &&. Expr.is_null (Event.nullable_id event)
               &&. Expr.is_not_null (Event.nullable_id event)
               &&. Expr.in_ (Event.id event) [ 1L; 2L ]
@@ -753,6 +849,11 @@ let final_update ~sequence ~inputs ~joined_events ~metrics ~outbox ~summary =
               &&. Query.not_in_subquery (Event.id event) scalar_id
               &&. Query.exists related_events
               &&. Query.not_exists related_events
+              &&. Expr.is_distinct_from_value (Event.label event) "different"
+              &&. (Event.label event =~. Expr.constant Db_type.text "%v%")
+              &&. (Expr.length (Event.label event) >$ 0)
+              &&. (Expr.scalar_subquery_nullable nullable_scalar_id
+                   =. Expr.to_nullable (Event.id event))
               &&. Condition.not_ (Event.id event >$ 0L)
               &&. (Expr.concat_value (Expr.lower (Event.label event)) "x" =~$ "%")
               &&. (Expr.coalesce
@@ -789,7 +890,9 @@ let final_update ~sequence ~inputs ~joined_events ~metrics ~outbox ~summary =
                  (Projection.expr (Expr.scalar_subquery aggregate_analysis)))))))
 ;;
 
-let mega_query =
+let mega_query ~label_parameter ~limit_parameter ~offset_parameter =
+  let input_rows_relation = input_rows_relation ~limit_parameter ~offset_parameter in
+  let input_rows = Cte.select input_rows_relation in
   Cte.with_result cleanup_effect ~f:(fun () ->
     Cte.with_result maintenance_effect ~f:(fun () ->
       Cte.with_result recursive_sequence ~f:(fun sequence ->
@@ -841,12 +944,17 @@ let mega_query =
                               |> Columns.add Audit.label_column
                               |> Columns.add Audit.score_column)
                              audit_source
-                        |> on_conflict (Conflict_target.column Audit.id_column)
-                        |> do_update (fun ~existing:_ ~excluded ->
+                        |> on_conflict
+                             (Conflict_target.column Audit.person_id_column
+                              |> Conflict_target.add Audit.score_column)
+                        |> do_update (fun ~existing ~excluded ->
                           Conflict_update.(
                             empty
-                            |> set_expr Audit.label_column (Audit.label excluded)
-                            |> set_expr Audit.score_column (Audit.score excluded)))
+                            |> set_opt Audit.label_column (Some "expired")
+                            |> set_expr_opt
+                                 Audit.score_column
+                                 (Some (Audit.score excluded))
+                            |> where (Audit.score existing =. Audit.score excluded)))
                         |> returning Audit.projection)
                     in
                     let audit =
@@ -879,7 +987,13 @@ let mega_query =
                         let common_rows_with_duplicates =
                           Query.intersect all_rows common_rows
                         in
-                        Query.except common_rows_with_duplicates removed
+                        let except_rows =
+                          Query.except common_rows_with_duplicates removed
+                        in
+                        let empty_except_all =
+                          Postgresql.Query.except_all changed changed
+                        in
+                        Query.union except_rows empty_except_all
                       in
                       let combined_definition =
                         Cte.select
@@ -900,6 +1014,7 @@ let mega_query =
                               &&. (Combined.score row >$ 0))
                             |> group_by (fun (row, _) -> Combined.person_id row)
                             |> having (fun _ -> Expr.count_all >$ 0L)
+                            |> having (fun _ -> Expr.count_all <$ 100L)
                             |> order_by (fun (row, _) -> Combined.person_id row) `Desc
                             |> limit 10
                             |> select (fun (row, _) ->
@@ -922,14 +1037,30 @@ let mega_query =
                           final_update
                             ~sequence
                             ~inputs
+                            ~input_rows_relation
+                            ~label_parameter
                             ~joined_events
                             ~metrics
                             ~outbox
                             ~summary))))))))))))
 ;;
 
+let statement =
+  Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun parameters ->
+    let label_parameter =
+      parameters.column ~name:"mega_label" Person.name_column ~get:(fun _ -> "mega")
+    in
+    let limit_parameter = parameters.non_negative_int ~name:"input_rows_limit" ~get:fst in
+    let offset_parameter =
+      parameters.non_negative_int ~name:"input_rows_offset" ~get:snd
+    in
+    mega_query ~label_parameter ~limit_parameter ~offset_parameter)
+;;
+
 let%expect_test "one mega query compiles nested DML and relational paths" =
-  mega_query |> compile_exn |> Compiled_query.sql |> Stdlib.print_endline;
+  statement
+  |> Statement.sql_exn ~dialect:(Dialect.kind Dialect.postgresql) ~input:(20, 1)
+  |> Stdlib.print_endline;
   [%expect
     {|
     WITH RECURSIVE
@@ -1006,8 +1137,8 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
             )
           ORDER BY
             t0."field_1" ASC
-          LIMIT 20
-          OFFSET 1
+          LIMIT $16
+          OFFSET $17
         ) AS s0
         UNION ALL
         SELECT *
@@ -1020,12 +1151,12 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
             "v"."column2" AS "label"
           FROM (VALUES
             (
-              $16,
-              $17
-            ),
-            (
               $18,
               $19
+            ),
+            (
+              $20,
+              $21
             )
           ) AS "v") AS t0
         ) AS s0
@@ -1110,7 +1241,7 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
           MAX(t0."nullable_numeric_value")
         FROM "mega_events" AS t0
         WHERE
-          (t0."id" > $20)
+          (t0."id" > $22)
       ),
       "c6" (
         "id",
@@ -1121,8 +1252,8 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
           "label"
         )
         VALUES
-          ($21, $22),
-          ($23, $24)
+          ($23, $24),
+          ($25, $26)
         ON CONFLICT DO NOTHING
         RETURNING
           "id",
@@ -1136,7 +1267,7 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
       ) AS (
         DELETE FROM "mega_expired"
         WHERE
-          ("score" < $25)
+          ("score" < $27)
         RETURNING
           "id",
           "person_id",
@@ -1152,7 +1283,7 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
         UPDATE "mega_archive" AS t0
         SET
           "score" = (t0."score" + t1."score"),
-          "label" = (t0."label" || $26)
+          "label" = (t0."label" || $28)
         FROM "c7" AS t1
         WHERE
           (t0."id" = t1."id")
@@ -1181,12 +1312,15 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
           t0."score"
         FROM "c7" AS t0
         ON CONFLICT (
-          "id"
+          "person_id",
+          "score"
         )
         DO UPDATE
         SET
-          "label" = excluded."label",
+          "label" = $29,
           "score" = excluded."score"
+        WHERE
+          (t0."score" = excluded."score")
         RETURNING
           "id",
           "person_id",
@@ -1203,25 +1337,6 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
           FROM (
             SELECT *
             FROM (
-              SELECT
-                t0."person_id",
-                t0."score"
-              FROM "c7" AS t0
-            ) AS s0
-            UNION ALL
-            SELECT *
-            FROM (
-              SELECT
-                t0."person_id",
-                t0."score"
-              FROM "c8" AS t0
-            ) AS s0
-          ) AS s0
-          INTERSECT
-          SELECT *
-          FROM (
-            SELECT *
-            FROM (
               SELECT *
               FROM (
                 SELECT
@@ -1229,7 +1344,7 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
                   t0."score"
                 FROM "c7" AS t0
               ) AS s0
-              UNION
+              UNION ALL
               SELECT *
               FROM (
                 SELECT
@@ -1241,20 +1356,61 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
             INTERSECT
             SELECT *
             FROM (
-              SELECT
-                t0."person_id",
-                t0."score"
-              FROM "c8" AS t0
+              SELECT *
+              FROM (
+                SELECT *
+                FROM (
+                  SELECT
+                    t0."person_id",
+                    t0."score"
+                  FROM "c7" AS t0
+                ) AS s0
+                UNION
+                SELECT *
+                FROM (
+                  SELECT
+                    t0."person_id",
+                    t0."score"
+                  FROM "c8" AS t0
+                ) AS s0
+              ) AS s0
+              INTERSECT
+              SELECT *
+              FROM (
+                SELECT
+                  t0."person_id",
+                  t0."score"
+                FROM "c8" AS t0
+              ) AS s0
             ) AS s0
           ) AS s0
+          EXCEPT
+          SELECT *
+          FROM (
+            SELECT
+              t0."person_id",
+              t0."score"
+            FROM "c7" AS t0
+          ) AS s0
         ) AS s0
-        EXCEPT
+        UNION
         SELECT *
         FROM (
-          SELECT
-            t0."person_id",
-            t0."score"
-          FROM "c7" AS t0
+          SELECT *
+          FROM (
+            SELECT
+              t0."person_id",
+              t0."score"
+            FROM "c8" AS t0
+          ) AS s0
+          EXCEPT ALL
+          SELECT *
+          FROM (
+            SELECT
+              t0."person_id",
+              t0."score"
+            FROM "c8" AS t0
+          ) AS s0
         ) AS s0
       ),
       "c11" (
@@ -1272,27 +1428,30 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
         WHERE
           (
             (t1."id" IS NOT NULL)
-            AND (t0."score" > $27)
+            AND (t0."score" > $30)
           )
         GROUP BY
           t0."person_id"
         HAVING
-          (COUNT(*) > $28)
+          (
+            (COUNT(*) > $31)
+            AND (COUNT(*) < $32)
+          )
         ORDER BY
           t0."person_id" DESC
         LIMIT 10
       )
     UPDATE "public"."mega_people" AS t0
     SET
-      "active" = $29,
-      "nickname" = $30,
-      "bio" = $31,
+      "active" = $33,
+      "nickname" = $34,
+      "bio" = $35,
       "status" = DEFAULT,
-      "score" = (t0."score" + COALESCE(t4."total_score", $32)),
+      "score" = (t0."score" + COALESCE(t4."total_score", $36)),
       "name" = ((CASE
-        WHEN (t4."event_count" > $33) THEN UPPER(t0."name")
+        WHEN (t4."event_count" > $37) THEN UPPER(t0."name")
         ELSE LOWER(t0."name")
-      END) || $34)
+      END) || $38)
     FROM "mega_events" AS t1,
       (
         SELECT *
@@ -1311,12 +1470,12 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
             "v"."column2" AS "label"
           FROM (VALUES
             (
-              $35,
-              $36
+              $39,
+              $40
             ),
             (
-              $37,
-              $38
+              $41,
+              $42
             )
           ) AS "v") AS t6
             ON (t5."field_1" = t6."id")
@@ -1325,27 +1484,27 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
             "v"."column2" AS "label"
           FROM (VALUES
             (
-              $39,
-              $40
+              $43,
+              $44
             ),
             (
-              $41,
-              $42
+              $45,
+              $46
             )
           ) AS "v") AS t7
             ON (t5."field_1" = t7."id")
           WHERE
             (
-              (t5."field_1" > $43)
+              (t5."field_1" > $47)
               AND (
-                (CAST($44 AS bigint) IS NULL)
-                OR (CAST($45 AS bigint) IS NOT NULL)
+                (CAST($48 AS bigint) IS NULL)
+                OR (CAST($49 AS bigint) IS NOT NULL)
               )
             )
           ORDER BY
             t5."field_1" ASC
-          LIMIT 20
-          OFFSET 1
+          LIMIT $16
+          OFFSET $17
         ) AS s0
         UNION ALL
         SELECT *
@@ -1358,12 +1517,12 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
             "v"."column2" AS "label"
           FROM (VALUES
             (
-              $46,
-              $47
+              $50,
+              $51
             ),
             (
-              $48,
-              $49
+              $52,
+              $53
             )
           ) AS "v") AS t5
         ) AS s0
@@ -1378,70 +1537,107 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
     WHERE
       (
         (t0."id" = t4."person_id")
+        AND (CAST($54 AS boolean) IS NOT NULL)
+        AND (CAST($55 AS integer) IS NOT NULL)
+        AND (CAST($56 AS bigint) IS NOT NULL)
+        AND (CAST($57 AS double precision) IS NOT NULL)
+        AND (CAST($58 AS numeric) IS NOT NULL)
+        AND (CAST($59 AS text) IS NOT NULL)
+        AND (CAST($60 AS bytea) IS NOT NULL)
+        AND (CAST($61 AS date) IS NOT NULL)
+        AND (CAST($62 AS timestamp with time zone) IS NOT NULL)
+        AND (CAST($63 AS uuid) IS NOT NULL)
+        AND (CAST($64 AS text) IS NOT NULL)
         AND (t1."person_id" = t0."id")
         AND (t2."id" = t0."id")
         AND (t3."field_1" = t0."id")
-        AND (t0."name" IS DISTINCT FROM $50)
+        AND (t0."name" IS DISTINCT FROM $59)
         AND ((EXISTS (
           SELECT
             1
           FROM "c2" AS t5
           WHERE
             (t5."value" = t0."id")
-        )) = $51)
+        )) = $65)
         AND ((EXISTS (
           SELECT
             1
           FROM "mega_events" AS t5
           WHERE
             (t5."person_id" = t0."id")
-        )) = $52)
+        )) = $66)
         AND ((EXISTS (
           SELECT
             1
           FROM "c3" AS t5
           WHERE
             (t5."id" = t0."id")
-        )) = $53)
+        )) = $67)
+        AND ((EXISTS (
+          SELECT
+            1
+          FROM (
+            SELECT
+              t8."id" AS "field_1",
+              t8."score" AS "field_2"
+            FROM "public"."mega_people" AS t8
+          ) AS t5
+          INNER JOIN (
+            SELECT
+              t8."id" AS "field_1",
+              t8."score" AS "field_2"
+            FROM "public"."mega_people" AS t8
+          ) AS t6
+            ON (t5."field_1" = t6."field_1")
+          LEFT JOIN (
+            SELECT
+              t8."id" AS "field_1",
+              t8."score" AS "field_2"
+            FROM "public"."mega_people" AS t8
+          ) AS t7
+            ON (t5."field_1" = t7."field_1")
+        )) = $68)
         AND ((EXISTS (
           SELECT
             1
           FROM "c4" AS t5
+          INNER JOIN "c4" AS t6
+            ON (t5."id" = t6."id")
           WHERE
             (t5."person_id" = t0."id")
-        )) = $54)
+        )) = $69)
         AND ((EXISTS (
           SELECT
             1
           FROM "c5" AS t5
           WHERE
-            (t5."count_all" > $55)
-        )) = $56)
+            (t5."count_all" > $70)
+        )) = $71)
         AND ((EXISTS (
           SELECT
             1
           FROM "c6" AS t5
           WHERE
-            (t5."id" > $57)
-        )) = $58)
+            (t5."id" > $72)
+        )) = $73)
         AND (COALESCE((
           SELECT
             COUNT(*)
           FROM "mega_events" AS t5
           WHERE
             (t5."person_id" = t0."id")
-        ), $59) > $60)
+        ), $74) > $75)
         AND (t0."id" IN (
-          $61,
-          $62
+          $76,
+          $77
         ))
-        AND (t0."id" NOT IN ($63))
+        AND (t0."id" NOT IN ($78))
         AND (t0."name" IN (
-          $64,
-          $65
+          $79,
+          $80
         ))
-        AND (t0."name" NOT IN ($66))
-        AND (t0."score" BETWEEN $67 AND $68)
+        AND (t0."name" NOT IN ($81))
+        AND (t0."score" BETWEEN $82 AND $83)
         AND (NOT (t0."nickname" IS NULL))
         AND (NOT EXISTS (
           SELECT
@@ -1533,7 +1729,10 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
                         WHERE
                           (t6."person_id" = t0."id")
                       ) AS m0
-                    )
+                    ),
+                    t5."happened_on",
+                    t5."external_id",
+                    t5."mapped_label"
                   )
                   ORDER BY t5."id" ASC
                 ) FILTER (
@@ -1546,9 +1745,9 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
                       WHERE
                         (
                           (t6."person_id" = t0."id")
-                          AND (t6."value" > $69)
+                          AND (t6."value" > $84)
                         )
-                    )) = $70)
+                    )) = $85)
                   )
                 ),
                 JSONB_BUILD_ARRAY()
@@ -1562,17 +1761,27 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
         SELECT
           COALESCE(SUM((CASE
             WHEN (
-              (t5."id" = (t5."id" + $71))
+              (t5."id" = (t5."id" + $86))
+              AND ((t5."id" - $87) = $88)
+              AND ((t5."id" * $89) = t5."id")
+              AND ((t5."id" / $90) = t5."id")
+              AND (t5."id" <> $91)
+              AND (t5."id" <> $92)
+              AND (t5."id" < $93)
+              AND (t5."id" <= $94)
+              AND (t5."id" >= $95)
+              AND (t5."id" <= $96)
+              AND (t5."id" >= $97)
               AND (t5."nullable_id" IS NULL)
               AND (t5."nullable_id" IS NOT NULL)
               AND (t5."id" IN (
-                $72,
-                $73
+                $98,
+                $99
               ))
-              AND (t5."id" NOT IN ($74))
-              AND (t5."id" IN ($75))
-              AND (t5."id" NOT IN ($76))
-              AND (t5."id" BETWEEN $77 AND $78)
+              AND (t5."id" NOT IN ($100))
+              AND (t5."id" IN ($101))
+              AND (t5."id" NOT IN ($102))
+              AND (t5."id" BETWEEN $103 AND $104)
               AND (t5."id" IN (
                 SELECT
                   t6."id"
@@ -1603,18 +1812,35 @@ let%expect_test "one mega query compiles nested DML and relational paths" =
                 WHERE
                   (t6."person_id" = t5."person_id")
               ))
-              AND (NOT (t5."id" > $79))
-              AND ((LOWER(t5."label") || $80) LIKE $81)
-              AND (COALESCE(t5."nullable_id", $82) > $83)
+              AND (t5."label" IS DISTINCT FROM $105)
+              AND (t5."label" LIKE $106)
+              AND (CHAR_LENGTH(t5."label") > $107)
+              AND ((
+                SELECT
+                  t6."nullable_id"
+                FROM "mega_events" AS t6
+                WHERE
+                  (t6."id" = t5."id")
+                LIMIT 1
+              ) = t5."id")
+              AND (NOT (t5."id" > $108))
+              AND ((LOWER(t5."label") || $109) LIKE $110)
+              AND (COALESCE(t5."nullable_id", $111) > $112)
               AND ((CASE
                 WHEN TRUE THEN t5."id"
-                ELSE $84
-              END) > $85)
+                ELSE $113
+              END) > $114)
               AND (CURRENT_TIMESTAMP = CURRENT_TIMESTAMP)
             ) THEN t5."value"
-            ELSE $86
-          END)), $87)
+            ELSE $115
+          END)), $116)
         FROM "mega_events" AS t5
       )
-    |}]
+    |}];
+  (match
+     Statement.sql_exn ~dialect:(Dialect.kind Dialect.postgresql) ~input:(-1, 1) statement
+   with
+   | exception Failure message -> Stdlib.print_endline message
+   | _ -> failwith "negative pagination value unexpectedly rendered SQL");
+  [%expect {|input_rows_limit must be non-negative, got -1|}]
 ;;

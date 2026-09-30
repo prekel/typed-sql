@@ -52,7 +52,7 @@ smoke:
 	opam exec -- dune build --only-packages typed-sql,typed-sql-pgocaml-lwt @install @runtest
 
 .PHONY: check
-check: fmt build test doc package
+check: fmt build test coverage doc package
 
 .PHONY: coverage coverage-all coverage-mega
 coverage:

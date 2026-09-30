@@ -70,7 +70,7 @@ bisect-ppx-report html --expect lib/ --coverage-path "$coverage_data" -o "$cover
 case "$mode" in
   public) threshold=97.0 ;;
   all) threshold=99.0 ;;
-  mega) threshold=60.0 ;;
+  mega) threshold=67.0 ;;
 esac
 awk -v coverage="$coverage" -v threshold="$threshold" \
   'BEGIN { if (coverage + 0 < threshold) exit 1 }'
