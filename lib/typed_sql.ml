@@ -38,6 +38,9 @@ module Dialect = Typed_sql_private.Dialect
 module Statement = Typed_sql_private.Statement
 
 module Postgresql = struct
+  let string_agg = Typed_sql_private.Postgresql.string_agg
+  let string_agg_nullable = Typed_sql_private.Postgresql.string_agg_nullable
+
   module Numeric = struct
     let sum_int64 = Typed_sql_private.Expr.sum_int64
     let sum_int64_nullable = Typed_sql_private.Expr.sum_int64_nullable

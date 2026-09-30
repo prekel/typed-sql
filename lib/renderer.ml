@@ -190,6 +190,22 @@ let rec render_expr ~aliases expression state =
   | Ast.Aggregate (Ast.Max expression) ->
     let expression, state = render_expr ~aliases expression state in
     concat [ text "MAX("; expression; text ")" ], state
+  | Ast.Aggregate (Ast.String_agg { value; delimiter; order_by }) ->
+    let value, state = render_expr ~aliases value state in
+    let delimiter, state = render_expr ~aliases delimiter state in
+    let order_by, state = render_order_by ~aliases order_by state in
+    let order_by =
+      match order_by with
+      | Template.Empty -> Template.Empty
+      | order_by -> concat [ break " "; text "ORDER BY "; order_by ]
+    in
+    ( concat
+        [ text "STRING_AGG("
+        ; nest (concat [ break ""; value; text ","; break " "; delimiter; order_by ])
+        ; break ""
+        ; text ")"
+        ]
+    , state )
   | Ast.Aggregate (Ast.Multiset_agg multiset) ->
     let multiset, state = render_multiset_aggregate_raw ~aliases multiset state in
     render_multiset_output multiset state

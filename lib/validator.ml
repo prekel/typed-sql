@@ -33,6 +33,12 @@ let rec validate_expr ~validate_subquery ~visible = function
       | Ast.Sum_numeric expression
       | Ast.Min expression
       | Ast.Max expression ) -> validate_expr ~validate_subquery ~visible expression
+  | Ast.Aggregate (Ast.String_agg { value; delimiter; order_by }) ->
+    let open Result.Let_syntax in
+    let%bind () = validate_expr ~validate_subquery ~visible value in
+    let%bind () = validate_expr ~validate_subquery ~visible delimiter in
+    List.map order_by ~f:(fun order -> order.Ast.expr)
+    |> validate_expressions ~validate_subquery ~visible
   | Ast.Aggregate (Ast.Multiset_agg multiset) ->
     let open Result.Let_syntax in
     let%bind () = validate_expressions ~validate_subquery ~visible multiset.fields in
@@ -237,6 +243,18 @@ let rec analyze_expression ~groups ~inside_aggregate expression =
       let nested = analyze_expression ~groups ~inside_aggregate:true expression in
       { has_aggregate = true
       ; nested_aggregate = inside_aggregate || nested.nested_aggregate
+      ; grouped = true
+      }
+    | Ast.Aggregate (Ast.String_agg { value; delimiter; order_by }) ->
+      let nested =
+        combine_all
+          (analyze_expression ~groups ~inside_aggregate:true value
+           :: analyze_expression ~groups ~inside_aggregate:true delimiter
+           :: List.map order_by ~f:(fun order ->
+             analyze_expression ~groups ~inside_aggregate:true order.Ast.expr))
+      in
+      { has_aggregate = true
+      ; nested_aggregate = inside_aggregate || nested.has_aggregate
       ; grouped = true
       }
     | Ast.Aggregate (Ast.Multiset_agg multiset) ->

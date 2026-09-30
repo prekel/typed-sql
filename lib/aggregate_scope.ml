@@ -40,6 +40,10 @@ and aggregate_sources = function
   | Ast.Sum_numeric expression
   | Ast.Min expression
   | Ast.Max expression -> expression_sources expression
+  | Ast.String_agg { value; delimiter; order_by } ->
+    expression_sources value
+    @ expression_sources delimiter
+    @ List.concat_map order_by ~f:(fun order -> expression_sources order.Ast.expr)
   | Ast.Multiset_agg multiset ->
     List.concat_map multiset.fields ~f:expression_sources
     @ List.concat_map multiset.order_by ~f:(fun order ->

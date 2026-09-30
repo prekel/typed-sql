@@ -144,6 +144,16 @@ module Numeric_item = struct
   let amount row = Expr.column row amount_column
 end
 
+module String_agg_item = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "postgres_string_agg_items"
+  let position_column = Column.v_exn table "position" Db_type.int
+  let value_column = Column.nullable_v_exn table "value" Db_type.text
+  let position row = Expr.column row position_column
+  let value row = Expr.column row value_column
+end
+
 let decimal_exn value =
   match Decimal.of_string value with
   | Some value -> value
@@ -1706,10 +1716,48 @@ let test_caqti_prepared conn =
   Lwt.return_unit
 ;;
 
+let test_string_agg conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let* () =
+    Connection.exec
+      (direct
+         "CREATE TEMP TABLE postgres_string_agg_items (position INTEGER NOT NULL, value TEXT)")
+      ()
+    |> or_fail
+  in
+  let* () =
+    Connection.exec
+      (direct
+         "INSERT INTO postgres_string_agg_items VALUES (2, 'beta'), (1, 'alpha'), (3, NULL)")
+      ()
+    |> or_fail
+  in
+  let aggregate minimum_position =
+    Statement.For_dialect.query_one_exn ~dialect:Dialect.postgresql (fun _ ->
+      Query.(
+        from String_agg_item.table
+        |> where (fun row -> String_agg_item.position row >$ minimum_position)
+        |> select_exactly_one (fun row ->
+          Projection.expr
+            (Postgresql.string_agg_nullable
+               ~order_by:[ Aggregate_order.asc (String_agg_item.position row) ]
+               ~delimiter:(Expr.constant Db_type.text ",")
+               (String_agg_item.value row)))))
+  in
+  let* values = Adapter.run ~conn (aggregate 0) () >>= adapter_or_fail in
+  if not (Option.equal String.equal values (Some "alpha,beta")) then
+    failwith "PostgreSQL string_agg did not preserve aggregate order or skip NULLs";
+  let* empty = Adapter.run ~conn (aggregate 100) () >>= adapter_or_fail in
+  if not (Option.is_none empty) then
+    failwith "PostgreSQL string_agg did not return NULL for an empty aggregate";
+  Lwt.return_unit
+;;
+
 let main () =
   let* () =
     with_connection "postgresql://" (fun conn ->
       let* () = run ~postgresql:true conn in
+      let* () = test_string_agg conn in
       let* () = test_fetch_with_ties conn in
       let* () = test_row_locking conn in
       let* () = test_caqti_prepared conn in

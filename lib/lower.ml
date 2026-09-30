@@ -57,6 +57,15 @@ let rec expression ~dialect = function
     Ast.Aggregate (Ast.Sum_numeric (expression ~dialect value))
   | Ast.Aggregate (Ast.Min value) -> Ast.Aggregate (Ast.Min (expression ~dialect value))
   | Ast.Aggregate (Ast.Max value) -> Ast.Aggregate (Ast.Max (expression ~dialect value))
+  | Ast.Aggregate (Ast.String_agg string_agg) ->
+    Ast.Aggregate
+      (Ast.String_agg
+         { value = expression ~dialect string_agg.value
+         ; delimiter = expression ~dialect string_agg.delimiter
+         ; order_by =
+             List.map string_agg.order_by ~f:(fun order ->
+               { order with Ast.expr = expression ~dialect order.expr })
+         })
   | Ast.Aggregate (Ast.Multiset_agg multiset) ->
     Ast.Aggregate
       (Ast.Multiset_agg
@@ -231,6 +240,11 @@ let rec expression_has_unsupported_having ~dialect = function
       | Ast.Sum_numeric value
       | Ast.Min value
       | Ast.Max value ) -> expression_has_unsupported_having ~dialect value
+  | Ast.Aggregate (Ast.String_agg { value; delimiter; order_by }) ->
+    expression_has_unsupported_having ~dialect value
+    || expression_has_unsupported_having ~dialect delimiter
+    || List.exists order_by ~f:(fun order ->
+      expression_has_unsupported_having ~dialect order.Ast.expr)
   | Ast.Aggregate (Ast.Multiset_agg multiset) ->
     List.exists multiset.fields ~f:(expression_has_unsupported_having ~dialect)
     || Option.value_map
@@ -389,6 +403,7 @@ let rec sqlite_unsupported_expression = function
       | Ast.Min expression
       | Ast.Max expression ) -> sqlite_unsupported_expression expression
   | Ast.Aggregate (Ast.Sum_int64 _ | Ast.Sum_numeric _) -> Some "numeric aggregate"
+  | Ast.Aggregate (Ast.String_agg _) -> Some "PostgreSQL string_agg aggregate"
   | Ast.Aggregate (Ast.Multiset_agg multiset) ->
     first_unsupported
       (List.map multiset.fields ~f:sqlite_unsupported_expression

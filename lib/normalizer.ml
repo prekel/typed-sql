@@ -32,6 +32,15 @@ let rec normalize_expr = function
     Ast.Aggregate (Ast.Min (normalize_expr expression))
   | Ast.Aggregate (Ast.Max expression) ->
     Ast.Aggregate (Ast.Max (normalize_expr expression))
+  | Ast.Aggregate (Ast.String_agg string_agg) ->
+    Ast.Aggregate
+      (Ast.String_agg
+         { value = normalize_expr string_agg.value
+         ; delimiter = normalize_expr string_agg.delimiter
+         ; order_by =
+             List.map string_agg.order_by ~f:(fun order ->
+               { order with Ast.expr = normalize_expr order.expr })
+         })
   | Ast.Aggregate (Ast.Multiset_agg multiset) ->
     Ast.Aggregate
       (Ast.Multiset_agg

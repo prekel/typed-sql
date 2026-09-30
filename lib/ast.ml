@@ -22,6 +22,11 @@ type aggregate =
   | Sum_numeric of expr
   | Min of expr
   | Max of expr
+  | String_agg of
+      { value : expr
+      ; delimiter : expr
+      ; order_by : order list
+      }
   | Multiset_agg of multiset_aggregate
 
 and expr =

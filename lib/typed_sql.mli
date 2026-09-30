@@ -1981,6 +1981,23 @@ end
 (** PostgreSQL-specific builders. Using one adds a PostgreSQL requirement to
     the resulting statement. *)
 module Postgresql : sig
+  (** Concatenate text values with PostgreSQL [string_agg]. The aggregate
+      returns [None] for an empty group or when every input is [NULL]. Values
+      are concatenated in database order unless [order_by] is supplied. *)
+  val string_agg
+    :  ?order_by:'r Aggregate_order.t list
+    -> delimiter:(string, ([> `Postgresql ] as 'r)) Expr.t
+    -> (string, 'r) Expr.t
+    -> (string option, 'r) Expr.t
+
+  (** As [string_agg], accepting a nullable input expression. SQL [NULL]
+      values are ignored by the aggregate. *)
+  val string_agg_nullable
+    :  ?order_by:'r Aggregate_order.t list
+    -> delimiter:(string, ([> `Postgresql ] as 'r)) Expr.t
+    -> (string option, 'r) Expr.t
+    -> (string option, 'r) Expr.t
+
   (** PostgreSQL aggregate expressions whose result is exact [numeric]. Each
       constructor marks its query as PostgreSQL-only. [SUM], [MIN], and [MAX]
       return [None] for empty or entirely null groups. *)

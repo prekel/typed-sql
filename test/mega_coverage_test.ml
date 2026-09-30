@@ -847,6 +847,17 @@ let final_update
                 |> where (fun (event, _) -> Event.person_id event =. Person.id person)
                 |> exists_expr)
             in
+            let event_labels =
+              Query.(
+                from Event.table
+                |> where (fun event -> Event.person_id event =. Person.id person)
+                |> select_scalar (fun event ->
+                  Postgresql.string_agg_nullable
+                    ~order_by:[ Aggregate_order.asc (Event.id event) ]
+                    ~delimiter:(Expr.constant Db_type.text ",")
+                    (Event.nullable_label event)))
+              |> Expr.scalar_subquery_nullable
+            in
             let has_aggregate_metrics =
               Query.(
                 from_cte metrics
@@ -925,7 +936,9 @@ let final_update
               &&. Expr.between (Person.score person) ~lower:0L ~upper:1000L
               &&. Condition.not_ (Expr.is_null (Person.nickname person))
               &&. no_future_event
-              &&. Query.in_subquery (Person.id person) first_event_person_id)))))
+              &&. Query.in_subquery (Person.id person) first_event_person_id
+              &&. (event_labels
+                   =. Expr.constant (Db_type.option Db_type.text) (Some "optional")))))))
     |> returning person_result_projection)
 ;;
 
@@ -1791,6 +1804,17 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
             (t5."person_id" = t0."id")
           LIMIT 1
         ))
+        AND ((
+          SELECT
+            STRING_AGG(
+              t5."nullable_label",
+              $87
+              ORDER BY t5."id" ASC
+            )
+          FROM "mega_events" AS t5
+          WHERE
+            (t5."person_id" = t0."id")
+        ) = $88)
       )
     RETURNING
       t0."id",
@@ -1882,9 +1906,9 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                       WHERE
                         (
                           (t6."person_id" = t0."id")
-                          AND (t6."value" > $87)
+                          AND (t6."value" > $89)
                         )
-                    )) = $88)
+                    )) = $90)
                   )
                 ),
                 JSONB_BUILD_ARRAY()
@@ -1898,27 +1922,27 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
         SELECT
           COALESCE(SUM((CASE
             WHEN (
-              (t5."id" = (t5."id" + $89))
-              AND ((t5."id" - $90) = $91)
-              AND ((t5."id" * $92) = t5."id")
-              AND ((t5."id" / $93) = t5."id")
-              AND (t5."id" <> $94)
-              AND (t5."id" <> $95)
-              AND (t5."id" < $96)
-              AND (t5."id" <= $97)
-              AND (t5."id" >= $98)
+              (t5."id" = (t5."id" + $91))
+              AND ((t5."id" - $92) = $93)
+              AND ((t5."id" * $94) = t5."id")
+              AND ((t5."id" / $95) = t5."id")
+              AND (t5."id" <> $96)
+              AND (t5."id" <> $97)
+              AND (t5."id" < $98)
               AND (t5."id" <= $99)
               AND (t5."id" >= $100)
+              AND (t5."id" <= $101)
+              AND (t5."id" >= $102)
               AND (t5."nullable_id" IS NULL)
               AND (t5."nullable_id" IS NOT NULL)
               AND (t5."id" IN (
-                $101,
-                $102
+                $103,
+                $104
               ))
-              AND (t5."id" NOT IN ($103))
-              AND (t5."id" IN ($104))
               AND (t5."id" NOT IN ($105))
-              AND (t5."id" BETWEEN $106 AND $107)
+              AND (t5."id" IN ($106))
+              AND (t5."id" NOT IN ($107))
+              AND (t5."id" BETWEEN $108 AND $109)
               AND (t5."id" IN (
                 SELECT
                   t6."id"
@@ -1949,9 +1973,9 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                 WHERE
                   (t6."person_id" = t5."person_id")
               ))
-              AND (t5."label" IS DISTINCT FROM $108)
-              AND (t5."label" LIKE $109)
-              AND (CHAR_LENGTH(t5."label") > $110)
+              AND (t5."label" IS DISTINCT FROM $110)
+              AND (t5."label" LIKE $111)
+              AND (CHAR_LENGTH(t5."label") > $112)
               AND ((
                 SELECT
                   t6."nullable_id"
@@ -1960,17 +1984,17 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                   (t6."id" = t5."id")
                 LIMIT 1
               ) = t5."id")
-              AND (NOT (t5."id" > $111))
-              AND ((LOWER(t5."label") || $112) LIKE $113)
-              AND (COALESCE(t5."nullable_id", $114) > $115)
+              AND (NOT (t5."id" > $113))
+              AND ((LOWER(t5."label") || $114) LIKE $115)
+              AND (COALESCE(t5."nullable_id", $116) > $117)
               AND ((CASE
                 WHEN TRUE THEN t5."id"
-                ELSE $116
-              END) > $117)
+                ELSE $118
+              END) > $119)
               AND (CURRENT_TIMESTAMP = CURRENT_TIMESTAMP)
             ) THEN t5."value"
-            ELSE $118
-          END)), $119)
+            ELSE $120
+          END)), $121)
         FROM "mega_events" AS t5
       )
     |}]

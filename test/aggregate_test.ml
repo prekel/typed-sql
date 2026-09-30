@@ -88,6 +88,115 @@ let sqlite_numeric_aggregate =
     Aggregate_projection.count (Item.numeric_value item))
 ;;
 
+let%test_module "PostgreSQL string_agg" =
+  (module struct
+    module Item = struct
+      type row
+
+      let table : row Table.t = Table.v_exn "aggregate_items"
+      let int_column = Column.v_exn table "int_value" Db_type.int
+      let text_column = Column.v_exn table "text_value" Db_type.text
+
+      let nullable_text_column =
+        Column.nullable_v_exn table "nullable_text_value" Db_type.text
+      ;;
+
+      let int row = Expr.column row int_column
+      let text row = Expr.column row text_column
+      let nullable_text row = Expr.column row nullable_text_column
+    end
+
+    let%expect_test "renders its delimiter as a bind parameter" =
+      Query.(
+        from Item.table
+        |> select_exactly_one (fun item ->
+          Projection.expr
+            (Postgresql.string_agg
+               ~delimiter:(Expr.constant Db_type.text ", ")
+               (Item.text item))))
+      |> compile_sql Dialect.postgresql
+      |> Stdlib.print_endline;
+      [%expect
+        {|
+      SELECT
+        STRING_AGG(
+          t0."text_value",
+          $1
+        )
+      FROM "aggregate_items" AS t0
+      |}]
+    ;;
+
+    let%expect_test "orders values inside the aggregate" =
+      Query.(
+        from Item.table
+        |> select_exactly_one (fun item ->
+          Projection.expr
+            (Postgresql.string_agg
+               ~order_by:
+                 [ Aggregate_order.desc
+                     (let open Expr.Int.Infix in
+                      Item.int item +. Expr.constant Db_type.int 1)
+                 ]
+               ~delimiter:(Expr.constant Db_type.text ",")
+               (Item.text item))))
+      |> compile_sql Dialect.postgresql
+      |> Stdlib.print_endline;
+      [%expect
+        {|
+      SELECT
+        STRING_AGG(
+          t0."text_value",
+          $1
+          ORDER BY (t0."int_value" + $2) DESC
+        )
+      FROM "aggregate_items" AS t0
+      |}]
+    ;;
+
+    let%expect_test "accepts nullable text" =
+      Query.(
+        from Item.table
+        |> select_exactly_one (fun item ->
+          Projection.expr
+            (Postgresql.string_agg_nullable
+               ~delimiter:(Expr.constant Db_type.text ",")
+               (Item.nullable_text item))))
+      |> compile_sql Dialect.postgresql
+      |> Stdlib.print_endline;
+      [%expect
+        {|
+        SELECT
+          STRING_AGG(
+            t0."nullable_text_value",
+            $1
+          )
+        FROM "aggregate_items" AS t0
+        |}]
+    ;;
+
+    let%test "rejects nested string_agg calls" =
+      let query =
+        Query.(
+          from Item.table
+          |> select_exactly_one (fun item ->
+            let inner =
+              Postgresql.string_agg
+                ~delimiter:(Expr.constant Db_type.text ",")
+                (Item.text item)
+            in
+            Projection.expr
+              (Postgresql.string_agg
+                 ~delimiter:(Expr.constant Db_type.text ";")
+                 (Expr.coalesce inner ~default:(Expr.constant Db_type.text "")))))
+      in
+      match Compiler.compile ~dialect:Dialect.postgresql query with
+      | Error Compile_error.Nested_aggregate -> true
+      | _ -> false
+    ;;
+  end)
+;;
+
 let%test "aggregate inside arithmetic retains exactly-one cardinality" =
   let query =
     Query.(
