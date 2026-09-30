@@ -105,8 +105,8 @@ let projection_has_local_aggregate (select : Ast.select) =
 
 let at_most_one (select : Ast.select) =
   Option.exists select.limit ~f:(function
-    | Ast.Literal limit -> Int.(limit >= 0 && limit <= 1)
-    | Ast.Parameter _ -> false)
+    | Ast.Limit (Ast.Literal limit) -> Int.(limit >= 0 && limit <= 1)
+    | Ast.Limit (Ast.Parameter _) | Ast.Fetch_with_ties _ -> false)
   || (List.is_empty select.group_by && projection_has_local_aggregate select)
 ;;
 
@@ -118,6 +118,7 @@ let exactly_one (select : Ast.select) =
   &&
   match select.limit with
   | None -> true
-  | Some (Ast.Literal limit) -> Int.(limit > 0)
-  | Some (Ast.Parameter _) -> false
+  | Some (Ast.Limit (Ast.Literal limit) | Ast.Fetch_with_ties (Ast.Literal limit)) ->
+    Int.(limit > 0)
+  | Some (Ast.Limit (Ast.Parameter _) | Ast.Fetch_with_ties (Ast.Parameter _)) -> false
 ;;

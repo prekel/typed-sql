@@ -1282,7 +1282,7 @@ module Query : sig
   (** Finish an ungrouped aggregate SELECT and establish cardinality
       [Cardinality.exactly_one]. The compiler requires at least one local
       aggregate and rejects [HAVING],
-      [OFFSET], a parameterized [LIMIT], and a literal [LIMIT] below one.
+      [OFFSET], a parameterized row limit, and a literal row limit below one.
       Use regular [select] when the query does not satisfy this contract. *)
   val select_exactly_one
     :  ('ctx -> ('result, 'requirements) Projection.t)
@@ -1528,8 +1528,8 @@ module Query : sig
     -> ('ctx, 'grouping, 'cardinality, 'requirements) t
 
   (** Set the maximum number of returned rows. The compiler rejects negative
-      values. A later call replaces the previous limit. Because an arbitrary
-      integer may exceed one, this operation resets the proof to
+      values. A later call replaces the previous row limit. Because an
+      arbitrary integer may exceed one, this operation resets the proof to
       [Cardinality.many], even when the supplied value happens to be zero or
       one. *)
   val limit
@@ -1538,8 +1538,9 @@ module Query : sig
     -> ('ctx, 'grouping, Cardinality.many, 'requirements) t
 
   (** Set [LIMIT 1]. This proves that the SELECT returns at most one row. A
-      later [limit] or [limit_param] replaces that proof. It does not prove
-      that a row exists, so the result is unsuitable for
+      later [limit], [limit_param], or PostgreSQL
+      [Postgresql.Query.fetch_with_ties] replaces that proof. It does not
+      prove that a row exists, so the result is unsuitable for
       [Statement.Portable.query_one]. *)
   val limit_one
     :  ('ctx, 'grouping, 'cardinality, 'requirements) t
@@ -2085,6 +2086,23 @@ module Postgresql : sig
            Query.t
       -> ('ctx, Query.ungrouped, 'cardinality, 'requirements) Query.t
 
+    (** Set PostgreSQL [FETCH FIRST n ROWS WITH TIES]. The final query must
+        have at least one [ORDER BY] key; all keys together determine ties.
+        The compiler checks this after the builder is complete. A later row
+        limit replaces this clause. Since tied rows can extend the requested
+        count, this resets cardinality to [Cardinality.many]. *)
+    val fetch_with_ties
+      :  int
+      -> ('ctx, 'grouping, 'cardinality, ([> `Postgresql ] as 'requirements)) Query.t
+      -> ('ctx, 'grouping, Cardinality.many, 'requirements) Query.t
+
+    (** As [fetch_with_ties], using a statement parameter validated as
+        non-negative before execution. *)
+    val fetch_with_ties_param
+      :  'requirements Pagination_parameter.t
+      -> ('ctx, 'grouping, 'cardinality, ([> `Postgresql ] as 'requirements)) Query.t
+      -> ('ctx, 'grouping, Cardinality.many, 'requirements) Query.t
+
     (** PostgreSQL's duplicate-preserving [INTERSECT ALL]. It resets result
         cardinality to [Cardinality.many]. The optional [order_by] orders the
         rows by selected output fields using checked SQL identifiers. *)
@@ -2149,7 +2167,11 @@ module Compile_error : sig
     (** An expression uses a table occurrence outside its query scope.
           [visible] and [actual] are diagnostic source identities. *)
     | Negative_limit of int (** [Query.limit] received a negative value. *)
+    | Negative_fetch_count of int
+    (** [Postgresql.Query.fetch_with_ties] received a negative row count. *)
     | Negative_offset of int (** [Query.offset] received a negative value. *)
+    | Fetch_with_ties_requires_order_by
+    (** [FETCH FIRST WITH TIES] requires at least one final [ORDER BY] key. *)
     | Empty_assignments of [ `Insert | `Update ]
     (** INSERT or UPDATE was finalized without assigning a column. *)
     | Empty_insert_row of int
@@ -2205,11 +2227,12 @@ module Compile_error : sig
         expression whose columns are absent from [GROUP BY]. *)
     | Scalar_subquery_may_return_many_rows
     (** Scalar embedding requires an explicit [LIMIT 0/1] or an aggregate of
-        the current SELECT without [GROUP BY]. Membership and existence
-        subqueries are not subject to this restriction. *)
+        the current SELECT without [GROUP BY]. [FETCH WITH TIES] does not prove
+        an upper bound because tied rows may extend the requested count.
+        Membership and existence subqueries are not subject to this restriction. *)
     | Exactly_one_query_not_proven
     (** [Query.select_exactly_one] requires an ungrouped aggregate without
-        [HAVING], [OFFSET], a parameterized [LIMIT], or a literal [LIMIT]
+        [HAVING], [OFFSET], a parameterized row limit, or a literal row limit
         below one. *)
     | Invalid_relation_column of int
     (** A relation output descriptor is not a direct column. The integer is

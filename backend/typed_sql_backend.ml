@@ -70,7 +70,9 @@ module Statement = struct
     | P.Empty_values_rows -> Empty_values_rows
     | P.Foreign_source { visible; actual } -> Foreign_source { visible; actual }
     | P.Negative_limit value -> Negative_limit value
+    | P.Negative_fetch_count value -> Negative_fetch_count value
     | P.Negative_offset value -> Negative_offset value
+    | P.Fetch_with_ties_requires_order_by -> Fetch_with_ties_requires_order_by
     | P.Empty_assignments kind -> Empty_assignments kind
     | P.Empty_insert_row row -> Empty_insert_row row
     | P.Duplicate_assignment column -> Duplicate_assignment (public_identifier column)

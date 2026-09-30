@@ -759,22 +759,32 @@ and render_select
         ( concat [ parts; break " "; text "ORDER BY"; nest (concat [ break " "; orders ]) ]
         , state )
     in
-    let parts, state =
-      match select.limit with
+    let render_offset parts state =
+      match select.offset with
       | None -> parts, state
       | Some (Ast.Literal n) ->
-        concat [ parts; break " "; text "LIMIT "; text (Int.to_string n) ], state
+        concat [ parts; break " "; text "OFFSET "; text (Int.to_string n) ], state
       | Some (Ast.Parameter parameter) ->
         let parameter, state = render_parameter parameter state in
-        concat [ parts; break " "; text "LIMIT "; parameter ], state
+        concat [ parts; break " "; text "OFFSET "; parameter ], state
     in
-    match select.offset with
-    | None -> parts, state
-    | Some (Ast.Literal n) ->
-      concat [ parts; break " "; text "OFFSET "; text (Int.to_string n) ], state
-    | Some (Ast.Parameter parameter) ->
-      let parameter, state = render_parameter parameter state in
-      concat [ parts; break " "; text "OFFSET "; parameter ], state
+    let render_row_count prefix suffix parts state pagination =
+      match pagination with
+      | Ast.Literal n ->
+        ( concat [ parts; break " "; text prefix; text (Int.to_string n); text suffix ]
+        , state )
+      | Ast.Parameter parameter ->
+        let parameter, state = render_parameter parameter state in
+        concat [ parts; break " "; text prefix; parameter; text suffix ], state
+    in
+    match select.limit with
+    | None -> render_offset parts state
+    | Some (Ast.Limit pagination) ->
+      let parts, state = render_row_count "LIMIT " "" parts state pagination in
+      render_offset parts state
+    | Some (Ast.Fetch_with_ties pagination) ->
+      let parts, state = render_offset parts state in
+      render_row_count "FETCH FIRST " " ROWS WITH TIES" parts state pagination
   in
   render_with select.ctes ~render_body state
 

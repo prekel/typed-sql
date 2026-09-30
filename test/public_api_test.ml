@@ -284,7 +284,7 @@ let%test_unit "select_exactly_one validates its aggregate proof" =
       assert (
         String.equal
           (Compile_error.to_string Compile_error.Exactly_one_query_not_proven)
-          "exactly-one SELECT requires an ungrouped aggregate without HAVING, OFFSET, or LIMIT 0")
+          "exactly-one SELECT requires an ungrouped aggregate without HAVING, OFFSET, or row limit 0")
     | Error error -> failwith (Compile_error.to_string error.error)
     | Ok _ -> failwith "invalid SELECT was accepted as exactly one row"
   in
@@ -355,6 +355,16 @@ let%test_unit "statement reports unsupported runtime dialects" =
   match Statement.sql ~dialect:Dialect.Sqlite command with
   | Error (Statement.Unsupported_dialect Dialect.Sqlite) -> ()
   | Error _ | Ok _ -> failwith "inputless PostgreSQL command accepted SQLite"
+;;
+
+let%test "SQLite statement reports PostgreSQL as unsupported" =
+  let statement =
+    Statement.For_dialect.query_many_exn ~dialect:Dialect.sqlite (fun _ ->
+      statement_query)
+  in
+  match Statement.sql ~dialect:Dialect.Postgresql ~input:() statement with
+  | Error (Statement.Unsupported_dialect Dialect.Postgresql) -> true
+  | Error _ | Ok _ -> false
 ;;
 
 let%test_unit "statement exn constructors expose definition and binding failures" =

@@ -157,7 +157,7 @@ and select =
   ; group_by : expr list
   ; having : condition option
   ; order_by : order list
-  ; limit : pagination option
+  ; limit : row_limit option
   ; offset : pagination option
   }
 
@@ -190,6 +190,10 @@ and compound =
 and pagination =
   | Literal of int
   | Parameter of parameter
+
+and row_limit =
+  | Limit of pagination
+  | Fetch_with_ties of pagination
 
 and assignment =
   { source_id : int

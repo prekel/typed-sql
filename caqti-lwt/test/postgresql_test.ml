@@ -34,6 +34,14 @@ module Item = struct
   let name row = Expr.column row name_column
 end
 
+module Tie_item = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "postgres_tie_items"
+  let published_in_column = Column.v_exn table "published_in" Db_type.int
+  let published_in row = Expr.column row published_in_column
+end
+
 type dialect_choice_input =
   { id : int64
   ; name : string
@@ -949,7 +957,58 @@ let run_goldens ~postgresql conn =
   Lwt.return_unit
 ;;
 
-let run conn =
+let test_fetch_with_ties conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let* () =
+    Connection.exec
+      (direct
+         "CREATE TABLE postgres_tie_items (id BIGINT PRIMARY KEY, published_in INTEGER NOT NULL)")
+      ()
+    |> or_fail
+  in
+  let* () =
+    Connection.exec
+      (direct
+         "INSERT INTO postgres_tie_items VALUES (1, 2000), (2, 2001), (3, 2001), (4, 2002)")
+      ()
+    |> or_fail
+  in
+  let ties_query =
+    Query.(
+      from Tie_item.table
+      |> order_by Tie_item.published_in `Asc
+      |> Postgresql.Query.fetch_with_ties 2
+      |> select (fun item -> Projection.expr (Tie_item.published_in item)))
+  in
+  let* tied_years = fetch_postgresql conn ties_query in
+  assert_rows
+    ~name:"FETCH WITH TIES includes all rows at the page boundary"
+    ~equal:Int.equal
+    [ 2000; 2001; 2001 ]
+    tied_years;
+  let parameterized_query =
+    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun parameters ->
+      let page_size = parameters.non_negative_int ~name:"page_size" ~get:snd in
+      let start_at = parameters.non_negative_int ~name:"start_at" ~get:fst in
+      Query.(
+        from Tie_item.table
+        |> order_by Tie_item.published_in `Asc
+        |> offset_param start_at
+        |> Postgresql.Query.fetch_with_ties_param page_size
+        |> select (fun item -> Projection.expr (Tie_item.published_in item))))
+  in
+  let* parameterized_tied_years =
+    Adapter.run ~conn parameterized_query (1, 1) >>= adapter_or_fail
+  in
+  assert_rows
+    ~name:"parameterized OFFSET and FETCH preserve boundary ties"
+    ~equal:Int.equal
+    [ 2001; 2001 ]
+    parameterized_tied_years;
+  Lwt.return_unit
+;;
+
+let run ~postgresql conn =
   let module Connection = (val conn : Caqti_lwt.CONNECTION) in
   let* () =
     Connection.exec
@@ -981,9 +1040,12 @@ let run conn =
     >>= adapter_or_fail
   in
   assert_rows
-    ~name:"dialect choice selects the PostgreSQL statement branch"
+    ~name:"dialect choice selects the connection's statement branch"
     ~equal:String.equal
-    [ "Ada" ]
+    (if postgresql then
+       [ "Ada" ]
+     else
+       [ "Grace" ])
     dialect_choice_rows;
   let* () =
     Connection.exec
@@ -1528,13 +1590,14 @@ let test_caqti_prepared conn =
 let main () =
   let* () =
     with_connection "postgresql://" (fun conn ->
-      let* () = run conn in
+      let* () = run ~postgresql:true conn in
+      let* () = test_fetch_with_ties conn in
       let* () = test_caqti_prepared conn in
       let* () = postgres_only conn in
       run_goldens ~postgresql:true conn)
   in
   with_connection "sqlite3::memory:" (fun conn ->
-    let* () = run conn in
+    let* () = run ~postgresql:false conn in
     run_goldens ~postgresql:false conn)
 ;;
 

@@ -658,7 +658,7 @@ reconnect и eviction. Решение по core API и рассмотренны�
   создающий стартовую строку независимо от содержимого таблиц
   ([JQ-21](../test/query-builder-survey/jooq.md#jq-21-рекурсивный-cte-для-дерева-каталогов),
   [SA-30](../test/query-builder-survey/sqlalchemy.md#sa-30-рекурсивный-cte)).
-- [ ] Поддержать `FETCH FIRST ... WITH TIES` с явным ключом порядка и сохранением
+- [x] Поддержать PostgreSQL `FETCH FIRST ... WITH TIES` с явным ключом порядка и сохранением
   всех строк на границе страницы
   ([JQ-26](../test/query-builder-survey/jooq.md#jq-26-fetch-first-with-ties)).
 - [ ] Добавить grouping sets, `ROLLUP` и `CUBE` с типизированным описанием

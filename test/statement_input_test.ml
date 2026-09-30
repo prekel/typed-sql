@@ -237,6 +237,34 @@ let%test_unit "tuple, manual record, and PPX record describe the same statement"
   assert (String.equal record_sql ppx_record_sql)
 ;;
 
+let fetch_with_ties_statement =
+  Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun params ->
+    let page_size = params.non_negative_int ~name:"page_size" ~get:snd in
+    let start_at = params.non_negative_int ~name:"start_at" ~get:fst in
+    Query.(
+      from Person.table
+      |> order_by Person.age `Asc
+      |> offset_param start_at
+      |> Postgresql.Query.fetch_with_ties_param page_size
+      |> select Person.projection))
+;;
+
+let%expect_test "FETCH parameters follow OFFSET then FETCH SQL order" =
+  Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(3, 5) fetch_with_ties_statement
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      t0."id",
+      t0."name"
+    FROM "people" AS t0
+    ORDER BY
+      t0."age" ASC
+    OFFSET $1
+    FETCH FIRST $2 ROWS WITH TIES
+    |}]
+;;
+
 let%test_module "choosing among ten static sort variants" =
   (module struct
     type sort =
