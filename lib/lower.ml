@@ -447,6 +447,7 @@ and sqlite_unsupported_select (select : Ast.select) =
     ; (match select.limit with
        | Some (Ast.Fetch_with_ties _) -> Some "FETCH FIRST WITH TIES"
        | None | Some (Ast.Limit _) -> None)
+    ; Option.map select.locking ~f:(fun _ -> "FOR UPDATE")
     ]
 
 and sqlite_unsupported_query = function

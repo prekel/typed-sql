@@ -2979,11 +2979,10 @@ RETURNING
 ```
 ### KY-47. FOR UPDATE SKIP LOCKED
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✓)
-- Семантика: ✗ (добавлено в роадмап ✓)
-- Без доработок typed-sql: ✗
-- Ограничение: В публичном API пока нет `FOR UPDATE` и `SKIP LOCKED`.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [forUpdate и skipLocked](https://kysely-org.github.io/kysely-apidoc/interfaces/SelectQueryBuilder.html#forUpdate).
 - Проверяет: выбор незаблокированной строки очереди. Сценарий специфичен для СУБД, поддерживающих блокировки строк.
 
@@ -3005,6 +3004,39 @@ await db.selectFrom('pet')
   .forUpdate()
   .skipLocked()
   .executeTakeFirst()
+```
+
+#### OCaml (typed-sql)
+
+`limit_one` сохраняет тип результата `option`; вызов выполняется внутри PostgreSQL-транзакции.
+
+```ocaml
+let kysely47 =
+  Statement.For_dialect.query_optional_exn ~dialect:Dialect.postgresql (fun params ->
+    let owner_id = params.column Pet.owner_id_column ~get:Fn.id in
+    Query.(
+      from Pet.table
+      |> where (fun pet -> Pet.owner_id pet =. owner_id)
+      |> order_by Pet.id `Asc
+      |> limit_one
+      |> Postgresql.Query.for_update ~skip_locked:true
+      |> select (fun pet -> Projection.pair (Pet.id pet) (Pet.name pet))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:1L kysely47);;
+SELECT
+  t0."id",
+  t0."name"
+FROM "pet" AS t0
+WHERE
+  (t0."owner_id" = $1)
+ORDER BY
+  t0."id" ASC
+LIMIT 1
+FOR UPDATE SKIP LOCKED
 ```
 
 ### KY-48. UPDATE FROM

@@ -351,6 +351,63 @@ let validate_values ~validate_subquery (values : Ast.values) =
               Ok ())))))
 ;;
 
+let validate_locking (select : Ast.select) ~aggregate_query =
+  let open Result.Let_syntax in
+  match select.locking with
+  | None -> Ok ()
+  | Some locking ->
+    if select.distinct then
+      Error (Compile_error.Invalid_for_update "cannot be used with DISTINCT")
+    else if aggregate_query then
+      Error (Compile_error.Invalid_for_update "cannot be used with aggregation")
+    else if
+      locking.skip_locked
+      && Option.exists select.limit ~f:(function
+        | Ast.Fetch_with_ties _ -> true
+        | Ast.Limit _ -> false)
+    then
+      Error
+        (Compile_error.Invalid_for_update
+           "SKIP LOCKED cannot be used with FETCH WITH TIES")
+    else (
+      let sources =
+        (select.source, false)
+        :: List.map select.joins ~f:(fun join ->
+          ( join.Ast.source
+          , match join.kind with
+            | Ast.Inner -> false
+            | Ast.Left -> true ))
+      in
+      let%bind targets =
+        match locking.of_sources with
+        | None -> Ok (List.map sources ~f:(fun (source, _) -> source.Ast.source_id))
+        | Some [] ->
+          Error (Compile_error.Invalid_for_update "OF requires at least one table")
+        | Some targets -> Ok targets
+      in
+      let%map _ =
+        List.fold targets ~init:(Ok []) ~f:(fun checked target ->
+          let%bind checked = checked in
+          if List.mem checked target ~equal:Int.equal then
+            Error (Compile_error.Invalid_for_update "OF repeats a table")
+          else (
+            match
+              List.find sources ~f:(fun (source, _) ->
+                Int.equal source.Ast.source_id target)
+            with
+            | None ->
+              Error (Compile_error.Invalid_for_update "OF references a foreign source")
+            | Some (_, true) ->
+              Error
+                (Compile_error.Invalid_for_update
+                   "cannot lock the nullable side of an outer join")
+            | Some ({ kind = Ast.Table _; _ }, false) -> Ok (target :: checked)
+            | Some ({ kind = Ast.Derived _ | Ast.Values _ | Ast.Cte _; _ }, false) ->
+              Error (Compile_error.Invalid_for_update "requires a base table source")))
+      in
+      ())
+;;
+
 let validate_select_with
       ~validate_subquery
       ~outer_visible
@@ -457,7 +514,7 @@ let validate_select_with
       then
         Error Compile_error.Ungrouped_expression
       else
-        Ok ())
+        validate_locking select ~aggregate_query)
 ;;
 
 let duplicate_assignment assignments =
@@ -766,6 +823,16 @@ let rec validate_select_query_full
       Ok ()
   | Ast.Compound compound ->
     let open Result.Let_syntax in
+    let%bind () =
+      let locked = function
+        | Ast.Simple select -> Option.is_some select.Ast.locking
+        | Ast.Source_free _ | Ast.Compound _ -> false
+      in
+      if locked compound.left || locked compound.right then
+        Error (Compile_error.Invalid_for_update "cannot be used in a set operation")
+      else
+        Ok ()
+    in
     let%bind available_ctes =
       validate_ctes_full ~forbidden_ctes ~available_ctes compound.ctes
     in

@@ -2118,13 +2118,12 @@ WHERE
 
 ### SA-39. Страница строк с FOR UPDATE SKIP LOCKED
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✓)
-- Семантика: —
-- Без доработок typed-sql: ✗
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [`Select.with_for_update`](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.Select.with_for_update).
 - Проверяет: блокировку выбранных строк в транзакции и пропуск строк, уже заблокированных другим читателем; форма PostgreSQL.
-- Ограничение: Публичный SELECT API не предоставляет блокировку строк или `SKIP LOCKED`.
 
 ```sql
 SELECT user_account.id, user_account.name
@@ -2141,6 +2140,39 @@ stmt = (
     .limit(10)
     .with_for_update(skip_locked=True, of=user_table)
 )
+```
+
+#### OCaml (typed-sql)
+
+`OF` выбирает источник по query-local ссылке; compiler подставляет его SQL alias.
+
+```ocaml
+let sqlalchemy39 =
+  Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun params ->
+    let page_size = params.non_negative_int ~name:"page_size" ~get:Fn.id in
+    Query.(
+      from User_account.table
+      |> order_by User_account.id `Asc
+      |> limit_param page_size
+      |> Postgresql.Query.for_update
+           ~of_:(fun user -> [ Postgresql.Query.target user ])
+           ~skip_locked:true
+      |> select (fun user ->
+        Projection.pair (User_account.id user) (User_account.name user))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:10 sqlalchemy39);;
+SELECT
+  t0."id",
+  t0."name"
+FROM "user_account" AS t0
+ORDER BY
+  t0."id" ASC
+LIMIT $1
+FOR UPDATE OF t0 SKIP LOCKED
 ```
 
 ### SA-40. UPDATE RETURNING как источник CTE

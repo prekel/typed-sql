@@ -2072,6 +2072,26 @@ module Postgresql : sig
   end
 
   module Query : sig
+    (** A query-local table occurrence selected by [for_update]. *)
+    type target
+
+    (** Designate a table occurrence for [FOR UPDATE OF]. The compiler checks
+        that it belongs to this SELECT and is not on the nullable side of an
+        outer join. *)
+    val target : 'row Table_ref.t -> target
+
+    (** Add [FOR UPDATE], optionally limited to the table occurrences returned
+        by [of_]. [skip_locked] defaults to [false]. The builder may be called
+        before or after [ORDER BY], [LIMIT], and [OFFSET]; SQL places locking
+        last. An explicit empty [of_] or a SELECT without lockable rows is
+        rejected at compilation. [OFFSET] rows are also locked by PostgreSQL.
+        [SKIP LOCKED] cannot be combined with [FETCH ... WITH TIES]. *)
+    val for_update
+      :  ?of_:('ctx -> target list)
+      -> ?skip_locked:bool
+      -> ('ctx, 'grouping, 'cardinality, ([> `Postgresql ] as 'requirements)) Query.t
+      -> ('ctx, 'grouping, 'cardinality, 'requirements) Query.t
+
     (** Add [HAVING] before [GROUP BY]. PostgreSQL treats the input as one
         aggregate group; portable [Query.having] requires [Query.grouped]. The
         existing cardinality bound is preserved, but
@@ -2172,6 +2192,8 @@ module Compile_error : sig
     | Negative_offset of int (** [Query.offset] received a negative value. *)
     | Fetch_with_ties_requires_order_by
     (** [FETCH FIRST WITH TIES] requires at least one final [ORDER BY] key. *)
+    | Invalid_for_update of string
+    (** The SELECT shape or requested lock targets cannot be locked. *)
     | Empty_assignments of [ `Insert | `Update ]
     (** INSERT or UPDATE was finalized without assigning a column. *)
     | Empty_insert_row of int

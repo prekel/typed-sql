@@ -33,6 +33,7 @@ let from table =
       ; order_by = []
       ; limit = None
       ; offset = None
+      ; locking = None
       }
   }
 ;;
@@ -73,6 +74,7 @@ let from_derived relation =
       ; order_by = []
       ; limit = None
       ; offset = None
+      ; locking = None
       }
   }
 ;;
@@ -95,6 +97,7 @@ let from_relation relation =
       ; order_by = []
       ; limit = None
       ; offset = None
+      ; locking = None
       }
   }
 ;;
@@ -114,6 +117,7 @@ let from_values values =
       ; order_by = []
       ; limit = None
       ; offset = None
+      ; locking = None
       }
   }
 ;;
@@ -133,6 +137,7 @@ let from_cte cte =
       ; order_by = []
       ; limit = None
       ; offset = None
+      ; locking = None
       }
   }
 ;;
@@ -152,6 +157,7 @@ let from_cte_relation cte =
       ; order_by = []
       ; limit = None
       ; offset = None
+      ; locking = None
       }
   }
 ;;
@@ -515,6 +521,15 @@ let offset_param parameter query =
         offset = Some (Ast.Parameter (Pagination_parameter.node parameter))
       }
   }
+;;
+
+type lock_target = int
+
+let lock_target reference = Table_ref.source_id reference
+
+let for_update ?of_ ?(skip_locked = false) query =
+  let of_sources = Option.map of_ ~f:(fun targets -> targets query.context) in
+  { query with ast = { query.ast with locking = Some { of_sources; skip_locked } } }
 ;;
 
 let ast query = query.ast

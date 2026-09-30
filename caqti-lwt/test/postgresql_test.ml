@@ -34,6 +34,22 @@ module Item = struct
   let name row = Expr.column row name_column
 end
 
+module Lock_item = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "postgres_lock_items"
+  let id_column = Column.v_exn table "id" Db_type.int64
+  let id row = Expr.column row id_column
+end
+
+module Lock_label = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "postgres_lock_labels"
+  let item_id_column = Column.v_exn table "item_id" Db_type.int64
+  let item_id row = Expr.column row item_id_column
+end
+
 module Tie_item = struct
   type row
 
@@ -986,6 +1002,20 @@ let test_fetch_with_ties conn =
     ~equal:Int.equal
     [ 2000; 2001; 2001 ]
     tied_years;
+  let locked_ties_query =
+    Query.(
+      from Tie_item.table
+      |> order_by Tie_item.published_in `Asc
+      |> Postgresql.Query.fetch_with_ties 2
+      |> Postgresql.Query.for_update
+      |> select (fun item -> Projection.expr (Tie_item.published_in item)))
+  in
+  let* locked_tied_years = fetch_postgresql conn locked_ties_query in
+  assert_rows
+    ~name:"FOR UPDATE without SKIP LOCKED permits FETCH WITH TIES"
+    ~equal:Int.equal
+    [ 2000; 2001; 2001 ]
+    locked_tied_years;
   let parameterized_query =
     Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun parameters ->
       let page_size = parameters.non_negative_int ~name:"page_size" ~get:snd in
@@ -1560,6 +1590,95 @@ let with_connection uri f =
   Lwt.finalize (fun () -> f conn) (fun () -> Connection.disconnect ())
 ;;
 
+let test_row_locking conn_a =
+  let module Connection = (val conn_a : Caqti_lwt.CONNECTION) in
+  let* () =
+    Connection.exec (direct "CREATE TABLE postgres_lock_items (id BIGINT PRIMARY KEY)") ()
+    |> or_fail
+  in
+  let* () =
+    Connection.exec
+      (direct "CREATE TABLE postgres_lock_labels (item_id BIGINT PRIMARY KEY)")
+      ()
+    |> or_fail
+  in
+  let* () =
+    Connection.exec
+      (direct "INSERT INTO postgres_lock_items VALUES (1), (2), (3), (4)")
+      ()
+    |> or_fail
+  in
+  let* () =
+    Connection.exec
+      (direct "INSERT INTO postgres_lock_labels VALUES (1), (2), (3), (4)")
+      ()
+    |> or_fail
+  in
+  let locked_items =
+    Query.(
+      from Lock_item.table
+      |> left_join Lock_label.table ~on:(fun item label ->
+        Lock_item.id item =. Lock_label.item_id label)
+      |> order_by (fun (item, _) -> Lock_item.id item) `Asc
+      |> limit 2
+      |> Postgresql.Query.for_update ~of_:(fun (item, _) ->
+        [ Postgresql.Query.target item ])
+      |> select (fun (item, _) -> Projection.expr (Lock_item.id item)))
+  in
+  let skipped_items =
+    Query.(
+      from Lock_item.table
+      |> Postgresql.Query.for_update ~skip_locked:true
+      |> order_by Lock_item.id `Asc
+      |> limit 2
+      |> select (fun item -> Projection.expr (Lock_item.id item)))
+  in
+  let skipped_labels =
+    Query.(
+      from Lock_label.table
+      |> order_by Lock_label.item_id `Asc
+      |> limit 2
+      |> Postgresql.Query.for_update ~skip_locked:true
+      |> select (fun label -> Projection.expr (Lock_label.item_id label)))
+  in
+  with_connection "postgresql://" (fun conn_b ->
+    let* first_transaction =
+      Adapter.transaction ~conn:conn_a ~f:(fun conn_a ->
+        let* first = fetch_postgresql conn_a locked_items in
+        assert_rows
+          ~name:"first transaction locks the first page"
+          ~equal:Int64.equal
+          [ 1L; 2L ]
+          first;
+        let* second_transaction =
+          Adapter.transaction ~conn:conn_b ~f:(fun conn_b ->
+            let* labels = fetch_postgresql conn_b skipped_labels in
+            assert_rows
+              ~name:"OF leaves joined table rows unlocked"
+              ~equal:Int64.equal
+              [ 1L; 2L ]
+              labels;
+            let* items = fetch_postgresql conn_b skipped_items in
+            assert_rows
+              ~name:"SKIP LOCKED selects the next unlocked page"
+              ~equal:Int64.equal
+              [ 3L; 4L ]
+              items;
+            Lwt.return (Ok ()))
+        in
+        let* () = adapter_or_fail second_transaction in
+        Lwt.return (Ok ()))
+    in
+    let* () = adapter_or_fail first_transaction in
+    let* available_again = fetch_postgresql conn_b skipped_items in
+    assert_rows
+      ~name:"committed transaction releases row locks"
+      ~equal:Int64.equal
+      [ 1L; 2L ]
+      available_again;
+    Lwt.return_unit)
+;;
+
 let test_caqti_prepared conn =
   let module Connection = (val conn : Caqti_lwt.CONNECTION) in
   let request =
@@ -1592,6 +1711,7 @@ let main () =
     with_connection "postgresql://" (fun conn ->
       let* () = run ~postgresql:true conn in
       let* () = test_fetch_with_ties conn in
+      let* () = test_row_locking conn in
       let* () = test_caqti_prepared conn in
       let* () = postgres_only conn in
       run_goldens ~postgresql:true conn)

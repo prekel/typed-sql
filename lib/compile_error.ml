@@ -12,6 +12,7 @@ type t =
   | Negative_fetch_count of int
   | Negative_offset of int
   | Fetch_with_ties_requires_order_by
+  | Invalid_for_update of string
   | Empty_assignments of [ `Insert | `Update ]
   | Empty_insert_row of int
   | Duplicate_assignment of Identifier.t
@@ -93,6 +94,7 @@ let to_string = function
     "FETCH FIRST row count must be non-negative, got " ^ Int.to_string value
   | Negative_offset value -> "OFFSET must be non-negative, got " ^ Int.to_string value
   | Fetch_with_ties_requires_order_by -> "FETCH FIRST WITH TIES requires ORDER BY"
+  | Invalid_for_update reason -> "FOR UPDATE " ^ reason
   | Empty_assignments `Insert -> "INSERT must assign at least one column"
   | Empty_assignments `Update -> "UPDATE must assign at least one column"
   | Empty_insert_row row -> "INSERT row " ^ Int.to_string row ^ " has no assignments"

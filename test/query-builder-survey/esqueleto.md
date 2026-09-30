@@ -8,7 +8,7 @@
 
 Пакет Esqueleto распространяется по [BSD-3-Clause](https://hackage-content.haskell.org/package/esqueleto-3.6.0.0). В конце файла приведено уведомление об авторских правах и лицензии. Это независимая подборка; указание источника не означает одобрения со стороны авторов Esqueleto.
 
-Для EQ-01–EQ-18 и EQ-20 приведены реализации через публичный API typed-sql; EQ-19 требует блокировки строк, которых нет в публичном API. OCaml-блоки с реализациями typed-sql исполняются через MDX.
+Для EQ-01–EQ-20 приведены реализации через публичный API typed-sql. OCaml-блоки с реализациями typed-sql исполняются через MDX.
 
 ```haskell
 {-# LANGUAGE OverloadedStrings #-}
@@ -1232,11 +1232,10 @@ FROM (
 
 ### EQ-19. Захват первых незаблокированных строк
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✓)
-- Семантика: —
-- Без доработок typed-sql: ✗
-- Ограничение: публичный API typed-sql пока не моделирует `FOR UPDATE SKIP LOCKED` и блокировки транзакций.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [`locking` и `forUpdateSkipLocked`](https://hackage-content.haskell.org/package/esqueleto-3.6.0.0/docs/Database-Esqueleto-Experimental.html#v:forUpdateSkipLocked).
 - Проверяет: порядок `ORDER BY`, `LIMIT` и `FOR UPDATE SKIP LOCKED` при конкурирующих транзакциях; сценарий рассчитан на PostgreSQL.
 
@@ -1255,6 +1254,34 @@ select $ do
   limit 5
   locking forUpdateSkipLocked
   pure (person ^. PersonId)
+```
+
+#### OCaml (typed-sql)
+
+Запрос выполняется внутри `Typed_sql_caqti_lwt.transaction`; блокировка живёт до завершения транзакции.
+
+```ocaml
+let esqueleto19 =
+  Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun _ ->
+    Query.(
+      from Eq_person.table
+      |> order_by Eq_person.id `Asc
+      |> limit 5
+      |> Postgresql.Query.for_update ~skip_locked:true
+      |> select (fun person -> Projection.expr (Eq_person.id person))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql esqueleto19);;
+SELECT
+  t0."id"
+FROM "person" AS t0
+ORDER BY
+  t0."id" ASC
+LIMIT 5
+FOR UPDATE SKIP LOCKED
 ```
 
 ### EQ-20. Вложенное объединение с последующим исключением

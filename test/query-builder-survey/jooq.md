@@ -2776,13 +2776,12 @@ LIMIT 20
 
 ### JQ-42. Конкурентный выбор строк с SKIP LOCKED
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✓)
-- Семантика: —
-- Без доработок typed-sql: ✗
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [FOR UPDATE clause](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/select-statement/for-update-clause/).
 - Проверяет: блокировку только выбранных строк и пропуск уже заблокированных строк в другой транзакции; показана форма PostgreSQL.
-- Ограничение: Публичный SELECT builder не имеет `FOR UPDATE` или политики `SKIP LOCKED`; это влияет на конкурентную семантику.
 
 ```sql
 SELECT BOOK.ID, BOOK.TITLE
@@ -2802,6 +2801,39 @@ create.select(BOOK.ID, BOOK.TITLE)
       .forUpdate()
       .skipLocked()
       .fetch();
+```
+
+#### OCaml (typed-sql)
+
+Два одновременных читателя запускают statement на разных соединениях внутри транзакций.
+
+```ocaml
+let jooq42 =
+  Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun params ->
+    let cutoff = params.column Book.published_in_column ~get:Fn.id in
+    Query.(
+      from Book.table
+      |> where (fun book -> Book.published_in book <. cutoff)
+      |> order_by Book.id `Asc
+      |> limit 5
+      |> Postgresql.Query.for_update ~skip_locked:true
+      |> select (fun book -> Projection.pair (Book.id book) (Book.title book))))
+```
+
+#### SQL typed-sql (PostgreSQL)
+
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:1950 jooq42);;
+SELECT
+  t0."id",
+  t0."title"
+FROM "book" AS t0
+WHERE
+  (t0."published_in" < $1)
+ORDER BY
+  t0."id" ASC
+LIMIT 5
+FOR UPDATE SKIP LOCKED
 ```
 
 ### JQ-43. CUBE по автору и году издания

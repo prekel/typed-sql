@@ -777,14 +777,39 @@ and render_select
         let parameter, state = render_parameter parameter state in
         concat [ parts; break " "; text prefix; parameter; text suffix ], state
     in
-    match select.limit with
-    | None -> render_offset parts state
-    | Some (Ast.Limit pagination) ->
-      let parts, state = render_row_count "LIMIT " "" parts state pagination in
-      render_offset parts state
-    | Some (Ast.Fetch_with_ties pagination) ->
-      let parts, state = render_offset parts state in
-      render_row_count "FETCH FIRST " " ROWS WITH TIES" parts state pagination
+    let parts, state =
+      match select.limit with
+      | None -> render_offset parts state
+      | Some (Ast.Limit pagination) ->
+        let parts, state = render_row_count "LIMIT " "" parts state pagination in
+        render_offset parts state
+      | Some (Ast.Fetch_with_ties pagination) ->
+        let parts, state = render_offset parts state in
+        render_row_count "FETCH FIRST " " ROWS WITH TIES" parts state pagination
+    in
+    match select.locking with
+    | None -> parts, state
+    | Some locking ->
+      let targets =
+        match locking.of_sources with
+        | None -> Template.Empty
+        | Some sources ->
+          let aliases =
+            List.map sources ~f:(fun source -> text (alias_for aliases source))
+          in
+          concat [ text " OF "; separate aliases ~by:(text ", ") ]
+      in
+      ( concat
+          [ parts
+          ; break " "
+          ; text "FOR UPDATE"
+          ; targets
+          ; (if locking.skip_locked then
+               text " SKIP LOCKED"
+             else
+               Template.Empty)
+          ]
+      , state )
   in
   render_with select.ctes ~render_body state
 

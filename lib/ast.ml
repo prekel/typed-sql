@@ -147,6 +147,11 @@ and join =
   ; on : condition
   }
 
+and locking =
+  { of_sources : int list option
+  ; skip_locked : bool
+  }
+
 and select =
   { ctes : cte list
   ; source : source
@@ -159,6 +164,7 @@ and select =
   ; order_by : order list
   ; limit : row_limit option
   ; offset : pagination option
+  ; locking : locking option
   }
 
 and select_query =

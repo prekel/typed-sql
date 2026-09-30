@@ -61,6 +61,10 @@ module Postgresql = struct
   end
 
   module Query = struct
+    type target = Typed_sql_private.Query.lock_target
+
+    let target = Typed_sql_private.Query.lock_target
+    let for_update = Typed_sql_private.Query.for_update
     let having = Typed_sql_private.Query.having
     let fetch_with_ties = Typed_sql_private.Query.fetch_with_ties
     let fetch_with_ties_param = Typed_sql_private.Query.fetch_with_ties_param

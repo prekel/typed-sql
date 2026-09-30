@@ -59,6 +59,7 @@ let select : A.select =
   ; order_by = []
   ; limit = None
   ; offset = None
+  ; locking = None
   }
 ;;
 
@@ -291,6 +292,43 @@ let%test_module "FETCH WITH TIES cardinality proofs" =
              { operation = "FETCH FIRST WITH TIES"; dialect = Dialect.Sqlite }) -> ()
       | Error error -> failwith (Compile_error.to_string error)
       | Ok _ -> failwith "SQLite lowering accepted FETCH WITH TIES"
+    ;;
+  end)
+;;
+
+let%test_module "FOR UPDATE compiler invariants" =
+  (module struct
+    let table : unit Table.t = Table.v_exn "lock_items"
+    let id = Column.v_exn table "id" Db_type.int
+
+    let make ?(skip_locked = false) () =
+      Query.(
+        from table
+        |> for_update ~of_:(fun row -> [ lock_target row ]) ~skip_locked
+        |> select (fun row -> Projection.expr (Expr.column row id)))
+    ;;
+
+    let%test "shape excludes generative lock target IDs" =
+      let first = Compiler.compile ~dialect:Dialect.postgresql (make ()) |> ok_exn in
+      let second = Compiler.compile ~dialect:Dialect.postgresql (make ()) |> ok_exn in
+      Shape.equal (Compiled_query.shape first) (Compiled_query.shape second)
+    ;;
+
+    let%test "SKIP LOCKED changes shape" =
+      let plain = Compiler.compile ~dialect:Dialect.postgresql (make ()) |> ok_exn in
+      let skip =
+        Compiler.compile ~dialect:Dialect.postgresql (make ~skip_locked:true ()) |> ok_exn
+      in
+      not (Shape.equal (Compiled_query.shape plain) (Compiled_query.shape skip))
+    ;;
+
+    let%test_unit "SQLite rejects the locking clause" =
+      match Compiler.compile ~dialect:Dialect.sqlite (make ()) with
+      | Error
+          (Compile_error.Unsupported_operation
+             { operation = "FOR UPDATE"; dialect = Dialect.Sqlite }) -> ()
+      | Error error -> failwith (Compile_error.to_string error)
+      | Ok _ -> failwith "SQLite accepted FOR UPDATE"
     ;;
   end)
 ;;

@@ -826,6 +826,258 @@ let%test_module "PostgreSQL FETCH FIRST WITH TIES" =
   end)
 ;;
 
+let%test_module "PostgreSQL FOR UPDATE" =
+  (module struct
+    let locked_query =
+      Query.(
+        from Person.table
+        |> order_by Person.id `Asc
+        |> limit 2
+        |> Postgresql.Query.for_update
+        |> select Person.projection)
+    ;;
+
+    let%expect_test "renders after ORDER BY and LIMIT" =
+      locked_query |> compile_postgresql_exn |> Compiled_query.sql |> Stdlib.print_endline;
+      [%expect
+        {|
+        SELECT
+          t0."id",
+          t0."name",
+          t0."nickname"
+        FROM "public"."people" AS t0
+        ORDER BY
+          t0."id" ASC
+        LIMIT 2
+        FOR UPDATE
+        |}]
+    ;;
+
+    let%expect_test "renders OF and SKIP LOCKED after pagination" =
+      let query =
+        Query.(
+          from Person.table
+          |> Postgresql.Query.for_update
+               ~of_:(fun person -> [ Postgresql.Query.target person ])
+               ~skip_locked:true
+          |> order_by Person.id `Asc
+          |> limit_one
+          |> select Person.projection)
+      in
+      query |> compile_postgresql_exn |> Compiled_query.sql |> Stdlib.print_endline;
+      [%expect
+        {|
+        SELECT
+          t0."id",
+          t0."name",
+          t0."nickname"
+        FROM "public"."people" AS t0
+        ORDER BY
+          t0."id" ASC
+        LIMIT 1
+        FOR UPDATE OF t0 SKIP LOCKED
+        |}]
+    ;;
+
+    let%test "builder call order does not change SQL" =
+      let early =
+        Query.(
+          from Person.table
+          |> Postgresql.Query.for_update ~skip_locked:true
+          |> order_by Person.id `Asc
+          |> limit 2
+          |> select Person.projection)
+      in
+      let late =
+        Query.(
+          from Person.table
+          |> order_by Person.id `Asc
+          |> limit 2
+          |> Postgresql.Query.for_update ~skip_locked:true
+          |> select Person.projection)
+      in
+      String.equal
+        (Compiled_query.sql (compile_postgresql_exn early))
+        (Compiled_query.sql (compile_postgresql_exn late))
+    ;;
+
+    let%expect_test "OF selects only the requested join source" =
+      let query =
+        Query.(
+          from Person.table
+          |> inner_join Department.table ~on:(fun person department ->
+            Person.id person =. Department.person_id department)
+          |> Postgresql.Query.for_update
+               ~of_:(fun (person, _) -> [ Postgresql.Query.target person ])
+               ~skip_locked:true
+          |> order_by (fun (person, _) -> Person.id person) `Asc
+          |> limit 2
+          |> select (fun (person, _) -> Projection.expr (Person.id person)))
+      in
+      query |> compile_postgresql_exn |> Compiled_query.sql |> Stdlib.print_endline;
+      [%expect
+        {|
+        SELECT
+          t0."id"
+        FROM "public"."people" AS t0
+        INNER JOIN "public"."departments" AS t1
+          ON (t0."id" = t1."person_id")
+        ORDER BY
+          t0."id" ASC
+        LIMIT 2
+        FOR UPDATE OF t0 SKIP LOCKED
+        |}]
+    ;;
+
+    let invalid query =
+      match Compiler.compile ~dialect:Dialect.postgresql query with
+      | Error (Compile_error.Invalid_for_update _) -> true
+      | Error error -> failwith (Compile_error.to_string error)
+      | Ok _ -> false
+    ;;
+
+    let%expect_test "empty OF diagnostic" =
+      let query =
+        Query.(
+          from Person.table
+          |> Postgresql.Query.for_update ~of_:(fun _ -> [])
+          |> select Person.projection)
+      in
+      (match Compiler.compile ~dialect:Dialect.postgresql query with
+       | Error error -> Stdlib.print_endline (Compile_error.to_string error)
+       | Ok _ -> failwith "empty OF compiled");
+      [%expect {| FOR UPDATE OF requires at least one table |}]
+    ;;
+
+    let%test "rejects duplicate OF targets" =
+      Query.(
+        from Person.table
+        |> Postgresql.Query.for_update ~of_:(fun person ->
+          [ Postgresql.Query.target person; Postgresql.Query.target person ])
+        |> select Person.projection)
+      |> invalid
+    ;;
+
+    let%test "rejects a foreign OF source" =
+      let escaped = ref None in
+      let _ =
+        Query.(
+          from Person.table
+          |> select (fun person ->
+            escaped := Some (Postgresql.Query.target person);
+            Person.projection person))
+      in
+      let target = Option.value_exn !escaped in
+      Query.(
+        from Person.table
+        |> Postgresql.Query.for_update ~of_:(fun _ -> [ target ])
+        |> select Person.projection)
+      |> invalid
+    ;;
+
+    let%test "rejects DISTINCT" =
+      Query.(
+        from Person.table
+        |> distinct
+        |> Postgresql.Query.for_update
+        |> select Person.projection)
+      |> invalid
+    ;;
+
+    let%test "rejects GROUP BY" =
+      Query.(
+        from Person.table
+        |> group_by Person.id
+        |> Postgresql.Query.for_update
+        |> select (fun person -> Projection.expr (Person.id person)))
+      |> invalid
+    ;;
+
+    let%test "rejects an aggregate projection" =
+      Query.(
+        from Person.table
+        |> Postgresql.Query.for_update
+        |> select (fun _ -> Projection.expr Expr.count_all))
+      |> invalid
+    ;;
+
+    let%test "rejects SKIP LOCKED with FETCH WITH TIES" =
+      Query.(
+        from Person.table
+        |> order_by Person.id `Asc
+        |> Postgresql.Query.fetch_with_ties 2
+        |> Postgresql.Query.for_update ~skip_locked:true
+        |> select Person.projection)
+      |> invalid
+    ;;
+
+    let%test "allows FETCH WITH TIES without SKIP LOCKED" =
+      let query =
+        Query.(
+          from Person.table
+          |> order_by Person.id `Asc
+          |> Postgresql.Query.fetch_with_ties 2
+          |> Postgresql.Query.for_update
+          |> select Person.projection)
+      in
+      Result.is_ok (Compiler.compile ~dialect:Dialect.postgresql query)
+    ;;
+
+    let%test "rejects implicit locking of a left join" =
+      Query.(
+        from Person.table
+        |> left_join Department.table ~on:(fun person department ->
+          Person.id person =. Department.person_id department)
+        |> Postgresql.Query.for_update
+        |> select (fun (person, _) -> Projection.expr (Person.id person)))
+      |> invalid
+    ;;
+
+    let%test "accepts implicit locking of an inner join" =
+      let query =
+        Query.(
+          from Person.table
+          |> inner_join Department.table ~on:(fun person department ->
+            Person.id person =. Department.person_id department)
+          |> Postgresql.Query.for_update
+          |> select (fun (person, _) -> Projection.expr (Person.id person)))
+      in
+      Result.is_ok (Compiler.compile ~dialect:Dialect.postgresql query)
+    ;;
+
+    let%test "rejects locking a derived source" =
+      let derived =
+        Derived_table.create
+          ~table:Person.table
+          ~columns:(fun person -> Projection.expr (Person.id person))
+          Query.(
+            from Person.table |> select (fun person -> Projection.expr (Person.id person)))
+      in
+      Query.(
+        from_derived derived
+        |> Postgresql.Query.for_update
+        |> select (fun person -> Projection.expr (Person.id person)))
+      |> invalid
+    ;;
+
+    let%test "rejects locking an operand of a set operation" =
+      let left =
+        Query.(
+          from Person.table
+          |> Postgresql.Query.for_update
+          |> select (fun person -> Projection.expr (Person.id person)))
+      in
+      let right =
+        Query.(
+          from Person.table
+          |> Postgresql.Query.for_update
+          |> select (fun person -> Projection.expr (Person.id person)))
+      in
+      invalid (Query.union left right)
+    ;;
+  end)
+;;
+
 let%expect_test "identifiers are always quoted" =
   let table : unit Table.t = Table.v_exn "select" in
   let column = Column.v_exn table "quoted\"name" Db_type.text in

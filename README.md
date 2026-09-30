@@ -6,11 +6,14 @@
 может безопасно строиться из типизированного input при каждом вызове.
 
 Текущий срез поддерживает типизированные `SELECT` с joins, derived tables,
-CTE, `VALUES` relations, portable set operations, выражениями, aggregates,
-`GROUP BY`, correlated subqueries, `EXISTS` в проекции и вложенными коллекциями,
-calendar date, timestamp и UUID. DML включает multi-row `INSERT`,
-`INSERT ... SELECT`, portable UPSERT, scoped `UPDATE`/`DELETE`, `DEFAULT`,
-`UPDATE FROM`, условные assignments и `RETURNING`.
+CTE, `VALUES` relations, portable set operations, expressions, aggregates,
+`GROUP BY`, correlated subqueries, `EXISTS` в проекции и вложенными
+коллекциями, calendar date, timestamp и UUID. Результат set operation можно
+упорядочить по выбранным выходным полям. Рекурсивные CTE поддерживают
+структурные поля, выведенные из anchor.
+PostgreSQL-вариант query builder включает `FETCH FIRST ... WITH TIES`. DML
+включает multi-row `INSERT`, `INSERT ... SELECT`, portable UPSERT, scoped
+`UPDATE`/`DELETE`, `DEFAULT`, `UPDATE FROM`, условные assignments и `RETURNING`.
 Пакет `typed-sql-caqti-lwt` содержит адаптеры Caqti для PostgreSQL и SQLite и
 умеет читать их схему; `typed-sql-pgocaml-lwt` содержит PostgreSQL-адаптер для
 PG'OCaml. Runtime-набор проверен на PostgreSQL 18.6 через оба адаптера; другие
@@ -76,6 +79,20 @@ Input может быть обычным кортежем, кортежем с �
 создаёт bind parameters и компилирует portable SQL для dialect соединения.
 Подробный пример находится в
 [документации динамических statements](doc/dynamic_statements.mld).
+
+Если PostgreSQL и SQLite должны использовать разные SQL-запросы, готовые
+статические ветки можно объединить через `Statement.choose_dialect`:
+
+```ocaml
+let statement =
+  Statement.choose_dialect
+    ~postgresql:postgresql_statement
+    ~sqlite:sqlite_statement
+```
+
+Обе ветки должны иметь одинаковые типы input и output. Результат имеет
+portable dialect и адаптер выбирает нужный заранее скомпилированный вариант
+по dialect соединения.
 
 ```ocaml
 let sql =
@@ -262,6 +279,66 @@ callback внешнего `SELECT`, DML с `RETURNING` или команды. Ha
 через `Query.from_cte`/join-варианты и `Update.from_cte`. `Cte.recursive`
 задаёт anchor и recursive step с единственной типизированной self-reference;
 вариант рекурсии выбирается через `` `Union`` или `` `Union_all``.
+
+Для рекурсивной relation с выводимыми структурными полями есть
+`Cte.recursive_relation`. Anchor и step строятся через `Query.select_relation`
+с `Derived_table.Fields`; compiler требует одинаковую форму полей и проверяет
+их database types. `Query.select_one_relation` создаёт anchor из одного
+выражения без `FROM`, а `Query.from_cte_relation` и рекурсивные JOIN-варианты
+возвращают поля той же структуры:
+
+```ocaml
+let numbers =
+  Cte.recursive_relation
+    ~union:`Union_all
+    ~anchor:(Query.select_one_relation (Expr.constant Db_type.int 1))
+    ~step:(fun numbers ->
+      Query.(
+        from_cte_relation numbers
+        |> where (fun number -> number <$ 5)
+        |> select_relation (fun number ->
+          Derived_table.Fields.expr
+            Expr.Int.Infix.(number +. Expr.constant Db_type.int 1))))
+
+let number_query =
+  Cte.with_result numbers ~f:(fun numbers ->
+    Query.(from_cte_relation numbers |> select Projection.expr))
+```
+
+Для нескольких полей используйте вложенные `Derived_table.Fields.both` и
+`Query.inner_join_cte_relation` или `Query.left_join_cte_relation`.
+
+PostgreSQL поддерживает `FETCH FIRST ... WITH TIES` через
+`Postgresql.Query.fetch_with_ties` и `fetch_with_ties_param`. Все ключи
+`ORDER BY` определяют равенство строк на границе страницы; результат может
+содержать больше строк, чем заданный размер. Поэтому операция требует хотя бы
+один ключ порядка и возвращает кардинальность `many`. Параметр размера
+проверяется на неотрицательность:
+
+```ocaml
+let tied_people =
+  Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun parameters ->
+    let page_size =
+      parameters.non_negative_int ~name:"page_size" ~get:Fn.id
+    in
+    Query.(
+      from Person.table
+      |> order_by Person.name `Asc
+      |> Postgresql.Query.fetch_with_ties_param page_size
+      |> select (fun person ->
+        Projection.pair (Person.id person) (Person.name person))))
+```
+
+Вызов `limit`, `limit_param` или `fetch_with_ties` позже в pipeline заменяет
+предыдущий row limit; `OFFSET` сохраняется. SQLite эту операцию не поддерживает.
+
+Для конкурентной очереди PostgreSQL используйте
+`Postgresql.Query.for_update ~skip_locked:true` внутри транзакции. Необязательный
+`~of_:(fun row -> [Postgresql.Query.target row])` ограничивает блокировку
+выбранными источниками JOIN. Вызов можно поставить до или после `order_by` и
+`limit`: SQL всегда помещает `FOR UPDATE` в конце SELECT. Сортируйте по
+уникальному ключу, если нужен предсказуемый выбор строк. `OFFSET` тоже
+блокирует пропущенные строки; `SKIP LOCKED` несовместим с `FETCH WITH TIES`.
 
 Для non-recursive SELECT CTE `Cte.select` принимает hints
 `` `Materialized`` и `` `Not_materialized``. Они доступны в PostgreSQL и в
@@ -569,5 +646,7 @@ test. White-box tests и `typed-sql.backend` в этот прогон не вх�
 
 `make coverage-mega` отдельно измеряет, какие ветви компилятора проходит один
 сложный PostgreSQL-запрос из `test/mega_coverage_test.ml`. Этот диагностический
-прогон требует не менее 60% и не заменяет `make coverage` или
+прогон требует не менее 67,7% и не заменяет `make coverage` или
 `make coverage-all`; отчёт находится в `_coverage/mega/html/index.html`.
+`make check` запускает форматирование, сборку, тесты, все три проверки покрытия,
+генерацию документации и проверку пакетов.

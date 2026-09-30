@@ -148,6 +148,77 @@ reference из внешнего callback. Если input выбирает фор
 [Statement.Dynamic.Portable]; полный пример находится на странице
 {!page-dynamic_statements}.
 
+PostgreSQL [FETCH FIRST ... WITH TIES] требует явный ключ сортировки и включает
+все строки, равные последней строке страницы по всем ключам [ORDER BY]. Для
+runtime-размера страницы используйте параметр, валидируемый как неотрицательное
+значение:
+
+{[
+let tied_people =
+  Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun parameters ->
+    let page_size =
+      parameters.non_negative_int ~name:"page_size" ~get:Fn.id
+    in
+    Query.(
+      from Person.table
+      |> order_by Person.name `Asc
+      |> Postgresql.Query.fetch_with_ties_param page_size
+      |> select Person.projection))
+]}
+
+Операция возвращает [Cardinality.many], потому что ties могут увеличить число
+строк сверх [page_size]. Последующий row limit заменяет [FETCH WITH TIES], а
+[OFFSET] сохраняется. SQLite этот PostgreSQL-only оператор не поддерживает.
+
+Для очереди на PostgreSQL [Postgresql.Query.for_update] удерживает блокировки
+выбранных строк до завершения транзакции. [skip_locked:true] пропускает строки,
+которые уже захвачены другой транзакцией. Уникальный ключ [ORDER BY] делает
+выбор страницы предсказуемым:
+
+{[
+let claim_people =
+  Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun _ ->
+    Query.(
+      from Person.table
+      |> order_by Person.id `Asc
+      |> limit 5
+      |> Postgresql.Query.for_update ~skip_locked:true
+      |> select Person.projection))
+]}
+
+Builder допускает [for_update] до или после сортировки и ограничения; SQL
+всегда помещает [FOR UPDATE] последним. Аргумент [of_] принимает callback
+контекста и список [Postgresql.Query.target] для блокировки только указанных
+таблиц JOIN. Без [of_] блокируются все допустимые источники. [OFFSET]
+блокирует также пропущенные строки; [SKIP LOCKED] нельзя сочетать с
+[FETCH ... WITH TIES]. Выполняйте такой запрос через
+[Typed_sql_caqti_lwt.transaction] на PostgreSQL-соединении.
+
+Рекурсивный CTE может выводить форму relation из выражений anchor и step:
+
+{[
+let numbers =
+  Cte.recursive_relation
+    ~union:`Union_all
+    ~anchor:(Query.select_one_relation (Expr.constant Db_type.int 1))
+    ~step:(fun numbers ->
+      Query.(
+        from_cte_relation numbers
+        |> where (fun number -> number <$ 5)
+        |> select_relation (fun number ->
+          Derived_table.Fields.expr
+            Expr.Int.Infix.(number +. Expr.constant Db_type.int 1))))
+
+let number_query =
+  Cte.with_result numbers ~f:(fun numbers ->
+    Query.(from_cte_relation numbers |> select Projection.expr))
+]}
+
+[Query.select_one_relation] позволяет задать literal anchor без [FROM]. Для
+составной формы используйте вложенные [Derived_table.Fields.both]; типы и
+структуру anchor и step проверяет compiler. [Query.inner_join_cte_relation] и
+[Query.left_join_cte_relation] добавляют рекурсивные поля в контекст запроса.
+
 Callback конструктора вызывается при инициализации OCaml-модуля. SQL можно
 проверить до выполнения:
 

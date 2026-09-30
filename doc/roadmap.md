@@ -1,6 +1,6 @@
 # Дорожная карта
 
-Состояние проекта на 25 сентября 2026 года. Документ сопоставляет текущую
+Состояние проекта на 30 сентября 2026 года. Документ сопоставляет текущую
 реализацию с исходным [first_plan.md](first_plan.md), фиксирует завершённый
 релизный срез и перечисляет следующую работу. Приложение RealWorld будет жить в
 отдельном репозитории и использовать `typed-sql` вместе с `../typed-endpoint`.
@@ -31,6 +31,7 @@ constructors, codec views, packed parameters, renderer helpers и decoder IR.
 
 - `INNER JOIN` и `LEFT JOIN` с проверкой source scope;
 - `WHERE`, optional filters, `ORDER BY`, `LIMIT`, `OFFSET` и `DISTINCT`;
+- PostgreSQL `FETCH FIRST ... WITH TIES` с обязательным ключом порядка;
 - `IN`/`NOT IN`, включая пустые списки и batch-loading pattern;
 - `BETWEEN`, `IS DISTINCT FROM`, арифметика для `int`, `int64` и `float`;
 - `CASE`, `LOWER`, `UPPER`, `LENGTH` и string concatenation;
@@ -38,8 +39,11 @@ constructors, codec views, packed parameters, renderer helpers и decoder IR.
 - correlated `EXISTS`/`NOT EXISTS`, nullable scalar query и `IN (subquery)`;
 - derived tables в `FROM`/JOIN и `UPDATE ... FROM`;
 - portable `UNION`, `UNION ALL`, `INTERSECT` и `EXCEPT`, а также PostgreSQL
-  `INTERSECT ALL` и `EXCEPT ALL`;
+  `INTERSECT ALL` и `EXCEPT ALL`; все варианты принимают optional финальный
+  `ORDER BY` по уникальному выбранному полю;
 - non-recursive и recursive CTE с лексически ограниченными typed handles;
+  `Cte.recursive_relation` выводит структурные поля из anchor, включая
+  литеральный anchor без `FROM`;
 - `Ptime.t` как timestamp with time zone, отдельный `Date.t` для SQL `DATE` и
   `CURRENT_TIMESTAMP`.
 
@@ -80,6 +84,8 @@ descriptors и SQL-имён. Compiler проверяет прямые output col
 совпадения последовательностей fingerprints database-типов, включая identity
 mapped codecs. Renderer оборачивает каждую ветвь set operation, поэтому её
 `ORDER BY`, `LIMIT` и `OFFSET` применяются до объединения.
+Общий результат можно упорядочить по выбранному выходному полю через optional
+`order_by` у set-operation builders.
 
 Текущий decoder set operation асимметричен: итоговый `Result_query` сохраняет
 `Projection` левой ветви и декодирует им все строки объединённого результата.
@@ -113,7 +119,10 @@ database-типы не доказывают, что обе projections один�
 `Cte.with_result` или `Cte.with_command`. Non-recursive CTE можно пометить
 `MATERIALIZED` или `NOT MATERIALIZED`; для SQLite необходима версия 3.35 или
 новее. Recursive CTE содержит typed anchor и step, а compiler допускает ровно
-одну top-level self-reference в step. `Postgresql.Cte.returning` и
+одну top-level self-reference в step. `Cte.recursive_relation` дополнительно
+выводит структурные поля anchor и step; `Query.select_one_relation` создаёт
+одно-полевой literal anchor, а compiler проверяет совпадение структуры и
+database types. `Postgresql.Cte.returning` и
 `Postgresql.Cte.command` создают data-modifying CTE для outer `SELECT`, DML с
 `RETURNING` или команды. `returning` открывает relation из `RETURNING`, а
 `command` выполняется только ради эффекта; SQLite такие CTE не поддерживает.
@@ -636,6 +645,9 @@ lowering и rendering не повторяются. Runtime `LIMIT`/`OFFSET` по
 `Statement.Dynamic.Portable`: callback строит AST из input, а compilation
 повторяется при каждом вызове без core cache. Это явный режим с отдельной
 ошибкой compilation; статический путь сохраняет прежнюю гарантию compile-once.
+`Statement.choose_dialect` объединяет статические PostgreSQL и SQLite ветки с
+одинаковыми типами input и output; adapter выбирает нужную ветку по dialect
+connection.
 Перед добавлением cache нужно отдельно измерить стоимость dynamic compilation
 и определить ограничение памяти и lifecycle projection closures.
 
@@ -680,7 +692,7 @@ reconnect и eviction. Решение по core API и рассмотренны�
   `WHEN NOT MATCHED` ветвями, сохраняя атомарность statement
   ([JQ-40](../test/query-builder-survey/jooq.md#jq-40-merge-с-update-и-insert),
   [KY-50](../test/query-builder-survey/kysely.md#ky-50-merge-из-таблицы-импорта)).
-- [ ] Добавить dialect-aware `FOR UPDATE` и `SKIP LOCKED`; определить допустимый
+- [x] Добавить dialect-aware `FOR UPDATE` и `SKIP LOCKED`; определить допустимый
   порядок вместе с `ORDER BY`/`LIMIT` и проверить конкурентное выполнение в
   транзакциях ([EQ-19](../test/query-builder-survey/esqueleto.md#eq-19-захват-первых-незаблокированных-строк),
   [JQ-42](../test/query-builder-survey/jooq.md#jq-42-конкурентный-выбор-строк-с-skip-locked),
