@@ -1561,11 +1561,10 @@ let query =
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
-- Семантика: ✗ (добавлено в роадмап ✓)
+- Семантика: ✓
 - Без доработок typed-sql: ✓
 - Источник: [рекурсивные CTE](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.HasCTE.cte).
-- Проверяет: рекурсивное расширение результата с условием завершения.
-- Замечание: anchor заменён выборкой `address.id = 1`, поэтому результат зависит от наличия такой строки; исходный литеральный anchor от содержимого таблиц не зависит.
+- Проверяет: литеральный anchor без `FROM` и рекурсивное расширение до верхней границы.
 
 ```sql
 WITH RECURSIVE nums(n) AS (
@@ -1589,24 +1588,24 @@ stmt = select(nums.c.n)
 
 ```ocaml
 let sqlalchemy30_anchor =
-  Derived_table.create
-    ~table:Address.table
-    ~columns:(fun address -> Projection.expr (Address.id address))
-    Query.(from Address.table |> where (fun address -> Address.id address =$ 1L) |> select (fun address -> Projection.expr (Address.id address)))
+  Query.select_one_relation (Expr.constant Db_type.int64 1L)
 
 let sqlalchemy30 =
   let definition =
-    Cte.recursive
+    Cte.recursive_relation
       ~union:`Union_all
       ~anchor:sqlalchemy30_anchor
       ~step:(fun numbers ->
-        Derived_table.create
-          ~table:Address.table
-          ~columns:(fun address -> Projection.expr (Address.id address))
-          Query.(from_cte numbers |> where (fun number -> Address.id number <$ 5L) |> select (fun number -> Projection.expr Expr.Int64.Infix.(Address.id number +. Expr.constant Db_type.int64 1L))))
+        Query.(
+          from_cte_relation numbers
+          |> where (fun number -> number <$ 5L)
+          |> select_relation (fun number ->
+            Derived_table.Fields.expr
+              Expr.Int64.Infix.(number +. Expr.constant Db_type.int64 1L))))
   in
   Statement.Portable.query_many_exn (fun _ ->
-    Cte.with_result definition ~f:(fun numbers -> Query.(from_cte numbers |> select (fun number -> Projection.expr (Address.id number)))))
+    Cte.with_result definition ~f:(fun numbers ->
+      Query.(from_cte_relation numbers |> select Projection.expr)))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1615,22 +1614,19 @@ let sqlalchemy30 =
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy30);;
 WITH RECURSIVE
   "c0" (
-    "id"
+    "field_1"
   ) AS (
     SELECT
-      t0."id"
-    FROM "address" AS t0
-    WHERE
-      (t0."id" = $1)
+      $1
     UNION ALL
     SELECT
-      (t0."id" + $2)
+      (t0."field_1" + $2)
     FROM "c0" AS t0
     WHERE
-      (t0."id" < $3)
+      (t0."field_1" < $3)
   )
 SELECT
-  t0."id"
+  t0."field_1"
 FROM "c0" AS t0
 ```
 

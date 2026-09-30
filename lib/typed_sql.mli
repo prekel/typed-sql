@@ -1032,6 +1032,10 @@ module Cte : sig
   (** A CTE definition and the handle through which it can be referenced. *)
   type ('handle, +'requirements) definition
 
+  (** A recursive CTE handle whose fields have the structure inferred from
+      [Derived_table.Fields]. *)
+  type ('fields, 'nullable_fields, +'requirements) inferred
+
   (** PostgreSQL and SQLite materialization hints for a non-recursive SELECT
       CTE. SQLite requires version 3.35 or later. *)
   type materialization =
@@ -1059,6 +1063,18 @@ module Cte : sig
     -> anchor:('row, 'requirements) Derived_table.t
     -> step:('row t -> ('row, 'requirements) Derived_table.t)
     -> ('row t, 'requirements) definition
+
+  (** Define a recursive CTE from structurally described relations. [anchor]
+      cannot reference the new CTE; [step] receives its sole typed
+      self-reference. The anchor and step must have the same field structure;
+      the compiler also checks their database types. *)
+  val recursive_relation
+    :  union:recursion
+    -> anchor:('fields, 'nullable_fields, 'requirements) Derived_table.inferred
+    -> step:
+         (('fields, 'nullable_fields, 'requirements) inferred
+          -> ('fields, 'nullable_fields, 'requirements) Derived_table.inferred)
+    -> (('fields, 'nullable_fields, 'requirements) inferred, 'requirements) definition
 
   (** Attach a CTE to a SELECT or a DML statement with [RETURNING]. The
       callback receives the CTE handle in lexical scope. The result cardinality
@@ -1237,6 +1253,12 @@ module Query : sig
     :  'row Cte.t
     -> ('row Table_ref.t, ungrouped, Cardinality.many, 'requirements) t
 
+  (** Start a SELECT from a structural recursive CTE handle. The context has
+      the same shape as the CTE's anchor fields. *)
+  val from_cte_relation
+    :  ('fields, 'nullable_fields, 'requirements) Cte.inferred
+    -> ('fields, ungrouped, Cardinality.many, 'requirements) t
+
   (** Finish the builder with a result projection. Keeping [select] last avoids
       a temporary projection while filters and joins are assembled. The
       builder's cardinality proof is preserved in the [Result_query]. *)
@@ -1278,6 +1300,15 @@ module Query : sig
   val select_one
     :  ('a, 'requirements) Expr.t
     -> ('a, Result_query.select, Cardinality.exactly_one, 'requirements) Result_query.t
+
+  (** Make a structural one-field relation from an expression selected without
+      [FROM]. This is useful as an anchor that does not depend on table rows. *)
+  val select_one_relation
+    :  ('a, 'requirements) Expr.t
+    -> ( ('a, 'requirements) Expr.t
+         , ('a option, 'requirements) Expr.t
+         , 'requirements )
+         Derived_table.inferred
 
   (** Finish an ungrouped aggregate builder with an [exactly_one] result type.
       [Aggregate_projection] ensures an aggregate expression is present; the
@@ -1424,6 +1455,21 @@ module Query : sig
     -> on:('ctx -> 'row Table_ref.t -> 'requirements Condition.t)
     -> ('ctx, 'grouping, 'cardinality, 'requirements) t
     -> ('ctx * 'row Nullable_table_ref.t, 'grouping, 'cardinality, 'requirements) t
+
+  (** Join a structural recursive CTE. The appended context has the same
+      fields as its anchor. *)
+  val inner_join_cte_relation
+    :  ('fields, 'nullable_fields, 'requirements) Cte.inferred
+    -> on:('ctx -> 'fields -> 'requirements Condition.t)
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx * 'fields, 'grouping, 'cardinality, 'requirements) t
+
+  (** Left join a structural recursive CTE; its fields are nullable. *)
+  val left_join_cte_relation
+    :  ('fields, 'nullable_fields, 'requirements) Cte.inferred
+    -> on:('ctx -> 'fields -> 'requirements Condition.t)
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx * 'nullable_fields, 'grouping, 'cardinality, 'requirements) t
 
   (** Repeated calls combine predicates with SQL AND. Filtering preserves any
       existing upper bound on result rows. *)

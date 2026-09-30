@@ -54,6 +54,10 @@ let source_of_cte reference cte =
   { Ast.source_id = Table_ref.source_id reference; kind = Ast.Cte (Cte.id cte) }
 ;;
 
+let source_of_inferred_cte reference cte =
+  { Ast.source_id = Table_ref.source_id reference; kind = Ast.Cte (Cte.inferred_id cte) }
+;;
+
 let from_derived relation =
   let reference = Table_ref.create (Derived_table.table relation) in
   { context = reference
@@ -120,6 +124,25 @@ let from_cte cte =
   ; ast =
       { ctes = []
       ; source = source_of_cte reference cte
+      ; joins = []
+      ; distinct = false
+      ; projection = []
+      ; where_ = None
+      ; group_by = []
+      ; having = None
+      ; order_by = []
+      ; limit = None
+      ; offset = None
+      }
+  }
+;;
+
+let from_cte_relation cte =
+  let reference = Cte.inferred_reference cte in
+  { context = Cte.inferred_fields cte reference
+  ; ast =
+      { ctes = []
+      ; source = source_of_inferred_cte reference cte
       ; joins = []
       ; distinct = false
       ; projection = []
@@ -271,6 +294,30 @@ let left_join_cte cte ~on query =
   { context = query.context, Nullable_table_ref.of_table_ref reference; ast = query.ast }
 ;;
 
+let join_cte_relation kind cte ~on query =
+  let reference = Cte.inferred_reference cte in
+  let fields = Cte.inferred_fields cte reference in
+  let join =
+    { Ast.kind
+    ; source = source_of_inferred_cte reference cte
+    ; on = on query.context fields |> Condition.node
+    }
+  in
+  ( reference
+  , fields
+  , { query with ast = { query.ast with joins = query.ast.joins @ [ join ] } } )
+;;
+
+let inner_join_cte_relation cte ~on query =
+  let reference, _, query = join_cte_relation Ast.Inner cte ~on query in
+  { context = query.context, Cte.inferred_fields cte reference; ast = query.ast }
+;;
+
+let left_join_cte_relation cte ~on query =
+  let reference, _, query = join_cte_relation Ast.Left cte ~on query in
+  { context = query.context, Cte.inferred_nullable_fields cte reference; ast = query.ast }
+;;
+
 let select make_projection query =
   let projection = make_projection query.context in
   let ast = { query.ast with projection = Projection.expressions projection } in
@@ -300,6 +347,8 @@ let select_relation make_fields query =
   let fields = make_fields query.context in
   Derived_table.create_inferred fields query.ast
 ;;
+
+let select_one_relation expression = Derived_table.create_inferred_one expression
 
 let set_operation ?(order_by = []) operator left right =
   let left_ast =
@@ -463,6 +512,7 @@ module Aggregate = struct
   let from_relation = from_relation
   let from_values = from_values
   let from_cte = from_cte
+  let from_cte_relation = from_cte_relation
   let inner_join = inner_join
   let left_join = left_join
   let inner_join_derived = inner_join_derived
@@ -473,6 +523,8 @@ module Aggregate = struct
   let left_join_values = left_join_values
   let inner_join_cte = inner_join_cte
   let left_join_cte = left_join_cte
+  let inner_join_cte_relation = inner_join_cte_relation
+  let left_join_cte_relation = left_join_cte_relation
   let where = where
   let where_opt = where_opt
   let where_optional_param = where_optional_param

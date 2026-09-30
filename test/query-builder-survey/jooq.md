@@ -97,19 +97,6 @@ module Directory = struct
   let label row = Expr.column row label_column
 end
 
-module Directory_tree = struct
-  type row
-
-  let table : row Table.t = Table.v_exn "directory_tree"
-  let id_column = Column.v_exn table "id" Db_type.int
-  let parent_id_column = Column.nullable_v_exn table "parent_id" Db_type.int
-  let label_column = Column.v_exn table "label" Db_type.text
-  let depth_column = Column.v_exn table "depth" Db_type.int
-  let id row = Expr.column row id_column
-  let parent_id row = Expr.column row parent_id_column
-  let label row = Expr.column row label_column
-  let depth row = Expr.column row depth_column
-end
 ```
 
 ## SELECT и фильтрация
@@ -1585,60 +1572,54 @@ create.withRecursive(directoryTree)
 
 ```ocaml
 let jq21_fields ~directory_id ~parent_id ~label ~depth =
-  Projection.map3
-    ~f:(fun id parent fields -> id, parent, fields)
-    directory_id
-    parent_id
-    (Projection.pair label depth)
+  Derived_table.Fields.both
+    (Derived_table.Fields.both
+       (Derived_table.Fields.expr directory_id)
+       (Derived_table.Fields.expr parent_id))
+    (Derived_table.Fields.both
+       (Derived_table.Fields.expr label)
+       (Derived_table.Fields.expr depth))
 
-let jq21_columns directory =
-  jq21_fields
-    ~directory_id:(Projection.expr (Directory_tree.id directory))
-    ~parent_id:(Projection.expr (Directory_tree.parent_id directory))
-    ~label:(Directory_tree.label directory)
-    ~depth:(Directory_tree.depth directory)
+let jq21_projection ((id, parent_id), (label, depth)) =
+  Projection.both
+    (Projection.both (Projection.expr id) (Projection.expr parent_id))
+    (Projection.both (Projection.expr label) (Projection.expr depth))
 
 let jq21_anchor =
-  Derived_table.create
-    ~table:Directory_tree.table
-    ~columns:jq21_columns
-    Query.(
-      from Directory.table
-      |> where (fun directory -> Expr.is_null (Directory.parent_id directory))
-      |> select (fun directory ->
-        jq21_fields
-          ~directory_id:(Projection.expr (Directory.id directory))
-          ~parent_id:(Projection.expr (Directory.parent_id directory))
-          ~label:(Directory.label directory)
-          ~depth:(Expr.constant Db_type.int 0)))
+  Query.(
+    from Directory.table
+    |> where (fun directory -> Expr.is_null (Directory.parent_id directory))
+    |> select_relation (fun directory ->
+      jq21_fields
+        ~directory_id:(Directory.id directory)
+        ~parent_id:(Directory.parent_id directory)
+        ~label:(Directory.label directory)
+        ~depth:(Expr.constant Db_type.int 0)))
 
 let jq21 =
   let definition =
-    Cte.recursive
+    Cte.recursive_relation
       ~union:`Union_all
       ~anchor:jq21_anchor
       ~step:(fun directory_cte ->
-        Derived_table.create
-          ~table:Directory_tree.table
-          ~columns:jq21_columns
-          Query.(
-            from Directory.table
-            |> inner_join_cte directory_cte ~on:(fun directory parent ->
-              Directory.parent_id directory =. Expr.to_nullable (Directory_tree.id parent))
-            |> select (fun (directory, parent) ->
-              jq21_fields
-                ~directory_id:(Projection.expr (Directory.id directory))
-                ~parent_id:(Projection.expr (Directory.parent_id directory))
-                ~label:(Directory.label directory)
-                ~depth:(Expr.Int.Infix.(Directory_tree.depth parent +. Expr.constant Db_type.int 1)))))
+        Query.(
+          from Directory.table
+          |> inner_join_cte_relation directory_cte ~on:(fun directory ((id, _), _) ->
+            Directory.parent_id directory =. Expr.to_nullable id)
+          |> select_relation (fun (directory, ((_, _), (_, depth))) ->
+            jq21_fields
+              ~directory_id:(Directory.id directory)
+              ~parent_id:(Directory.parent_id directory)
+              ~label:(Directory.label directory)
+              ~depth:Expr.Int.Infix.(depth +. Expr.constant Db_type.int 1))))
   in
   Statement.Portable.query_many_exn (fun _ ->
     Cte.with_result definition ~f:(fun directory_cte ->
       Query.(
-        from_cte directory_cte
-        |> order_by Directory_tree.depth `Asc
-        |> order_by Directory_tree.id `Asc
-        |> select (fun directory -> jq21_columns directory))))
+        from_cte_relation directory_cte
+        |> order_by (fun ((_, _), (_, depth)) -> depth) `Asc
+        |> order_by (fun ((id, _), _) -> id) `Asc
+        |> select jq21_projection)))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1647,10 +1628,10 @@ let jq21 =
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq21);;
 WITH RECURSIVE
   "c0" (
-    "id",
-    "parent_id",
-    "label",
-    "depth"
+    "field_1",
+    "field_2",
+    "field_3",
+    "field_4"
   ) AS (
     SELECT
       t0."id",
@@ -1665,20 +1646,20 @@ WITH RECURSIVE
       t0."id",
       t0."parent_id",
       t0."label",
-      (t1."depth" + $2)
+      (t1."field_4" + $2)
     FROM "directory" AS t0
     INNER JOIN "c0" AS t1
-      ON (t0."parent_id" = t1."id")
+      ON (t0."parent_id" = t1."field_1")
   )
 SELECT
-  t0."id",
-  t0."parent_id",
-  t0."label",
-  t0."depth"
+  t0."field_1",
+  t0."field_2",
+  t0."field_3",
+  t0."field_4"
 FROM "c0" AS t0
 ORDER BY
-  t0."depth" ASC,
-  t0."id" ASC
+  t0."field_4" ASC,
+  t0."field_1" ASC
 ```
 
 ### JQ-22. SELECT DISTINCT по внешнему ключу

@@ -653,7 +653,7 @@ reconnect и eviction. Решение по core API и рассмотренны�
   проверку формы и database types строк
   ([JQ-20](../test/query-builder-survey/jooq.md#jq-20-values-как-табличный-источник),
   [SA-29](../test/query-builder-survey/sqlalchemy.md#sa-29-values-как-источник-строк)).
-- [ ] Расширить типизированный рекурсивный CTE: поддержать вычисляемые поля в
+- [x] Расширить типизированный рекурсивный CTE: поддержать вычисляемые поля в
   anchor и step вместе с полями исходных relations, а также литеральный anchor,
   создающий стартовую строку независимо от содержимого таблиц
   ([JQ-21](../test/query-builder-survey/jooq.md#jq-21-рекурсивный-cte-для-дерева-каталогов),

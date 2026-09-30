@@ -1307,6 +1307,309 @@ let%test_unit "recursive CTE validation checks step types and nested subqueries"
      |> Result.ok_or_failwith)
 ;;
 
+let%test_module "structural recursive CTEs" =
+  (module struct
+    module Directory = struct
+      type row
+
+      let table : row Table.t = Table.v_exn "directory"
+      let id_column = Column.v_exn table "id" Db_type.int
+      let parent_id_column = Column.nullable_v_exn table "parent_id" Db_type.int
+      let label_column = Column.v_exn table "label" Db_type.text
+      let id row = Expr.column row id_column
+      let parent_id row = Expr.column row parent_id_column
+      let label row = Expr.column row label_column
+    end
+
+    let tree_fields id parent_id label depth =
+      Derived_table.Fields.both
+        (Derived_table.Fields.both
+           (Derived_table.Fields.expr id)
+           (Derived_table.Fields.expr parent_id))
+        (Derived_table.Fields.both
+           (Derived_table.Fields.expr label)
+           (Derived_table.Fields.expr depth))
+    ;;
+
+    let tree_projection ((id, parent_id), (label, depth)) =
+      Projection.both
+        (Projection.both (Projection.expr id) (Projection.expr parent_id))
+        (Projection.both (Projection.expr label) (Projection.expr depth))
+    ;;
+
+    let directory_tree =
+      let anchor =
+        Query.(
+          from Directory.table
+          |> where (fun directory -> Expr.is_null (Directory.parent_id directory))
+          |> select_relation (fun directory ->
+            tree_fields
+              (Directory.id directory)
+              (Directory.parent_id directory)
+              (Directory.label directory)
+              (Expr.constant Db_type.int 0)))
+      in
+      Cte.recursive_relation ~union:`Union_all ~anchor ~step:(fun tree ->
+        Query.(
+          from Directory.table
+          |> inner_join_cte_relation tree ~on:(fun directory ((parent_id, _), _) ->
+            Directory.parent_id directory =. Expr.to_nullable parent_id)
+          |> select_relation (fun (directory, ((_, _), (_, depth))) ->
+            tree_fields
+              (Directory.id directory)
+              (Directory.parent_id directory)
+              (Directory.label directory)
+              Expr.Int.Infix.(depth +. Expr.constant Db_type.int 1))))
+    ;;
+
+    let directory_tree_query =
+      Cte.with_result directory_tree ~f:(fun tree ->
+        Query.(
+          from_cte_relation tree
+          |> order_by (fun ((_, _), (_, depth)) -> depth) `Asc
+          |> order_by (fun ((id, _), _) -> id) `Asc
+          |> select tree_projection))
+    ;;
+
+    let literal_numbers =
+      Cte.recursive_relation
+        ~union:`Union_all
+        ~anchor:(Query.select_one_relation (Expr.constant Db_type.int 1))
+        ~step:(fun numbers ->
+          Query.(
+            from_cte_relation numbers
+            |> where (fun value -> value <$ 5)
+            |> select_relation (fun value ->
+              Derived_table.Fields.expr
+                Expr.Int.Infix.(value +. Expr.constant Db_type.int 1))))
+    ;;
+
+    let literal_numbers_query =
+      Cte.with_result literal_numbers ~f:(fun numbers ->
+        Query.(from_cte_relation numbers |> select Projection.expr))
+    ;;
+
+    let distinct_literal_numbers =
+      Cte.recursive_relation
+        ~union:`Union
+        ~anchor:(Query.select_one_relation (Expr.constant Db_type.int64 1L))
+        ~step:(fun numbers ->
+          Query.(
+            from_cte_relation numbers
+            |> select_relation (fun value -> Derived_table.Fields.expr value)))
+    ;;
+
+    let distinct_literal_numbers_query =
+      Cte.with_result distinct_literal_numbers ~f:(fun numbers ->
+        Query.(from_cte_relation numbers |> select Projection.expr))
+    ;;
+
+    let left_join_structural_cte_query =
+      Cte.with_result distinct_literal_numbers ~f:(fun numbers ->
+        Query.(
+          from Person.table
+          |> left_join_cte_relation numbers ~on:(fun person value ->
+            Person.id person =. value)
+          |> select (fun (person, number) -> Projection.pair (Person.id person) number)))
+    ;;
+
+    let%test "structural recursive CTE supports UNION" =
+      match
+        Compiler.compile_portable ~dialect:Dialect.Sqlite distinct_literal_numbers_query
+      with
+      | Ok _ -> true
+      | Error _ -> false
+    ;;
+
+    let%test "structural recursive CTE supports a nullable left-join handle" =
+      match
+        Compiler.compile_portable ~dialect:Dialect.Sqlite left_join_structural_cte_query
+      with
+      | Ok _ -> true
+      | Error _ -> false
+    ;;
+
+    let alternate_int64 =
+      Db_type.map
+        ~name:"structural-recursive-int64"
+        ~encode:Result.return
+        ~decode:Result.return
+        Db_type.int64
+    ;;
+
+    let mismatched_literal_numbers =
+      Cte.recursive_relation
+        ~union:`Union_all
+        ~anchor:(Query.select_one_relation (Expr.constant Db_type.int64 1L))
+        ~step:(fun numbers ->
+          Query.(
+            from_cte_relation numbers
+            |> select_relation (fun _ ->
+              Derived_table.Fields.expr (Expr.constant alternate_int64 2L))))
+    ;;
+
+    let mismatched_literal_numbers_query =
+      Cte.with_result mismatched_literal_numbers ~f:(fun numbers ->
+        Query.(from_cte_relation numbers |> select Projection.expr))
+    ;;
+
+    let missing_self_reference =
+      let anchor = Query.select_one_relation (Expr.constant Db_type.int 1) in
+      Cte.recursive_relation ~union:`Union_all ~anchor ~step:(fun _ -> anchor)
+    ;;
+
+    let%test "structural recursive CTE checks the step database type" =
+      match
+        Compiler.compile_portable ~dialect:Dialect.Sqlite mismatched_literal_numbers_query
+      with
+      | Error (Compile_error.Mismatched_set_projection _) -> true
+      | _ -> false
+    ;;
+
+    let%test "structural recursive CTE requires one top-level self-reference" =
+      let query =
+        Cte.with_result missing_self_reference ~f:(fun numbers ->
+          Query.(from_cte_relation numbers |> select Projection.expr))
+      in
+      match Compiler.compile_portable ~dialect:Dialect.Sqlite query with
+      | Error (Compile_error.Invalid_recursive_reference _) -> true
+      | _ -> false
+    ;;
+
+    let print_query dialect query =
+      query |> compile_portable_exn dialect |> Compiled_query.sql |> Stdlib.print_endline
+    ;;
+
+    let%expect_test "computed recursive relation renders in PostgreSQL" =
+      print_query Dialect.Postgresql directory_tree_query;
+      [%expect
+        {|
+        WITH RECURSIVE
+          "c0" (
+            "field_1",
+            "field_2",
+            "field_3",
+            "field_4"
+          ) AS (
+            SELECT
+              t0."id",
+              t0."parent_id",
+              t0."label",
+              $1
+            FROM "directory" AS t0
+            WHERE
+              (t0."parent_id" IS NULL)
+            UNION ALL
+            SELECT
+              t0."id",
+              t0."parent_id",
+              t0."label",
+              (t1."field_4" + $2)
+            FROM "directory" AS t0
+            INNER JOIN "c0" AS t1
+              ON (t0."parent_id" = t1."field_1")
+          )
+        SELECT
+          t0."field_1",
+          t0."field_2",
+          t0."field_3",
+          t0."field_4"
+        FROM "c0" AS t0
+        ORDER BY
+          t0."field_4" ASC,
+          t0."field_1" ASC
+        |}]
+    ;;
+
+    let%expect_test "computed recursive relation renders in SQLite" =
+      print_query Dialect.Sqlite directory_tree_query;
+      [%expect
+        {|
+        WITH RECURSIVE
+          "c0" (
+            "field_1",
+            "field_2",
+            "field_3",
+            "field_4"
+          ) AS (
+            SELECT
+              t0."id",
+              t0."parent_id",
+              t0."label",
+              ?1
+            FROM "directory" AS t0
+            WHERE
+              (t0."parent_id" IS NULL)
+            UNION ALL
+            SELECT
+              t0."id",
+              t0."parent_id",
+              t0."label",
+              (t1."field_4" + ?2)
+            FROM "directory" AS t0
+            INNER JOIN "c0" AS t1
+              ON (t0."parent_id" = t1."field_1")
+          )
+        SELECT
+          t0."field_1",
+          t0."field_2",
+          t0."field_3",
+          t0."field_4"
+        FROM "c0" AS t0
+        ORDER BY
+          t0."field_4" ASC,
+          t0."field_1" ASC
+        |}]
+    ;;
+
+    let%expect_test "source-free recursive anchor renders in PostgreSQL" =
+      print_query Dialect.Postgresql literal_numbers_query;
+      [%expect
+        {|
+        WITH RECURSIVE
+          "c0" (
+            "field_1"
+          ) AS (
+            SELECT
+              $1
+            UNION ALL
+            SELECT
+              (t0."field_1" + $2)
+            FROM "c0" AS t0
+            WHERE
+              (t0."field_1" < $3)
+          )
+        SELECT
+          t0."field_1"
+        FROM "c0" AS t0
+        |}]
+    ;;
+
+    let%expect_test "source-free recursive anchor renders in SQLite" =
+      print_query Dialect.Sqlite literal_numbers_query;
+      [%expect
+        {|
+        WITH RECURSIVE
+          "c0" (
+            "field_1"
+          ) AS (
+            SELECT
+              ?1
+            UNION ALL
+            SELECT
+              (t0."field_1" + ?2)
+            FROM "c0" AS t0
+            WHERE
+              (t0."field_1" < ?3)
+          )
+        SELECT
+          t0."field_1"
+        FROM "c0" AS t0
+        |}]
+    ;;
+  end)
+;;
+
 let%test_unit "scalar cardinality inspects parameter-only projections" =
   let scalar =
     Query.(from Person.table |> select_scalar (fun _ -> Expr.constant Db_type.int64 1L))
