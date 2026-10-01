@@ -310,13 +310,14 @@ let validate_values ~validate_subquery (values : Ast.values) =
   else if List.is_empty values.rows then
     Error Compile_error.Empty_values_rows
   else (
-    let%bind names =
+    let%bind columns =
       List.mapi values.columns ~f:(fun index -> function
-        | Ast.Column { source_id; name; _ }
-          when Int.equal source_id values.descriptor_source_id -> Ok name
+        | Ast.Column { source_id; name; db_type }
+          when Int.equal source_id values.descriptor_source_id -> Ok (name, db_type)
         | _ -> Error (Compile_error.Invalid_relation_column (index + 1)))
       |> Result.all
     in
+    let names = List.map columns ~f:fst in
     let rec find_duplicate seen = function
       | [] -> None
       | name :: rest ->
@@ -333,11 +334,7 @@ let validate_values ~validate_subquery (values : Ast.values) =
     let fingerprints types =
       List.map types ~f:(fun (Db_type.Pack db_type) -> Db_type.fingerprint db_type)
     in
-    let column_types =
-      List.map values.columns ~f:(function
-        | Ast.Column { db_type; _ } -> db_type
-        | _ -> assert false)
-    in
+    let column_types = List.map columns ~f:snd in
     let expected_row_types = fingerprints column_types in
     List.foldi values.rows ~init:(Ok ()) ~f:(fun index result row ->
       let%bind () = result in
@@ -432,37 +429,31 @@ let validate_select_with
       ~allow_empty
       (select : Ast.select)
   =
+  let negative_limit =
+    Option.bind select.limit ~f:(function
+      | Ast.Limit (Ast.Literal value) when value < 0 ->
+        Some (Compile_error.Negative_limit value)
+      | Ast.Fetch_with_ties (Ast.Literal value) when value < 0 ->
+        Some (Compile_error.Negative_fetch_count value)
+      | Ast.Limit _ | Ast.Fetch_with_ties _ -> None)
+  in
+  let negative_offset =
+    Option.bind select.offset ~f:(function
+      | Ast.Literal value when value < 0 -> Some (Compile_error.Negative_offset value)
+      | Ast.Literal _ | Ast.Parameter _ -> None)
+  in
   if (not allow_empty) && List.is_empty select.Ast.projection then
     Error Compile_error.Empty_projection
-  else if
-    Option.exists select.limit ~f:(function
-      | Ast.Limit (Ast.Literal value) | Ast.Fetch_with_ties (Ast.Literal value) ->
-        value < 0
-      | Ast.Limit (Ast.Parameter _) | Ast.Fetch_with_ties (Ast.Parameter _) -> false)
-  then (
-    match
-      Option.value_exn select.limit
-    with
-    | Ast.Limit (Ast.Literal value) -> Error (Compile_error.Negative_limit value)
-    | Ast.Fetch_with_ties (Ast.Literal value) ->
-      Error (Compile_error.Negative_fetch_count value)
-    | Ast.Limit (Ast.Parameter _) | Ast.Fetch_with_ties (Ast.Parameter _) -> assert false)
+  else if Option.is_some negative_limit then
+    Error (Option.value_exn negative_limit)
   else if
     Option.exists select.limit ~f:(function
       | Ast.Fetch_with_ties _ -> List.is_empty select.order_by
       | Ast.Limit _ -> false)
   then
     Error Compile_error.Fetch_with_ties_requires_order_by
-  else if
-    Option.exists select.offset ~f:(function
-      | Ast.Literal value -> value < 0
-      | Ast.Parameter _ -> false)
-  then (
-    match
-      Option.value_exn select.offset
-    with
-    | Ast.Literal value -> Error (Compile_error.Negative_offset value)
-    | Ast.Parameter _ -> assert false)
+  else if Option.is_some negative_offset then
+    Error (Option.value_exn negative_offset)
   else
     let open Result.Let_syntax in
     let validate_values_source (source : Ast.source) =
@@ -1037,6 +1028,12 @@ and validate_returning_full ~forbidden_ctes ~available_ctes returning =
 
 and validate_command_full ~forbidden_ctes ~available_ctes command =
   let open Result.Let_syntax in
+  let%bind () =
+    match command.Ast.source.kind with
+    | Ast.Table _ -> Ok ()
+    | Ast.Derived _ | Ast.Values _ | Ast.Cte _ ->
+      Error Compile_error.Invalid_command_target
+  in
   let%bind available_ctes =
     validate_ctes_full ~forbidden_ctes ~available_ctes command.Ast.ctes
   in

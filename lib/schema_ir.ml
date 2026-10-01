@@ -10,7 +10,26 @@ type db_type =
   | Bytes
   | Date
   | Timestamp
+  | Timestamp_without_timezone
+  | Interval
+  | Json
+  | Jsonb
   | Uuid
+  | Enum of
+      { schema : Identifier.t
+      ; name : Identifier.t
+      ; labels : string list
+      }
+  | Domain of
+      { schema : Identifier.t
+      ; name : Identifier.t
+      ; base : db_type
+      }
+  | Array of db_type
+  | Named of
+      { schema : Identifier.t
+      ; name : Identifier.t
+      }
   | Unsupported of string
 
 type column =

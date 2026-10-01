@@ -1,11 +1,44 @@
 open! Base
 open Typed_sql
 open Statement_compile
-module First = Generated_schema.User_profile
-module Second = Generated_schema.User_profile_2
+module First = Generated_schema.User_profile_2
+module Second = Generated_schema.User_profile
 module Third = Generated_schema.User_profile_3
 module Fourth = Generated_schema.Table
 module Fifth = Generated_schema.Typed_sql_codegen_2
+module Advanced = Generated_schema.Advanced
+module Generated_types = Generated_schema.Typed_sql_generated_types
+
+let advanced_row : Advanced.t =
+  { local_value =
+      Local_timestamp.create
+        ~date:(Date.of_ymd_exn ~year:2026 ~month:9 ~day:30)
+        ~hour:12
+        ~minute:30
+        ~second:0
+        ~microsecond:123_456
+      |> Result.ok_or_failwith
+  ; float_value = 12.5
+  ; duration = Interval.create ~months:13 ~days:2 ~microseconds:3_000_000L
+  ; payload = `Assoc [ "value", `Int 1 ]
+  ; payload_binary = `Assoc [ "value", `Int 2 ]
+  ; mood = Generated_types.Type_public_mood.Happy
+  ; username = Generated_types.Type_public_username.of_base "Ada"
+  ; host =
+      Generated_types.Type_public_host.of_base
+        (Ipaddr.Prefix.of_string_exn "192.0.2.1/24")
+  ; inet_value = Ipaddr.Prefix.of_string_exn "198.51.100.3/24"
+  ; small_value = Schema_test_codecs.Small_int.Small 42
+  ; numbers =
+      Pg_array.create
+        ~dimensions:[ 2; 2 ]
+        ~lower_bounds:[ 1; 1 ]
+        ~elements:[ Some 1; None; Some 3; Some 4 ]
+      |> Result.ok_or_failwith
+  ; rational_value = Q.of_string "2/3"
+  ; geometry_value = 1., 2.
+  }
+;;
 
 let first_row : First.t =
   { id = 1L
@@ -28,6 +61,25 @@ let first_row : First.t =
 
 let () =
   ignore first_row;
+  ignore advanced_row;
+  Query.(from Advanced.table |> select Advanced.projection)
+  |> Compiler.compile ~dialect:Dialect.postgresql
+  |> Result.map_error ~f:Compile_error.to_string
+  |> Result.ok_or_failwith
+  |> ignore;
+  let sql =
+    Insert.(
+      into Advanced.table
+      |> set_expr
+           Advanced.float_value_column
+           (Expr.constant Schema_test_codecs.Local_float.db_type 12.5)
+      |> command)
+    |> Compiler.compile_command ~dialect:Dialect.postgresql
+    |> Result.map_error ~f:Compile_error.to_string
+    |> Result.ok_or_failwith
+    |> Compiled_command.sql
+  in
+  assert (String.is_substring sql ~substring:"CAST($1 AS \"pg_catalog\".\"timestamp\")");
   Query.(from First.table |> select First.projection)
   |> Compiler.compile ~dialect:Dialect.postgresql
   |> Result.map_error ~f:Compile_error.to_string

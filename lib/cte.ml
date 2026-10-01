@@ -142,7 +142,9 @@ module Postgresql = struct
     let returning =
       match Result_query.ast query with
       | Ast.Returning returning -> returning
-      | Ast.Select _ -> assert false
+      | Ast.Select _ ->
+        Stdlib.failwith
+          "typed-sql invariant violated: PostgreSQL returning CTE requires a RETURNING query"
     in
     { handle
     ; cte =

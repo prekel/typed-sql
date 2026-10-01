@@ -74,6 +74,7 @@ module Statement = struct
     | P.Negative_offset value -> Negative_offset value
     | P.Fetch_with_ties_requires_order_by -> Fetch_with_ties_requires_order_by
     | P.Invalid_for_update reason -> Invalid_for_update reason
+    | P.Invalid_command_target -> Invalid_command_target
     | P.Empty_assignments kind -> Empty_assignments kind
     | P.Empty_insert_row row -> Empty_insert_row row
     | P.Duplicate_assignment column -> Duplicate_assignment (public_identifier column)

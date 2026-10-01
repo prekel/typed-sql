@@ -136,6 +136,8 @@ let rec encode
   | Date -> Ok (Some (date_to_string value))
   | Timestamp -> Ok (Some (Ptime.to_rfc3339 value))
   | Uuid -> Ok (Some (Pgocaml.string_of_uuid value))
+  | Named { repr; _ } -> encode repr value
+  | Array { encode; _ } -> Result.map (encode value) ~f:Option.some
   | Option db_type ->
     (match value with
      | None -> Ok None
@@ -163,6 +165,8 @@ let rec decode
       | Date
       | Timestamp
       | Uuid
+      | Named _
+      | Array _
       | Map _ )
     , None ) -> Error ("unexpected NULL for " ^ Typed_sql_backend.Db_type.name db_type)
   | Bool, Some value -> protect ~context:"bool" (fun () -> Pgocaml.bool_of_string value)
@@ -190,6 +194,8 @@ let rec decode
     (match Typed_sql.Uuid.of_string (Pgocaml.uuid_of_string value) with
      | Some uuid -> Ok (Typed_sql.Uuid.to_string uuid)
      | None -> Error ("uuid: invalid value " ^ value))
+  | Named { repr; _ }, Some value -> decode repr (Some value)
+  | Array { decode; _ }, Some value -> decode value
   | Map { repr; decode = map; _ }, Some value ->
     let open Result.Let_syntax in
     let%bind value = decode repr (Some value) in
@@ -210,6 +216,7 @@ let rec oid : type a. a Typed_sql_backend.Db_type.t -> Pgocaml.oid =
     | Date -> 1082
     | Timestamp -> 1184
     | Uuid -> 2950
+    | Named _ | Array _ -> 0
     | Option db_type -> Int32.to_int_exn (oid db_type)
     | Map { repr; _ } -> Int32.to_int_exn (oid repr)
   in

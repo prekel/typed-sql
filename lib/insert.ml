@@ -168,7 +168,9 @@ let from_select columns query insert =
       let query_ast =
         match Result_query.ast query with
         | Ast.Select query -> query
-        | Ast.Returning _ -> assert false
+        | Ast.Returning _ ->
+          Stdlib.failwith
+            "typed-sql invariant violated: INSERT SELECT input must be a SELECT query"
       in
       Ast.Select_rows
         { columns = Columns.targets insert.reference columns

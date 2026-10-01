@@ -501,8 +501,18 @@ Typed_sql_caqti_lwt.transaction ~conn ~f:(fun conn ->
   |> Lwt.map (Result.map ~f:(fun _ -> ())))
 ```
 
-При изменении схемы Caqti adapter получает metadata, которую можно сохранить
-как JSON snapshot:
+Чтобы получить OCaml-код из живой PostgreSQL-базы, задайте параметры
+подключения через `PGHOST`, `PGPORT`, `PGUSER`, `PGDATABASE` (или передайте URI)
+и выполните:
+
+```sh
+typed-sql-schema-dump postgresql:// > schema.json
+typed-sql-codegen --type-rules type-rules.json schema.json > schema.ml
+```
+
+`typed-sql-schema-dump` использует Caqti adapter и пишет JSON snapshot в stdout.
+Его можно вызвать без URI: по умолчанию используется `postgresql://`.
+Тот же snapshot можно получить из OCaml-кода:
 
 ```ocaml
 Typed_sql_caqti_lwt.Schema.introspect ~conn
@@ -518,22 +528,23 @@ Snapshot хранится в репозитории. Установленный 
 ```sh
 typed-sql-codegen schema.json > schema.ml
 typed-sql-codegen - < schema.json > schema.ml
+typed-sql-codegen --type-rules type-rules.json schema.json > schema.ml
 ```
 
-В Dune можно генерировать модуль при изменении snapshot:
+`schema.ml` хранится в исходном каталоге и компилируется Dune как обычный
+модуль. После изменения схемы или правил запустите CLI повторно и сохраните
+обновлённый файл. Пример проекта —
+[`test/schema/regenerate.sh`](test/schema/regenerate.sh): он записывает
+`schema_fixture.json` и `generated_schema.ml` непосредственно в `test/schema/`.
+`make test` сравнивает сохранённые файлы с результатом генератора.
+`make test-postgres` применяет единственную
+[SQL-миграцию](test/schema/schema_fixture.sql) к чистой PostgreSQL-базе,
+запускает интроспекцию и сравнивает полученный JSON с `schema_fixture.json`
+побайтно.
 
-```lisp
-(rule
- (target schema.ml)
- (deps schema.json)
- (action
-  (with-stdout-to %{target}
-   (run %{bin:typed-sql-codegen} %{dep:schema.json}))))
-```
-
-Библиотека, компилирующая `schema.ml`, должна зависеть от `base` и `typed-sql`
-и использовать `(preprocess (pps ppx_let))`. Можно также хранить готовый `.ml`
-в репозитории. Generator добавляет необходимые
+Библиотека, компилирующая `schema.ml`, должна зависеть от `base`, `typed-sql`,
+`yojson` при JSON-колонках и библиотек пользовательских codecs
+и использовать `(preprocess (pps ppx_let))`. Generator добавляет необходимые
 `open`, а совпавшие после нормализации OCaml-имена получают стабильные суффиксы
 `_2`, `_3` в порядке schema IR.
 
@@ -541,8 +552,20 @@ typed-sql-codegen - < schema.json > schema.ml
 [doc/schema_snapshot.md](doc/schema_snapshot.md). Получение схемы и применение
 миграций запускаются отдельно от обычной сборки.
 
-Неизвестные database types сохраняются как `Schema_ir.Unsupported`, и generator
-возвращает ошибку вместо выбора неточного codec.
+PostgreSQL introspection сохраняет enum, domain, массивы, JSON, interval,
+timestamp без часового пояса и остальные именованные типы в snapshot.
+Для enum и domain generator создаёт отдельные модули; для массива сохраняет
+размерности, границы и `NULL`-элементы. Для `inet`, `geometry`, `rational` и
+других типов без встроенного codec настройте правила генератора. Ими же можно
+переопределить базовый SQL-тип или конкретную колонку, например представить
+`timestamp without time zone` как прикладной `float` с собственным
+`Db_type.map`. Формат правил описан в
+[doc/schema_snapshot.md](doc/schema_snapshot.md). Неизвестный тип без правила
+вызывает ошибку генерации.
+
+Встроенный codec `Local_timestamp` ожидает PostgreSQL `DateStyle` с ISO-выводом,
+а `Interval` — стандартный `IntervalStyle = postgres`. Для других настроек
+формата используйте пользовательский codec через те же правила.
 
 Весь API приложения с документацией находится в
 [`lib/typed_sql.mli`](lib/typed_sql.mli): схема, выражения, запросы, статические
@@ -637,7 +660,7 @@ Lwt.finalize
 `make coverage` измеряет реализацию `Typed_sql` через публичный API приложения:
 запускает public inline tests, QCheck properties и SQLite `:memory:` integration
 test. White-box tests и `typed-sql.backend` в этот прогон не входят. Порог равен
-97%, HTML-отчёт создаётся в `_coverage/public/html/index.html`.
+96,5%, HTML-отчёт создаётся в `_coverage/public/html/index.html`.
 
 `make coverage-all` добавляет backend и private suites, требует не менее 99% и
 пишет отчёт в `_coverage/all/html/index.html`. Для локального switch с OCaml

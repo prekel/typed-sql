@@ -69,6 +69,74 @@ module Date : sig
   val equal : t -> t -> bool
 end
 
+(** Calendar date and time without any time-zone conversion. *)
+module Local_timestamp : sig
+  type t
+
+  val create
+    :  date:Date.t
+    -> hour:int
+    -> minute:int
+    -> second:int
+    -> microsecond:int
+    -> (t, string) Result.t
+
+  val date : t -> Date.t
+  val hour : t -> int
+  val minute : t -> int
+  val second : t -> int
+  val microsecond : t -> int
+
+  (** Parse PostgreSQL ISO DateStyle text, without a time-zone suffix. *)
+  val of_string : string -> (t, string) Result.t
+
+  val to_string : t -> string
+end
+
+(** PostgreSQL interval components; months and days are kept distinct. *)
+module Interval : sig
+  type t
+
+  val create : months:int -> days:int -> microseconds:int64 -> t
+  val months : t -> int
+  val days : t -> int
+  val microseconds : t -> int64
+
+  (** Parse PostgreSQL's default [postgres] IntervalStyle text. Other
+      IntervalStyle settings require an application codec. *)
+  val of_string : string -> (t, string) Result.t
+
+  val to_string : t -> string
+end
+
+(** Rectangular PostgreSQL arrays with nullable elements and preserved bounds. *)
+module Pg_array : sig
+  type 'a t
+
+  val create
+    :  dimensions:int list
+    -> lower_bounds:int list
+    -> elements:'a option list
+    -> ('a t, string) Result.t
+
+  val dimensions : 'a t -> int list
+  val lower_bounds : 'a t -> int list
+  val elements : 'a t -> 'a option list
+
+  (** Parse PostgreSQL array text with an element decoder. Quoted strings,
+      NULL elements, dimensions and explicit lower bounds are preserved. *)
+  val of_string
+    :  decode:(string -> ('a, string) Result.t)
+    -> string
+    -> ('a t, string) Result.t
+
+  (** Serialize PostgreSQL array text with an element encoder. *)
+  val to_string
+    :  encode:('a -> (string, string) Result.t)
+    -> 'a t
+    -> (string, string) Result.t
+end
+
 (** Universally unique identifiers in canonical hexadecimal form. *)
 module Uuid : sig
   type t
@@ -184,6 +252,25 @@ module Db_type : sig
     -> 'a t
     -> 'b t
 
+  (** PostgreSQL representations. [named] retains the SQL type identity while
+      [repr] supplies the transport codec. [array] preserves SQL dimensions and
+      nullable elements. *)
+  module Postgresql : sig
+    val named : schema:Identifier.t -> name:Identifier.t -> 'a t -> 'a t
+    val array : 'a t -> 'a Pg_array.t t
+
+    (** PostgreSQL text transport for array elements and custom codecs.
+        Unsupported result-only or nested optional representations return an
+        error. *)
+    val encode_text : 'a t -> 'a -> (string, string) Result.t
+
+    val decode_text : 'a t -> string -> ('a, string) Result.t
+    val json : Yojson.Safe.t t
+    val jsonb : Yojson.Safe.t t
+    val local_timestamp : Local_timestamp.t t
+    val interval : Interval.t t
+  end
+
   (** Return a diagnostic name. It does not establish codec identity. *)
   val name : 'a t -> string
 end
@@ -202,7 +289,26 @@ module Schema_ir : sig
     | Bytes
     | Date
     | Timestamp
+    | Timestamp_without_timezone
+    | Interval
+    | Json
+    | Jsonb
     | Uuid
+    | Enum of
+        { schema : Identifier.t
+        ; name : Identifier.t
+        ; labels : string list
+        }
+    | Domain of
+        { schema : Identifier.t
+        ; name : Identifier.t
+        ; base : db_type
+        }
+    | Array of db_type
+    | Named of
+        { schema : Identifier.t
+        ; name : Identifier.t
+        }
     | Unsupported of string
 
   type column
@@ -311,7 +417,7 @@ module Schema_snapshot : sig
   (** A malformed document or unsupported snapshot version. *)
   type error
 
-  (** Encode version 1 JSON with a fixed field order, indentation and a final
+  (** Encode version 2 JSON with a fixed field order, indentation and a final
       newline. All schema list orders and opaque default/type strings are
       preserved. Optional metadata is written as JSON [null]. No database or
       filesystem access is performed. *)
@@ -336,6 +442,14 @@ module Schema_codegen : sig
         ; column : Identifier.t
         ; database_type : string
         }
+    | Invalid_rules of string
+
+  type rule
+
+  (** Parse ordered generator rules. Each rule has [priority], [sql_type],
+      [column], and [module] fields; at least one filter must be present.
+      Filters are full-match regular expressions. *)
+  val rules_of_string : string -> (rule list, string) Result.t
 
   (** Explain why descriptor source could not be generated. *)
   val error_to_string : error -> string
@@ -348,7 +462,7 @@ module Schema_codegen : sig
       be compiled directly as a module with [ppx_let]. Each table module
       retains column defaults, generated and primary-key flags, foreign keys,
       and unique constraints as ordinary metadata values. *)
-  val generate : Schema_ir.t -> (string, error) Result.t
+  val generate : ?rules:rule list -> Schema_ir.t -> (string, error) Result.t
 end
 
 (** Typed table descriptors. *)
@@ -2211,6 +2325,8 @@ module Compile_error : sig
     (** [FETCH FIRST WITH TIES] requires at least one final [ORDER BY] key. *)
     | Invalid_for_update of string
     (** The SELECT shape or requested lock targets cannot be locked. *)
+    | Invalid_command_target
+    (** A malformed command targets a derived, VALUES, or CTE source. *)
     | Empty_assignments of [ `Insert | `Update ]
     (** INSERT or UPDATE was finalized without assigning a column. *)
     | Empty_insert_row of int

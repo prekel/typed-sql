@@ -1,6 +1,31 @@
 (library
  (name typed_sql_caqti_lwt)
  (public_name typed-sql-caqti-lwt)
- (libraries base caqti caqti-lwt lwt ptime typed-sql typed-sql.backend unix)
+ (modules typed_sql_caqti_lwt)
+ (libraries
+  base
+  caqti
+  caqti-lwt
+  lwt
+  ptime
+  yojson
+  typed-sql
+  typed-sql.backend
+  unix)
  (preprocess
   (pps ppx_let)))
+
+(executable
+ (name typed_sql_schema_dump)
+ (public_name typed-sql-schema-dump)
+ (package typed-sql-caqti-lwt)
+ (modules typed_sql_schema_dump)
+ (libraries
+  base
+  caqti
+  caqti-driver-postgresql
+  caqti-lwt.unix
+  lwt.unix
+  typed-sql
+  typed-sql-caqti-lwt
+  uri))

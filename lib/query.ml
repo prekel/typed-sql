@@ -334,7 +334,8 @@ let multiset query =
   match Result_query.ast query with
   | Ast.Select select ->
     Projection.multiset_subquery select (Result_query.projection query)
-  | Ast.Returning _ -> assert false
+  | Ast.Returning _ ->
+    Stdlib.failwith "typed-sql invariant violated: Query.multiset requires a SELECT query"
 ;;
 
 let select_exactly_one make_projection query =
@@ -360,12 +361,16 @@ let set_operation ?(order_by = []) operator left right =
   let left_ast =
     match Result_query.ast left with
     | Ast.Select query -> query
-    | Ast.Returning _ -> assert false
+    | Ast.Returning _ ->
+      Stdlib.failwith
+        "typed-sql invariant violated: set operation left input must be SELECT"
   in
   let right_ast =
     match Result_query.ast right with
     | Ast.Select query -> query
-    | Ast.Returning _ -> assert false
+    | Ast.Returning _ ->
+      Stdlib.failwith
+        "typed-sql invariant violated: set operation right input must be SELECT"
   in
   let compound =
     { Ast.ctes = []

@@ -45,6 +45,11 @@
   typed-sql
   typed-sql-caqti-lwt
   typed_sql_expect_tests
+  typed_sql_test_support
+  typed_sql_schema_test_codecs
+  yojson
+  ipaddr
+  zarith
   uri)
  (preprocess
   (pps ppx_let)))

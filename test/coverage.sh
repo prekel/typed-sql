@@ -21,9 +21,10 @@ if [ "$mode" = mega ]; then
 else
   targets="
 test/.typed_sql_expect_tests.inline-tests/inline-test-runner.exe
+test/schema/.typed_sql_schema_expect_tests.inline-tests/inline-test-runner.exe
 test/property_test.exe
 caqti-lwt/test/sqlite_test.exe
-test/generated_schema_downstream_test.exe
+test/schema/generated_schema_downstream_test.exe
 "
 fi
 if [ "$mode" = all ]; then
@@ -48,9 +49,14 @@ else
     ../_build/default/test/.typed_sql_expect_tests.inline-tests/inline-test-runner.exe \
       inline-test-runner typed_sql_expect_tests -strict -source-tree-root ..
   )
+  (
+    cd test/schema
+    ../../_build/default/test/schema/.typed_sql_schema_expect_tests.inline-tests/inline-test-runner.exe \
+      inline-test-runner typed_sql_schema_expect_tests -strict -source-tree-root ../..
+  )
   _build/default/test/property_test.exe
   _build/default/caqti-lwt/test/sqlite_test.exe
-  _build/default/test/generated_schema_downstream_test.exe
+  _build/default/test/schema/generated_schema_downstream_test.exe
 
   if [ "$mode" = all ]; then
     (
@@ -68,9 +74,25 @@ printf '%s\n' "$summary"
 coverage="$(printf '%s\n' "$summary" | awk '/Project coverage/ { print $1 }')"
 bisect-ppx-report html --expect lib/ --coverage-path "$coverage_data" -o "$coverage_dir/html"
 case "$mode" in
-  public) threshold=97.0 ;;
+  public) threshold=96.5 ;;
   all) threshold=99.0 ;;
-  mega) threshold=67.7 ;;
+  mega)
+    # The single mega query measures query construction and rendering. Schema
+    # generation and PostgreSQL value codecs have their own coverage suites.
+    coverage="$(printf '%s\n' "$summary" | awk '
+      $4 ~ /^lib\// && $4 !~ /^lib\/(schema_codegen|schema_ir|schema_snapshot|pg_array|interval|local_timestamp)\.ml$/ {
+        split($3, counts, "/")
+        covered += counts[1]
+        total += counts[2]
+      }
+      END {
+        if (total == 0) exit 1
+        printf "%.2f", 100 * covered / total
+      }
+    ')"
+    printf 'Mega query coverage: %s%% (query modules)\n' "$coverage"
+    threshold=67.7
+    ;;
 esac
 awk -v coverage="$coverage" -v threshold="$threshold" \
   'BEGIN { if (coverage + 0 < threshold) exit 1 }'

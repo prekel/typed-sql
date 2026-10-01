@@ -4,7 +4,7 @@
 
 (name typed-sql)
 
-(version 0.3.5)
+(version 0.3.6)
 
 (generate_opam_files true)
 
@@ -28,9 +28,11 @@
   zarith
   ptime
   yojson
+  str
   ppx_let
   (ppx_fields_conv :with-test)
   (qcheck :with-test)
+  (ipaddr :with-test)
   (mdx :with-test)
   (ppx_expect :with-test)
   (bisect_ppx :with-dev-setup)
@@ -49,14 +51,15 @@
   (typed-sql (= :version))
   base
   ptime
+  yojson
   ppx_let
   (caqti (and (>= 3.0.0) (< 3.1.0~)))
   (caqti-lwt (and (>= 3.0.0) (< 3.1.0~)))
   lwt
   base-unix
   (caqti-driver-sqlite3 :with-test)
-  (caqti-driver-postgresql :with-test)
-  (uri :with-test))
+  caqti-driver-postgresql
+  uri)
  (tags
   (database sql caqti lwt postgresql sqlite)))
 

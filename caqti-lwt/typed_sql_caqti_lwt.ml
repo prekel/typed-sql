@@ -417,6 +417,9 @@ let rec caqti_codec : type a. a Typed_sql_backend.Db_type.t -> a caqti_codec =
       ; encode = Result.return
       ; decode = Result.return
       }
+  | Named { repr; _ } -> caqti_codec repr
+  | Array { encode; decode } ->
+    Caqti_codec { row_type = T.Row_type.string; encode; decode }
   | Option db_type ->
     (match caqti_codec db_type with
      | Caqti_codec codec ->
@@ -947,6 +950,7 @@ module Schema = struct
     * (int * string * string option * (string * string option))
 
   type raw_unique = string option * string * string option * (int * string)
+  type raw_type = int * string * string * (string * int * int * string)
 
   let column_row_type : raw_column T.Row_type.t =
     T.Row_type.t4
@@ -978,6 +982,14 @@ module Schema = struct
       T.Row_type.string
       (T.Row_type.option T.Row_type.string)
       (T.Row_type.t2 T.Row_type.int T.Row_type.string)
+  ;;
+
+  let type_row_type : raw_type T.Row_type.t =
+    T.Row_type.t4
+      T.Row_type.int
+      T.Row_type.string
+      T.Row_type.string
+      (T.Row_type.t4 T.Row_type.string T.Row_type.int T.Row_type.int T.Row_type.string)
   ;;
 
   let request row_type sql =
@@ -1045,11 +1057,7 @@ ORDER BY m.name, il.name, ii.seqno|}
 SELECT c.table_schema,
        c.table_name,
        c.column_name,
-       CASE
-         WHEN c.data_type = 'USER-DEFINED' THEN c.udt_schema || '.' || c.udt_name
-         WHEN c.data_type = 'ARRAY' THEN c.udt_schema || '.' || c.udt_name || '[]'
-         ELSE c.data_type
-       END,
+       a.atttypid::text,
        c.is_nullable = 'YES',
        c.column_default,
        c.is_generated = 'ALWAYS' OR c.is_identity = 'YES',
@@ -1058,6 +1066,11 @@ FROM information_schema.columns AS c
 JOIN information_schema.tables AS tables
   ON tables.table_schema = c.table_schema
  AND tables.table_name = c.table_name
+JOIN pg_catalog.pg_namespace AS ns ON ns.nspname = c.table_schema
+JOIN pg_catalog.pg_class AS rel
+  ON rel.relnamespace = ns.oid AND rel.relname = c.table_name
+JOIN pg_catalog.pg_attribute AS a
+  ON a.attrelid = rel.oid AND a.attname = c.column_name
 LEFT JOIN (
   SELECT kcu.table_schema,
          kcu.table_name,
@@ -1076,6 +1089,22 @@ LEFT JOIN (
 WHERE c.table_schema NOT IN ('pg_catalog', 'information_schema')
   AND tables.table_type = 'BASE TABLE'
 ORDER BY c.table_schema, c.table_name, c.ordinal_position|}
+  ;;
+
+  let postgresql_types =
+    {|
+SELECT t.oid::integer,
+       n.nspname,
+       t.typname,
+       t.typtype::text,
+       t.typbasetype::integer,
+       t.typelem::integer,
+       COALESCE(
+         (SELECT json_agg(e.enumlabel ORDER BY e.enumsortorder)::text
+          FROM pg_catalog.pg_enum AS e WHERE e.enumtypid = t.oid),
+         '[]')
+FROM pg_catalog.pg_type AS t
+JOIN pg_catalog.pg_namespace AS n ON n.oid = t.typnamespace|}
   ;;
 
   let postgresql_foreign_keys =
@@ -1168,17 +1197,61 @@ ORDER BY tc.table_schema, tc.table_name, tc.constraint_name, kcu.ordinal_positio
   let postgresql_db_type type_name =
     let open Typed_sql.Schema_ir in
     match String.lowercase type_name with
-    | "boolean" -> Bool
-    | "smallint" | "integer" -> Int
-    | "bigint" -> Int64
-    | "real" | "double precision" -> Float
+    | "bool" -> Bool
+    | "int2" | "int4" -> Int
+    | "int8" -> Int64
+    | "float4" | "float8" -> Float
     | "numeric" | "decimal" -> Numeric
-    | "text" | "character" | "character varying" -> Text
+    | "text" | "bpchar" | "varchar" -> Text
     | "bytea" -> Bytes
     | "date" -> Date
-    | "timestamp with time zone" -> Timestamp
+    | "timestamptz" -> Timestamp
+    | "timestamp" -> Timestamp_without_timezone
+    | "interval" -> Interval
+    | "json" -> Json
+    | "jsonb" -> Jsonb
     | "uuid" -> Uuid
     | unsupported -> Unsupported unsupported
+  ;;
+
+  let postgresql_type_mapper rows =
+    let rec convert seen oid =
+      let open Typed_sql.Schema_ir in
+      if List.mem seen oid ~equal:Int.equal then
+        Unsupported ("recursive type oid " ^ Int.to_string oid)
+      else (
+        match
+          List.find rows ~f:(fun (row_oid, _, _, _) -> Int.equal oid row_oid)
+        with
+        | None -> Unsupported ("unknown type oid " ^ Int.to_string oid)
+        | Some (_, schema, name, (kind, base_oid, element_oid, labels)) ->
+          let schema = Typed_sql.Identifier.of_string_exn schema in
+          let name_id = Typed_sql.Identifier.of_string_exn name in
+          let next = oid :: seen in
+          (match kind with
+           | "d" -> Domain { schema; name = name_id; base = convert next base_oid }
+           | "e" ->
+             let labels =
+               match Yojson.Safe.from_string labels with
+               | `List values ->
+                 List.filter_map values ~f:(function
+                   | `String value -> Some value
+                   | _ -> None)
+               | _ -> []
+             in
+             Enum { schema; name = name_id; labels }
+           | _ when String.is_prefix name ~prefix:"_" && Int.(element_oid <> 0) ->
+             Array (convert next element_oid)
+           | _ when String.equal (Typed_sql.Identifier.to_string schema) "pg_catalog" ->
+             (match postgresql_db_type name with
+              | Unsupported _ -> Named { schema; name = name_id }
+              | known -> known)
+           | _ -> Named { schema; name = name_id }))
+    in
+    fun oid ->
+      match Int.of_string_opt oid with
+      | Some oid -> convert [] oid
+      | None -> Typed_sql.Schema_ir.Unsupported ("invalid type oid " ^ oid)
   ;;
 
   let same_key (left_schema, left_table, left_name) (right_schema, right_table, right_name)
@@ -1386,12 +1459,17 @@ ORDER BY tc.table_schema, tc.table_name, tc.constraint_name, kcu.ordinal_positio
         ~uniques_sql:sqlite_uniques
         ~db_type:sqlite_db_type
     | T.Dialect.Pgsql _ ->
-      introspect_with
-        ~conn
-        ~columns_sql:postgresql_columns
-        ~foreign_keys_sql:postgresql_foreign_keys
-        ~uniques_sql:postgresql_uniques
-        ~db_type:postgresql_db_type
+      let open Lwt.Syntax in
+      let* types = Connection.collect_list (request type_row_type postgresql_types) () in
+      (match map_caqti_error types with
+       | Error error -> Lwt.return (Error error)
+       | Ok types ->
+         introspect_with
+           ~conn
+           ~columns_sql:postgresql_columns
+           ~foreign_keys_sql:postgresql_foreign_keys
+           ~uniques_sql:postgresql_uniques
+           ~db_type:(postgresql_type_mapper types))
     | T.Dialect.Mysql _ -> Lwt.return (Error (Unsupported_dialect "mysql"))
     | T.Dialect.Unknown _ -> Lwt.return (Error (Unsupported_dialect "unknown"))
     | _ -> Lwt.return (Error (Unsupported_dialect "unregistered"))

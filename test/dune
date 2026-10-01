@@ -11,7 +11,6 @@
   aggregate_test
   decimal_test
   public_api_test
-  schema_snapshot_test
   statement_input_test
   upsert_test)
  (libraries
@@ -62,39 +61,3 @@
  (name property_test)
  (modules property_test)
  (libraries base qcheck typed-sql typed_sql_test_support))
-
-(executable
- (name schema_codegen_fixture_generator)
- (modules schema_codegen_fixture_generator)
- (libraries base typed-sql))
-
-(rule
- (target schema_fixture.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run %{exe:schema_codegen_fixture_generator.exe}))))
-
-(rule
- (target generated_schema.ml)
- (deps schema_fixture.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run %{exe:../bin/typed_sql_codegen.exe} %{dep:schema_fixture.json}))))
-
-(rule
- (alias runtest)
- (deps schema_codegen_cli_test.sh schema_fixture.json generated_schema.ml)
- (action
-  (run
-   bash
-   %{dep:schema_codegen_cli_test.sh}
-   %{exe:../bin/typed_sql_codegen.exe})))
-
-(test
- (name generated_schema_downstream_test)
- (modules generated_schema generated_schema_downstream_test)
- (libraries base typed-sql typed_sql_test_support)
- (preprocess
-  (pps ppx_let)))

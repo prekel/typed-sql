@@ -375,20 +375,11 @@ let first_unsupported values = List.find_map values ~f:Fn.id
 
 let rec sqlite_unsupported_expression = function
   | Ast.Column { db_type = Db_type.Pack db_type; _ } ->
-    if Db_type.contains_numeric db_type then
-      Some "numeric"
-    else
-      None
+    Db_type.sqlite_unsupported_type db_type
   | Ast.Param (Ast.Value (Db_type.Value (db_type, _))) ->
-    if Db_type.contains_numeric db_type then
-      Some "numeric"
-    else
-      None
+    Db_type.sqlite_unsupported_type db_type
   | Ast.Param (Ast.Slot { db_type = Db_type.Pack db_type; _ }) ->
-    if Db_type.contains_numeric db_type then
-      Some "numeric"
-    else
-      None
+    Db_type.sqlite_unsupported_type db_type
   | Ast.Aggregate Ast.Count_all | Ast.Current_timestamp -> None
   | Ast.Arithmetic (_, left, right) | Ast.Concat (left, right) | Ast.Coalesce (left, right)
     ->

@@ -32,6 +32,14 @@ if [[ "$server_version" -lt 180000 || "$server_version" -ge 190000 ]]; then
 fi
 echo "Testing against PostgreSQL $("$pg_bindir/psql" -Atqc 'SHOW server_version')"
 
+"$pg_bindir/createdb" typed_sql_schema_fixture_test
+PGDATABASE=typed_sql_schema_fixture_test \
+  "$pg_bindir/psql" -X -v ON_ERROR_STOP=1 -f test/schema/schema_fixture.sql >/dev/null
+PGDATABASE=typed_sql_schema_fixture_test \
+  dune exec --root . caqti-lwt/typed_sql_schema_dump.exe \
+  > "$workdir/live_schema_fixture.json"
+diff -u test/schema/schema_fixture.json "$workdir/live_schema_fixture.json"
+
 dune exec --root . caqti-lwt/test/postgresql_test.exe
 dune exec --root . caqti-lwt/test/mega_coverage_server_test.exe
 dune exec --root . caqti-lwt/test/insert_select_test.exe -- --postgres

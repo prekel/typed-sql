@@ -112,22 +112,7 @@ let render_parameter parameter state =
          } ))
 ;;
 
-let rec postgresql_type_name : type a. a Db_type.t -> string =
-  fun db_type ->
-  match Db_type.view db_type with
-  | Bool -> "boolean"
-  | Int -> "integer"
-  | Int64 -> "bigint"
-  | Float -> "double precision"
-  | Numeric -> "numeric"
-  | Text -> "text"
-  | Bytes -> "bytea"
-  | Date -> "date"
-  | Timestamp -> "timestamp with time zone"
-  | Uuid -> "uuid"
-  | Option inner -> postgresql_type_name inner
-  | Map { repr; _ } -> postgresql_type_name repr
-;;
+let postgresql_type_name = Db_type.postgresql_type_name
 
 let parameter_type_name = function
   | Ast.Value (Db_type.Value (db_type, _)) -> postgresql_type_name db_type
@@ -144,7 +129,30 @@ let rec render_expr ~aliases expression state =
        else
          concat [ text alias; text "."; column ])
     , state )
-  | Ast.Param parameter -> render_parameter parameter state
+  | Ast.Param parameter ->
+    let rendered, state = render_parameter parameter state in
+    let needs_cast =
+      match parameter with
+      | Ast.Value (Db_type.Value (typ, _)) -> Db_type.needs_postgresql_cast typ
+      | Ast.Slot { db_type = Db_type.Pack typ; _ } -> Db_type.needs_postgresql_cast typ
+    in
+    ( (if
+         needs_cast
+         &&
+         match state.dialect with
+         | Dialect.Postgresql -> true
+         | Dialect.Sqlite -> false
+       then
+         concat
+           [ text "CAST("
+           ; rendered
+           ; text " AS "
+           ; text (parameter_type_name parameter)
+           ; text ")"
+           ]
+       else
+         rendered)
+    , state )
   | Ast.Arithmetic (operator, left, right) ->
     let left, state = render_expr ~aliases left state in
     let right, state = render_expr ~aliases right state in
@@ -532,9 +540,13 @@ and render_expressions ~aliases ~separator expressions state =
     concat [ expression; separator; rest ], state
 
 and relation_column_names (relation : Ast.relation) =
-  List.map relation.Ast.columns ~f:(function
+  List.mapi relation.Ast.columns ~f:(fun index -> function
     | Ast.Column { name; _ } -> name
-    | _ -> assert false)
+    | _ ->
+      Stdlib.failwith
+        ("typed-sql invariant violated: relation column "
+         ^ Int.to_string (index + 1)
+         ^ " is not a column expression"))
 
 and render_values_rows ~aliases rows state =
   let rows_rev, state =
@@ -564,7 +576,11 @@ and render_values_source ~aliases (values : Ast.values) state =
           ; text " AS "
           ; quote_identifier name
           ]
-      | _ -> assert false)
+      | _ ->
+        Stdlib.failwith
+          ("typed-sql invariant violated: VALUES descriptor column "
+           ^ Int.to_string (index + 1)
+           ^ " is not a column expression"))
     |> separate ~by:(concat [ text ","; break " " ])
   in
   let rows, state = render_values_rows ~aliases values.rows state in
@@ -966,9 +982,13 @@ and render_select_query
     render_with compound.ctes ~render_body state
 
 and cte_column_names (cte : Ast.cte) =
-  List.map cte.Ast.columns ~f:(function
+  List.mapi cte.Ast.columns ~f:(fun index -> function
     | Ast.Column { name; _ } -> name
-    | _ -> assert false)
+    | _ ->
+      Stdlib.failwith
+        ("typed-sql invariant violated: CTE descriptor column "
+         ^ Int.to_string (index + 1)
+         ^ " is not a column expression"))
 
 and allocate_cte_names ctes state =
   List.fold ctes ~init:state ~f:(fun state (cte : Ast.cte) ->
@@ -1169,7 +1189,8 @@ and render_conflict ~aliases conflict parts state =
 and render_target_source (source : Ast.source) =
   match source.Ast.kind with
   | Ast.Table table -> render_table_source table
-  | Ast.Derived _ | Ast.Values _ | Ast.Cte _ -> assert false
+  | Ast.Derived _ | Ast.Values _ | Ast.Cte _ ->
+    Stdlib.failwith "typed-sql invariant violated: DML target must be a base table"
 
 and render_from_sources ~aliases (sources : Ast.source list) state =
   match sources with
@@ -1213,7 +1234,11 @@ and render_command_ast (command : Ast.command) state =
               state
           in
           columns, query, state
-        | None | Some Ast.Mixed_sources -> assert false
+        | None ->
+          Stdlib.failwith "typed-sql invariant violated: INSERT command has no input"
+        | Some Ast.Mixed_sources ->
+          Stdlib.failwith
+            "typed-sql invariant violated: INSERT mixes VALUES and SELECT inputs"
       in
       let rendered_columns =
         List.map columns ~f:quote_identifier

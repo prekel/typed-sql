@@ -150,12 +150,287 @@ let%test_unit "unsupported SQL types survive snapshots for generator diagnostics
   | _ -> failwith "expected unsupported type diagnostic"
 ;;
 
-let%expect_test "empty snapshot format" =
-  Stdlib.print_string (Schema_snapshot.to_string (Schema_ir.v []));
-  [%expect {| { "version": 1, "tables": [] } |}]
+let%test_unit "structured PostgreSQL types survive snapshot round trip" =
+  let schema_id = identifier "public" in
+  let enum =
+    Schema_ir.Enum
+      { schema = schema_id; name = identifier "mood"; labels = [ "happy"; "sad" ] }
+  in
+  let domain =
+    Schema_ir.Domain { schema = schema_id; name = identifier "mood_domain"; base = enum }
+  in
+  let nested =
+    Schema_ir.Array
+      (Schema_ir.Domain
+         { schema = schema_id
+         ; name = identifier "host"
+         ; base =
+             Schema_ir.Named
+               { schema = identifier "pg_catalog"; name = identifier "inet" }
+         })
+  in
+  let schema =
+    Schema_ir.v
+      [ Schema_ir.table
+          ~schema:schema_id
+          ~name:(identifier "rich")
+          ~columns:
+            (List.mapi
+               [ enum; domain; nested; Timestamp_without_timezone; Interval; Json; Jsonb ]
+               ~f:(fun index db_type ->
+                 Schema_ir.column
+                   ~name:(identifier ("field" ^ Int.to_string index))
+                   ~db_type
+                   ~nullable:false
+                   ()))
+          ()
+      ]
+  in
+  let source = Schema_snapshot.to_string schema in
+  assert (String.is_substring source ~substring:"\"version\": 2");
+  assert (String.equal source (Schema_snapshot.to_string (decode source)));
+  let rules =
+    Schema_codegen.rules_of_string
+      {|{"version":1,"rules":[{"priority":0,"sql_type":"pg_catalog[.]inet","column":null,"module":"App.Inet"}]}|}
+    |> Result.ok_or_failwith
+  in
+  let generated =
+    Schema_codegen.generate ~rules (decode source)
+    |> Result.map_error ~f:Schema_codegen.error_to_string
+    |> Result.ok_or_failwith
+  in
+  assert (String.is_substring generated ~substring:"module Type_public_mood");
+  assert (String.is_substring generated ~substring:"module Type_public_host");
+  assert (List.is_empty (Schema_ir.tables (decode {|{"version":1,"tables":[]}|})))
 ;;
 
-let%expect_test "version 1 table and column wire format" =
+let%test_unit "type rules choose priority, column and built-in overrides" =
+  let rules =
+    Schema_codegen.rules_of_string
+      {|{
+         "version": 1,
+         "rules": [
+           {"priority": 0, "sql_type": "integer", "column": null, "module": "App.All"},
+           {"priority": 10, "sql_type": "integer", "column": "public[.]items[.]special", "module": "App.Special"}
+         ]
+       }|}
+    |> Result.ok_or_failwith
+  in
+  let schema =
+    Schema_ir.v
+      [ Schema_ir.table
+          ~schema:(identifier "public")
+          ~name:(identifier "items")
+          ~columns:
+            [ Schema_ir.column
+                ~name:(identifier "ordinary")
+                ~db_type:Int
+                ~nullable:false
+                ()
+            ; Schema_ir.column
+                ~name:(identifier "special")
+                ~db_type:Int
+                ~nullable:false
+                ()
+            ]
+          ()
+      ]
+  in
+  let source =
+    Schema_codegen.generate ~rules schema
+    |> Result.map_error ~f:Schema_codegen.error_to_string
+    |> Result.ok_or_failwith
+  in
+  assert (
+    String.is_substring
+      source
+      ~substring:
+        "ordinary_column = Typed_sql_codegen.Column.v_exn table \"ordinary\" (App.All.db_type)");
+  assert (
+    String.is_substring
+      source
+      ~substring:
+        "special_column = Typed_sql_codegen.Column.v_exn table \"special\" (App.Special.db_type)");
+  match
+    Schema_codegen.rules_of_string
+      {|{"version":1,"rules":[{"priority":0,"sql_type":"[","column":null,"module":"App.Bad"}]}|}
+  with
+  | Error _ -> ()
+  | Ok _ -> failwith "malformed rule regexp was accepted"
+;;
+
+let%test "type rules reject invalid shape and module names" =
+  List.for_all
+    [ "[]"
+    ; "{"
+    ; {|{"version":2,"rules":[]}|}
+    ; {|{"version":1}|}
+    ; {|{"version":1,"rules":{}}|}
+    ; {|{"version":1,"rules":[null]}|}
+    ; {|{"version":1,"rules":[{"priority":"high","sql_type":"integer","column":null,"module":"App.Codec"}]}|}
+    ; {|{"version":1,"rules":[{"priority":0,"sql_type":1,"column":null,"module":"App.Codec"}]}|}
+    ; {|{"version":1,"rules":[{"priority":0,"sql_type":"integer","column":1,"module":"App.Codec"}]}|}
+    ; {|{"version":1,"rules":[{"priority":0,"sql_type":"integer","column":null,"module":1}]}|}
+    ; {|{"version":1,"rules":[{"priority":0,"sql_type":null,"column":null,"module":"App.Codec"}]}|}
+    ; {|{"version":1,"rules":[{"priority":0,"sql_type":"integer","column":null,"module":"app.codec"}]}|}
+    ; {|{"version":1,"rules":[{"priority":0,"sql_type":"integer","column":null,"module":"App.Codec","extra":1}]}|}
+    ; {|{"version":1,"rules":[{"priority":0,"sql_type":"integer","column":null,"module":"App.Codec","module":"App.Other"}]}|}
+    ]
+    ~f:(fun source -> Result.is_error (Schema_codegen.rules_of_string source))
+;;
+
+let%test "type rules match a named array element" =
+  let rules =
+    Schema_codegen.rules_of_string
+      {|{"version":1,"rules":[{"priority":0,"sql_type":"public[.]custom","column":null,"module":"App.Custom"}]}|}
+    |> Result.ok_or_failwith
+  in
+  let schema =
+    Schema_ir.v
+      [ Schema_ir.table
+          ~name:(identifier "objects")
+          ~columns:
+            [ Schema_ir.column
+                ~name:(identifier "values")
+                ~db_type:
+                  (Array
+                     (Named { schema = identifier "public"; name = identifier "custom" }))
+                ~nullable:false
+                ()
+            ]
+          ()
+      ]
+  in
+  match Schema_codegen.generate ~rules schema with
+  | Error _ -> false
+  | Ok source ->
+    String.is_substring
+      source
+      ~substring:"Typed_sql_codegen.Db_type.Postgresql.array (App.Custom.db_type)"
+;;
+
+let%test "generator rejects an empty enum and unknown domain base" =
+  let named schema name =
+    Schema_ir.Named { schema = identifier schema; name = identifier name }
+  in
+  let schema db_type =
+    Schema_ir.v
+      [ Schema_ir.table
+          ~name:(identifier "objects")
+          ~columns:
+            [ Schema_ir.column ~name:(identifier "value") ~db_type ~nullable:false () ]
+          ()
+      ]
+  in
+  let empty_enum =
+    Schema_ir.Enum
+      { schema = identifier "public"; name = identifier "empty"; labels = [] }
+  in
+  let unknown_domain =
+    Schema_ir.Domain
+      { schema = identifier "public"
+      ; name = identifier "wrapped"
+      ; base = named "public" "unknown"
+      }
+  in
+  (match Schema_codegen.generate (schema empty_enum) with
+   | Error error ->
+     String.is_prefix (Schema_codegen.error_to_string error) ~prefix:"invalid type rules:"
+   | Ok _ -> false)
+  && Result.is_error (Schema_codegen.generate (schema unknown_domain))
+;;
+
+let%test "column-only type rule selects a built-in descriptor" =
+  let rules =
+    Schema_codegen.rules_of_string
+      {|{"version":1,"rules":[{"priority":0,"sql_type":null,"column":"objects[.]value","module":"App.Value"}]}|}
+    |> Result.ok_or_failwith
+  in
+  let schema =
+    Schema_ir.v
+      [ Schema_ir.table
+          ~name:(identifier "objects")
+          ~columns:
+            [ Schema_ir.column ~name:(identifier "value") ~db_type:Text ~nullable:false ()
+            ]
+          ()
+      ]
+  in
+  match Schema_codegen.generate ~rules schema with
+  | Error _ -> false
+  | Ok source -> String.is_substring source ~substring:"App.Value.db_type"
+;;
+
+let%test "equal-priority type rules keep file order" =
+  let rules =
+    Schema_codegen.rules_of_string
+      {|{"version":1,"rules":[{"priority":4,"sql_type":"text","column":null,"module":"App.First"},{"priority":4,"sql_type":"text","column":null,"module":"App.Second"}]}|}
+    |> Result.ok_or_failwith
+  in
+  let schema =
+    Schema_ir.v
+      [ Schema_ir.table
+          ~name:(identifier "objects")
+          ~columns:
+            [ Schema_ir.column ~name:(identifier "value") ~db_type:Text ~nullable:false ()
+            ]
+          ()
+      ]
+  in
+  match Schema_codegen.generate ~rules schema with
+  | Error _ -> false
+  | Ok source ->
+    String.is_substring source ~substring:"App.First.db_type"
+    && not (String.is_substring source ~substring:"App.Second.db_type")
+;;
+
+let%test "one domain module serves repeated columns and ignores column-only base rules" =
+  let rules =
+    Schema_codegen.rules_of_string
+      {|{"version":1,"rules":[{"priority":0,"sql_type":"text","column":"objects[.]first","module":"App.First"}]}|}
+    |> Result.ok_or_failwith
+  in
+  let domain =
+    Schema_ir.Domain
+      { schema = identifier "public"; name = identifier "alias"; base = Text }
+  in
+  let schema =
+    Schema_ir.v
+      [ Schema_ir.table
+          ~name:(identifier "objects")
+          ~columns:
+            [ Schema_ir.column
+                ~name:(identifier "first")
+                ~db_type:domain
+                ~nullable:false
+                ()
+            ; Schema_ir.column
+                ~name:(identifier "second")
+                ~db_type:domain
+                ~nullable:false
+                ()
+            ]
+          ()
+      ]
+  in
+  match Schema_codegen.generate ~rules schema with
+  | Error _ -> false
+  | Ok source ->
+    Int.equal
+      (List.length
+         (String.substr_index_all
+            source
+            ~may_overlap:false
+            ~pattern:"module Type_public_alias"))
+      1
+;;
+
+let%expect_test "empty snapshot format" =
+  Stdlib.print_string (Schema_snapshot.to_string (Schema_ir.v []));
+  [%expect {| { "version": 2, "tables": [] } |}]
+;;
+
+let%expect_test "version 2 table and column wire format" =
   let schema =
     Schema_ir.v
       [ Schema_ir.table
@@ -176,7 +451,7 @@ let%expect_test "version 1 table and column wire format" =
   [%expect
     {|
     {
-      "version": 1,
+      "version": 2,
       "tables": [
         {
           "schema": "public",
@@ -208,8 +483,8 @@ let%test_module "snapshot diagnostic paths" =
     ;;
 
     let%expect_test "unsupported version path" =
-      print_error {|{"version":2,"tables":[]}|};
-      [%expect {| $.version: unsupported snapshot version: 2 |}]
+      print_error {|{"version":3,"tables":[]}|};
+      [%expect {| $.version: unsupported snapshot version: 3 |}]
     ;;
 
     let%expect_test "snapshot reports a duplicate version field" =

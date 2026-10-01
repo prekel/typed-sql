@@ -544,6 +544,113 @@ let test_prepared_cache conn =
     (fun () -> Pgocaml.close other_conn)
 ;;
 
+let test_rich_types conn =
+  let* () = exec_sql conn "CREATE DOMAIN pgocaml_rational AS text" in
+  let* () = exec_sql conn "CREATE DOMAIN pgocaml_geometry AS text" in
+  let* () =
+    exec_sql
+      conn
+      "CREATE TABLE pgocaml_rich (local_value timestamp without time zone NOT NULL, duration interval NOT NULL, payload jsonb NOT NULL, numbers integer[] NOT NULL, host inet NOT NULL, rational_value pgocaml_rational NOT NULL, geometry_value pgocaml_geometry NOT NULL)"
+  in
+  let table : unit Table.t = Table.v_exn "pgocaml_rich" in
+  let local_column =
+    Column.v_exn table "local_value" Schema_test_codecs.Local_float.db_type
+  in
+  let interval_column = Column.v_exn table "duration" Db_type.Postgresql.interval in
+  let json_column = Column.v_exn table "payload" Db_type.Postgresql.jsonb in
+  let array_column =
+    Column.v_exn table "numbers" (Db_type.Postgresql.array Db_type.int)
+  in
+  let inet_column = Column.v_exn table "host" Schema_test_codecs.Inet.db_type in
+  let rational_type =
+    Db_type.map
+      ~name:"pgocaml rational fixture"
+      ~encode:(fun value -> Ok (Q.to_string value))
+      ~decode:(fun value ->
+        try Ok (Q.of_string value) with
+        | _ -> Error "invalid rational")
+      (Db_type.Postgresql.named
+         ~schema:(Identifier.of_string_exn "public")
+         ~name:(Identifier.of_string_exn "pgocaml_rational")
+         Db_type.text)
+  in
+  let rational_column = Column.v_exn table "rational_value" rational_type in
+  let geometry_type =
+    Db_type.map
+      ~name:"pgocaml geometry fixture"
+      ~encode:(fun (x, y) -> Ok (Stdlib.Printf.sprintf "POINT(%g %g)" x y))
+      ~decode:(fun value ->
+        try Ok (Stdlib.Scanf.sscanf value "POINT(%f %f)" (fun x y -> x, y)) with
+        | _ -> Error "invalid geometry")
+      (Db_type.Postgresql.named
+         ~schema:(Identifier.of_string_exn "public")
+         ~name:(Identifier.of_string_exn "pgocaml_geometry")
+         Db_type.text)
+  in
+  let geometry_column = Column.v_exn table "geometry_value" geometry_type in
+  let numbers =
+    Pg_array.create
+      ~dimensions:[ 2; 2 ]
+      ~lower_bounds:[ 1; 1 ]
+      ~elements:[ Some 1; None; Some 3; Some 4 ]
+    |> Result.ok_or_failwith
+  in
+  let duration = Interval.create ~months:1 ~days:2 ~microseconds:3_000_000L in
+  let inet = Ipaddr.Prefix.of_string_exn "2001:db8::/64" in
+  let rational = Q.of_string "5/7" in
+  let insert =
+    Statement.For_dialect.command_exn ~dialect:Dialect.postgresql (fun _ ->
+      Insert.(
+        into table
+        |> set local_column 12.5
+        |> set interval_column duration
+        |> set json_column (`Assoc [ "ok", `Bool true ])
+        |> set array_column numbers
+        |> set inet_column inet
+        |> set rational_column rational
+        |> set geometry_column (3., 4.)
+        |> command))
+  in
+  let* _ = Adapter.run ~conn insert () >>= or_fail in
+  let query =
+    Statement.For_dialect.expect_one_exn ~dialect:Dialect.postgresql (fun _ ->
+      Query.(
+        from table
+        |> select (fun row ->
+          let open Projection.Let_syntax in
+          let%map local = Projection.expr (Expr.column row local_column)
+          and interval = Projection.expr (Expr.column row interval_column)
+          and json = Projection.expr (Expr.column row json_column)
+          and array = Projection.expr (Expr.column row array_column)
+          and host = Projection.expr (Expr.column row inet_column)
+          and rational = Projection.expr (Expr.column row rational_column)
+          and geometry = Projection.expr (Expr.column row geometry_column) in
+          local, interval, json, array, host, rational, geometry)))
+  in
+  let* local, interval, json, array, host, decoded_rational, geometry =
+    Adapter.run ~conn query () >>= or_fail
+  in
+  let x, y = geometry in
+  if
+    not
+      (Float.equal local 12.5
+       && Int.equal (Interval.months interval) 1
+       && Int.equal (Interval.days interval) 2
+       && Int64.equal (Interval.microseconds interval) 3_000_000L
+       && String.equal (Yojson.Safe.to_string json) {|{"ok":true}|}
+       && List.equal
+            (Option.equal Int.equal)
+            (Pg_array.elements array)
+            (Pg_array.elements numbers)
+       && String.equal (Ipaddr.Prefix.to_string host) (Ipaddr.Prefix.to_string inet)
+       && Q.equal decoded_rational rational
+       && Float.equal x 3.
+       && Float.equal y 4.)
+  then
+    failwith "PG'OCaml rich type round trip failed";
+  Lwt.return_unit
+;;
+
 let main () =
   let* conn = Pgocaml.connect () in
   Lwt.finalize
@@ -561,6 +668,7 @@ let main () =
        if not Int64.(value = 1L) then
          failwith "PG'OCaml query returned wrong value";
        let* () = test_codecs conn in
+       let* () = test_rich_types conn in
        let* () = test_transactions conn in
        let* () = test_queries conn in
        let* () = test_sqlstates conn in

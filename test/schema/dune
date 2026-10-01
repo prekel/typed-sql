@@ -1,0 +1,48 @@
+(library
+ (name typed_sql_schema_expect_tests)
+ (modules postgresql_types_test schema_snapshot_test)
+ (libraries base typed-sql typed_sql_test_support yojson)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect ppx_let)))
+
+(library
+ (name typed_sql_schema_test_codecs)
+ (wrapped false)
+ (modules schema_test_codecs)
+ (libraries base typed-sql ipaddr zarith))
+
+(executable
+ (name schema_codegen_fixture_generator)
+ (modules schema_codegen_fixture_generator)
+ (libraries base typed-sql))
+
+(rule
+ (alias runtest)
+ (deps
+  schema_codegen_cli_test.sh
+  schema_fixture.json
+  generated_schema.ml
+  schema_type_rules.json
+  ../../.ocamlformat)
+ (action
+  (run
+   bash
+   %{dep:schema_codegen_cli_test.sh}
+   %{exe:../../bin/typed_sql_codegen.exe}
+   %{exe:schema_codegen_fixture_generator.exe}
+   %{bin:ocamlformat})))
+
+(test
+ (name generated_schema_downstream_test)
+ (modules generated_schema generated_schema_downstream_test)
+ (libraries
+  base
+  typed-sql
+  typed_sql_test_support
+  typed_sql_schema_test_codecs
+  yojson
+  ipaddr
+  zarith)
+ (preprocess
+  (pps ppx_let)))

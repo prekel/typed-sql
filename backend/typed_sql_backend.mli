@@ -37,6 +37,17 @@ module Db_type : sig
     (** SQL date represented internally as a UTC midnight instant. *)
     | Timestamp : Ptime.t view (** SQL timestamp with time zone, normalized to UTC. *)
     | Uuid : string view (** Validated SQL UUID in canonical lowercase form. *)
+    | Named :
+        { schema : string
+        ; name : string
+        ; repr : 'a t
+        }
+        -> 'a view
+    | Array :
+        { encode : 'a -> (string, string) Result.t
+        ; decode : string -> ('a, string) Result.t
+        }
+        -> 'a view
     | Option : 'a t -> 'a option view
     (** A nullable value whose non-null representation uses the nested codec. *)
     | Map :

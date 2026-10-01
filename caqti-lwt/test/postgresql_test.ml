@@ -1753,11 +1753,154 @@ let test_string_agg conn =
   Lwt.return_unit
 ;;
 
+let test_rich_schema_types conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let definitions =
+    [ "CREATE TYPE mood AS ENUM ('happy', 'sad')"
+    ; "CREATE DOMAIN username AS VARCHAR(32) CHECK (VALUE <> '')"
+    ; "CREATE DOMAIN host AS inet"
+    ; "CREATE DOMAIN rational AS text"
+    ; "CREATE DOMAIN geometry AS text"
+    ; "CREATE TABLE advanced (float_value timestamp without time zone NOT NULL, duration interval NOT NULL, payload_binary jsonb NOT NULL, numbers integer[] NOT NULL, host host NOT NULL, inet_value inet NOT NULL, rational_value rational NOT NULL, geometry_value geometry NOT NULL, mood mood NOT NULL, username username NOT NULL)"
+    ]
+  in
+  let* () =
+    Lwt_list.iter_s (fun sql -> Connection.exec (direct sql) () |> or_fail) definitions
+  in
+  let* schema = Adapter.Schema.introspect ~conn >>= adapter_or_fail in
+  let table =
+    List.find_exn (Schema_ir.tables schema) ~f:(fun table ->
+      String.equal (Identifier.to_string (Schema_ir.table_name table)) "advanced")
+  in
+  let find name =
+    List.find_exn (Schema_ir.columns table) ~f:(fun column ->
+      String.equal (Identifier.to_string (Schema_ir.column_name column)) name)
+    |> Schema_ir.column_db_type
+  in
+  (match find "float_value", find "duration", find "payload_binary", find "numbers" with
+   | Timestamp_without_timezone, Interval, Jsonb, Array Int -> ()
+   | _ -> failwith "PostgreSQL introspection lost structured built-in types");
+  (match find "mood", find "host" with
+   | Enum { labels = [ "happy"; "sad" ]; _ }, Domain { base = Named _; _ } -> ()
+   | _ -> failwith "PostgreSQL introspection lost enum or domain structure");
+  (match find "inet_value" with
+   | Named { schema; name }
+     when String.equal (Identifier.to_string schema) "pg_catalog"
+          && String.equal (Identifier.to_string name) "inet" -> ()
+   | _ -> failwith "PostgreSQL introspection lost direct inet type");
+  let table : unit Table.t = Table.v_exn "advanced" in
+  let float_column =
+    Column.v_exn table "float_value" Schema_test_codecs.Local_float.db_type
+  in
+  let interval_column = Column.v_exn table "duration" Db_type.Postgresql.interval in
+  let json_column = Column.v_exn table "payload_binary" Db_type.Postgresql.jsonb in
+  let array_column =
+    Column.v_exn table "numbers" (Db_type.Postgresql.array Db_type.int)
+  in
+  let host_column = Column.v_exn table "host" Schema_test_codecs.Inet.db_type in
+  let inet_column = Column.v_exn table "inet_value" Schema_test_codecs.Inet.db_type in
+  let rational_column =
+    Column.v_exn table "rational_value" Schema_test_codecs.Rational.db_type
+  in
+  let geometry_column =
+    Column.v_exn table "geometry_value" Schema_test_codecs.Geometry.db_type
+  in
+  let mood_column =
+    Column.v_exn
+      table
+      "mood"
+      (Db_type.Postgresql.named
+         ~schema:(Identifier.of_string_exn "public")
+         ~name:(Identifier.of_string_exn "mood")
+         Db_type.text)
+  in
+  let username_column =
+    Column.v_exn
+      table
+      "username"
+      (Db_type.Postgresql.named
+         ~schema:(Identifier.of_string_exn "public")
+         ~name:(Identifier.of_string_exn "username")
+         Db_type.text)
+  in
+  let duration = Interval.create ~months:13 ~days:2 ~microseconds:3_000_000L in
+  let numbers =
+    Pg_array.create
+      ~dimensions:[ 2; 2 ]
+      ~lower_bounds:[ 2; 3 ]
+      ~elements:[ Some 1; None; Some 3; Some 4 ]
+    |> Result.ok_or_failwith
+  in
+  let json = `Assoc [ "value", `Int 7 ] in
+  let host = Ipaddr.Prefix.of_string_exn "192.0.2.0/24" in
+  let inet_value = Ipaddr.Prefix.of_string_exn "198.51.100.3/24" in
+  let rational = Q.of_string "2/3" in
+  let insert =
+    Statement.For_dialect.command_exn ~dialect:Dialect.postgresql (fun _ ->
+      Insert.(
+        into table
+        |> set float_column 12.5
+        |> set interval_column duration
+        |> set json_column json
+        |> set array_column numbers
+        |> set host_column host
+        |> set inet_column inet_value
+        |> set rational_column rational
+        |> set geometry_column (1., 2.)
+        |> set mood_column "happy"
+        |> set username_column "Ada"
+        |> command))
+  in
+  let* _ = Adapter.run ~conn insert () >>= adapter_or_fail in
+  let select =
+    Statement.For_dialect.expect_one_exn ~dialect:Dialect.postgresql (fun _ ->
+      Query.(
+        from table
+        |> select (fun row ->
+          let open Projection.Let_syntax in
+          let%map float_value = Projection.expr (Expr.column row float_column)
+          and duration = Projection.expr (Expr.column row interval_column)
+          and json = Projection.expr (Expr.column row json_column)
+          and numbers = Projection.expr (Expr.column row array_column)
+          and host = Projection.expr (Expr.column row host_column)
+          and inet_value = Projection.expr (Expr.column row inet_column)
+          and rational = Projection.expr (Expr.column row rational_column)
+          and geometry = Projection.expr (Expr.column row geometry_column) in
+          float_value, duration, json, numbers, host, inet_value, rational, geometry)))
+  in
+  let* float_value, duration, json, numbers, host, inet_value, rational, geometry =
+    Adapter.run ~conn select () >>= adapter_or_fail
+  in
+  if
+    not
+      (Float.equal float_value 12.5
+       && Int.equal (Interval.months duration) 13
+       && Int.equal (Interval.days duration) 2
+       && Int64.equal (Interval.microseconds duration) 3_000_000L
+       && String.equal (Yojson.Safe.to_string json) {|{"value":7}|}
+       && List.equal Int.equal (Pg_array.dimensions numbers) [ 2; 2 ]
+       && List.equal Int.equal (Pg_array.lower_bounds numbers) [ 2; 3 ]
+       && List.equal
+            (Option.equal Int.equal)
+            (Pg_array.elements numbers)
+            [ Some 1; None; Some 3; Some 4 ]
+       && String.equal (Ipaddr.Prefix.to_string host) "192.0.2.0/24"
+       && String.equal (Ipaddr.Prefix.to_string inet_value) "198.51.100.3/24"
+       && Q.equal rational (Q.of_string "2/3")
+       &&
+       let x, y = geometry in
+       Float.equal x 1. && Float.equal y 2.)
+  then
+    failwith "PostgreSQL rich type round trip failed";
+  Lwt.return_unit
+;;
+
 let main () =
   let* () =
     with_connection "postgresql://" (fun conn ->
       let* () = run ~postgresql:true conn in
       let* () = test_string_agg conn in
+      let* () = test_rich_schema_types conn in
       let* () = test_fetch_with_ties conn in
       let* () = test_row_locking conn in
       let* () = test_caqti_prepared conn in

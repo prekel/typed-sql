@@ -7,6 +7,7 @@ type error =
       ; column : Identifier.t
       ; database_type : string
       }
+  | Invalid_rules of string
 
 let error_to_string = function
   | Empty_table table -> "table " ^ Identifier.to_string table ^ " has no columns"
@@ -19,6 +20,125 @@ let error_to_string = function
       ; "."
       ; Identifier.to_string column
       ]
+  | Invalid_rules message -> "invalid type rules: " ^ message
+;;
+
+type rule =
+  { priority : int
+  ; sql_type : string option
+  ; column : string option
+  ; module_path : string
+  }
+
+let rules_of_string source =
+  let fail message = Error message in
+  let fields = function
+    | `Assoc fields -> Ok fields
+    | _ -> fail "expected object"
+  in
+  let get fields key =
+    match List.Assoc.find fields key ~equal:String.equal with
+    | Some value -> Ok value
+    | None -> fail ("missing " ^ key)
+  in
+  let get_string = function
+    | `String value -> Ok value
+    | _ -> fail "expected string"
+  in
+  let get_optional_string = function
+    | `Null -> Ok None
+    | `String value -> Ok (Some value)
+    | _ -> fail "expected string or null"
+  in
+  let valid_module_path path =
+    String.split path ~on:'.'
+    |> List.for_all ~f:(fun part ->
+      Int.(String.length part > 0)
+      && Char.is_uppercase part.[0]
+      && String.for_all part ~f:(fun character ->
+        Char.is_alphanum character || Char.equal character '_'))
+  in
+  let validate_pattern pattern =
+    match pattern with
+    | None -> Ok ()
+    | Some pattern ->
+      (try
+         ignore (Str.regexp pattern);
+         Ok ()
+       with
+       | Failure message -> fail ("invalid regexp: " ^ message))
+  in
+  let decode_rule json =
+    let open Result.Let_syntax in
+    let%bind fields = fields json in
+    let names = List.map fields ~f:fst in
+    let allowed = [ "priority"; "sql_type"; "column"; "module" ] in
+    let%bind () =
+      if
+        List.length names
+        <> List.length (List.dedup_and_sort names ~compare:String.compare)
+        || List.exists names ~f:(fun name ->
+          not (List.mem allowed name ~equal:String.equal))
+      then
+        fail "duplicate or unknown rule field"
+      else
+        Ok ()
+    in
+    let%bind priority =
+      let%bind value = get fields "priority" in
+      match value with
+      | `Int value -> Ok value
+      | _ -> fail "priority must be an integer"
+    in
+    let%bind sql_type =
+      let%bind value = get fields "sql_type" in
+      get_optional_string value
+    in
+    let%bind column =
+      let%bind value = get fields "column" in
+      get_optional_string value
+    in
+    let%bind module_path =
+      let%bind value = get fields "module" in
+      get_string value
+    in
+    let%bind () =
+      if Option.is_none sql_type && Option.is_none column then
+        fail "rule needs sql_type or column"
+      else if not (valid_module_path module_path) then
+        fail ("invalid OCaml module path: " ^ module_path)
+      else
+        Ok ()
+    in
+    let%bind () = validate_pattern sql_type in
+    let%map () = validate_pattern column in
+    { priority; sql_type; column; module_path }
+  in
+  try
+    let open Result.Let_syntax in
+    let%bind json = fields (Yojson.Safe.from_string source) in
+    let%bind version = get json "version" in
+    let%bind () =
+      match version with
+      | `Int 1 -> Ok ()
+      | _ -> fail "unsupported rules version"
+    in
+    let%bind rules = get json "rules" in
+    let%map rules =
+      match rules with
+      | `List rules -> Result.all (List.map rules ~f:decode_rule)
+      | _ -> fail "rules must be an array"
+    in
+    List.mapi rules ~f:(fun index rule -> index, rule)
+    |> List.sort ~compare:(fun (left_index, left) (right_index, right) ->
+      let priority = Int.compare right.priority left.priority in
+      if Int.(priority = 0) then
+        Int.compare left_index right_index
+      else
+        priority)
+    |> List.map ~f:snd
+  with
+  | Yojson.Json_error message -> fail ("invalid JSON: " ^ message)
 ;;
 
 let keywords =
@@ -187,23 +307,149 @@ let allocate_module_names (tables : Schema_ir.table list) =
       in
       loop used ((table, name) :: allocated) rest
   in
-  loop [ "Typed_sql_codegen"; "Typed_sql_codegen_ptime" ] [] tables
+  loop
+    [ "Typed_sql_codegen"; "Typed_sql_codegen_ptime"; "Typed_sql_generated_types" ]
+    []
+    tables
 ;;
 
-let type_source = function
-  | Schema_ir.Bool -> Ok ("bool", "Typed_sql_codegen.Db_type.bool")
-  | Schema_ir.Int -> Ok ("int", "Typed_sql_codegen.Db_type.int")
-  | Schema_ir.Int64 -> Ok ("int64", "Typed_sql_codegen.Db_type.int64")
-  | Schema_ir.Float -> Ok ("float", "Typed_sql_codegen.Db_type.float")
-  | Schema_ir.Numeric ->
-    Ok ("Typed_sql_codegen.Decimal.t", "Typed_sql_codegen.Db_type.numeric")
-  | Schema_ir.Text -> Ok ("string", "Typed_sql_codegen.Db_type.text")
-  | Schema_ir.Bytes -> Ok ("bytes", "Typed_sql_codegen.Db_type.bytes")
-  | Schema_ir.Date -> Ok ("Typed_sql_codegen.Date.t", "Typed_sql_codegen.Db_type.date")
-  | Schema_ir.Timestamp ->
-    Ok ("Typed_sql_codegen_ptime.t", "Typed_sql_codegen.Db_type.timestamp")
-  | Schema_ir.Uuid -> Ok ("Typed_sql_codegen.Uuid.t", "Typed_sql_codegen.Db_type.uuid")
-  | Schema_ir.Unsupported name -> Error name
+let qualified_name schema name =
+  Identifier.to_string schema ^ "." ^ Identifier.to_string name
+;;
+
+let rec sql_type_name = function
+  | Schema_ir.Bool -> "boolean"
+  | Int -> "integer"
+  | Int64 -> "bigint"
+  | Float -> "double precision"
+  | Numeric -> "numeric"
+  | Text -> "text"
+  | Bytes -> "bytea"
+  | Date -> "date"
+  | Timestamp -> "timestamp with time zone"
+  | Timestamp_without_timezone -> "timestamp without time zone"
+  | Interval -> "interval"
+  | Json -> "json"
+  | Jsonb -> "jsonb"
+  | Uuid -> "uuid"
+  | Enum { schema; name; _ } | Domain { schema; name; _ } | Named { schema; name } ->
+    qualified_name schema name
+  | Array element -> sql_type_name element ^ "[]"
+  | Unsupported name -> name
+;;
+
+let matches pattern value =
+  match pattern with
+  | None -> true
+  | Some pattern ->
+    let regexp = Str.regexp pattern in
+    Str.string_match regexp value 0 && Int.(Str.match_end () = String.length value)
+;;
+
+let find_rule rules ~sql_type ~column =
+  List.find rules ~f:(fun rule ->
+    matches rule.sql_type sql_type
+    &&
+    match rule.column, column with
+    | None, _ -> true
+    | Some pattern, Some column -> matches (Some pattern) column
+    | Some _, None -> false)
+;;
+
+let module_key = function
+  | Schema_ir.Enum { schema; name; _ } | Domain { schema; name; _ } ->
+    qualified_name schema name
+  | _ -> ""
+;;
+
+let collect_types rules schema =
+  let rec add ~column seen typ =
+    let sql_type = sql_type_name typ in
+    if Option.is_some (find_rule rules ~sql_type ~column) then
+      seen
+    else (
+      match
+        typ
+      with
+      | Schema_ir.Enum _ ->
+        let key = module_key typ in
+        if List.exists seen ~f:(fun candidate -> String.equal (module_key candidate) key)
+        then
+          seen
+        else
+          seen @ [ typ ]
+      | Schema_ir.Domain { base; _ } ->
+        let seen = add ~column:None seen base in
+        let key = module_key typ in
+        if List.exists seen ~f:(fun candidate -> String.equal (module_key candidate) key)
+        then
+          seen
+        else
+          seen @ [ typ ]
+      | Schema_ir.Array element -> add ~column:None seen element
+      | _ -> seen)
+  in
+  List.fold (Schema_ir.tables schema) ~init:[] ~f:(fun seen table ->
+    List.fold table.Schema_ir.columns ~init:seen ~f:(fun seen column ->
+      let full_name =
+        (match table.schema with
+         | None -> ""
+         | Some schema -> Identifier.to_string schema ^ ".")
+        ^ Identifier.to_string table.name
+        ^ "."
+        ^ Identifier.to_string column.name
+      in
+      add ~column:(Some full_name) seen column.db_type))
+;;
+
+let type_module_names types =
+  let rec loop used result = function
+    | [] -> List.rev result
+    | typ :: rest ->
+      let key = module_key typ in
+      let base = normalized_module_name ("type_" ^ key) in
+      let name, used = fresh_name ~used ~bindings:(fun name -> [ name ]) base in
+      loop used ((key, name) :: result) rest
+  in
+  loop [] [] types
+;;
+
+let rec type_source ~rules ~types ~column typ =
+  let sql_type = sql_type_name typ in
+  match find_rule rules ~sql_type ~column with
+  | Some rule -> Ok (rule.module_path ^ ".t", rule.module_path ^ ".db_type")
+  | None ->
+    (match typ with
+     | Schema_ir.Bool -> Ok ("bool", "Typed_sql_codegen.Db_type.bool")
+     | Int -> Ok ("int", "Typed_sql_codegen.Db_type.int")
+     | Int64 -> Ok ("int64", "Typed_sql_codegen.Db_type.int64")
+     | Float -> Ok ("float", "Typed_sql_codegen.Db_type.float")
+     | Numeric -> Ok ("Typed_sql_codegen.Decimal.t", "Typed_sql_codegen.Db_type.numeric")
+     | Text -> Ok ("string", "Typed_sql_codegen.Db_type.text")
+     | Bytes -> Ok ("bytes", "Typed_sql_codegen.Db_type.bytes")
+     | Date -> Ok ("Typed_sql_codegen.Date.t", "Typed_sql_codegen.Db_type.date")
+     | Timestamp -> Ok ("Typed_sql_codegen_ptime.t", "Typed_sql_codegen.Db_type.timestamp")
+     | Timestamp_without_timezone ->
+       Ok
+         ( "Typed_sql_codegen.Local_timestamp.t"
+         , "Typed_sql_codegen.Db_type.Postgresql.local_timestamp" )
+     | Interval ->
+       Ok ("Typed_sql_codegen.Interval.t", "Typed_sql_codegen.Db_type.Postgresql.interval")
+     | Json -> Ok ("Yojson.Safe.t", "Typed_sql_codegen.Db_type.Postgresql.json")
+     | Jsonb -> Ok ("Yojson.Safe.t", "Typed_sql_codegen.Db_type.Postgresql.jsonb")
+     | Uuid -> Ok ("Typed_sql_codegen.Uuid.t", "Typed_sql_codegen.Db_type.uuid")
+     | Array element ->
+       let open Result.Let_syntax in
+       let%map ocaml_type, descriptor = type_source ~rules ~types ~column:None element in
+       ( ocaml_type ^ " Typed_sql_codegen.Pg_array.t"
+       , "Typed_sql_codegen.Db_type.Postgresql.array (" ^ descriptor ^ ")" )
+     | Enum _ | Domain _ ->
+       (match List.Assoc.find types (module_key typ) ~equal:String.equal with
+        | Some name ->
+          let path = "Typed_sql_generated_types." ^ name in
+          Ok (path ^ ".t", path ^ ".db_type")
+        | None -> Error sql_type)
+     | Named _ | Unsupported _ -> Error sql_type)
 ;;
 
 let quoted value = Printf.sprintf "%S" (Identifier.to_string value)
@@ -219,7 +465,92 @@ let identifier_list identifiers =
   "[ " ^ String.concat ~sep:"; " (List.map identifiers ~f:quoted) ^ " ]"
 ;;
 
-let generate_table ~module_name (table : Schema_ir.table) =
+let named_descriptor schema name base =
+  "Typed_sql_codegen.Db_type.Postgresql.named ~schema:(Typed_sql_codegen.Identifier.of_string_exn "
+  ^ quoted schema
+  ^ ") ~name:(Typed_sql_codegen.Identifier.of_string_exn "
+  ^ quoted name
+  ^ ") ("
+  ^ base
+  ^ ")"
+;;
+
+let generate_type_module ~rules ~types typ =
+  let open Result.Let_syntax in
+  let key = module_key typ in
+  let module_name = List.Assoc.find_exn types key ~equal:String.equal in
+  match typ with
+  | Schema_ir.Enum { schema; name; labels } ->
+    if List.is_empty labels then
+      Error (Invalid_rules ("enum " ^ key ^ " has no labels"))
+    else (
+      let _, variants =
+        List.fold labels ~init:([], []) ~f:(fun (used, variants) label ->
+          let variant, used =
+            fresh_name
+              ~used
+              ~bindings:(fun name -> [ name ])
+              (normalized_module_name label)
+          in
+          used, variants @ [ label, variant ])
+      in
+      let constructors = List.map variants ~f:snd |> String.concat ~sep:" | " in
+      let encode =
+        List.map variants ~f:(fun (label, variant) ->
+          "    | " ^ variant ^ " -> Ok " ^ Printf.sprintf "%S" label)
+        |> String.concat ~sep:"\n"
+      in
+      let decode =
+        List.map variants ~f:(fun (label, variant) ->
+          "    | " ^ Printf.sprintf "%S" label ^ " -> Ok " ^ variant)
+        |> String.concat ~sep:"\n"
+      in
+      Ok
+        (String.concat
+           [ "  module "
+           ; module_name
+           ; " = struct\n    type t = "
+           ; constructors
+           ; "\n    let encode = function\n"
+           ; encode
+           ; "\n    let decode = function\n"
+           ; decode
+           ; "\n    | _ -> Error \"unknown enum label\"\n"
+           ; "    let db_type = Typed_sql_codegen.Db_type.map ~name:"
+           ; Printf.sprintf "%S" key
+           ; " ~encode ~decode ("
+           ; named_descriptor schema name "Typed_sql_codegen.Db_type.text"
+           ; ")\n  end\n"
+           ]))
+  | Schema_ir.Domain { schema; name; base } ->
+    let%map base_type, base_descriptor =
+      type_source ~rules ~types ~column:None base
+      |> Result.map_error ~f:(fun sql_type ->
+        Invalid_rules ("unsupported domain base type " ^ sql_type))
+    in
+    String.concat
+      [ "  module "
+      ; module_name
+      ; " : sig\n    type t\n    val of_base : "
+      ; base_type
+      ; " -> t\n    val to_base : t -> "
+      ; base_type
+      ; "\n    val db_type : t Typed_sql_codegen.Db_type.t\n  end = struct\n"
+      ; "    type t = Value of "
+      ; base_type
+      ; "\n    let of_base value = Value value\n"
+      ; "    let to_base (Value value) = value\n"
+      ; "    let db_type = Typed_sql_codegen.Db_type.map ~name:"
+      ; Printf.sprintf "%S" key
+      ; " ~encode:(fun value -> Ok (to_base value))"
+      ; " ~decode:(fun value -> Ok (of_base value)) ("
+      ; named_descriptor schema name base_descriptor
+      ; ")\n  end\n"
+      ]
+  | _ -> Error (Invalid_rules ("not a generated type: " ^ key))
+;;
+
+let generate_table ~rules ~types ~module_name (table : Schema_ir.table) =
   if List.is_empty table.columns then
     Error (Empty_table table.name)
   else
@@ -228,7 +559,15 @@ let generate_table ~module_name (table : Schema_ir.table) =
     let%bind columns =
       Result.all
         (List.map named_columns ~f:(fun (column, name) ->
-           type_source column.db_type
+           let column_name =
+             (match table.schema with
+              | None -> ""
+              | Some schema -> Identifier.to_string schema ^ ".")
+             ^ Identifier.to_string table.name
+             ^ "."
+             ^ Identifier.to_string column.name
+           in
+           type_source ~rules ~types ~column:(Some column_name) column.db_type
            |> Result.map_error ~f:(fun database_type ->
              Unsupported_type { table = table.name; column = column.name; database_type })
            |> Result.map ~f:(fun (ocaml_type, descriptor) ->
@@ -266,8 +605,9 @@ let generate_table ~module_name (table : Schema_ir.table) =
           ; constructor
           ; " table "
           ; quoted column.name
-          ; " "
+          ; " ("
           ; descriptor
+          ; ")"
           ; "\n  let "
           ; name
           ; " table_ref = Typed_sql_codegen.Expr.column table_ref "
@@ -361,12 +701,22 @@ let generate_table ~module_name (table : Schema_ir.table) =
          ])
 ;;
 
-let generate schema =
-  Result.all
-    (List.map
-       (allocate_module_names (Schema_ir.tables schema))
-       ~f:(fun (table, module_name) -> generate_table ~module_name table))
-  |> Result.map ~f:(fun modules ->
-    "open! Base\nmodule Typed_sql_codegen = Typed_sql\nmodule Typed_sql_codegen_ptime = Ptime\n\n"
-    ^ String.concat modules ~sep:"\n")
+let generate ?(rules = []) schema =
+  let open Result.Let_syntax in
+  let generated_types = collect_types rules schema in
+  let types = type_module_names generated_types in
+  let%bind definitions =
+    Result.all (List.map generated_types ~f:(generate_type_module ~rules ~types))
+  in
+  let%map modules =
+    Result.all
+      (List.map
+         (allocate_module_names (Schema_ir.tables schema))
+         ~f:(fun (table, module_name) -> generate_table ~rules ~types ~module_name table))
+  in
+  "open! Base\nmodule Typed_sql_codegen = Typed_sql\nmodule Typed_sql_codegen_ptime = Ptime\n\n"
+  ^ "module Typed_sql_generated_types = struct\n"
+  ^ String.concat definitions ~sep:"\n"
+  ^ "end\n\n"
+  ^ String.concat modules ~sep:"\n"
 ;;

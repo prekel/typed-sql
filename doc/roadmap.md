@@ -206,7 +206,7 @@ downstream test генерирует `.ml`, компилирует его и с�
 OCaml keywords и одиночный `_`, а ссылки на библиотечные модули использует через
 свой alias, поэтому table и column names не могут их перекрыть.
 
-`Schema_snapshot` сохраняет весь schema IR в JSON версии 1 с сохранением
+`Schema_snapshot` сохраняет весь schema IR в JSON версии 2 с сохранением
 порядка и metadata. CLI `typed-sql-codegen schema.json` или
 `typed-sql-codegen -` генерирует OCaml без БД. Downstream-тест проходит весь
 путь IR → JSON → CLI → компиляция и использование generated descriptors.
@@ -352,10 +352,11 @@ idempotent inserts, count queries, correlated flags и batch loading tags чер
    JSON и arrays требуют dialect API. Сценарии и границы этих расширений
    описаны в разделе «Добавлять сложные запросы по прикладной необходимости».
 
-- [ ] **Больше типов.** Добавить корректные codecs и codegen mappings для
-   decimal/numeric, enums, JSON, arrays и пользовательских PostgreSQL types.
-   Неизвестные типы сейчас намеренно останавливают codegen; молчаливое
-   преобразование в неточный базовый тип недопустимо.
+- [x] **Больше типов.** Добавлены metadata и codegen mappings для numeric,
+   enums, domains, JSON, arrays, interval и timestamp без часового пояса.
+   Для geometry, rational, inet и других именованных типов можно подключить
+   пользовательский codec через правила генератора. Неизвестный тип без
+   правила по-прежнему останавливает codegen.
 
 - [ ] **Более полный schema snapshot.** Расширить IR, introspection и snapshot
    обычными, expression и partial indexes, CHECK constraints и triggers.

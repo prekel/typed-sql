@@ -1060,6 +1060,22 @@ let%test_module "PostgreSQL FOR UPDATE" =
       |> invalid
     ;;
 
+    let%test "rejects an explicit lock target from a derived source" =
+      let derived =
+        Derived_table.create
+          ~table:Person.table
+          ~columns:(fun person -> Projection.expr (Person.id person))
+          Query.(
+            from Person.table |> select (fun person -> Projection.expr (Person.id person)))
+      in
+      Query.(
+        from_derived derived
+        |> Postgresql.Query.for_update ~of_:(fun person ->
+          [ Postgresql.Query.target person ])
+        |> select (fun person -> Projection.expr (Person.id person)))
+      |> invalid
+    ;;
+
     let%test "rejects locking an operand of a set operation" =
       let left =
         Query.(
@@ -1545,6 +1561,13 @@ let%expect_test "incomplete multi-row INSERT diagnostic" =
 let%expect_test "empty INSERT row diagnostic" =
   print_compilation_error empty_insert_row_error;
   [%expect {| INSERT row 1 has no assignments |}]
+;;
+
+let%expect_test "INSERT without assignments diagnostic" =
+  Insert.(into Person.table |> command)
+  |> Compiler.compile_command ~dialect:Dialect.sqlite
+  |> print_compilation_error;
+  [%expect {| INSERT must assign at least one column |}]
 ;;
 
 let%expect_test "duplicate conflict target diagnostic" =
@@ -3236,4 +3259,115 @@ let%test_unit "public edge paths preserve normalized semantics" =
    | Ok compiled -> compiled
    | Error error -> failwith (Compile_error.to_string error) )
   |> ignore
+;;
+
+let%test "CASE aggregate in a scalar query proves its upper bound" =
+  let inner =
+    Query.(
+      from Person.table
+      |> select_scalar (fun _ ->
+        Expr.case
+          [ Expr.count_all >$ 0L, Expr.constant Db_type.int64 1L ]
+          ~else_:(Expr.constant Db_type.int64 0L)))
+  in
+  let outer =
+    Query.(
+      from Person.table |> select (fun _ -> Projection.expr (Expr.scalar_subquery inner)))
+  in
+  Result.is_ok (Compiler.compile ~dialect:Dialect.sqlite outer)
+;;
+
+let%test "CASE else aggregate in a scalar query proves its upper bound" =
+  let inner =
+    Query.(
+      from Person.table
+      |> select_scalar (fun _ ->
+        Expr.case
+          [ Condition.false_, Expr.constant Db_type.int64 0L ]
+          ~else_:Expr.count_all))
+  in
+  let outer =
+    Query.(
+      from Person.table |> select (fun _ -> Projection.expr (Expr.scalar_subquery inner)))
+  in
+  Result.is_ok (Compiler.compile ~dialect:Dialect.sqlite outer)
+;;
+
+let%test "CASE membership aggregate in a scalar query proves its upper bound" =
+  let inner =
+    Query.(
+      from Person.table
+      |> select_scalar (fun _ ->
+        Expr.case
+          [ Expr.in_ Expr.count_all [ 1L ], Expr.constant Db_type.int 1 ]
+          ~else_:(Expr.constant Db_type.int 0)))
+  in
+  let outer =
+    Query.(
+      from Person.table |> select (fun _ -> Projection.expr (Expr.scalar_subquery inner)))
+  in
+  Result.is_ok (Compiler.compile ~dialect:Dialect.sqlite outer)
+;;
+
+let%test "CASE range aggregate in a scalar query proves its upper bound" =
+  let inner =
+    Query.(
+      from Person.table
+      |> select_scalar (fun _ ->
+        Expr.case
+          [ Expr.between Expr.count_all ~lower:1L ~upper:2L, Expr.constant Db_type.int 1 ]
+          ~else_:(Expr.constant Db_type.int 0)))
+  in
+  let outer =
+    Query.(
+      from Person.table |> select (fun _ -> Projection.expr (Expr.scalar_subquery inner)))
+  in
+  Result.is_ok (Compiler.compile ~dialect:Dialect.sqlite outer)
+;;
+
+let%test "CASE upper bound aggregate in a scalar query proves its upper bound" =
+  let inner =
+    Query.(
+      from Person.table
+      |> select_scalar (fun _ ->
+        Expr.case
+          [ ( Expr.between_exprs
+                (Expr.constant Db_type.int64 1L)
+                ~lower:(Expr.constant Db_type.int64 0L)
+                ~upper:Expr.count_all
+            , Expr.constant Db_type.int 1 )
+          ]
+          ~else_:(Expr.constant Db_type.int 0)))
+  in
+  let outer =
+    Query.(
+      from Person.table |> select (fun _ -> Projection.expr (Expr.scalar_subquery inner)))
+  in
+  Result.is_ok (Compiler.compile ~dialect:Dialect.sqlite outer)
+;;
+
+let%test "multiset with a derived source and join renders in both dialects" =
+  let derived =
+    Derived_table.create
+      ~table:Person.table
+      ~columns:(fun person -> Projection.expr (Person.id person))
+      Query.(
+        from Person.table |> select (fun person -> Projection.expr (Person.id person)))
+  in
+  let nested =
+    Query.(
+      from_derived derived
+      |> inner_join Department.table ~on:(fun person department ->
+        Person.id person =. Department.person_id department)
+      |> select (fun (_, department) -> Projection.expr (Department.name department)))
+  in
+  let query = Query.(from Person.table |> select (fun _ -> Query.multiset nested)) in
+  match
+    ( Compiler.compile ~dialect:Dialect.postgresql query
+    , Compiler.compile ~dialect:Dialect.sqlite query )
+  with
+  | Ok postgresql, Ok sqlite ->
+    String.is_substring (Compiled_query.sql postgresql) ~substring:"LATERAL"
+    && not (String.is_substring (Compiled_query.sql sqlite) ~substring:"LATERAL")
+  | Error _, _ | _, Error _ -> false
 ;;

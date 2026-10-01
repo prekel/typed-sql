@@ -1,0 +1,342 @@
+{
+  "version": 2,
+  "tables": [
+    {
+      "schema": "public",
+      "name": "USER PROFILE",
+      "columns": [
+        {
+          "name": "id",
+          "db_type": { "kind": "int64" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        }
+      ],
+      "foreign_keys": [],
+      "unique_constraints": []
+    },
+    {
+      "schema": "public",
+      "name": "advanced",
+      "columns": [
+        {
+          "name": "local_value",
+          "db_type": { "kind": "timestamp_without_timezone" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "float_value",
+          "db_type": { "kind": "timestamp_without_timezone" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "duration",
+          "db_type": { "kind": "interval" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "payload",
+          "db_type": { "kind": "json" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "payload_binary",
+          "db_type": { "kind": "jsonb" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "mood",
+          "db_type": {
+            "kind": "enum",
+            "schema": "public",
+            "name": "mood",
+            "labels": [ "happy", "sad" ]
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "username",
+          "db_type": {
+            "kind": "domain",
+            "schema": "public",
+            "name": "username",
+            "base": { "kind": "text" }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "host",
+          "db_type": {
+            "kind": "domain",
+            "schema": "public",
+            "name": "host",
+            "base": {
+              "kind": "named",
+              "schema": "pg_catalog",
+              "name": "inet"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "inet_value",
+          "db_type": {
+            "kind": "named",
+            "schema": "pg_catalog",
+            "name": "inet"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "small_value",
+          "db_type": { "kind": "int" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "numbers",
+          "db_type": { "kind": "array", "element": { "kind": "int" } },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "rational_value",
+          "db_type": {
+            "kind": "domain",
+            "schema": "public",
+            "name": "rational",
+            "base": { "kind": "text" }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "geometry_value",
+          "db_type": {
+            "kind": "domain",
+            "schema": "public",
+            "name": "geometry",
+            "base": { "kind": "text" }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        }
+      ],
+      "foreign_keys": [],
+      "unique_constraints": []
+    },
+    {
+      "schema": "public",
+      "name": "table",
+      "columns": [
+        {
+          "name": "id",
+          "db_type": { "kind": "int64" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        }
+      ],
+      "foreign_keys": [],
+      "unique_constraints": []
+    },
+    {
+      "schema": "public",
+      "name": "typed_sql_codegen",
+      "columns": [
+        {
+          "name": "id",
+          "db_type": { "kind": "int64" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        }
+      ],
+      "foreign_keys": [],
+      "unique_constraints": []
+    },
+    {
+      "schema": "public",
+      "name": "user-profile",
+      "columns": [
+        {
+          "name": "id",
+          "db_type": { "kind": "int64" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "id-column",
+          "db_type": { "kind": "int" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "display-name",
+          "db_type": { "kind": "text" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "display_name",
+          "db_type": { "kind": "text" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "display.name",
+          "db_type": { "kind": "text" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "table",
+          "db_type": { "kind": "bool" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "published-on",
+          "db_type": { "kind": "date" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "created-at",
+          "db_type": { "kind": "timestamp" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "external-id",
+          "db_type": { "kind": "uuid" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "reference",
+          "db_type": { "kind": "text" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "return",
+          "db_type": { "kind": "text" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "land",
+          "db_type": { "kind": "text" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "_",
+          "db_type": { "kind": "text" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "map",
+          "db_type": { "kind": "text" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
+          "name": "total",
+          "db_type": { "kind": "numeric" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        }
+      ],
+      "foreign_keys": [],
+      "unique_constraints": []
+    },
+    {
+      "schema": "public",
+      "name": "user_profile",
+      "columns": [
+        {
+          "name": "id",
+          "db_type": { "kind": "int64" },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        }
+      ],
+      "foreign_keys": [],
+      "unique_constraints": []
+    }
+  ]
+}

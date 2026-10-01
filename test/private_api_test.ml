@@ -347,6 +347,11 @@ let%test_module "DML validator diagnostics" =
       [%expect {| INSERT has no row source |}]
     ;;
 
+    let%expect_test "command target must be a base table" =
+      validate { (command A.Delete []) with source = { source_id = 0; kind = A.Cte 12 } };
+      [%expect {| command target must be a base table |}]
+    ;;
+
     let%expect_test "mixed INSERT row sources" =
       validate
         { (command A.Insert [ assignment ]) with insert_input = Some A.Mixed_sources };
@@ -1446,6 +1451,30 @@ let%test_unit "multiset decoder keeps defensive JSON diagnostics" =
   | Ok _ -> failwith "numeric JSON was accepted by the multiset decoder"
 ;;
 
+let%test "multiset decoder reports unsupported array and byte fields" =
+  let value =
+    Pg_array.create ~dimensions:[ 1 ] ~lower_bounds:[ 1 ] ~elements:[ Some 1 ]
+    |> Result.ok_or_failwith
+  in
+  let array_projection =
+    Projection.expr (Expr.constant (Db_type.Postgresql.array Db_type.int) value)
+  in
+  let bytes_projection =
+    Projection.expr (Expr.constant Db_type.bytes (Bytes.of_string "a"))
+  in
+  let decode projection =
+    Projection.decode_json_rows projection ~path:[] (`List [ `List [ `String "a" ] ])
+  in
+  (match decode array_projection with
+   | Error message ->
+     String.is_substring message ~substring:"array fields are unsupported"
+   | Ok _ -> false)
+  &&
+  match decode bytes_projection with
+  | Error message -> String.is_substring message ~substring:"byte fields are unsupported"
+  | Ok _ -> false
+;;
+
 let%test_unit "result-only multiset codecs expose their backend view" =
   let db_type : int list Db_type.t =
     Db_type.json_result
@@ -1453,7 +1482,6 @@ let%test_unit "result-only multiset codecs expose their backend view" =
       ~decode_json:(fun ~path:_ _ -> Ok [])
   in
   assert (String.equal (Db_type.name db_type) "multiset");
-  assert (not (Db_type.contains_numeric db_type));
   let verify_view : type a. a Db_type.t -> a -> bool =
     fun db_type value ->
     match Db_type.view db_type with
@@ -1464,4 +1492,205 @@ let%test_unit "result-only multiset codecs expose their backend view" =
     | _ -> false
   in
   assert (verify_view db_type [])
+;;
+
+let%test "named and array backend views preserve text transport" =
+  let named =
+    Db_type.Postgresql.named
+      ~schema:(Identifier.of_string_exn "public")
+      ~name:(Identifier.of_string_exn "kind")
+      Db_type.text
+  in
+  let array = Db_type.Postgresql.array named in
+  let named_ok =
+    match Db_type.view named with
+    | Db_type.Named { schema; name; repr = Db_type.Text_type } ->
+      String.equal schema "public" && String.equal name "kind"
+    | _ -> false
+  in
+  let array_ok =
+    match Db_type.view array with
+    | Db_type.Array { encode; decode } ->
+      let value =
+        Pg_array.create ~dimensions:[ 2 ] ~lower_bounds:[ 1 ] ~elements:[ Some "a"; None ]
+        |> Result.ok_or_failwith
+      in
+      (match encode value with
+       | Error _ -> false
+       | Ok source ->
+         (match decode source with
+          | Error _ -> false
+          | Ok decoded ->
+            List.equal
+              (Option.equal String.equal)
+              (Pg_array.elements decoded)
+              [ Some "a"; None ]))
+    | _ -> false
+  in
+  named_ok && array_ok
+;;
+
+let%test "multiset result type cannot be used as a PostgreSQL text parameter" =
+  let db_type : int list Db_type.t =
+    Db_type.json_result
+      ~fields:[ Db_type.Pack Db_type.int ]
+      ~decode_json:(fun ~path:_ _ -> Ok [])
+  in
+  Result.is_error (Db_type.pg_text_encode db_type [])
+  && Result.is_error (Db_type.pg_text_decode db_type "[]")
+  && String.equal (Db_type.postgresql_type_name db_type) "jsonb"
+  && (not (Db_type.needs_postgresql_cast db_type))
+  && Option.is_none (Db_type.sqlite_unsupported_type db_type)
+;;
+
+let%test "named and array fields are rejected in multiset JSON" =
+  let named =
+    Db_type.Postgresql.named
+      ~schema:(Identifier.of_string_exn "public")
+      ~name:(Identifier.of_string_exn "binary")
+      Db_type.bytes
+  in
+  let array = Db_type.Postgresql.array Db_type.int in
+  Option.is_some (Db_type.unsupported_multiset_type ~path:[] named)
+  && Option.is_some (Db_type.unsupported_multiset_type ~path:[] array)
+;;
+
+let%test_module "corrupt result kinds report their invariant" =
+  (module struct
+    let table : unit Table.t = Table.v_exn "items"
+    let id = Column.v_exn table "id" Db_type.int
+
+    let selected =
+      Query.(from table |> select (fun row -> Projection.expr (Expr.column row id)))
+    ;;
+
+    let returning_ast =
+      A.Returning { command = command A.Insert [ assignment ]; projection = [ column 0 ] }
+    ;;
+
+    let corrupt_select = { selected with Result_query.ast = returning_ast }
+
+    let fails_with message f =
+      try
+        f ();
+        false
+      with
+      | Failure actual -> String.is_substring actual ~substring:message
+    ;;
+
+    let%test "multiset needs a SELECT result" =
+      fails_with "Query.multiset requires a SELECT query" (fun () ->
+        ignore (Query.multiset corrupt_select))
+    ;;
+
+    let%test "derived relation needs a SELECT result" =
+      fails_with "a derived table requires a SELECT query" (fun () ->
+        ignore
+          (Derived_table.create
+             ~table
+             ~columns:(fun row -> Projection.expr (Expr.column row id))
+             corrupt_select))
+    ;;
+
+    let%test "INSERT SELECT needs a SELECT result" =
+      fails_with "INSERT SELECT input must be a SELECT query" (fun () ->
+        ignore
+          Insert.(into table |> from_select (Columns.column id) corrupt_select |> command))
+    ;;
+
+    let%test "set operation checks its left result" =
+      fails_with "set operation left input must be SELECT" (fun () ->
+        ignore (Query.union corrupt_select selected))
+    ;;
+
+    let%test "set operation checks its right result" =
+      fails_with "set operation right input must be SELECT" (fun () ->
+        ignore (Query.union selected corrupt_select))
+    ;;
+
+    let%test "returning CTE needs a RETURNING result" =
+      let returning =
+        Insert.(
+          into table
+          |> set id 1
+          |> returning (fun row -> Projection.expr (Expr.column row id)))
+      in
+      let corrupt_returning =
+        { returning with Result_query.ast = A.Select (A.Simple select) }
+      in
+      fails_with "returning CTE requires a RETURNING query" (fun () ->
+        ignore
+          (Cte.Postgresql.returning
+             ~table
+             ~columns:(fun row -> Projection.expr (Expr.column row id))
+             corrupt_returning))
+    ;;
+  end)
+;;
+
+let%test_module "renderer reports corrupt AST invariants" =
+  (module struct
+    let bad_column = A.Param (A.Value (Db_type.Value (Db_type.int, 1)))
+
+    let fails_with message f =
+      try
+        f ();
+        false
+      with
+      | Failure actual -> String.is_substring actual ~substring:message
+    ;;
+
+    let%test "relation column must be a column expression" =
+      let relation : A.relation =
+        { query = A.Simple select
+        ; columns = [ bad_column ]
+        ; column_types = [ Db_type.Pack Db_type.int ]
+        ; result_types = [ Db_type.Pack Db_type.int ]
+        }
+      in
+      fails_with "relation column 1 is not a column expression" (fun () ->
+        ignore (Renderer.relation_column_names relation))
+    ;;
+
+    let%test "VALUES descriptor must contain column expressions" =
+      let values : A.values =
+        { descriptor_source_id = 0; columns = [ bad_column ]; rows = [] }
+      in
+      fails_with "VALUES descriptor column 1 is not a column expression" (fun () ->
+        ignore (Renderer.render_values_source ~aliases:[] values Renderer.initial_state))
+    ;;
+
+    let%test "CTE descriptor must contain column expressions" =
+      let cte : A.cte =
+        { cte_id = 1
+        ; columns = [ bad_column ]
+        ; column_types = [ Db_type.Pack Db_type.int ]
+        ; result_types = [ Db_type.Pack Db_type.int ]
+        ; materialization = None
+        ; body = A.Select_body (A.Simple select)
+        }
+      in
+      fails_with "CTE descriptor column 1 is not a column expression" (fun () ->
+        ignore (Renderer.cte_column_names cte))
+    ;;
+
+    let%test "DML target must be a table" =
+      fails_with "DML target must be a base table" (fun () ->
+        ignore (Renderer.render_target_source { source_id = 0; kind = A.Cte 1 }))
+    ;;
+
+    let%test "INSERT without input reports its invariant" =
+      let invalid = { (command A.Insert [ assignment ]) with insert_input = None } in
+      fails_with "INSERT command has no input" (fun () ->
+        ignore (Renderer.command ~dialect:Dialect.Postgresql invalid))
+    ;;
+
+    let%test "INSERT with mixed inputs reports its invariant" =
+      let invalid =
+        { (command A.Insert [ assignment ]) with insert_input = Some A.Mixed_sources }
+      in
+      fails_with "INSERT mixes VALUES and SELECT inputs" (fun () ->
+        ignore (Renderer.command ~dialect:Dialect.Postgresql invalid))
+    ;;
+  end)
 ;;

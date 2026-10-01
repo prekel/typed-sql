@@ -102,7 +102,7 @@ let field path fields name codec =
   | Some value -> codec.decode path value
 ;;
 
-let db_type =
+let rec db_type =
   let types =
     [ "bool", Schema_ir.Bool
     ; "int", Schema_ir.Int
@@ -113,6 +113,10 @@ let db_type =
     ; "bytes", Schema_ir.Bytes
     ; "date", Schema_ir.Date
     ; "timestamp", Schema_ir.Timestamp
+    ; "timestamp_without_timezone", Schema_ir.Timestamp_without_timezone
+    ; "interval", Schema_ir.Interval
+    ; "json", Schema_ir.Json
+    ; "jsonb", Schema_ir.Jsonb
     ; "uuid", Schema_ir.Uuid
     ]
   in
@@ -129,7 +133,27 @@ let db_type =
           | Bytes -> "bytes", []
           | Date -> "date", []
           | Timestamp -> "timestamp", []
+          | Timestamp_without_timezone -> "timestamp_without_timezone", []
+          | Interval -> "interval", []
+          | Json -> "json", []
+          | Jsonb -> "jsonb", []
           | Uuid -> "uuid", []
+          | Enum { schema; name; labels } ->
+            ( "enum"
+            , [ "schema", identifier.encode schema
+              ; "name", identifier.encode name
+              ; "labels", (list string).encode labels
+              ] )
+          | Domain { schema; name; base } ->
+            ( "domain"
+            , [ "schema", identifier.encode schema
+              ; "name", identifier.encode name
+              ; "base", db_type.encode base
+              ] )
+          | Array element -> "array", [ "element", db_type.encode element ]
+          | Named { schema; name } ->
+            ( "named"
+            , [ "schema", identifier.encode schema; "name", identifier.encode name ] )
           | Unsupported name -> "unsupported", [ "database_type", string.encode name ]
         in
         `Assoc (("kind", string.encode kind) :: extra))
@@ -138,15 +162,37 @@ let db_type =
         let open Result.Let_syntax in
         let%bind fields = object_fields path json in
         let%bind kind = field path fields "kind" string in
-        if String.equal kind "unsupported" then (
+        match kind with
+        | "unsupported" ->
           let%bind () = known_fields path [ "kind"; "database_type" ] fields in
           let%map name = field path fields "database_type" string in
-          Schema_ir.Unsupported name)
-        else (
+          Schema_ir.Unsupported name
+        | "array" ->
+          let%bind () = known_fields path [ "kind"; "element" ] fields in
+          let%map element = field path fields "element" db_type in
+          Schema_ir.Array element
+        | "enum" ->
+          let%bind () = known_fields path [ "kind"; "schema"; "name"; "labels" ] fields in
+          let%bind schema = field path fields "schema" identifier in
+          let%bind name = field path fields "name" identifier in
+          let%map labels = field path fields "labels" (list string) in
+          Schema_ir.Enum { schema; name; labels }
+        | "domain" ->
+          let%bind () = known_fields path [ "kind"; "schema"; "name"; "base" ] fields in
+          let%bind schema = field path fields "schema" identifier in
+          let%bind name = field path fields "name" identifier in
+          let%map base = field path fields "base" db_type in
+          Schema_ir.Domain { schema; name; base }
+        | "named" ->
+          let%bind () = known_fields path [ "kind"; "schema"; "name" ] fields in
+          let%bind schema = field path fields "schema" identifier in
+          let%map name = field path fields "name" identifier in
+          Schema_ir.Named { schema; name }
+        | _ ->
           let%bind () = known_fields path [ "kind" ] fields in
-          match List.Assoc.find types kind ~equal:String.equal with
-          | Some value -> Ok value
-          | None -> fail (path ^ ".kind") ("unknown database type: " ^ kind)))
+          (match List.Assoc.find types kind ~equal:String.equal with
+           | Some value -> Ok value
+           | None -> fail (path ^ ".kind") ("unknown database type: " ^ kind)))
   }
 ;;
 
@@ -282,7 +328,7 @@ let table =
 ;;
 
 let to_string schema =
-  `Assoc [ "version", `Int 1; "tables", (list table).encode (Schema_ir.tables schema) ]
+  `Assoc [ "version", `Int 2; "tables", (list table).encode (Schema_ir.tables schema) ]
   |> Yojson.Safe.pretty_to_string ~std:true
   |> fun json -> json ^ "\n"
 ;;
@@ -296,7 +342,7 @@ let of_string source =
   let%bind fields = object_fields "$" json in
   let%bind () = known_fields "$" [ "version"; "tables" ] fields in
   let%bind version = field "$" fields "version" int in
-  if Int.(version <> 1) then
+  if not Int.(version = 1 || version = 2) then
     fail "$.version" ("unsupported snapshot version: " ^ Int.to_string version)
   else (
     let%map tables = field "$" fields "tables" (list table) in

@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "priority": 20,
+      "sql_type": "timestamp without time zone",
+      "column": "public[.]advanced[.]float_value",
+      "module": "Schema_test_codecs.Local_float"
+    },
+    {
+      "priority": 10,
+      "sql_type": "integer",
+      "column": "public[.]advanced[.]small_value",
+      "module": "Schema_test_codecs.Small_int"
+    },
+    {
+      "priority": 0,
+      "sql_type": "pg_catalog[.]inet",
+      "column": null,
+      "module": "Schema_test_codecs.Inet"
+    },
+    {
+      "priority": 0,
+      "sql_type": "public[.]rational",
+      "column": null,
+      "module": "Schema_test_codecs.Rational"
+    },
+    {
+      "priority": 0,
+      "sql_type": "public[.]geometry",
+      "column": null,
+      "module": "Schema_test_codecs.Geometry"
+    }
+  ]
+}

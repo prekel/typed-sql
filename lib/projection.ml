@@ -107,6 +107,9 @@ let rec decode_db_type
     (match Uuid.of_string value with
      | Some uuid -> Ok uuid
      | None -> json_error ~path "uuid" value)
+  | Db_type.Named_type { repr; _ }, value -> decode_db_type ~path repr value
+  | Db_type.Array_type _, _ ->
+    Error (json_location path ^ ": array fields are unsupported in multiset JSON")
   | Db_type.Map_type { repr; decode; _ }, value ->
     let open Result.Let_syntax in
     let%bind repr = decode_db_type ~path repr value in
@@ -114,7 +117,8 @@ let rec decode_db_type
     |> Result.map_error ~f:(fun message ->
       Stdlib.Format.asprintf "%s: %s" (json_location path) message)
   | Db_type.Json_result_type { decode_json; _ }, value -> decode_json ~path value
-  | Db_type.Bytes_type, _ -> assert false
+  | Db_type.Bytes_type, _ ->
+    Error (json_location path ^ ": byte fields are unsupported in multiset JSON")
   | Db_type.Bool_type, value -> json_error ~path "bool" (json_kind value)
   | Db_type.Int_type, value -> json_error ~path "int" (json_kind value)
   | Db_type.Int64_type, value -> json_error ~path "int64" (json_kind value)
