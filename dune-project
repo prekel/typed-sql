@@ -23,7 +23,7 @@
  (description
   "A backend-independent OCaml DSL for typed relational statements with static and dynamic compilation.")
  (depends
-  (ocaml (>= 5.1.1))
+  (ocaml (>= 4.14.1))
   base
   zarith
   ptime
@@ -46,7 +46,7 @@
  (description
   "An Lwt adapter that runs typed-sql statements through Caqti PostgreSQL and SQLite connections.")
  (depends
-  (ocaml (>= 5.1.1))
+  (ocaml (>= 4.14.1))
   (typed-sql (= :version))
   base
   ptime
@@ -68,7 +68,7 @@
  (description
   "An Lwt adapter that runs typed-sql statements through PG'OCaml on PostgreSQL.")
  (depends
-  (ocaml (>= 5.1.1))
+  (ocaml (>= 4.14.1))
   (typed-sql (= :version))
   base
   ptime

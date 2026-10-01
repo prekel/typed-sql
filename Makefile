@@ -1,11 +1,12 @@
 all: build
 
 PACKAGES = ./typed-sql.opam ./typed-sql-caqti-lwt.opam ./typed-sql-pgocaml-lwt.opam
+OCAML_VERSION ?= 5.1.1
 
 .PHONY: create_switch
 create_switch:
 	opam update default
-	opam switch create . 5.1.1 --no-install -y
+	opam switch create . $(OCAML_VERSION) --no-install -y
 
 .PHONY: deps
 deps:
