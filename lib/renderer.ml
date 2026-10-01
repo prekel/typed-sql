@@ -428,6 +428,10 @@ and render_condition ~aliases condition state =
     let left, state = render_expr ~aliases left state in
     let right, state = render_expr ~aliases right state in
     concat [ text "("; left; text (comparison_sql comparison); right; text ")" ], state
+  | Ast.Equals_any (left, right) ->
+    let left, state = render_expr ~aliases left state in
+    let right, state = render_expr ~aliases right state in
+    concat [ text "("; left; text " = ANY("; right; text "))" ], state
   | Ast.Is_null expression ->
     let expression, state = render_null_operand ~aliases expression state in
     concat [ text "("; expression; text " IS NULL)" ], state

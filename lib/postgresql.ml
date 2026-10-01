@@ -16,3 +16,11 @@ let string_agg ?order_by ~delimiter value =
 let string_agg_nullable ?order_by ~delimiter value =
   Expr.create (string_agg_node ?order_by ~delimiter value) (Db_type.option Db_type.text)
 ;;
+
+module Expr = struct
+  let equals_any value array =
+    Condition.create (Ast.Equals_any (Expr.node value, Expr.node array))
+  ;;
+
+  let equals_any_list = equals_any
+end

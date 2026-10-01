@@ -651,6 +651,43 @@ let test_rich_types conn =
   Lwt.return_unit
 ;;
 
+let test_array_lookup conn =
+  let list_lookup =
+    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun parameters ->
+      let ids =
+        parameters.expr (Db_type.Postgresql.array_list Db_type.int64) ~get:Fn.id
+      in
+      Query.(
+        from Item.table
+        |> where (fun item -> Postgresql.Expr.equals_any_list (Item.id item) ids)
+        |> order_by Item.id `Asc
+        |> select (fun item -> Projection.expr (Item.id item))))
+  in
+  let* selected = Adapter.run ~conn list_lookup [ 1L; 2L ] >>= or_fail in
+  if not (List.equal Int64.equal selected [ 1L; 2L ]) then
+    failwith "PG'OCaml array_list lookup returned wrong rows";
+  let* empty = Adapter.run ~conn list_lookup [] >>= or_fail in
+  if not (List.is_empty empty) then
+    failwith "PG'OCaml empty array lookup returned rows";
+  let nullable_lookup =
+    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun parameters ->
+      let ids = parameters.expr (Db_type.Postgresql.array Db_type.int64) ~get:Fn.id in
+      Query.(
+        from Item.table
+        |> where (fun item ->
+          Condition.not_ (Postgresql.Expr.equals_any (Item.id item) ids))
+        |> select (fun item -> Projection.expr (Item.id item))))
+  in
+  let ids =
+    Pg_array.create ~dimensions:[ 2 ] ~lower_bounds:[ 1 ] ~elements:[ Some 2L; None ]
+    |> Result.ok_or_failwith
+  in
+  let* not_matching = Adapter.run ~conn nullable_lookup ids >>= or_fail in
+  if not (List.is_empty not_matching) then
+    failwith "PG'OCaml NULL array element lost UNKNOWN under NOT";
+  Lwt.return_unit
+;;
+
 let main () =
   let* conn = Pgocaml.connect () in
   Lwt.finalize
@@ -670,6 +707,7 @@ let main () =
        let* () = test_codecs conn in
        let* () = test_rich_types conn in
        let* () = test_transactions conn in
+       let* () = test_array_lookup conn in
        let* () = test_queries conn in
        let* () = test_sqlstates conn in
        let* () = test_prepared_cache conn in

@@ -1,5 +1,4 @@
 open! Base
-open Typed_sql
 module T = Caqti.Template
 module Adapter = Typed_sql_caqti_lwt
 module Mega = Typed_sql_mega_coverage_tests.Mega_coverage_test
@@ -73,7 +72,7 @@ let run conn =
       (fun sql -> Connection.exec (direct sql) () |> or_fail)
       setup_statements
   in
-  let* rows = Adapter.run ~conn Mega.statement (20, 1) |> adapter_or_fail in
+  let* rows = Adapter.run ~conn Mega.statement ([ 1L ], 20, 1) |> adapter_or_fail in
   let* () =
     match rows with
     | [ ((person_id, name), (has_events, (events, (aggregate_rows, aggregate_value)))) ]

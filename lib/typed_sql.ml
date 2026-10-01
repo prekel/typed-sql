@@ -41,6 +41,11 @@ module Dialect = Typed_sql_private.Dialect
 module Statement = Typed_sql_private.Statement
 
 module Postgresql = struct
+  module Expr = struct
+    let equals_any = Typed_sql_private.Postgresql.Expr.equals_any
+    let equals_any_list = Typed_sql_private.Postgresql.Expr.equals_any_list
+  end
+
   let string_agg = Typed_sql_private.Postgresql.string_agg
   let string_agg_nullable = Typed_sql_private.Postgresql.string_agg_nullable
 

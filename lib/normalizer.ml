@@ -64,6 +64,8 @@ and normalize_condition condition =
     | Ast.False -> Ast.False
     | Ast.Compare (comparison, left, right) ->
       Ast.Compare (comparison, normalize_expr left, normalize_expr right)
+    | Ast.Equals_any (left, right) ->
+      Ast.Equals_any (normalize_expr left, normalize_expr right)
     | Ast.Is_null expression -> Ast.Is_null (normalize_expr expression)
     | Ast.Is_not_null expression -> Ast.Is_not_null (normalize_expr expression)
     | Ast.In (_, []) -> Ast.False

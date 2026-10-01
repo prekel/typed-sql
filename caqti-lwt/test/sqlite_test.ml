@@ -267,7 +267,6 @@ module Deferred_child = struct
 
   let table : row Table.t = Table.v_exn "deferred_children"
   let id_column = Column.v_exn table "id" Db_type.int64
-  let id reference = Expr.column reference id_column
 end
 
 module Calendar_day = struct

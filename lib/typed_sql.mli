@@ -259,6 +259,11 @@ module Db_type : sig
     val named : schema:Identifier.t -> name:Identifier.t -> 'a t -> 'a t
     val array : 'a t -> 'a Pg_array.t t
 
+    (** One-dimensional PostgreSQL arrays represented as lists without [NULL]
+        elements. Decoding rejects other dimensions, nonstandard lower bounds,
+        and [NULL] elements; use [array] to preserve those properties. *)
+    val array_list : 'a t -> 'a list t
+
     (** PostgreSQL text transport for array elements and custom codecs.
         Unsupported result-only or nested optional representations return an
         error. *)
@@ -2298,6 +2303,21 @@ module Postgresql : sig
     val command
       :  ([> `Postgresql ] as 'requirements) Command.t
       -> (unit, 'requirements) Cte.definition
+  end
+
+  module Expr : sig
+    (** Compare a scalar with an array using PostgreSQL [= ANY]. An empty array
+        matches no rows; [NULL] elements retain SQL three-valued semantics. *)
+    val equals_any
+      :  ('a, ([> `Postgresql ] as 'requirements)) Expr.t
+      -> ('a Pg_array.t, 'requirements) Expr.t
+      -> 'requirements Condition.t
+
+    (** As [equals_any], with a one-dimensional list array descriptor. *)
+    val equals_any_list
+      :  ('a, ([> `Postgresql ] as 'requirements)) Expr.t
+      -> ('a list, 'requirements) Expr.t
+      -> 'requirements Condition.t
   end
 end
 

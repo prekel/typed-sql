@@ -510,3 +510,34 @@ let%test "a slot from another statement returns an explicit binding error" =
     true
   | Ok _ | Error _ -> false
 ;;
+
+let%test_module "PostgreSQL array lookup uses one stable bind slot" =
+  (module struct
+    let statement =
+      Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun params ->
+        let ids = params.expr (Db_type.Postgresql.array_list Db_type.int64) ~get:Fn.id in
+        Query.(
+          from Person.table
+          |> where (fun person -> Postgresql.Expr.equals_any_list (Person.id person) ids)
+          |> select (fun person -> Projection.expr (Person.id person))))
+    ;;
+
+    let%expect_test "SQL contains one typed array parameter" =
+      Statement.sql_exn ~dialect:Dialect.Postgresql ~input:[ 1L; 2L ] statement
+      |> Stdlib.print_endline;
+      [%expect
+        {|
+        SELECT
+          t0."id"
+        FROM "people" AS t0
+        WHERE
+          (t0."id" = ANY(CAST($1 AS bigint[])))
+        |}]
+    ;;
+
+    let%test "SQL is unchanged for empty and longer lists" =
+      let sql input = Statement.sql_exn ~dialect:Dialect.Postgresql ~input statement in
+      String.equal (sql []) (sql [ 1L; 2L; 3L ])
+    ;;
+  end)
+;;

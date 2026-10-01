@@ -1,10 +1,10 @@
-(lang dune 3.23)
+(lang dune 3.14)
 
 (using mdx 0.4)
 
 (name typed-sql)
 
-(version 0.3.6)
+(version 0.3.7)
 
 (generate_opam_files true)
 
@@ -74,6 +74,6 @@
   ptime
   ppx_let
   lwt
-  (pgocaml (>= 4.4.0)))
+  (pgocaml (>= 4.3.0)))
  (tags
   (database sql pgocaml lwt postgresql)))

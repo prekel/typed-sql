@@ -1621,6 +1621,43 @@ let portable_predicates_query =
         (Expr.length (Person.name person))))
 ;;
 
+let postgresql_array_any_query =
+  let pg_array =
+    Pg_array.create ~dimensions:[ 2 ] ~lower_bounds:[ 1 ] ~elements:[ Some 1L; None ]
+    |> Result.ok_or_failwith
+  in
+  Query.(
+    from Person.table
+    |> where (fun person ->
+      Postgresql.Expr.equals_any
+        (Person.id person)
+        (Expr.constant (Db_type.Postgresql.array Db_type.int64) pg_array)
+      &&. Postgresql.Expr.equals_any_list
+            (Person.id person)
+            (Expr.constant (Db_type.Postgresql.array_list Db_type.int64) [ 2L; 3L ]))
+    |> select Person.projection)
+;;
+
+let%expect_test "PostgreSQL array ANY predicates use typed single parameters" =
+  postgresql_array_any_query
+  |> compile_postgresql_exn
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      t0."id",
+      t0."name",
+      t0."nickname"
+    FROM "public"."people" AS t0
+    WHERE
+      (
+        (t0."id" = ANY(CAST($1 AS bigint[])))
+        AND (t0."id" = ANY(CAST($2 AS bigint[])))
+      )
+    |}]
+;;
+
 let%expect_test "portable predicates and CASE render in PostgreSQL" =
   portable_predicates_query
   |> compile_exn Dialect.Postgresql

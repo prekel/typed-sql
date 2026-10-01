@@ -363,15 +363,13 @@ idempotent inserts, count queries, correlated flags и batch loading tags чер
    Текущий snapshot сохраняет columns, PK, FK и UNIQUE, но этого недостаточно
    для полного обнаружения drift производственных индексов и ограничений.
 
-- [ ] **PostgreSQL array parameters для batch lookup.** Добавить отдельный
-   PostgreSQL-specific API для native array codec и предиката
-   `column = ANY (?1)`, например `Db_type.Postgresql.array` и
-   `Postgresql.Expr.equals_any`. Это не `IN ?1`: placeholder кодирует одно
-   native PostgreSQL array-значение, а `ANY` применяет сравнение к его
-   элементам. Запись `column IN $1` не передаёт SQL-список через один
-   bind parameter. Текущий portable `IN` создаёт отдельный placeholder для
-   каждого элемента (`IN ($1, $2, ...)`) и потому меняет SQL shape при
-   изменении длины списка.
+- [x] **PostgreSQL array parameters для batch lookup.** `Db_type.Postgresql.array`
+   сохраняет размерности и nullable элементы через `Pg_array.t`;
+   `Db_type.Postgresql.array_list` принимает обычный одномерный список без
+   `NULL`. Предикаты `Postgresql.Expr.equals_any` и `equals_any_list` строят
+   `column = ANY (CAST($1 AS bigint[]))` с одним bind parameter. Это не
+   `IN $1`: текущий portable `IN` создаёт отдельный placeholder для каждого
+   элемента и меняет SQL shape при изменении длины списка.
 
    API нужен для запросов с непредсказуемым числом идентификаторов, которым в
    PostgreSQL полезны одна статическая SQL shape, один bind parameter и
@@ -380,25 +378,21 @@ idempotent inserts, count queries, correlated flags и batch loading tags чер
    ```ocaml
    let ids =
      params.expr
-       (Db_type.Postgresql.array Db_type.int64)
+       (Db_type.Postgresql.array_list Db_type.int64)
        ~get:Input.ids
    in
    Query.(
      from Users.table
      |> where (fun user ->
-       Postgresql.Expr.equals_any (Users.id user) ids)
+       Postgresql.Expr.equals_any_list (Users.id user) ids)
      |> select Users.projection)
    ```
 
-   Предварительно `array` должен связывать element codec с OCaml
-   `array`/`list`, а `equals_any` — требовать одинаковый тип элементов с левой
-   expression. Операция несёт requirement [`Postgresql], поэтому
-   `Statement.Portable` и SQLite adapter должны отвергать её до rendering.
-   Нужны golden tests SQL и PostgreSQL execution tests для кодирования,
-   пустого массива (`= ANY` возвращает `false`) и SQL three-valued semantics при
-   `NULL`-элементах. Portable batch-loading остаётся случаем для
-   `Statement.Dynamic`: SQLite не получает этот API и не должен эмулировать
-   PostgreSQL array через небезопасное разворачивание SQL.
+   Оба предиката требуют одинаковый тип элементов с левой expression и несут
+   requirement [`Postgresql]. Пустой массив не даёт совпадений; `NULL`-элементы
+   сохраняют SQL three-valued semantics. SQL и runtime-поведение проверяются
+   PostgreSQL tests через Caqti и PG'OCaml. Portable batch-loading остаётся
+   случаем для `Statement.Dynamic`: SQLite не получает этот API.
 
 Реализованные derived tables, CTE, set operations и multiset закрывают
 построение сложных paginated read models. Portable UPSERT закрывает атомарное

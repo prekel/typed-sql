@@ -111,6 +111,36 @@ let ok_exn result =
   result |> Result.map_error ~f:Compile_error.to_string |> Result.ok_or_failwith
 ;;
 
+let%expect_test "raw SQLite compilation rejects PostgreSQL ANY" =
+  let array =
+    A.Param
+      (A.Value (Db_type.Value (Db_type.Postgresql.array_list Db_type.int, [ 1; 2 ])))
+  in
+  let query =
+    Result_query.create_select
+      (A.Simple { select with where_ = Some (A.Equals_any (column 0, array)) })
+      (Projection.expr (Expr.create (column 0) Db_type.int))
+  in
+  (match Raw_compiler.compile_query_plan ~dialect:Dialect.Sqlite query with
+   | Error error -> Stdlib.print_endline (Compile_error.to_string error)
+   | Ok _ -> failwith "SQLite accepted PostgreSQL ANY");
+  [%expect {| PostgreSQL = ANY is not supported by the sqlite dialect |}]
+;;
+
+let%test "ANY retains source and local aggregate analysis" =
+  let array =
+    A.Param
+      (A.Value (Db_type.Value (Db_type.Postgresql.array_list Db_type.int, [ 1; 2 ])))
+  in
+  List.equal
+    Int.equal
+    (Aggregate_scope.condition_sources (A.Equals_any (column 0, array)))
+    [ 0 ]
+  && Aggregate_scope.condition_has_local_aggregate
+       ~sources:[ 0 ]
+       (A.Equals_any (A.Aggregate A.Count_all, array))
+;;
+
 let%test_module "private query inspection" =
   (module struct
     let table : unit Table.t = Table.v_exn "items"

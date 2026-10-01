@@ -81,6 +81,7 @@ and condition =
   | True
   | False
   | Compare of comparison * expr * expr
+  | Equals_any of expr * expr
   | Is_null of expr
   | Is_not_null of expr
   | In of expr * expr list

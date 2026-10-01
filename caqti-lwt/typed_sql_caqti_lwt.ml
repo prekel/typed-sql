@@ -676,10 +676,6 @@ let add_prepare trace value =
        (Option.value trace.prepare_seconds ~default:0. +. Option.value value ~default:0.)
 ;;
 
-let set_dialect trace dialect =
-  Option.iter trace ~f:(fun trace -> trace.dialect <- Some dialect)
-;;
-
 let fingerprint shape =
   Typed_sql_backend.Shape.to_string shape |> Stdlib.Digest.string |> Stdlib.Digest.to_hex
 ;;

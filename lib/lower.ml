@@ -91,6 +91,8 @@ and condition ~dialect = function
       ( comparison ~dialect comparison_
       , expression ~dialect left
       , expression ~dialect right )
+  | Ast.Equals_any (left, right) ->
+    Ast.Equals_any (expression ~dialect left, expression ~dialect right)
   | Ast.Is_null value -> Ast.Is_null (expression ~dialect value)
   | Ast.Is_not_null value -> Ast.Is_not_null (expression ~dialect value)
   | Ast.In (value, values) ->
@@ -265,7 +267,7 @@ let rec expression_has_unsupported_having ~dialect = function
 
 and condition_has_unsupported_having ~dialect = function
   | Ast.True | Ast.False -> false
-  | Ast.Compare (_, left, right) ->
+  | Ast.Compare (_, left, right) | Ast.Equals_any (left, right) ->
     expression_has_unsupported_having ~dialect left
     || expression_has_unsupported_having ~dialect right
   | Ast.Is_null value | Ast.Is_not_null value ->
@@ -415,6 +417,7 @@ and sqlite_unsupported_condition = function
   | Ast.Compare (_, left, right) ->
     first_unsupported
       [ sqlite_unsupported_expression left; sqlite_unsupported_expression right ]
+  | Ast.Equals_any _ -> Some "PostgreSQL = ANY"
   | Ast.Is_null expression | Ast.Is_not_null expression ->
     sqlite_unsupported_expression expression
   | Ast.In (expression, values) | Ast.Not_in (expression, values) ->

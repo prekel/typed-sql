@@ -73,7 +73,7 @@ let rec validate_expr ~validate_subquery ~visible = function
 
 and validate_condition ~validate_subquery ~visible = function
   | Ast.True | Ast.False -> Ok ()
-  | Ast.Compare (_, left, right) ->
+  | Ast.Compare (_, left, right) | Ast.Equals_any (left, right) ->
     let open Result.Let_syntax in
     let%bind () = validate_expr ~validate_subquery ~visible left in
     validate_expr ~validate_subquery ~visible right
@@ -274,7 +274,7 @@ let rec analyze_expression ~groups ~inside_aggregate expression =
 
 and analyze_condition ~groups ~inside_aggregate = function
   | Ast.True | Ast.False | Ast.Exists _ | Ast.Not_exists _ -> plain ~grouped:true
-  | Ast.Compare (_, left, right) ->
+  | Ast.Compare (_, left, right) | Ast.Equals_any (left, right) ->
     combine
       (analyze_expression ~groups ~inside_aggregate left)
       (analyze_expression ~groups ~inside_aggregate right)
@@ -732,7 +732,6 @@ let validate_command_with ~validate_subquery (command : Ast.command) =
      | None -> Ok ()
      | Some condition ->
        let visible = [ command.source.source_id ] in
-       let open Result.Let_syntax in
        validate_condition ~validate_subquery ~visible condition)
 ;;
 

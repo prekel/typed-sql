@@ -18,7 +18,8 @@ let rec expression_sources = function
 
 and condition_sources = function
   | Ast.True | Ast.False | Ast.Exists _ | Ast.Not_exists _ -> []
-  | Ast.Compare (_, left, right) -> expression_sources left @ expression_sources right
+  | Ast.Compare (_, left, right) | Ast.Equals_any (left, right) ->
+    expression_sources left @ expression_sources right
   | Ast.Is_null expression | Ast.Is_not_null expression -> expression_sources expression
   | Ast.In (expression, values) | Ast.Not_in (expression, values) ->
     expression_sources expression @ List.concat_map values ~f:expression_sources
@@ -80,7 +81,7 @@ let rec expression_has_local_aggregate ~sources = function
 
 and condition_has_local_aggregate ~sources = function
   | Ast.True | Ast.False | Ast.Exists _ | Ast.Not_exists _ -> false
-  | Ast.Compare (_, left, right) ->
+  | Ast.Compare (_, left, right) | Ast.Equals_any (left, right) ->
     expression_has_local_aggregate ~sources left
     || expression_has_local_aggregate ~sources right
   | Ast.Is_null expression | Ast.Is_not_null expression ->

@@ -372,6 +372,33 @@ let%test "PostgreSQL named and array parameters carry explicit SQL types" =
     && String.is_substring sql ~substring:"CAST($1 AS \"public\".\"kind\"[])"
 ;;
 
+let%test "array_list round-trips a one-dimensional list" =
+  let descriptor = Db_type.Postgresql.array_list Db_type.int64 in
+  match Db_type.Postgresql.encode_text descriptor [ 1L; 2L ] with
+  | Error _ -> false
+  | Ok encoded ->
+    String.equal encoded {|{"1","2"}|}
+    && (match Db_type.Postgresql.decode_text descriptor encoded with
+        | Ok decoded -> List.equal Int64.equal decoded [ 1L; 2L ]
+        | Error _ -> false)
+    &&
+      (match Db_type.Postgresql.decode_text descriptor "{}" with
+      | Ok decoded -> List.is_empty decoded
+      | Error _ -> false)
+;;
+
+let%test "array_list rejects shapes it cannot preserve" =
+  let descriptor = Db_type.Postgresql.array_list Db_type.int64 in
+  List.for_all [ "{{1,2},{3,4}}"; "[2:3]={1,2}"; "{1,NULL}" ] ~f:(fun encoded ->
+    bad (Db_type.Postgresql.decode_text descriptor encoded))
+;;
+
+let%test "array_list has a useful diagnostic name" =
+  String.equal
+    (Db_type.name (Db_type.Postgresql.array_list Db_type.int64))
+    "array_list(int64)"
+;;
+
 let%test "SQLite rejects PostgreSQL named and array descriptors" =
   let schema = Identifier.of_string_exn "public" in
   let named =
@@ -392,9 +419,33 @@ let%test "SQLite rejects PostgreSQL named and array descriptors" =
   && bad (Compiler.compile ~dialect:Dialect.sqlite array_query)
 ;;
 
+let%test "SQLite rejects a list-array descriptor" =
+  let table : unit Table.t = Table.v_exn "array_items" in
+  let values = Column.v_exn table "values" (Db_type.Postgresql.array_list Db_type.int) in
+  let query =
+    Query.(from table |> select (fun row -> Projection.expr (Expr.column row values)))
+  in
+  bad (Compiler.compile ~dialect:Dialect.sqlite query)
+;;
+
 let%test "multiset rejects PostgreSQL array fields" =
   let table : unit Table.t = Table.v_exn "array_items" in
   let values = Column.v_exn table "values" (Db_type.Postgresql.array Db_type.int) in
+  let query =
+    Query.(
+      from table
+      |> select_exactly_one (fun row ->
+        Projection.multiset_agg (Projection.expr (Expr.column row values))))
+  in
+  match Compiler.compile ~dialect:Dialect.postgresql query with
+  | Error (Compile_error.Unsupported_multiset_field_type { type_name; _ }) ->
+    String.equal type_name "array"
+  | Error _ | Ok _ -> false
+;;
+
+let%test "multiset rejects PostgreSQL list-array fields" =
+  let table : unit Table.t = Table.v_exn "list_array_items" in
+  let values = Column.v_exn table "values" (Db_type.Postgresql.array_list Db_type.int) in
   let query =
     Query.(
       from table

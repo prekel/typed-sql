@@ -1716,6 +1716,45 @@ let test_caqti_prepared conn =
   Lwt.return_unit
 ;;
 
+let test_array_lookup conn =
+  let list_lookup =
+    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun parameters ->
+      let ids =
+        parameters.expr (Db_type.Postgresql.array_list Db_type.int64) ~get:Fn.id
+      in
+      Query.(
+        from Item.table
+        |> where (fun item -> Postgresql.Expr.equals_any_list (Item.id item) ids)
+        |> order_by Item.id `Asc
+        |> select (fun item -> Projection.expr (Item.id item))))
+  in
+  let* selected = Adapter.run ~conn list_lookup [ 2L; 3L ] >>= adapter_or_fail in
+  assert_rows ~name:"array_list lookup" ~equal:Int64.equal [ 2L; 3L ] selected;
+  let* empty = Adapter.run ~conn list_lookup [] >>= adapter_or_fail in
+  assert_rows ~name:"empty array lookup" ~equal:Int64.equal [] empty;
+  let nullable_lookup =
+    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun parameters ->
+      let ids = parameters.expr (Db_type.Postgresql.array Db_type.int64) ~get:Fn.id in
+      Query.(
+        from Item.table
+        |> where (fun item ->
+          Condition.not_ (Postgresql.Expr.equals_any (Item.id item) ids))
+        |> order_by Item.id `Asc
+        |> select (fun item -> Projection.expr (Item.id item))))
+  in
+  let ids =
+    Pg_array.create ~dimensions:[ 2 ] ~lower_bounds:[ 1 ] ~elements:[ Some 2L; None ]
+    |> Result.ok_or_failwith
+  in
+  let* not_matching = Adapter.run ~conn nullable_lookup ids >>= adapter_or_fail in
+  assert_rows
+    ~name:"NULL array element keeps UNKNOWN under NOT"
+    ~equal:Int64.equal
+    []
+    not_matching;
+  Lwt.return_unit
+;;
+
 let test_string_agg conn =
   let module Connection = (val conn : Caqti_lwt.CONNECTION) in
   let* () =
@@ -1899,6 +1938,7 @@ let main () =
   let* () =
     with_connection "postgresql://" (fun conn ->
       let* () = run ~postgresql:true conn in
+      let* () = test_array_lookup conn in
       let* () = test_string_agg conn in
       let* () = test_rich_schema_types conn in
       let* () = test_fetch_with_ties conn in

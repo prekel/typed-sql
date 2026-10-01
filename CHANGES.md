@@ -2,8 +2,14 @@
 
 ## Не выпущено
 
+## 0.3.7 — 1 октября 2026
+
 ### Добавлено
 
+- PostgreSQL `Postgresql.Expr.equals_any` и `equals_any_list` выполняют batch
+  lookup одним array bind-параметром через `= ANY`. `Db_type.Postgresql.array`
+  сохраняет размерности и `NULL`-элементы, а `array_list` предоставляет
+  одномерный список без `NULL`; SQLite отклоняет PostgreSQL-only запросы.
 - `typed-sql-schema-dump` и `typed-sql-codegen` поддерживают повторяемый
   `--exclude-table SCHEMA.TABLE` с точным сопоставлением имён, включая
   заключённые в кавычки идентификаторы. Отсутствующая таблица вызывает ошибку;

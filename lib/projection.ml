@@ -110,6 +110,8 @@ let rec decode_db_type
   | Db_type.Named_type { repr; _ }, value -> decode_db_type ~path repr value
   | Db_type.Array_type _, _ ->
     Error (json_location path ^ ": array fields are unsupported in multiset JSON")
+  | Db_type.Array_list_type _, _ ->
+    Error (json_location path ^ ": array fields are unsupported in multiset JSON")
   | Db_type.Map_type { repr; decode; _ }, value ->
     let open Result.Let_syntax in
     let%bind repr = decode_db_type ~path repr value in

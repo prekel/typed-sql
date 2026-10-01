@@ -768,6 +768,7 @@ let final_update
       ~inputs
       ~input_rows_relation
       ~label_parameter
+      ~ids_parameter
       ~joined_events
       ~metrics
       ~outbox
@@ -775,11 +776,11 @@ let final_update
   =
   Update.(
     table Person.table
-    |> from Event.table ~f:(fun person event update ->
+    |> from Event.table ~f:(fun _person event update ->
       update
-      |> from_derived input_rows_relation ~f:(fun person input update ->
+      |> from_derived input_rows_relation ~f:(fun _person input update ->
         update
-        |> from_relation inferred_people ~f:(fun person (inferred_person_id, _) update ->
+        |> from_relation inferred_people ~f:(fun _person (inferred_person_id, _) update ->
           update
           |> from_cte summary ~f:(fun person totals update ->
             let event_count =
@@ -938,11 +939,12 @@ let final_update
               &&. no_future_event
               &&. Query.in_subquery (Person.id person) first_event_person_id
               &&. (event_labels
-                   =. Expr.constant (Db_type.option Db_type.text) (Some "optional")))))))
+                   =. Expr.constant (Db_type.option Db_type.text) (Some "optional"))
+              &&. Postgresql.Expr.equals_any_list (Person.id person) ids_parameter)))))
     |> returning person_result_projection)
 ;;
 
-let mega_query ~label_parameter ~limit_parameter ~offset_parameter =
+let mega_query ~label_parameter ~ids_parameter ~limit_parameter ~offset_parameter =
   let input_rows_relation = input_rows_relation ~limit_parameter ~offset_parameter in
   let input_rows = Cte.select input_rows_relation in
   Cte.with_result cleanup_effect ~f:(fun () ->
@@ -1112,6 +1114,7 @@ let mega_query ~label_parameter ~limit_parameter ~offset_parameter =
                               ~inputs
                               ~input_rows_relation
                               ~label_parameter
+                              ~ids_parameter
                               ~joined_events
                               ~metrics
                               ~outbox
@@ -1123,11 +1126,20 @@ let postgresql_statement =
     let label_parameter =
       parameters.column ~name:"mega_label" Person.name_column ~get:(fun _ -> "mega")
     in
-    let limit_parameter = parameters.non_negative_int ~name:"input_rows_limit" ~get:fst in
-    let offset_parameter =
-      parameters.non_negative_int ~name:"input_rows_offset" ~get:snd
+    let ids_parameter =
+      parameters.expr
+        (Db_type.Postgresql.array_list Db_type.int64)
+        ~get:(fun (ids, _, _) -> ids)
     in
-    mega_query ~label_parameter ~limit_parameter ~offset_parameter)
+    let limit_parameter =
+      parameters.non_negative_int ~name:"input_rows_limit" ~get:(fun (_, limit, _) ->
+        limit)
+    in
+    let offset_parameter =
+      parameters.non_negative_int ~name:"input_rows_offset" ~get:(fun (_, _, offset) ->
+        offset)
+    in
+    mega_query ~label_parameter ~ids_parameter ~limit_parameter ~offset_parameter)
 ;;
 
 let sqlite_statement =
@@ -1135,9 +1147,13 @@ let sqlite_statement =
     let label_parameter =
       parameters.column ~name:"mega_label" Person.name_column ~get:(fun _ -> "mega")
     in
-    let limit_parameter = parameters.non_negative_int ~name:"input_rows_limit" ~get:fst in
+    let limit_parameter =
+      parameters.non_negative_int ~name:"input_rows_limit" ~get:(fun (_, limit, _) ->
+        limit)
+    in
     let offset_parameter =
-      parameters.non_negative_int ~name:"input_rows_offset" ~get:snd
+      parameters.non_negative_int ~name:"input_rows_offset" ~get:(fun (_, _, offset) ->
+        offset)
     in
     Query.(
       from Person.table
@@ -1153,7 +1169,7 @@ let statement =
 
 let%expect_test "PostgreSQL mega query compiles nested DML and relational paths" =
   statement
-  |> Statement.sql_exn ~dialect:(Dialect.kind Dialect.postgresql) ~input:(20, 1)
+  |> Statement.sql_exn ~dialect:(Dialect.kind Dialect.postgresql) ~input:([ 1L ], 20, 1)
   |> Stdlib.print_endline;
   [%expect
     {|
@@ -1815,6 +1831,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
           WHERE
             (t5."person_id" = t0."id")
         ) = $88)
+        AND (t0."id" = ANY(CAST($89 AS bigint[])))
       )
     RETURNING
       t0."id",
@@ -1906,9 +1923,9 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                       WHERE
                         (
                           (t6."person_id" = t0."id")
-                          AND (t6."value" > $89)
+                          AND (t6."value" > $90)
                         )
-                    )) = $90)
+                    )) = $91)
                   )
                 ),
                 JSONB_BUILD_ARRAY()
@@ -1922,27 +1939,27 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
         SELECT
           COALESCE(SUM((CASE
             WHEN (
-              (t5."id" = (t5."id" + $91))
-              AND ((t5."id" - $92) = $93)
-              AND ((t5."id" * $94) = t5."id")
-              AND ((t5."id" / $95) = t5."id")
-              AND (t5."id" <> $96)
+              (t5."id" = (t5."id" + $92))
+              AND ((t5."id" - $93) = $94)
+              AND ((t5."id" * $95) = t5."id")
+              AND ((t5."id" / $96) = t5."id")
               AND (t5."id" <> $97)
-              AND (t5."id" < $98)
-              AND (t5."id" <= $99)
-              AND (t5."id" >= $100)
-              AND (t5."id" <= $101)
-              AND (t5."id" >= $102)
+              AND (t5."id" <> $98)
+              AND (t5."id" < $99)
+              AND (t5."id" <= $100)
+              AND (t5."id" >= $101)
+              AND (t5."id" <= $102)
+              AND (t5."id" >= $103)
               AND (t5."nullable_id" IS NULL)
               AND (t5."nullable_id" IS NOT NULL)
               AND (t5."id" IN (
-                $103,
-                $104
+                $104,
+                $105
               ))
-              AND (t5."id" NOT IN ($105))
-              AND (t5."id" IN ($106))
-              AND (t5."id" NOT IN ($107))
-              AND (t5."id" BETWEEN $108 AND $109)
+              AND (t5."id" NOT IN ($106))
+              AND (t5."id" IN ($107))
+              AND (t5."id" NOT IN ($108))
+              AND (t5."id" BETWEEN $109 AND $110)
               AND (t5."id" IN (
                 SELECT
                   t6."id"
@@ -1973,9 +1990,9 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                 WHERE
                   (t6."person_id" = t5."person_id")
               ))
-              AND (t5."label" IS DISTINCT FROM $110)
-              AND (t5."label" LIKE $111)
-              AND (CHAR_LENGTH(t5."label") > $112)
+              AND (t5."label" IS DISTINCT FROM $111)
+              AND (t5."label" LIKE $112)
+              AND (CHAR_LENGTH(t5."label") > $113)
               AND ((
                 SELECT
                   t6."nullable_id"
@@ -1984,17 +2001,17 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                   (t6."id" = t5."id")
                 LIMIT 1
               ) = t5."id")
-              AND (NOT (t5."id" > $113))
-              AND ((LOWER(t5."label") || $114) LIKE $115)
-              AND (COALESCE(t5."nullable_id", $116) > $117)
+              AND (NOT (t5."id" > $114))
+              AND ((LOWER(t5."label") || $115) LIKE $116)
+              AND (COALESCE(t5."nullable_id", $117) > $118)
               AND ((CASE
                 WHEN TRUE THEN t5."id"
-                ELSE $118
-              END) > $119)
+                ELSE $119
+              END) > $120)
               AND (CURRENT_TIMESTAMP = CURRENT_TIMESTAMP)
             ) THEN t5."value"
-            ELSE $120
-          END)), $121)
+            ELSE $121
+          END)), $122)
         FROM "mega_events" AS t5
       )
     |}]
@@ -2002,7 +2019,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
 
 let%expect_test "SQLite choose_dialect branch compiles the shared output" =
   statement
-  |> Statement.sql_exn ~dialect:(Dialect.kind Dialect.sqlite) ~input:(20, 1)
+  |> Statement.sql_exn ~dialect:(Dialect.kind Dialect.sqlite) ~input:([], 20, 1)
   |> Stdlib.print_endline;
   [%expect
     {|
@@ -2191,7 +2208,10 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
 
 let%expect_test "PostgreSQL choose_dialect branch rejects negative pagination" =
   (match
-     Statement.sql_exn ~dialect:(Dialect.kind Dialect.postgresql) ~input:(-1, 1) statement
+     Statement.sql_exn
+       ~dialect:(Dialect.kind Dialect.postgresql)
+       ~input:([], -1, 1)
+       statement
    with
    | exception Failure message -> Stdlib.print_endline message
    | _ -> failwith "negative pagination value unexpectedly rendered SQL");
@@ -2200,7 +2220,7 @@ let%expect_test "PostgreSQL choose_dialect branch rejects negative pagination" =
 
 let%expect_test "SQLite choose_dialect branch rejects negative pagination" =
   (match
-     Statement.sql_exn ~dialect:(Dialect.kind Dialect.sqlite) ~input:(-1, 1) statement
+     Statement.sql_exn ~dialect:(Dialect.kind Dialect.sqlite) ~input:([], -1, 1) statement
    with
    | exception Failure message -> Stdlib.print_endline message
    | _ -> failwith "negative pagination value unexpectedly rendered SQL");

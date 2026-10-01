@@ -18,6 +18,7 @@ type _ t =
       }
       -> 'a t
   | Array_type : 'a t -> 'a Pg_array.t t
+  | Array_list_type : 'a t -> 'a list t
   | Option_type : 'a t -> 'a option t
   | Map_type :
       { repr : 'a t
@@ -110,6 +111,7 @@ let rec name : type a. a t -> string = function
   | Named_type { schema; name; _ } ->
     Identifier.to_string schema ^ "." ^ Identifier.to_string name
   | Array_type element -> "array(" ^ name element ^ ")"
+  | Array_list_type element -> "array_list(" ^ name element ^ ")"
   | Option_type typ -> "option(" ^ name typ ^ ")"
   | Map_type mapping -> mapping.name
   | Json_result_type _ -> "multiset"
@@ -144,6 +146,7 @@ let rec fingerprint : type a. a t -> string = function
     ^ fingerprint repr
     ^ ")"
   | Array_type element -> "array(" ^ fingerprint element ^ ")"
+  | Array_list_type element -> "array(" ^ fingerprint element ^ ")"
   | Option_type typ -> "option(" ^ fingerprint typ ^ ")"
   | Map_type { repr; id; _ } -> "map#" ^ Int.to_string id ^ "(" ^ fingerprint repr ^ ")"
   | Json_result_type { fields; _ } ->
@@ -168,7 +171,7 @@ let rec unsupported_multiset_type
   | Bytes_type -> Some (path, "bytes")
   | Numeric_type -> Some (path, "numeric")
   | Named_type { repr; _ } -> unsupported_multiset_type ~path repr
-  | Array_type _ -> Some (path, "array")
+  | Array_type _ | Array_list_type _ -> Some (path, "array")
   | Option_type typ -> unsupported_multiset_type ~path typ
   | Map_type { repr; _ } -> unsupported_multiset_type ~path repr
   | Json_result_type { fields; _ } ->
@@ -182,6 +185,23 @@ let rec unsupported_multiset_type
   | Date_type
   | Timestamp_type
   | Uuid_type -> None
+;;
+
+let array_list_to_pg_array elements =
+  Pg_array.create
+    ~dimensions:[ List.length elements ]
+    ~lower_bounds:[ 1 ]
+    ~elements:(List.map elements ~f:Option.some)
+;;
+
+let array_list_of_pg_array value =
+  match Pg_array.dimensions value, Pg_array.lower_bounds value with
+  | [ _ ], [ 1 ] ->
+    Result.all
+      (List.map (Pg_array.elements value) ~f:(function
+         | Some element -> Ok element
+         | None -> Error "array_list cannot decode NULL elements"))
+  | _ -> Error "array_list requires one dimension with lower bound 1"
 ;;
 
 let rec pg_text_encode : type a. a t -> a -> (string, string) Result.t =
@@ -207,6 +227,10 @@ let rec pg_text_encode : type a. a t -> a -> (string, string) Result.t =
   | Uuid_type -> Ok (Uuid.to_string value)
   | Named_type { repr; _ } -> pg_text_encode repr value
   | Array_type element -> Pg_array.to_string ~encode:(pg_text_encode element) value
+  | Array_list_type element ->
+    let open Result.Let_syntax in
+    let%bind array = array_list_to_pg_array value in
+    Pg_array.to_string ~encode:(pg_text_encode element) array
   | Option_type _ -> Error "array elements use a single nullable layer"
   | Map_type { repr; encode; _ } ->
     let open Result.Let_syntax in
@@ -262,6 +286,10 @@ let rec pg_text_decode : type a. a t -> string -> (a, string) Result.t =
   | Uuid_type -> required (Uuid.of_string source) "invalid UUID"
   | Named_type { repr; _ } -> pg_text_decode repr source
   | Array_type element -> Pg_array.of_string ~decode:(pg_text_decode element) source
+  | Array_list_type element ->
+    let open Result.Let_syntax in
+    let%bind array = Pg_array.of_string ~decode:(pg_text_decode element) source in
+    array_list_of_pg_array array
   | Option_type _ -> Error "array elements use a single nullable layer"
   | Map_type { repr; decode; _ } ->
     let open Result.Let_syntax in
@@ -273,6 +301,7 @@ let rec pg_text_decode : type a. a t -> string -> (a, string) Result.t =
 module Postgresql = struct
   let named ~schema ~name repr = Named_type { schema; name; repr }
   let array element = Array_type element
+  let array_list element = Array_list_type element
   let encode_text = pg_text_encode
   let decode_text = pg_text_decode
 
@@ -355,13 +384,14 @@ let rec postgresql_type_name : type a. a t -> string = function
   | Named_type { schema; name; _ } ->
     quote_identifier schema ^ "." ^ quote_identifier name
   | Array_type element -> postgresql_type_name element ^ "[]"
+  | Array_list_type element -> postgresql_type_name element ^ "[]"
   | Option_type inner -> postgresql_type_name inner
   | Map_type { repr; _ } -> postgresql_type_name repr
   | Json_result_type _ -> "jsonb"
 ;;
 
 let rec needs_postgresql_cast : type a. a t -> bool = function
-  | Named_type _ | Array_type _ -> true
+  | Named_type _ | Array_type _ | Array_list_type _ -> true
   | Option_type inner -> needs_postgresql_cast inner
   | Map_type { repr; _ } -> needs_postgresql_cast repr
   | Bool_type
@@ -379,7 +409,7 @@ let rec needs_postgresql_cast : type a. a t -> bool = function
 
 let rec sqlite_unsupported_type : type a. a t -> string option = function
   | Numeric_type -> Some "numeric"
-  | Named_type _ | Array_type _ -> Some "postgresql type"
+  | Named_type _ | Array_type _ | Array_list_type _ -> Some "postgresql type"
   | Option_type inner -> sqlite_unsupported_type inner
   | Map_type { repr; _ } -> sqlite_unsupported_type repr
   | Bool_type
@@ -411,6 +441,19 @@ let view : type a. a t -> a view = function
     Array
       { encode = Pg_array.to_string ~encode:(pg_text_encode element)
       ; decode = Pg_array.of_string ~decode:(pg_text_decode element)
+      }
+  | Array_list_type element ->
+    Array
+      { encode =
+          (fun elements ->
+            let open Result.Let_syntax in
+            let%bind array = array_list_to_pg_array elements in
+            Pg_array.to_string ~encode:(pg_text_encode element) array)
+      ; decode =
+          (fun source ->
+            let open Result.Let_syntax in
+            let%bind array = Pg_array.of_string ~decode:(pg_text_decode element) source in
+            array_list_of_pg_array array)
       }
   | Option_type typ -> Option typ
   | Map_type { repr; encode; decode; name; _ } -> Map { repr; encode; decode; name }

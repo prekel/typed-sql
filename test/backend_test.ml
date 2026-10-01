@@ -128,6 +128,41 @@ let%test "numeric codecs expose an exact adapter view" =
   | Error _ -> false
 ;;
 
+let%test "list-array parameter exposes a reversible backend codec" =
+  let descriptor = Db_type.Postgresql.array_list Db_type.int64 in
+  let statement =
+    Statement.For_dialect.query_one_exn ~dialect:Dialect.postgresql (fun params ->
+      Query.select_one (params.expr descriptor ~get:Fn.id))
+  in
+  match
+    ( B.Statement.resolve ~dialect:Dialect.Postgresql [ 1L; 2L ] statement
+    , B.Statement.resolve ~dialect:Dialect.Postgresql [] statement )
+  with
+  | ( Ok (B.Statement.Query_execution { compiled; _ })
+    , Ok (B.Statement.Query_execution { compiled = empty; _ }) ) ->
+    B.Shape.equal (B.Compiled_query.shape compiled) (B.Compiled_query.shape empty)
+    && Int.(List.length (B.Compiled_query.parameters compiled) = 1)
+    &&
+      (match B.Compiled_query.parameters compiled with
+      | [ B.Db_type.Value (db_type, value) ] ->
+        (match B.Db_type.view db_type with
+         | B.Db_type.Array { encode; decode } ->
+           (match encode value with
+            | Error _ -> false
+            | Ok encoded ->
+              String.equal encoded {|{"1","2"}|}
+              && (match decode encoded with
+                  | Error _ -> false
+                  | Ok decoded ->
+                    (match encode decoded with
+                     | Ok roundtrip -> String.equal roundtrip encoded
+                     | Error _ -> false))
+              && Result.is_error (decode "{1,NULL}"))
+         | _ -> false)
+      | _ -> false)
+  | _ -> false
+;;
+
 let%test_unit "UPSERT shape excludes values and bind slots follow SQL order" =
   let table : unit Table.t = Table.v_exn "items" in
   let id = Column.v_exn table "id" Db_type.int64 in
