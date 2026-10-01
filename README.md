@@ -506,12 +506,23 @@ Typed_sql_caqti_lwt.transaction ~conn ~f:(fun conn ->
 и выполните:
 
 ```sh
-typed-sql-schema-dump postgresql:// > schema.json
+typed-sql-schema-dump --exclude-table public.audit postgresql:// > schema.json
 typed-sql-codegen --type-rules type-rules.json schema.json > schema.ml
 ```
 
 `typed-sql-schema-dump` использует Caqti adapter и пишет JSON snapshot в stdout.
 Его можно вызвать без URI: по умолчанию используется `postgresql://`.
+Dump фильтрует результат introspection перед записью snapshot; сам запрос
+каталогов PostgreSQL по-прежнему видит всю доступную схему.
+`--exclude-table SCHEMA.TABLE` можно повторять в обеих командах. Имена
+сопоставляются точно и с учётом регистра; для имён с точками, кавычками или
+пробелами используйте quoted SQL identifiers, например
+`'public."USER PROFILE"'`. Отсутствующая таблица завершает команду ошибкой.
+Исключение удаляет таблицу из snapshot или сгенерированного модуля, сохраняя
+FK-метаданные оставшихся таблиц даже при ссылке на исключённую таблицу.
+Если snapshot уже исключает таблицу, не передавайте это же имя повторно в
+codegen: отсутствующая в snapshot таблица считается ошибкой. Для фильтра только
+при генерации опустите `--exclude-table` в команде dump.
 Тот же snapshot можно получить из OCaml-кода:
 
 ```ocaml
@@ -598,6 +609,11 @@ make coverage
 make coverage-all
 make coverage-mega
 ```
+
+`make deps` устанавливает зависимости сборки, а `make deps_all` — также
+зависимости тестов, документации и разработки. Обе команды используют
+закоммиченные `.opam`-файлы и не требуют заранее установленного Dune.
+Библиотека `str` поставляется с OCaml и не требует отдельного opam-пакета.
 
 Benchmark compiler для маленького запроса и shapes с 20/100 условиями или
 сортировками запускается отдельно:

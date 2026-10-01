@@ -40,6 +40,42 @@ PGDATABASE=typed_sql_schema_fixture_test \
   > "$workdir/live_schema_fixture.json"
 diff -u test/schema/schema_fixture.json "$workdir/live_schema_fixture.json"
 
+PGDATABASE=typed_sql_schema_fixture_test \
+  "$pg_bindir/psql" -X -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+CREATE SCHEMA archive;
+CREATE TABLE public.filter_parent (id bigint PRIMARY KEY);
+CREATE TABLE public.filter_child (
+  parent_id bigint REFERENCES public.filter_parent (id)
+);
+CREATE TABLE archive.filter_parent (id bigint PRIMARY KEY);
+SQL
+PGDATABASE=typed_sql_schema_fixture_test \
+  dune exec --root . caqti-lwt/typed_sql_schema_dump.exe -- \
+  --exclude-table public.advanced \
+  --exclude-table 'public."USER PROFILE"' \
+  --exclude-table public.filter_parent \
+  > "$workdir/filtered_schema_fixture.json"
+if grep -Fq '"name": "advanced"' "$workdir/filtered_schema_fixture.json"; then
+  echo 'dump included an excluded table' >&2
+  exit 1
+fi
+if grep -Fq '"name": "USER PROFILE"' "$workdir/filtered_schema_fixture.json"; then
+  echo 'dump included the quoted excluded table' >&2
+  exit 1
+fi
+grep -A1 -F '"schema": "archive"' "$workdir/filtered_schema_fixture.json" \
+  | grep -Fq '"name": "filter_parent"'
+grep -Fq '"name": "filter_child"' "$workdir/filtered_schema_fixture.json"
+grep -Fq '"referenced_table": "filter_parent"' "$workdir/filtered_schema_fixture.json"
+if PGDATABASE=typed_sql_schema_fixture_test \
+  dune exec --root . caqti-lwt/typed_sql_schema_dump.exe -- \
+  --exclude-table public.missing > "$workdir/missing_table.json" 2> "$workdir/missing_table.stderr"; then
+  echo 'missing table exclusion unexpectedly succeeded' >&2
+  exit 1
+fi
+test ! -s "$workdir/missing_table.json"
+grep -Fq 'excluded table not found: public.missing' "$workdir/missing_table.stderr"
+
 dune exec --root . caqti-lwt/test/postgresql_test.exe
 dune exec --root . caqti-lwt/test/mega_coverage_server_test.exe
 dune exec --root . caqti-lwt/test/insert_select_test.exe -- --postgres

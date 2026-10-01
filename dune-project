@@ -28,7 +28,6 @@
   zarith
   ptime
   yojson
-  str
   ppx_let
   (ppx_fields_conv :with-test)
   (qcheck :with-test)

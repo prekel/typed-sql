@@ -1,7 +1,6 @@
 all: build
 
-PACKAGES = ./typed-sql.opam ./typed-sql-caqti-lwt.opam
-PGOCAML_PACKAGE = ./_build/default/typed-sql-pgocaml-lwt.opam
+PACKAGES = ./typed-sql.opam ./typed-sql-caqti-lwt.opam ./typed-sql-pgocaml-lwt.opam
 
 .PHONY: create_switch
 create_switch:
@@ -10,14 +9,12 @@ create_switch:
 
 .PHONY: deps
 deps:
-	opam exec -- dune build --root . typed-sql-pgocaml-lwt.opam
-	opam install --deps-only $(PACKAGES) $(PGOCAML_PACKAGE) -y
+	opam install --deps-only $(PACKAGES) -y
 
 .PHONY: deps_all
 deps_all:
 	opam pin add bisect_ppx https://github.com/aantron/bisect_ppx.git\#2d8dffbbfc0c431a37319d4d9a143836c9ec542e -yn
-	opam exec -- dune build --root . typed-sql-pgocaml-lwt.opam
-	opam install --deps-only --with-test --with-doc --with-dev-setup $(PACKAGES) $(PGOCAML_PACKAGE) -y
+	opam install --deps-only --with-test --with-doc --with-dev-setup $(PACKAGES) -y
 
 .PHONY: build
 build:
@@ -42,8 +39,7 @@ doc:
 .PHONY: package
 package: smoke
 	opam exec -- dune build --root . @install
-	opam exec -- dune build --root . typed-sql-pgocaml-lwt.opam
-	opam lint $(PACKAGES) $(PGOCAML_PACKAGE)
+	opam lint $(PACKAGES)
 
 .PHONY: smoke
 smoke:
