@@ -1,7 +1,8 @@
 # Тесты схемы и генератора
 
-Здесь находятся snapshot и codegen regression tests, тесты PostgreSQL-типов,
-пользовательские codecs и проверка использования сгенерированного модуля.
+Здесь находятся snapshot и codegen regression tests, пользовательские codecs
+и проверка использования сгенерированного модуля. Тесты runtime
+PostgreSQL-типов находятся в `test/`, а интроспекции — в драйверных пакетах.
 `schema_fixture.sql` — единственная миграция тестовой схемы. `make test-postgres`
 применяет её к отдельной пустой базе, получает snapshot через живую
 интроспекцию и сравнивает его с `schema_fixture.json` побайтно.
@@ -23,7 +24,7 @@ bash test/schema/regenerate.sh
 `PGUSER`, `PGDATABASE` и выполните из корня проекта:
 
 ```sh
-opam exec -- dune exec --root . caqti-lwt/typed_sql_schema_dump.exe > schema.json
+opam exec -- dune exec --root . caqti-lwt/schema/typed_sql_schema_dump.exe > schema.json
 opam exec -- dune exec --root . bin/typed_sql_codegen.exe -- \
   --type-rules test/schema/schema_type_rules.json schema.json > schema.ml
 ```

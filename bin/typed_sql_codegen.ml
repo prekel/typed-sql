@@ -1,5 +1,5 @@
 open! Base
-open Typed_sql
+open Typed_sql_schema
 
 type options =
   { schema_path : string

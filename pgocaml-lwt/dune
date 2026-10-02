@@ -1,6 +1,7 @@
 (library
  (name typed_sql_pgocaml_lwt)
  (public_name typed-sql-pgocaml-lwt)
+ (modules typed_sql_pgocaml_lwt)
  (libraries base lwt.unix pgocaml ptime typed-sql typed-sql.backend)
  (preprocess
   (pps ppx_let)))

@@ -75,6 +75,19 @@
           "primary_key_position": null
         },
         {
+          "name": "result_status",
+          "db_type": {
+            "kind": "enum",
+            "schema": "public",
+            "name": "result_status",
+            "labels": [ "Ok", "Error" ]
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null
+        },
+        {
           "name": "username",
           "db_type": {
             "kind": "domain",

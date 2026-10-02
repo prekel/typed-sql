@@ -1,7 +1,8 @@
 (library
  (name typed_sql_schema_expect_tests)
- (modules postgresql_types_test schema_snapshot_test)
- (libraries base typed-sql typed_sql_test_support yojson)
+ (package typed-sql-schema)
+ (modules schema_api_test schema_snapshot_test)
+ (libraries base compiler-libs.common typed-sql typed-sql-schema yojson)
  (inline_tests)
  (preprocess
   (pps ppx_expect ppx_let)))
@@ -15,10 +16,11 @@
 (executable
  (name schema_codegen_fixture_generator)
  (modules schema_codegen_fixture_generator)
- (libraries base typed-sql))
+ (libraries base typed-sql typed-sql-schema))
 
 (rule
  (alias runtest)
+ (package typed-sql-schema)
  (deps
   schema_codegen_cli_test.sh
   schema_fixture.json
@@ -35,6 +37,7 @@
 
 (test
  (name generated_schema_downstream_test)
+ (package typed-sql)
  (modules generated_schema generated_schema_downstream_test)
  (libraries
   base

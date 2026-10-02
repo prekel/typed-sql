@@ -4,12 +4,59 @@ open Infix
 module Adapter = Typed_sql_pgocaml_lwt
 module Pgocaml = Adapter.Pgocaml
 
+module Existing_thread = struct
+  type 'a t = 'a Lwt.t
+
+  include Monad.Make (struct
+      type nonrec 'a t = 'a t
+
+      let return = Lwt.return
+      let bind value ~f = Lwt.bind value f
+      let map = `Custom (fun value ~f -> Lwt.map f value)
+    end)
+
+  let fail = Lwt.fail
+  let catch = Lwt.catch
+
+  type in_channel = Lwt_io.input_channel
+  type out_channel = Lwt_io.output_channel
+
+  let open_connection address = Lwt_io.open_connection address
+  let output_char = Lwt_io.write_char
+  let output_binary_int = Lwt_io.BE.write_int
+  let output_string = Lwt_io.write
+  let flush = Lwt_io.flush
+  let input_char = Lwt_io.read_char
+  let input_binary_int = Lwt_io.BE.read_int
+  let really_input = Lwt_io.read_into_exactly
+  let close_in (channel : in_channel) = Lwt_io.close channel
+end
+
+module Existing_pgocaml = PGOCaml_generic.Make (Existing_thread)
+module Existing_adapter = Adapter.Make (Existing_pgocaml)
+
 let ( let* ) = Lwt.bind
 let ( >>= ) = Lwt.bind
 
 let or_fail = function
   | Ok value -> Lwt.return value
   | Error error -> Lwt.fail_with (Adapter.error_to_string error)
+;;
+
+let test_existing_pgocaml () =
+  let* conn = Existing_pgocaml.connect () in
+  Lwt.finalize
+    (fun () ->
+       let statement =
+         Statement.For_dialect.query_one_exn ~dialect:Dialect.postgresql (fun _ ->
+           Query.select_one (Expr.constant Db_type.int64 1L))
+       in
+       let* result = Existing_adapter.run ~conn statement () in
+       match result with
+       | Ok 1L -> Lwt.return_unit
+       | Ok _ -> Lwt.fail_with "existing PG'OCaml adapter returned wrong value"
+       | Error error -> Lwt.fail_with (Existing_adapter.error_to_string error))
+    (fun () -> Existing_pgocaml.close conn)
 ;;
 
 let exec_sql conn sql =
@@ -711,6 +758,7 @@ let main () =
        let* () = test_queries conn in
        let* () = test_sqlstates conn in
        let* () = test_prepared_cache conn in
+       let* () = test_existing_pgocaml () in
        Lwt.return_unit)
     (fun () -> Pgocaml.close conn)
 ;;

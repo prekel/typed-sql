@@ -12,7 +12,8 @@ statement:
 
 {[
 let ada_after_ten =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.Portable.query_many_exn (fun params ->
+    let () = Statement.no_params params in
     Query.(
       from Person.table
       |> where (fun person ->

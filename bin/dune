@@ -1,7 +1,7 @@
 (executable
  (name typed_sql_codegen)
  (public_name typed-sql-codegen)
- (package typed-sql)
- (libraries base typed-sql)
+ (package typed-sql-schema)
+ (libraries base typed-sql typed-sql-schema)
  (preprocess
   (pps ppx_let)))

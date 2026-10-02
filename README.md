@@ -14,10 +14,13 @@ CTE, `VALUES` relations, portable set operations, expressions, aggregates,
 PostgreSQL-вариант query builder включает `FETCH FIRST ... WITH TIES`. DML
 включает multi-row `INSERT`, `INSERT ... SELECT`, portable UPSERT, scoped
 `UPDATE`/`DELETE`, `DEFAULT`, `UPDATE FROM`, условные assignments и `RETURNING`.
-Пакет `typed-sql-caqti-lwt` содержит адаптеры Caqti для PostgreSQL и SQLite и
-умеет читать их схему; `typed-sql-pgocaml-lwt` содержит PostgreSQL-адаптер для
-PG'OCaml. Runtime-набор проверен на PostgreSQL 18.6 через оба адаптера; другие
-major versions PostgreSQL пока не проверены.
+Пакеты `typed-sql-caqti-lwt` и `typed-sql-pgocaml-lwt` выполняют запросы
+через Caqti и PG'OCaml. Отдельный `typed-sql-schema` содержит schema IR,
+snapshot и codegen, а `typed-sql-schema-caqti-lwt` и
+`typed-sql-schema-pgocaml-lwt` читают схему базы. Приложению достаточно
+query-пакета и выбранного execution-адаптера. Поддерживаются PostgreSQL 15–18.
+Полный набор интеграционных тестов пройден на PostgreSQL 15.19 и 18.6 через
+оба адаптера; версии 16 и 17 отдельно пока не проверялись.
 
 ```ocaml
 open Typed_sql
@@ -510,8 +513,18 @@ typed-sql-schema-dump --exclude-table public.audit postgresql:// > schema.json
 typed-sql-codegen --type-rules type-rules.json schema.json > schema.ml
 ```
 
-`typed-sql-schema-dump` использует Caqti adapter и пишет JSON snapshot в stdout.
-Его можно вызвать без URI: по умолчанию используется `postgresql://`.
+`typed-sql-schema-dump` устанавливается с `typed-sql-schema-caqti-lwt`.
+Второй дампер устанавливается с `typed-sql-schema-pgocaml-lwt` и создаёт тот
+же snapshot:
+
+```sh
+typed-sql-pgocaml-schema-dump --exclude-table public.audit postgresql:// > schema.json
+```
+
+Оба дампера можно вызвать без URI: по умолчанию используется `postgresql://`
+и параметры подключения из окружения. PG’OCaml дампер принимает в URI host,
+port, user, password и имя базы, а также `?host=/path/to/socket` для Unix socket;
+остальные URI-параметры возвращают явную ошибку.
 Dump фильтрует результат introspection перед записью snapshot; сам запрос
 каталогов PostgreSQL по-прежнему видит всю доступную схему.
 `--exclude-table SCHEMA.TABLE` можно повторять в обеих командах. Имена
@@ -526,14 +539,21 @@ codegen: отсутствующая в snapshot таблица считаетс�
 Тот же snapshot можно получить из OCaml-кода:
 
 ```ocaml
-Typed_sql_caqti_lwt.Schema.introspect ~conn
+Typed_sql_schema_caqti_lwt.introspect ~conn
 |> Lwt.map
      (Result.map ~f:(fun schema ->
         Stdlib.Out_channel.with_open_bin "schema.json" (fun channel ->
-          Stdlib.output_string channel (Schema_snapshot.to_string schema))))
+          Stdlib.output_string channel
+            (Typed_sql_schema.Schema_snapshot.to_string schema))))
 ```
 
-Snapshot хранится в репозитории. Установленный вместе с `typed-sql` CLI читает
+Для PG’OCaml соединения доступен
+`Typed_sql_schema_pgocaml_lwt.introspect ~conn`. Если приложение использует
+свой `module Pgocaml = PGOCaml_generic.Make (Thread)`, создайте
+`module Schema = Typed_sql_schema_pgocaml_lwt.Make (Pgocaml)` и вызовите
+`Schema.introspect ~conn`; тип соединения останется тем же.
+
+Snapshot хранится в репозитории. Установленный вместе с `typed-sql-schema` CLI читает
 его без подключения к базе и выводит OCaml source:
 
 ```sh
@@ -578,10 +598,10 @@ timestamp без часового пояса и остальные именов�
 а `Interval` — стандартный `IntervalStyle = postgres`. Для других настроек
 формата используйте пользовательский codec через те же правила.
 
-Весь API приложения с документацией находится в
-[`lib/typed_sql.mli`](lib/typed_sql.mli): схема, выражения, запросы, статические
-и динамические statements, канонический SQL и ошибки. Для приложения достаточно библиотеки
-`typed-sql` и выбранного execution adapter.
+API запросов находится в [`lib/typed_sql.mli`](lib/typed_sql.mli), а API
+генерации — в [`schema/typed_sql_schema.mli`](schema/typed_sql_schema.mli).
+Прежние `Typed_sql.Schema_*` и `Typed_sql_*_lwt.Schema` заменены модулями
+новых пакетов.
 
 Авторы адаптеров используют отдельную библиотеку `typed-sql.backend` и
 [`backend/typed_sql_backend.mli`](backend/typed_sql_backend.mli): параметры,
@@ -636,18 +656,25 @@ opam exec -- dune exec benchmark/query_bench.exe
 ```
 
 SQLite integration tests используют `sqlite3::memory:`. Отдельный
-`make test-postgres` создаёт временный кластер PostgreSQL 18 на локальном Unix
+`make test-postgres` создаёт временный кластер PostgreSQL 15–18 на локальном Unix
 socket, запускает Caqti и PG'OCaml integration tests, включая общие SQL golden
-cases на PostgreSQL и SQLite, и удаляет кластер после прогона. Нужны утилиты
-PostgreSQL 18 (`pg_config`, `initdb`, `pg_ctl`, `createdb`, `psql`), opam-пакет
-`caqti-driver-postgresql` и системная библиотека разработки `libpq`.
+cases на PostgreSQL и SQLite, и удаляет кластер после прогона. Версию сервера
+задаёт `pg_config` из `PATH`; для другого установленного сервера укажите путь:
+
+```sh
+TYPED_SQL_PG_CONFIG=/path/to/postgresql-15/bin/pg_config make test-postgres
+```
+
+Нужны утилиты выбранной версии (`pg_config`, `initdb`, `pg_ctl`, `createdb`,
+`psql`), opam-пакет `caqti-driver-postgresql` и системная библиотека
+разработки `libpq`.
 На Ubuntu для сборки SQLite driver нужен системный пакет `libsqlite3-dev`.
 
-Проверен PostgreSQL 18.6. Nullable scalar subquery возвращает `None` как при
-отсутствии строки, так и при SQL `NULL` в найденной строке. PG'OCaml сообщает
-число затронутых строк как `Affected_rows.Unknown`. Native PostgreSQL JSON и
-array codecs остаются за пределами portable API; вложенные коллекции проходят
-через JSON transport адаптера.
+Проверены PostgreSQL 15.19 и 18.6. Nullable scalar subquery возвращает `None`
+как при отсутствии строки, так и при SQL `NULL` в найденной строке.
+PG'OCaml сообщает число затронутых строк как `Affected_rows.Unknown`. Native
+PostgreSQL JSON и array codecs остаются за пределами portable API; вложенные
+коллекции проходят через JSON transport адаптера.
 
 ### Prepared statements
 
@@ -660,6 +687,19 @@ array codecs остаются за пределами portable API; вложен
 через `Caqti.Connect.Config.dynamic_prepare_capacity`.
 
 PG'OCaml `run` по умолчанию вызывает `prepare` для каждого выполнения.
+Если приложение уже использует собственный Lwt-модуль
+`Pgocaml = PGOCaml_generic.Make(Thread)` и пул его соединений, создайте адаптер
+для этого же модуля:
+
+```ocaml
+module Adapter = Typed_sql_pgocaml_lwt.Make (Pgocaml)
+
+let result = Adapter.run ~conn statement input
+```
+
+`conn` сохраняет тип `Pgocaml.t` из приложения; преобразование типов не нужно.
+Транзакции и пул могут оставаться в приложении.
+
 Для часто вызываемого statement можно создать явный кэш на одном connection:
 
 ```ocaml
@@ -686,10 +726,11 @@ Lwt.finalize
 запроса через PG'OCaml adapter (0,510 с без кэша, 0,260 с с кэшем). Повторить
 замер можно командой `TYPED_SQL_PREPARE_BENCH=1 make test-postgres`.
 
-`make coverage` измеряет реализацию `Typed_sql` через публичный API приложения:
-запускает public inline tests, QCheck properties и SQLite `:memory:` integration
-test. White-box tests и `typed-sql.backend` в этот прогон не входят. Порог равен
-96,5%, HTML-отчёт создаётся в `_coverage/public/html/index.html`.
+`make coverage` измеряет query core и перенесённые чистые модули схемы через
+публичные API: запускает inline tests, QCheck properties и SQLite `:memory:`
+integration tests. White-box tests и backend-контракты в этот прогон не
+входят. Порог равен 96,5%, HTML-отчёт создаётся в
+`_coverage/public/html/index.html`.
 
 `make coverage-all` добавляет backend и private suites, требует не менее 99% и
 пишет отчёт в `_coverage/all/html/index.html`. Для локального switch с OCaml

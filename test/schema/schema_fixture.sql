@@ -1,6 +1,7 @@
 BEGIN;
 
 CREATE TYPE public.mood AS ENUM ('happy', 'sad');
+CREATE TYPE public.result_status AS ENUM ('Ok', 'Error');
 CREATE DOMAIN public.username AS varchar(32);
 CREATE DOMAIN public.host AS inet;
 CREATE DOMAIN public.rational AS text;
@@ -17,6 +18,7 @@ CREATE TABLE public.advanced (
   payload json NOT NULL,
   payload_binary jsonb NOT NULL,
   mood public.mood NOT NULL,
+  result_status public.result_status NOT NULL,
   username public.username NOT NULL,
   host public.host NOT NULL,
   inet_value inet NOT NULL,

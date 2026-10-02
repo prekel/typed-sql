@@ -1,5 +1,5 @@
 open! Base
-open Typed_sql
+open Typed_sql_schema
 
 let identifier = Identifier.of_string_exn
 let public_schema = identifier "public"
@@ -66,6 +66,13 @@ let schema =
                  { schema = identifier "public"
                  ; name = identifier "mood"
                  ; labels = [ "happy"; "sad" ]
+                 })
+          ; column
+              "result_status"
+              (Schema_ir.Enum
+                 { schema = identifier "public"
+                 ; name = identifier "result_status"
+                 ; labels = [ "Ok"; "Error" ]
                  })
           ; column
               "username"

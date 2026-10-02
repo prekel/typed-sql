@@ -19,7 +19,6 @@ execution adapter.
   subqueries;
 - multi-row [INSERT], conflict ignore, scoped [UPDATE]/[DELETE], [UPDATE FROM]
   и [RETURNING];
-- schema IR, PostgreSQL/SQLite introspection через Caqti и OCaml codegen;
 - PostgreSQL и SQLite compiler;
 - Lwt execution через [typed-sql-caqti-lwt] и PostgreSQL execution через
   [typed-sql-pgocaml-lwt].
@@ -52,6 +51,11 @@ CTE доступны только через [Postgresql.Cte]: [Postgresql.Cte.r
 одинаковыми типами input и output. Adapter выбирает заранее скомпилированную
 ветку по dialect соединения.
 
+Схема и генерация descriptors вынесены в [typed-sql-schema]. Интроспекция
+доступна через [typed-sql-schema-caqti-lwt] и
+[typed-sql-schema-pgocaml-lwt]; эти пакеты не нужны приложению для выполнения
+запросов. Сгенерированный модуль зависит только от [typed-sql].
+
 Начать работу можно с {!page-quickstart}. Варианты входного типа для statement
 с примерами собраны на странице {!page-statement_inputs}. Запросы, чья форма
 зависит от input, описаны на странице {!page-dynamic_statements}. Границы между
@@ -61,6 +65,6 @@ DSL, compiler и Caqti описаны в {!page-architecture}. Решение с
 вопросы Raw SQL escape hatch записаны в
 {{:adr/0002-raw-sql-escape-hatch.md}ADR 0002}.
 
-API приложения целиком описан в [lib/typed_sql.mli]. Для авторов execution
-adapters есть отдельная библиотека [typed-sql.backend] и контракт
-[backend/typed_sql_backend.mli].
+API запросов описан в [lib/typed_sql.mli], а API схемы — в
+[schema/typed_sql_schema.mli]. Для авторов execution adapters есть отдельная
+библиотека [typed-sql.backend] и контракт [backend/typed_sql_backend.mli].

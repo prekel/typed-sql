@@ -29,8 +29,6 @@ type error =
   (** A runtime statement parameter failed validation before database access. *)
   | Codec of string
   (** A mapped [Typed_sql.Db_type] rejected parameter encoding or row decoding. *)
-  | Schema of string
-  (** Database metadata could not be converted to validated schema metadata. *)
   | Constraint_violation of
       { kind : constraint_kind
       ; message : string
@@ -163,14 +161,3 @@ val transaction
   :  conn:Caqti_lwt.connection
   -> f:(Caqti_lwt.connection -> ('a, error) Result.t Lwt.t)
   -> ('a, error) Result.t Lwt.t
-
-(** Database schema discovery for descriptor generation. *)
-module Schema : sig
-  (** Read ordinary application tables, columns, defaults, generated columns,
-      primary keys, foreign keys and unique constraints. SQLite system tables
-      and PostgreSQL system schemas are excluded. Unknown database types are
-      preserved as [Typed_sql.Schema_ir.Unsupported] instead of being guessed. *)
-  val introspect
-    :  conn:Caqti_lwt.connection
-    -> (Typed_sql.Schema_ir.t, error) Result.t Lwt.t
-end

@@ -22,17 +22,20 @@ Runtime input -> typed bind values + selected projection plan
 Caqti Lwt adapter / PG'OCaml Lwt adapter
 v}
 
-Для обратного направления Caqti adapter читает PostgreSQL/SQLite metadata в
-dialect-neutral [Schema_ir], после чего [Schema_codegen] выпускает обычный
+Для обратного направления [typed-sql-schema-caqti-lwt] читает
+PostgreSQL/SQLite metadata, а [typed-sql-schema-pgocaml-lwt] читает
+PostgreSQL metadata в dialect-neutral [Typed_sql_schema.Schema_ir].
+Оба интроспектора используют общие catalog-запросы и преобразование
+метаданных; затем [Typed_sql_schema.Schema_codegen] выпускает обычный
 OCaml source с table/column descriptors и projection. Introspection и codegen
 не входят в query compiler и не добавляют зависимости ядра от connection.
 Discovery запускается отдельно, а сохранённый generated module компилируется
 при обычной сборке без обращения к базе. Коллизии нормализованных имён
 разрешаются детерминированными числовыми суффиксами.
 
-[Schema_snapshot] сериализует schema IR в JSON версии 2 и восстанавливает его
+[Typed_sql_schema.Schema_snapshot] сериализует schema IR в JSON версии 2 и восстанавливает его
 без filesystem или database access. CLI [typed-sql-codegen] читает snapshot
-из файла или stdin и передаёт его обычному [Schema_codegen]. Порядок таблиц,
+из файла или stdin и передаёт его обычному [Typed_sql_schema.Schema_codegen]. Порядок таблиц,
 колонок и constraints сохраняется; синтаксические ошибки и несовместимые
 версии возвращаются до генерации. Yojson остаётся деталью реализации.
 
@@ -96,11 +99,16 @@ portable query или command, поэтому dialect requirement по-преж�
 непосредственно через Dune. Внутри ядра функции вроде [Expr.node] и
 [Query.ast] вызываются напрямую.
 
-[Typed_sql] предоставляет схему, DSL, [Statement], SQL и ошибки. Его
+[Typed_sql] предоставляет DSL, [Statement], SQL и ошибки. Его
 сигнатура не раскрывает internal constructors и AST. Например, white-box тест
 может вызвать [Typed_sql_private.Query.ast builder] или
 [Typed_sql_private.Command.create ast], чтобы проверить compiler на намеренно
 некорректном command.
+
+[Typed_sql_schema] предоставляет metadata, snapshot и codegen отдельно от
+query builder. Общие catalog-запросы и helpers дамперов находятся в
+[typed-sql-schema.backend], а driver-specific интроспекторы зависят от
+выбранного драйвера. Зависимости от схемных библиотек к [typed-sql] нет.
 
 [Projection] реализует [Base.Applicative.S2]: [return], [map] с именованным [f],
 [apply], [both], [all] и аппликативные операторы. [Projection.Let_syntax]

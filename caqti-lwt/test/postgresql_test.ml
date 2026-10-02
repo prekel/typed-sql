@@ -1477,10 +1477,10 @@ let postgres_only conn =
       let* inserted = Adapter.run ~conn (insert 6L 1L 2L (Some "rollback")) () in
       match inserted with
       | Error error -> Lwt.return (Error error)
-      | Ok _ -> Lwt.return (Error (Adapter.Schema "rollback marker")))
+      | Ok _ -> Lwt.return (Error (Adapter.Codec "rollback marker")))
   in
   (match rolled_back with
-   | Error (Adapter.Schema "rollback marker") -> ()
+   | Error (Adapter.Codec "rollback marker") -> ()
    | _ -> failwith "Caqti transaction rollback failed");
   let count id =
     Statement.For_dialect.expect_one_exn ~dialect:Dialect.postgresql (fun _ ->
@@ -1515,82 +1515,6 @@ let postgres_only conn =
   in
   expect_constraint Adapter.Foreign_key commit_error;
   let* _ = Adapter.run ~conn (count 5L) () >>= adapter_or_fail in
-  let* () =
-    Connection.exec
-      (direct
-         "CREATE TABLE postgres_schema_parent (id BIGINT NOT NULL, code TEXT NOT NULL, PRIMARY KEY (id, code))")
-      ()
-    |> or_fail
-  in
-  let* () =
-    Connection.exec
-      (direct
-         "CREATE TABLE postgres_schema_child (id BIGINT PRIMARY KEY, parent_id BIGINT NOT NULL, parent_code TEXT NOT NULL, nickname TEXT DEFAULT 'unknown', display_name TEXT GENERATED ALWAYS AS (nickname || '!') STORED, FOREIGN KEY (parent_id, parent_code) REFERENCES postgres_schema_parent (id, code), UNIQUE (parent_id, parent_code, nickname))")
-      ()
-    |> or_fail
-  in
-  let* schema = Adapter.Schema.introspect ~conn >>= adapter_or_fail in
-  let constraint_table =
-    List.find_exn (Schema_ir.tables schema) ~f:(fun table ->
-      String.equal
-        (Identifier.to_string (Schema_ir.table_name table))
-        "postgres_constraints")
-  in
-  if
-    not
-      (Int.(List.length (Schema_ir.columns constraint_table) = 4)
-       && Int.(List.length (Schema_ir.foreign_keys constraint_table) = 1))
-  then
-    failwith "PostgreSQL schema introspection lost columns or foreign key";
-  let child =
-    List.find_exn (Schema_ir.tables schema) ~f:(fun table ->
-      String.equal
-        (Identifier.to_string (Schema_ir.table_name table))
-        "postgres_schema_child")
-  in
-  let find_column name =
-    List.find_exn (Schema_ir.columns child) ~f:(fun column ->
-      String.equal (Identifier.to_string (Schema_ir.column_name column)) name)
-  in
-  let names identifiers = List.map identifiers ~f:Identifier.to_string in
-  let nickname = find_column "nickname" in
-  let generated = find_column "display_name" in
-  if
-    not
-      (Schema_ir.column_nullable nickname
-       && Option.value_map
-            (Schema_ir.column_default nickname)
-            ~default:false
-            ~f:(fun value -> String.is_substring value ~substring:"unknown")
-       && Schema_ir.column_generated generated)
-  then
-    failwith "PostgreSQL schema introspection lost default or generated metadata";
-  (match Schema_ir.foreign_keys child with
-   | [ foreign_key ] ->
-     if
-       not
-         (List.equal
-            String.equal
-            (names (Schema_ir.foreign_key_columns foreign_key))
-            [ "parent_id"; "parent_code" ]
-          && List.equal
-               String.equal
-               (names (Schema_ir.foreign_key_referenced_columns foreign_key))
-               [ "id"; "code" ])
-     then
-       failwith "PostgreSQL composite foreign key was introspected incorrectly"
-   | _ -> failwith "PostgreSQL composite foreign key was not introspected");
-  (match Schema_ir.unique_constraints child with
-   | [ constraint_ ] ->
-     if
-       not
-         (List.equal
-            String.equal
-            (names (Schema_ir.unique_constraint_columns constraint_))
-            [ "parent_id"; "parent_code"; "nickname" ])
-     then
-       failwith "PostgreSQL composite unique was introspected incorrectly"
-   | _ -> failwith "PostgreSQL composite unique was not introspected");
   Lwt.return_unit
 ;;
 
@@ -1806,27 +1730,6 @@ let test_rich_schema_types conn =
   let* () =
     Lwt_list.iter_s (fun sql -> Connection.exec (direct sql) () |> or_fail) definitions
   in
-  let* schema = Adapter.Schema.introspect ~conn >>= adapter_or_fail in
-  let table =
-    List.find_exn (Schema_ir.tables schema) ~f:(fun table ->
-      String.equal (Identifier.to_string (Schema_ir.table_name table)) "advanced")
-  in
-  let find name =
-    List.find_exn (Schema_ir.columns table) ~f:(fun column ->
-      String.equal (Identifier.to_string (Schema_ir.column_name column)) name)
-    |> Schema_ir.column_db_type
-  in
-  (match find "float_value", find "duration", find "payload_binary", find "numbers" with
-   | Timestamp_without_timezone, Interval, Jsonb, Array Int -> ()
-   | _ -> failwith "PostgreSQL introspection lost structured built-in types");
-  (match find "mood", find "host" with
-   | Enum { labels = [ "happy"; "sad" ]; _ }, Domain { base = Named _; _ } -> ()
-   | _ -> failwith "PostgreSQL introspection lost enum or domain structure");
-  (match find "inet_value" with
-   | Named { schema; name }
-     when String.equal (Identifier.to_string schema) "pg_catalog"
-          && String.equal (Identifier.to_string name) "inet" -> ()
-   | _ -> failwith "PostgreSQL introspection lost direct inet type");
   let table : unit Table.t = Table.v_exn "advanced" in
   let float_column =
     Column.v_exn table "float_value" Schema_test_codecs.Local_float.db_type

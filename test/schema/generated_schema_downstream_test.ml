@@ -23,6 +23,7 @@ let advanced_row : Advanced.t =
   ; payload = `Assoc [ "value", `Int 1 ]
   ; payload_binary = `Assoc [ "value", `Int 2 ]
   ; mood = Generated_types.Type_public_mood.Happy
+  ; result_status = Generated_types.Type_public_result_status.Ok
   ; username = Generated_types.Type_public_username.of_base "Ada"
   ; host =
       Generated_types.Type_public_host.of_base
@@ -62,6 +63,15 @@ let first_row : First.t =
 let () =
   ignore first_row;
   ignore advanced_row;
+  let module Status = Generated_types.Type_public_result_status in
+  (match Status.encode Status.Ok, Status.encode Status.Error with
+   | Stdlib.Result.Ok "Ok", Stdlib.Result.Ok "Error" -> ()
+   | _ -> failwith "generated enum encode confused enum and result constructors");
+  (match Status.decode "Ok", Status.decode "Error", Status.decode "other" with
+   | ( Stdlib.Result.Ok Status.Ok
+     , Stdlib.Result.Ok Status.Error
+     , Stdlib.Result.Error "unknown enum label" ) -> ()
+   | _ -> failwith "generated enum decode confused enum and result constructors");
   Query.(from Advanced.table |> select Advanced.projection)
   |> Compiler.compile ~dialect:Dialect.postgresql
   |> Result.map_error ~f:Compile_error.to_string

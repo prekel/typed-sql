@@ -1,0 +1,29 @@
+(library
+ (name typed_sql_schema_caqti_lwt)
+ (public_name typed-sql-schema-caqti-lwt)
+ (modules typed_sql_schema_caqti_lwt)
+ (libraries
+  base
+  caqti
+  caqti-lwt
+  lwt
+  typed-sql-schema
+  typed-sql-schema.backend)
+ (preprocess
+  (pps ppx_let)))
+
+(executable
+ (name typed_sql_schema_dump)
+ (public_name typed-sql-schema-dump)
+ (package typed-sql-schema-caqti-lwt)
+ (modules typed_sql_schema_dump)
+ (libraries
+  base
+  caqti
+  caqti-driver-postgresql
+  caqti-lwt.unix
+  lwt.unix
+  typed-sql-schema
+  typed-sql-schema.backend
+  typed-sql-schema-caqti-lwt
+  uri))

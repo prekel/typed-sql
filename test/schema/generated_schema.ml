@@ -9,14 +9,14 @@ module Typed_sql_generated_types = struct
       | Sad
 
     let encode = function
-      | Happy -> Ok "happy"
-      | Sad -> Ok "sad"
+      | Happy -> Stdlib.Result.Ok "happy"
+      | Sad -> Stdlib.Result.Ok "sad"
     ;;
 
     let decode = function
-      | "happy" -> Ok Happy
-      | "sad" -> Ok Sad
-      | _ -> Error "unknown enum label"
+      | "happy" -> Stdlib.Result.Ok Happy
+      | "sad" -> Stdlib.Result.Ok Sad
+      | _ -> Stdlib.Result.Error "unknown enum label"
     ;;
 
     let db_type =
@@ -27,6 +27,34 @@ module Typed_sql_generated_types = struct
         (Typed_sql_codegen.Db_type.Postgresql.named
            ~schema:(Typed_sql_codegen.Identifier.of_string_exn "public")
            ~name:(Typed_sql_codegen.Identifier.of_string_exn "mood")
+           Typed_sql_codegen.Db_type.text)
+    ;;
+  end
+
+  module Type_public_result_status = struct
+    type t =
+      | Ok
+      | Error
+
+    let encode = function
+      | Ok -> Stdlib.Result.Ok "Ok"
+      | Error -> Stdlib.Result.Ok "Error"
+    ;;
+
+    let decode = function
+      | "Ok" -> Stdlib.Result.Ok Ok
+      | "Error" -> Stdlib.Result.Ok Error
+      | _ -> Stdlib.Result.Error "unknown enum label"
+    ;;
+
+    let db_type =
+      Typed_sql_codegen.Db_type.map
+        ~name:"public.result_status"
+        ~encode
+        ~decode
+        (Typed_sql_codegen.Db_type.Postgresql.named
+           ~schema:(Typed_sql_codegen.Identifier.of_string_exn "public")
+           ~name:(Typed_sql_codegen.Identifier.of_string_exn "result_status")
            Typed_sql_codegen.Db_type.text)
     ;;
   end
@@ -117,6 +145,7 @@ module Advanced = struct
     ; payload : Yojson.Safe.t
     ; payload_binary : Yojson.Safe.t
     ; mood : Typed_sql_generated_types.Type_public_mood.t
+    ; result_status : Typed_sql_generated_types.Type_public_result_status.t
     ; username : Typed_sql_generated_types.Type_public_username.t
     ; host : Typed_sql_generated_types.Type_public_host.t
     ; inet_value : Schema_test_codecs.Inet.t
@@ -210,6 +239,22 @@ module Advanced = struct
   let mood_default = None
   let mood_is_generated = false
   let mood_primary_key_position = None
+
+  let result_status_column =
+    Typed_sql_codegen.Column.v_exn
+      table
+      "result_status"
+      Typed_sql_generated_types.Type_public_result_status.db_type
+  ;;
+
+  let result_status table_ref =
+    Typed_sql_codegen.Expr.column table_ref result_status_column
+  ;;
+
+  let result_status_has_default = false
+  let result_status_default = None
+  let result_status_is_generated = false
+  let result_status_primary_key_position = None
 
   let username_column =
     Typed_sql_codegen.Column.v_exn
@@ -315,6 +360,7 @@ module Advanced = struct
     and payload = Typed_sql_codegen.Projection.expr (payload table_ref)
     and payload_binary = Typed_sql_codegen.Projection.expr (payload_binary table_ref)
     and mood = Typed_sql_codegen.Projection.expr (mood table_ref)
+    and result_status = Typed_sql_codegen.Projection.expr (result_status table_ref)
     and username = Typed_sql_codegen.Projection.expr (username table_ref)
     and host = Typed_sql_codegen.Projection.expr (host table_ref)
     and inet_value = Typed_sql_codegen.Projection.expr (inet_value table_ref)
@@ -328,6 +374,7 @@ module Advanced = struct
     ; payload
     ; payload_binary
     ; mood
+    ; result_status
     ; username
     ; host
     ; inet_value

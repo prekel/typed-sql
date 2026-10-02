@@ -4,7 +4,7 @@
 
 (name typed-sql)
 
-(version 0.3.7)
+(version 0.3.8)
 
 (generate_opam_files true)
 
@@ -74,6 +74,60 @@
   ptime
   ppx_let
   lwt
+  uri
   (pgocaml (>= 4.3.0)))
  (tags
   (database sql pgocaml lwt postgresql)))
+
+(package
+ (name typed-sql-schema)
+ (synopsis "Schema metadata, snapshots and code generation for typed-sql")
+ (description
+  "Build-time schema metadata and OCaml descriptor generation for typed-sql.")
+ (depends
+  (ocaml (>= 4.14.1))
+  (typed-sql (= :version))
+  base
+  yojson
+  ppx_let
+  (ppx_expect :with-test)
+  (ipaddr :with-test)
+  (zarith :with-test))
+ (tags
+  (database sql schema codegen)))
+
+(package
+ (name typed-sql-schema-caqti-lwt)
+ (synopsis "Caqti Lwt schema introspection for typed-sql")
+ (description
+  "PostgreSQL and SQLite schema introspection and snapshot dumping through Caqti Lwt.")
+ (depends
+  (ocaml (>= 4.14.1))
+  (typed-sql-schema (= :version))
+  base
+  ppx_let
+  (caqti (and (>= 3.0.0) (< 3.1.0~)))
+  (caqti-lwt (and (>= 3.0.0) (< 3.1.0~)))
+  lwt
+  caqti-driver-postgresql
+  (caqti-driver-sqlite3 :with-test)
+  uri)
+ (tags
+  (database sql schema caqti lwt postgresql sqlite)))
+
+(package
+ (name typed-sql-schema-pgocaml-lwt)
+ (synopsis "PG'OCaml Lwt schema introspection for typed-sql")
+ (description
+  "PostgreSQL schema introspection and snapshot dumping through PG'OCaml Lwt.")
+ (depends
+  (ocaml (>= 4.14.1))
+  (typed-sql-schema (= :version))
+  (typed-sql-pgocaml-lwt (= :version))
+  base
+  ppx_let
+  lwt
+  uri
+  (pgocaml (>= 4.3.0)))
+ (tags
+  (database sql schema pgocaml lwt postgresql)))

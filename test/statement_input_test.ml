@@ -50,6 +50,18 @@ let build_query
     |> select Person.projection)
 ;;
 
+let no_params_statement =
+  Statement.Portable.query_many_exn (fun params ->
+    let () = Statement.no_params params in
+    Query.(from Person.table |> select Person.projection))
+;;
+
+let%test "a statement without runtime parameters has unit input" =
+  String.equal
+    (Statement.sql_exn ~dialect:Dialect.Postgresql no_params_statement)
+    (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() no_params_statement)
+;;
+
 type tuple_input = string * int64 * int64 * string * int * int * string * bool * int * int
 
 let tuple_statement =

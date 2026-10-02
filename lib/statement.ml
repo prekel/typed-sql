@@ -7,6 +7,17 @@ type definition_error =
 
 exception Definition_error of definition_error
 
+let () =
+  Stdlib.Printexc.register_printer (function
+    | Definition_error { dialect; error } ->
+      Some
+        ("Statement.Definition_error ("
+         ^ Dialect.to_string dialect
+         ^ "): "
+         ^ Compile_error.to_string error)
+    | _ -> None)
+;;
+
 type binding_error =
   { name : string option
   ; message : string
@@ -34,6 +45,8 @@ type ('input, 'requirements) parameters =
   ; non_negative_int :
       name:string -> get:('input -> int) -> 'requirements Pagination_parameter.t
   }
+
+let no_params (_ : (unit, _) parameters) = ()
 
 type 'input slot =
   | Slot :

@@ -1,0 +1,27 @@
+(test
+ (name sqlite_schema_test)
+ (package typed-sql-schema-caqti-lwt)
+ (libraries
+  base
+  caqti
+  caqti-driver-sqlite3
+  caqti-lwt.unix
+  lwt.unix
+  typed-sql
+  typed-sql-schema
+  typed-sql-schema-caqti-lwt
+  uri))
+
+(executable
+ (name postgresql_schema_test)
+ (modules postgresql_schema_test)
+ (libraries
+  base
+  caqti
+  caqti-driver-postgresql
+  caqti-lwt.unix
+  lwt.unix
+  typed-sql
+  typed-sql-schema
+  typed-sql-schema-caqti-lwt
+  uri))

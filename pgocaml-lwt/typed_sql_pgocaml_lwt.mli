@@ -89,3 +89,69 @@ val transaction
   :  conn:'connection Pgocaml.t
   -> f:('connection Pgocaml.t -> ('a, error) Result.t Lwt.t)
   -> ('a, error) Result.t Lwt.t
+
+(** Build an adapter for an existing Lwt PG'OCaml module. The resulting
+    connection type is the input module's type, so connections owned by an
+    application pool can be passed to [run] directly. *)
+module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) : sig
+  module Pgocaml :
+    PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t and type 'a t = 'a P.t
+
+  type constraint_kind =
+    | Unique
+    | Foreign_key
+    | Not_null
+    | Check
+    | Restrict
+    | Exclusion
+    | Other
+
+  type error =
+    | Compile of Typed_sql.Statement.definition_error
+    | Parameter of Typed_sql.Statement.binding_error
+    | Encode of string
+    | Decode of string
+    | Cardinality of
+        { expected : string
+        ; actual : int
+        }
+    | Constraint_violation of
+        { kind : constraint_kind
+        ; message : string
+        }
+    | Invalid_cache_capacity of int
+    | Prepared_cache_closed
+    | Pgocaml of exn
+
+  val error_to_string : error -> string
+  val pp_error : Formatter.t -> error -> unit
+
+  val run
+    :  conn:'connection Pgocaml.t
+    -> ('input, 'output, [< `Postgresql ]) Typed_sql.Statement.t
+    -> 'input
+    -> ('output, error) Result.t Lwt.t
+
+  module Prepared_cache : sig
+    type 'connection t
+
+    val create
+      :  ?capacity:int
+      -> conn:'connection Pgocaml.t
+      -> unit
+      -> ('connection t, error) Result.t
+
+    val run
+      :  'connection t
+      -> ('input, 'output, [< `Postgresql ]) Typed_sql.Statement.t
+      -> 'input
+      -> ('output, error) Result.t Lwt.t
+
+    val close : 'connection t -> (unit, error) Result.t Lwt.t
+  end
+
+  val transaction
+    :  conn:'connection Pgocaml.t
+    -> f:('connection Pgocaml.t -> ('a, error) Result.t Lwt.t)
+    -> ('a, error) Result.t Lwt.t
+end

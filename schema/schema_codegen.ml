@@ -1,4 +1,5 @@
 open! Base
+module Identifier = Typed_sql.Identifier
 
 type error =
   | Empty_table of Identifier.t
@@ -497,12 +498,12 @@ let generate_type_module ~rules ~types typ =
       let constructors = List.map variants ~f:snd |> String.concat ~sep:" | " in
       let encode =
         List.map variants ~f:(fun (label, variant) ->
-          "    | " ^ variant ^ " -> Ok " ^ Printf.sprintf "%S" label)
+          "    | " ^ variant ^ " -> Stdlib.Result.Ok " ^ Printf.sprintf "%S" label)
         |> String.concat ~sep:"\n"
       in
       let decode =
         List.map variants ~f:(fun (label, variant) ->
-          "    | " ^ Printf.sprintf "%S" label ^ " -> Ok " ^ variant)
+          "    | " ^ Printf.sprintf "%S" label ^ " -> Stdlib.Result.Ok " ^ variant)
         |> String.concat ~sep:"\n"
       in
       Ok
@@ -515,7 +516,7 @@ let generate_type_module ~rules ~types typ =
            ; encode
            ; "\n    let decode = function\n"
            ; decode
-           ; "\n    | _ -> Error \"unknown enum label\"\n"
+           ; "\n    | _ -> Stdlib.Result.Error \"unknown enum label\"\n"
            ; "    let db_type = Typed_sql_codegen.Db_type.map ~name:"
            ; Printf.sprintf "%S" key
            ; " ~encode ~decode ("

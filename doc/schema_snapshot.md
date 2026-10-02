@@ -67,6 +67,16 @@ JSON относятся к корню `$`.
 
 ## CLI
 
+`typed-sql-schema-dump` из пакета `typed-sql-schema-caqti-lwt` и
+`typed-sql-pgocaml-schema-dump` из `typed-sql-schema-pgocaml-lwt` читают PostgreSQL
+схему и создают одинаковый JSON snapshot. Оба принимают необязательный
+PostgreSQL URI и повторяемый `--exclude-table SCHEMA.TABLE`. Без URI
+подключение берёт параметры из `PGHOST`, `PGPORT`, `PGUSER`, `PGDATABASE` и
+`PGPASSWORD`. PG’OCaml дампер поддерживает стандартные host, port, user,
+password и database в URI, а также `?host=/path/to/socket`; остальные
+URI-параметры отклоняет.
+
+`typed-sql-codegen` устанавливается с `typed-sql-schema`.
 `typed-sql-codegen schema.json` читает файл, `typed-sql-codegen -` читает stdin.
 `typed-sql-codegen --type-rules rules.json schema.json` применяет правила
 пользовательских типов. Повторяемый параметр

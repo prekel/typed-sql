@@ -1,0 +1,11 @@
+(executable
+ (name postgresql_schema_test)
+ (modules postgresql_schema_test)
+ (libraries
+  base
+  lwt.unix
+  pgocaml
+  typed-sql
+  typed-sql-schema
+  typed-sql-schema-pgocaml-lwt
+  typed-sql-pgocaml-lwt))

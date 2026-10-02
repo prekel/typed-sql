@@ -1,4 +1,5 @@
 open! Base
+module Identifier = Typed_sql.Identifier
 
 type error = string
 

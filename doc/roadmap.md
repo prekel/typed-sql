@@ -170,8 +170,9 @@ assignments. `Statement.For_dialect` принимает статический w
 
 SQLite `:memory:` integration suite проверяет codec, DML, expressions,
 aggregates, correlated subqueries, conflict ignore и транзакции. Отдельный
-`make test-postgres` запускает те же portable golden queries на PostgreSQL 18
-и SQLite, а также проверяет Caqti и PG'OCaml adapters на реальном сервере.
+`make test-postgres` запускает те же portable golden queries на выбранном
+PostgreSQL 15–18 и SQLite, а также проверяет Caqti и PG'OCaml adapters на
+реальном сервере.
 
 ### Schema introspection и codegen
 
@@ -184,7 +185,7 @@ SQL `DATE` отделён от timestamp на уровне типов, adapters 
 SQLite `DATE` больше не отображается на неточный timestamp codec. UUID также
 имеет отдельный валидируемый тип, native adapter codec и codegen mapping.
 
-`Typed_sql_caqti_lwt.Schema.introspect` читает:
+`Typed_sql_schema_caqti_lwt.introspect` читает:
 
 - SQLite metadata через `sqlite_schema`, `pragma_table_xinfo`,
   `pragma_foreign_key_list`, `pragma_index_list` и `pragma_index_info`;
@@ -193,8 +194,12 @@ SQLite `DATE` больше не отображается на неточный t
 
 SQLite introspection различает rowid alias `INTEGER PRIMARY KEY` и primary key,
 который всё ещё допускает `NULL`; implicit FK без списка referenced columns
-восстанавливает ordered primary key родительской таблицы. PostgreSQL introspection реализована
-и проходит сборку, но не запускалась против сервера по текущему ограничению.
+восстанавливает ordered primary key родительской таблицы.
+`Typed_sql_schema_pgocaml_lwt.introspect` читает ту же PostgreSQL metadata;
+оба интроспектора используют общие catalog-запросы и преобразование в
+`Typed_sql_schema.Schema_ir`. Schema IR, snapshot и codegen находятся в
+`typed-sql-schema`, а интроспекторы — в отдельных драйверных пакетах.
+`make test-postgres` сравнивает их snapshots на одной живой схеме.
 
 `Schema_codegen.generate` создаёт OCaml modules с row record, table и column
 descriptors, accessors, applicative projection и metadata для defaults,
@@ -216,16 +221,15 @@ OCaml keywords и одиночный `_`, а ссылки на библиоте�
 
 Тесты разделены по назначению:
 
-- `make coverage` запускает только public API tests, properties и SQLite
-  integration; порог равен 97%, отчёт находится в
+- `make coverage` проверяет query core и чистые модули схемы через public API
+  tests, properties и SQLite integration; порог равен 96,5%, отчёт находится в
   `_coverage/public/html/index.html`;
 - `make coverage-all` дополнительно запускает backend и private white-box
   suites; порог равен 99%, отчёт находится в
   `_coverage/all/html/index.html`.
 
-Последний полный прогон перед обновлением этого документа дал 97,31% через
-публичный API и 99,56% всеми тестами ядра. Точные цифры следует обновлять после
-изменения instrumented implementation.
+Последний полный прогон после разделения библиотек дал 96,51% через
+публичный API и 99,01% с backend и private тестами.
 
 `benchmark/query_bench.ml` измеряет построение и компиляцию маленького запроса,
 а также shapes с 20/100 условиями `WHERE` и выражениями `ORDER BY`. На текущем
@@ -547,7 +551,7 @@ Compile-fail tests проверяют, что обычный SELECT нельзя
 - [x] Закрыть расхождения между generated SQL и PostgreSQL runtime, явно указать
   проверенные major versions и ограничения API.
 
-Проверен PostgreSQL 18.6. Другие major versions остаются непроверенными.
+Проверены PostgreSQL 15.19 и 18.6. Версии 16 и 17 остаются непроверенными.
 Nullable scalar subquery не различает отсутствие строки и SQL `NULL`.
 PG'OCaml возвращает `Affected_rows.Unknown`; native JSON и array codecs не
 входят в portable API.
@@ -718,7 +722,7 @@ reconnect и eviction. Решение по core API и рассмотренны�
 - PostgreSQL/SQLite schema introspection и descriptor generator реализованы;
 - `make release-check`, `make coverage` и `make coverage-all` проходят;
 - PostgreSQL server не требуется для обычного `make test`; отдельный
-  `make test-postgres` создаёт временный кластер PostgreSQL 18.
+  `make test-postgres` создаёт временный кластер выбранного PostgreSQL 15–18.
 
 После выполнения этих пунктов дальнейшее расширение API должно опираться на
 внешний RealWorld-сценарий или отдельный подтверждённый use case.

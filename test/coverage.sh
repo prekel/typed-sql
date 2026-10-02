@@ -24,11 +24,13 @@ test/.typed_sql_expect_tests.inline-tests/inline-test-runner.exe
 test/schema/.typed_sql_schema_expect_tests.inline-tests/inline-test-runner.exe
 test/property_test.exe
 caqti-lwt/test/sqlite_test.exe
+caqti-lwt/schema/test/sqlite_schema_test.exe
 test/schema/generated_schema_downstream_test.exe
 "
 fi
 if [ "$mode" = all ]; then
   targets="$targets
+test/.typed_sql_mega_coverage_tests.inline-tests/inline-test-runner.exe
 test/.typed_sql_backend_expect_tests.inline-tests/inline-test-runner.exe
 test/.typed_sql_private_expect_tests.inline-tests/inline-test-runner.exe
 "
@@ -56,11 +58,14 @@ else
   )
   _build/default/test/property_test.exe
   _build/default/caqti-lwt/test/sqlite_test.exe
+  _build/default/caqti-lwt/schema/test/sqlite_schema_test.exe
   _build/default/test/schema/generated_schema_downstream_test.exe
 
   if [ "$mode" = all ]; then
     (
       cd test
+      ../_build/default/test/.typed_sql_mega_coverage_tests.inline-tests/inline-test-runner.exe \
+        inline-test-runner typed_sql_mega_coverage_tests -strict -source-tree-root ..
       ../_build/default/test/.typed_sql_backend_expect_tests.inline-tests/inline-test-runner.exe \
         inline-test-runner typed_sql_backend_expect_tests -strict -source-tree-root ..
       ../_build/default/test/.typed_sql_private_expect_tests.inline-tests/inline-test-runner.exe \
@@ -77,10 +82,10 @@ case "$mode" in
   public) threshold=96.5 ;;
   all) threshold=99.0 ;;
   mega)
-    # The single mega query measures query construction and rendering. Schema
-    # generation and PostgreSQL value codecs have their own coverage suites.
+    # The single mega query measures query construction and rendering.
+    # PostgreSQL value codecs have their own coverage suites.
     coverage="$(printf '%s\n' "$summary" | awk '
-      $4 ~ /^lib\// && $4 !~ /^lib\/(schema_codegen|schema_ir|schema_snapshot|pg_array|interval|local_timestamp)\.ml$/ {
+      $4 ~ /^lib\// && $4 !~ /^lib\/(pg_array|interval|local_timestamp)\.ml$/ {
         split($3, counts, "/")
         covered += counts[1]
         total += counts[2]

@@ -1,0 +1,9 @@
+(library
+ (name typed_sql_schema)
+ (public_name typed-sql-schema)
+ (modules typed_sql_schema schema_ir schema_snapshot schema_codegen)
+ (libraries base typed-sql yojson str)
+ (instrumentation
+  (backend bisect_ppx))
+ (preprocess
+  (pps ppx_let)))

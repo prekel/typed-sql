@@ -1,0 +1,30 @@
+(library
+ (name typed_sql_schema_pgocaml_lwt)
+ (public_name typed-sql-schema-pgocaml-lwt)
+ (modules typed_sql_schema_pgocaml_lwt)
+ (libraries
+  base
+  lwt.unix
+  pgocaml
+  typed-sql-schema
+  typed-sql-schema.backend
+  typed-sql-pgocaml-lwt)
+ (preprocess
+  (pps ppx_let)))
+
+(executable
+ (name typed_sql_pgocaml_schema_dump)
+ (public_name typed-sql-pgocaml-schema-dump)
+ (package typed-sql-schema-pgocaml-lwt)
+ (modules typed_sql_pgocaml_schema_dump)
+ (libraries
+  base
+  lwt.unix
+  pgocaml
+  typed-sql-schema
+  typed-sql-schema.backend
+  typed-sql-schema-pgocaml-lwt
+  typed-sql-pgocaml-lwt
+  uri)
+ (preprocess
+  (pps ppx_let)))
