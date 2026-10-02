@@ -86,13 +86,15 @@ var query = new Query("book")
 
 ```ocaml
 let sk01 =
-  Statement.Portable.query_many_exn (fun params ->
-    let minimum_year = params.expr Db_type.int64 ~get:Fn.id in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ minimum_year = params.expr Db_type.int64 ~get:Fn.id in
+    params.query_many (
     Query.(
       from Book.table
       |> where (fun book -> Book.published_in book >. minimum_year)
       |> select (fun book ->
-        Projection.pair (Book.id book) (Book.title book))))
+        Projection.pair (Book.id book) (Book.title book)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -137,7 +139,7 @@ var query = new Query("book")
 
 ```ocaml
 let sk02 =
-  Statement.Dynamic.Portable.query_many (fun minimum_year ->
+  Statement.Dynamic.query_many ~dialect:Dialect.portable (fun minimum_year ->
     Query.(
       from Book.table
       |> where_opt minimum_year ~f:(fun book year ->
@@ -193,7 +195,7 @@ var query = new Query("book")
 
 ```ocaml
 let sk03 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Book.table
       |> where (fun book ->
@@ -250,7 +252,7 @@ var query = new Query("book")
 
 ```ocaml
 let sk04 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Book.table
       |> inner_join Author.table ~on:(fun book author ->
@@ -314,8 +316,10 @@ var query = new Query()
 
 ```ocaml
 let sk05 =
-  Statement.Portable.query_many_exn (fun params ->
-    let minimum_count = params.expr Db_type.int64 ~get:Fn.id in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ minimum_count = params.expr Db_type.int64 ~get:Fn.id in
+    params.query_many (
     let book_counts_relation =
       Derived_table.create
         ~table:Book_counts.table
@@ -330,7 +334,7 @@ let sk05 =
     Cte.with_result (Cte.select book_counts_relation) ~f:(fun book_counts ->
       Query.(
         from_cte book_counts
-        |> select Book_counts.projection)))
+        |> select Book_counts.projection))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -385,7 +389,7 @@ var query = new Query("author")
 
 ```ocaml
 let sk06 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Author.table
       |> where (fun author ->
@@ -444,7 +448,7 @@ var query = new Query("author")
 
 ```ocaml
 let sk07 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Author.table
       |> select (fun author ->
@@ -507,7 +511,7 @@ var query = before.UnionAll(after);
 
 ```ocaml
 let sk08 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     let before =
       Query.(
         from Book.table
@@ -575,8 +579,10 @@ var query = new Query("book_archive")
 
 ```ocaml
 let sk09 =
-  Statement.Portable.command_exn (fun params ->
-    let cutoff = params.expr Db_type.int64 ~get:Fn.id in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ cutoff = params.expr Db_type.int64 ~get:Fn.id in
+    params.command (
     let source =
       Query.(
         from Book.table
@@ -595,7 +601,7 @@ let sk09 =
          |> add Book_archive.title_column
          |> add Book_archive.published_in_column)
     in
-    Insert.(into Book_archive.table |> from_select columns source |> command))
+    Insert.(into Book_archive.table |> from_select columns source |> command)))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -643,16 +649,22 @@ var query = new Query("book")
 
 ```ocaml
 let sk10 =
-  Statement.Portable.command_exn (fun params ->
-    let title = params.expr Db_type.text ~get:(fun (title, _, _) -> title) in
-    let author_id = params.expr Db_type.int64 ~get:(fun (_, author_id, _) -> author_id) in
-    let cutoff = params.expr Db_type.int64 ~get:(fun (_, _, cutoff) -> cutoff) in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ title =
+      params.expr Db_type.text ~get:(fun (title, _, _) -> title)
+    and+ author_id =
+      params.expr Db_type.int64 ~get:(fun (_, author_id, _) -> author_id)
+    and+ cutoff =
+      params.expr Db_type.int64 ~get:(fun (_, _, cutoff) -> cutoff)
+    in
+    params.command (
     Update.(
       table Book.table
       |> set_expr Book.title_column title
       |> where (fun book ->
         (Book.author_id book =. author_id) &&. (Book.published_in book <. cutoff))
-      |> command))
+      |> command)))
 ```
 
 #### SQL typed-sql (PostgreSQL)

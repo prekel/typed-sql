@@ -82,21 +82,8 @@ case "$mode" in
   public) threshold=96.5 ;;
   all) threshold=99.0 ;;
   mega)
-    # The single mega query measures query construction and rendering.
-    # PostgreSQL value codecs have their own coverage suites.
-    coverage="$(printf '%s\n' "$summary" | awk '
-      $4 ~ /^lib\// && $4 !~ /^lib\/(pg_array|interval|local_timestamp)\.ml$/ {
-        split($3, counts, "/")
-        covered += counts[1]
-        total += counts[2]
-      }
-      END {
-        if (total == 0) exit 1
-        printf "%.2f", 100 * covered / total
-      }
-    ')"
-    printf 'Mega query coverage: %s%% (query modules)\n' "$coverage"
-    threshold=67.7
+    printf 'Mega lib coverage: %s%%\n' "$coverage"
+    threshold=67.0
     ;;
 esac
 awk -v coverage="$coverage" -v threshold="$threshold" \

@@ -10,21 +10,17 @@ module Item = struct
 end
 
 let postgresql =
-  Statement.For_dialect.query_many_exn
+  Statement.query_many
     ~dialect:Dialect.postgresql
-    (fun (_ : (unit, Dialect.postgresql) Statement.parameters) ->
-       Query.(
-         from Item.table
-         |> select (fun item -> Projection.expr (Expr.column item Item.id))))
+    Query.(
+      from Item.table |> select (fun item -> Projection.expr (Expr.column item Item.id)))
 ;;
 
 let sqlite =
-  Statement.For_dialect.query_many_exn
+  Statement.query_many
     ~dialect:Dialect.sqlite
-    (fun (_ : (unit, Dialect.sqlite) Statement.parameters) ->
-       Query.(
-         from Item.table
-         |> select (fun item -> Projection.expr (Expr.column item Item.name))))
+    Query.(
+      from Item.table |> select (fun item -> Projection.expr (Expr.column item Item.name)))
 ;;
 
 let _ = Statement.choose_dialect ~postgresql ~sqlite

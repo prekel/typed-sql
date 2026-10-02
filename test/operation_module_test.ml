@@ -25,19 +25,21 @@ module Find_people = struct
   end
 
   let statement =
-    Statement.Portable.query_many_exn (fun params ->
-      let name = params.column Person.name_column ~get:Input.name in
-      let min_id = params.column Person.id_column ~get:Input.min_id in
-      let maximum_rows =
+    Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+      let open Statement.Parameters.Let_syntax in
+      let%map name = params.column Person.name_column ~get:Input.name
+      and min_id = params.column Person.id_column ~get:Input.min_id
+      and maximum_rows =
         params.non_negative_int ~name:"maximum_rows" ~get:Input.maximum_rows
       in
-      Query.(
-        from Person.table
-        |> where (fun person ->
-          Person.name person =. name &&. (Person.id person >=. min_id))
-        |> order_by (fun person -> Person.id person) `Asc
-        |> limit_param maximum_rows
-        |> select Person.projection))
+      params.query_many
+        Query.(
+          from Person.table
+          |> where (fun person ->
+            Person.name person =. name &&. (Person.id person >=. min_id))
+          |> order_by (fun person -> Person.id person) `Asc
+          |> limit_param maximum_rows
+          |> select Person.projection))
   ;;
 end
 
@@ -52,16 +54,18 @@ module Create_person = struct
   end
 
   let statement =
-    Statement.Portable.command_exn (fun params ->
-      let id = params.column Person.id_column ~get:Input.id in
-      let name = params.column Person.name_column ~get:Input.name in
-      let email = params.column Person.email_column ~get:Input.email in
-      Insert.(
-        into Person.table
-        |> set_expr Person.id_column id
-        |> set_expr Person.name_column name
-        |> set_expr Person.email_column email
-        |> command))
+    Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+      let open Statement.Parameters.Let_syntax in
+      let%map id = params.column Person.id_column ~get:Input.id
+      and name = params.column Person.name_column ~get:Input.name
+      and email = params.column Person.email_column ~get:Input.email in
+      params.command
+        Insert.(
+          into Person.table
+          |> set_expr Person.id_column id
+          |> set_expr Person.name_column name
+          |> set_expr Person.email_column email
+          |> command))
   ;;
 end
 

@@ -63,49 +63,52 @@ let all_source =
 ;;
 
 let filtered_statement =
-  Statement.Portable.query_many_exn (fun params ->
-    let cutoff = params.expr Db_type.int64 ~get:Fn.id in
-    let source =
-      Query.(
-        from Source.table
-        |> where (fun row -> Source.year row <. cutoff)
-        |> select (fun row -> Projection.pair (Source.id row) (Source.name row)))
-    in
-    Insert.(
-      into Target.table
-      |> from_select columns source
-      |> on_conflict_do_nothing
-      |> returning (fun row -> Projection.expr (Target.id row))))
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    Statement.Parameters.map (params.expr Db_type.int64 ~get:Fn.id) ~f:(fun cutoff ->
+      let source =
+        Query.(
+          from Source.table
+          |> where (fun row -> Source.year row <. cutoff)
+          |> select (fun row -> Projection.pair (Source.id row) (Source.name row)))
+      in
+      params.query_many
+        Insert.(
+          into Target.table
+          |> from_select columns source
+          |> on_conflict_do_nothing
+          |> returning (fun row -> Projection.expr (Target.id row)))))
 ;;
 
 let unfiltered_statement =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many
+    ~dialect:Dialect.portable
     Insert.(
       into Target.table
       |> from_select columns all_source
       |> on_conflict_do_nothing
-      |> returning (fun row -> Projection.expr (Target.id row))))
+      |> returning (fun row -> Projection.expr (Target.id row)))
 ;;
 
 let compound_statement =
-  Statement.Portable.query_many_exn (fun _ ->
-    let older =
-      Query.(
-        from Source.table
-        |> where (fun row -> Source.year row <$ 1900L)
-        |> select (fun row -> Projection.pair (Source.id row) (Source.name row)))
-    in
-    let newer =
-      Query.(
-        from Source.table
-        |> where (fun row -> Source.year row >$ 2000L)
-        |> select (fun row -> Projection.pair (Source.id row) (Source.name row)))
-    in
-    Insert.(
-      into Target.table
-      |> from_select columns (Query.union_all older newer)
-      |> on_conflict_do_nothing
-      |> returning (fun row -> Projection.expr (Target.id row))))
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (let older =
+       Query.(
+         from Source.table
+         |> where (fun row -> Source.year row <$ 1900L)
+         |> select (fun row -> Projection.pair (Source.id row) (Source.name row)))
+     in
+     let newer =
+       Query.(
+         from Source.table
+         |> where (fun row -> Source.year row >$ 2000L)
+         |> select (fun row -> Projection.pair (Source.id row) (Source.name row)))
+     in
+     Insert.(
+       into Target.table
+       |> from_select columns (Query.union_all older newer)
+       |> on_conflict_do_nothing
+       |> returning (fun row -> Projection.expr (Target.id row))))
 ;;
 
 let cte_statement =
@@ -116,38 +119,42 @@ let cte_statement =
     Cte.with_result (Cte.select relation) ~f:(fun selected ->
       Query.(from_cte selected |> select Target.projection))
   in
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many
+    ~dialect:Dialect.portable
     Insert.(
       into Target.table
       |> from_select columns source
-      |> returning (fun row -> Projection.expr (Target.id row))))
+      |> returning (fun row -> Projection.expr (Target.id row)))
 ;;
 
 let update_statement =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many
+    ~dialect:Dialect.portable
     Insert.(
       into Target.table
       |> from_select columns all_source
       |> on_conflict (Conflict_target.column Target.id_column)
       |> do_update (fun ~existing:_ ~excluded ->
         Conflict_update.(empty |> set_expr Target.name_column (Target.name excluded)))
-      |> returning (fun row -> Projection.expr (Target.id row))))
+      |> returning (fun row -> Projection.expr (Target.id row)))
 ;;
 
 let singleton_statement =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many
+    ~dialect:Dialect.portable
     Insert.(
       into Singleton.table
       |> from_select
            (Columns.column Singleton.id_column)
            (Query.select_one (Expr.constant Db_type.int64 99L))
       |> on_conflict_do_nothing
-      |> returning (fun row -> Projection.expr (Singleton.id row))))
+      |> returning (fun row -> Projection.expr (Singleton.id row)))
 ;;
 
 let read_statement =
-  Statement.Portable.query_many_exn (fun _ ->
-    Query.(from Target.table |> order_by Target.id `Asc |> select Target.projection))
+  Statement.query_many
+    ~dialect:Dialect.portable
+    Query.(from Target.table |> order_by Target.id `Asc |> select Target.projection)
 ;;
 
 let exec conn sql =

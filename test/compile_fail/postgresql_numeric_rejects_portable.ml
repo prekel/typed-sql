@@ -11,4 +11,4 @@ let query =
     Postgresql.Numeric_projection.sum_numeric (Expr.column row amount))
 ;;
 
-let _statement = Statement.Portable.query_one (fun _ -> query)
+let _statement = Statement.query_one ~dialect:Dialect.portable query

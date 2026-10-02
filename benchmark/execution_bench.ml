@@ -22,10 +22,13 @@ module Item = struct
 end
 
 let statement =
-  Statement.Portable.expect_one_exn (fun params ->
-    let id = params.column Item.id_column ~get:Fn.id in
-    Query.(
-      from Item.table |> where (fun item -> Item.id item =. id) |> select Item.projection))
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    Statement.Parameters.map (params.column Item.id_column ~get:Fn.id) ~f:(fun id ->
+      params.expect_one
+        Query.(
+          from Item.table
+          |> where (fun item -> Item.id item =. id)
+          |> select Item.projection)))
 ;;
 
 let direct sql =

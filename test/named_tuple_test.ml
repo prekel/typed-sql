@@ -13,31 +13,33 @@ end
 type input = minimum:int64 * maximum:int64
 
 let annotated_statement =
-  Statement.Portable.query_many_exn (fun params ->
-    let minimum =
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let%map minimum =
       params.column Item.id_column ~get:(fun ((~minimum, ..) : input) -> minimum)
-    in
-    let maximum =
+    and maximum =
       params.column Item.id_column ~get:(fun ((~maximum, ..) : input) -> maximum)
     in
-    Query.(
-      from Item.table
-      |> where (fun item -> Item.id item >=. minimum &&. (Item.id item <=. maximum))
-      |> select (fun item -> Projection.expr (Item.id item))))
+    params.query_many
+      Query.(
+        from Item.table
+        |> where (fun item -> Item.id item >=. minimum &&. (Item.id item <=. maximum))
+        |> select (fun item -> Projection.expr (Item.id item))))
 ;;
 
 let inferred_statement =
-  Statement.Portable.query_many_exn (fun params ->
-    let minimum =
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let%map minimum =
       params.column Item.id_column ~get:(fun (~minimum, ~maximum:_) -> minimum)
-    in
-    let maximum =
+    and maximum =
       params.column Item.id_column ~get:(fun (~minimum:_, ~maximum) -> maximum)
     in
-    Query.(
-      from Item.table
-      |> where (fun item -> Item.id item >=. minimum &&. (Item.id item <=. maximum))
-      |> select (fun item -> Projection.expr (Item.id item))))
+    params.query_many
+      Query.(
+        from Item.table
+        |> where (fun item -> Item.id item >=. minimum &&. (Item.id item <=. maximum))
+        |> select (fun item -> Projection.expr (Item.id item))))
 ;;
 
 let named_tuple_input = ~minimum:1L, ~maximum:10L

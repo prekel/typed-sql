@@ -1,6 +1,6 @@
 {0 Динамические statements}
 
-[Statement.Dynamic.Portable] предназначен для случая, когда input определяет
+[Statement.Dynamic] предназначен для случая, когда input определяет
 саму форму SQL: оператор сравнения, число элементов [IN], вложенность
 предикатов или projection. Все варианты projection должны декодироваться в
 один OCaml-тип, заданный типом statement. Конструктор сохраняет callback и не
@@ -48,7 +48,7 @@ module Search_people = struct
   end
 
   let statement =
-    Statement.Dynamic.Portable.query_many (fun (input : Input.t) ->
+    Statement.Dynamic.query_many ~dialect:Dialect.portable (fun (input : Input.t) ->
       Query.(
         from Person.table
         |> where (fun person ->
@@ -62,8 +62,8 @@ end
 В динамическом callback операторы с [$], [Expr.constant], [Insert.set] и
 [Update.set] получают значения текущего input. Они всё равно создают bind
 parameters и не интерполируют значения в SQL. В отличие от статического
-[Statement.Portable], отдельный [params] здесь не нужен: запрос целиком
-перестраивается для вызова.
+[Statement.with_parameters] с [params.query_many], отдельный [params] здесь не
+нужен: запрос целиком перестраивается для вызова.
 
 {[
 Typed_sql_caqti_lwt.run
@@ -99,12 +99,14 @@ input: [Statement.sql] возвращает [Statement.Dynamic_input_required], 
 callback определяет форму SQL. То же ограничение действует для
 [Statement.choose], где input выбирает ветвь.
 
-Static [Statement.Portable] остаётся предпочтительным для фиксированной формы:
-он компилирует PostgreSQL и SQLite планы при создании модуля и выполняет только
-binding. Dynamic-вариант нужен, когда число возможных форм не ограничено или
-их явное перечисление через [Statement.choose] непрактично.
+Статический [Statement.with_parameters ~dialect:Dialect.portable] остаётся
+предпочтительным для фиксированной формы: он компилирует PostgreSQL и SQLite
+планы при создании модуля и выполняет только binding. Dynamic-вариант нужен,
+когда число возможных форм не ограничено или их явное перечисление через
+[Statement.choose] непрактично.
 
-[Dynamic.Portable] сохраняет статическую проверку dialect requirements:
-callback обязан вернуть portable query или command. PostgreSQL-specific
-операцию следует выразить отдельным будущим dialect-specific динамическим API;
-сейчас такой конструктор намеренно отсутствует.
+[Dynamic] сохраняет статическую проверку dialect requirements: callback обязан
+вернуть query или command, совместимый с переданным [~dialect].
+[Dialect.portable] разрешает PostgreSQL и SQLite; concrete witness ограничивает
+statement одним dialect. Неподдерживаемый runtime dialect отклоняется до вызова
+callback.

@@ -28,30 +28,32 @@ type statement_input =
 let statement_builds = ref 0
 
 let filtered_statement =
-  Statement.Portable.query_many_exn (fun params ->
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     Int.incr statement_builds;
-    let minimum_id =
+    let open Statement.Parameters.Let_syntax in
+    let%map minimum_id =
       params.column ~name:"minimum_id" id ~get:(fun input -> input.minimum_id)
-    in
-    let maximum_rows =
+    and maximum_rows =
       params.non_negative_int ~name:"maximum_rows" ~get:(fun input -> input.maximum_rows)
-    in
-    let start_at =
+    and start_at =
       params.non_negative_int ~name:"start_at" ~get:(fun input -> input.start_at)
     in
-    Query.(
-      from items
-      |> where (fun row ->
-        Expr.column row id >=. minimum_id &&. (Expr.column row id <=. minimum_id))
-      |> limit_param maximum_rows
-      |> offset_param start_at
-      |> select projection))
+    params.query_many
+      Query.(
+        from items
+        |> where (fun row ->
+          Expr.column row id >=. minimum_id &&. (Expr.column row id <=. minimum_id))
+        |> limit_param maximum_rows
+        |> offset_param start_at
+        |> select projection))
 ;;
 
 let all_statement =
-  Statement.Portable.query_many_exn
-    (fun (_ : (statement_input, Dialect.portable) Statement.parameters) ->
-       Query.(from items |> select projection))
+  Statement.with_parameters
+    ~dialect:Dialect.portable
+    (fun ~(params : (statement_input, Dialect.portable) Statement.parameters) ->
+       Statement.Parameters.return
+         (params.query_many Query.(from items |> select projection)))
 ;;
 
 let selected_statement =
@@ -62,21 +64,26 @@ let selected_statement =
 ;;
 
 let insert_statement =
-  Statement.Portable.command_exn (fun params ->
-    let inserted_id = params.expr ~name:"id" Db_type.int ~get:Fn.id in
-    Insert.(into items |> set_expr id inserted_id |> command))
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let%map inserted_id = params.expr ~name:"id" Db_type.int ~get:Fn.id in
+    params.command Insert.(into items |> set_expr id inserted_id |> command))
 ;;
 
 type optional_filter_input = { name : string option }
 
 let optional_filter_statement =
-  Statement.Portable.query_many_exn (fun params ->
-    let expected_name = params.column name ~name:"name" ~get:(fun input -> input.name) in
-    Query.(
-      from items
-      |> where_optional_param expected_name ~f:(fun row expected_name ->
-        Expr.column row name =. expected_name)
-      |> select projection))
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let%map expected_name =
+      params.optional_expr Db_type.text ~name:"name" ~get:(fun input -> input.name)
+    in
+    params.query_many
+      Query.(
+        from items
+        |> where_optional_param expected_name ~f:(fun row expected_name ->
+          Expr.column row name =. Expr.to_nullable expected_name)
+        |> select projection))
 ;;
 
 let compile dialect query =
@@ -167,8 +174,9 @@ let%test_unit "PostgreSQL null parameters have concrete SQL types" =
   let check db_type sql_type =
     let nullable = Expr.constant (Db_type.option db_type) None in
     let statement =
-      Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun _ ->
-        Query.(from items |> where (fun _ -> Expr.is_null nullable) |> select projection))
+      Statement.query_many
+        ~dialect:Dialect.postgresql
+        Query.(from items |> where (fun _ -> Expr.is_null nullable) |> select projection)
     in
     let sql = Statement.sql_exn ~dialect:Dialect.Postgresql statement in
     assert (String.is_substring sql ~substring:("CAST($1 AS " ^ sql_type ^ ")"))
@@ -188,16 +196,18 @@ let%test_unit "PostgreSQL null parameters have concrete SQL types" =
 let%test_unit "rendering static SQL without input does not evaluate getters" =
   let getter_calls = ref 0 in
   let statement =
-    Statement.Portable.query_many_exn (fun params ->
-      let runtime_id =
+    Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+      let open Statement.Parameters.Let_syntax in
+      let%map runtime_id =
         params.column id ~get:(fun input ->
           Int.incr getter_calls;
           input)
       in
-      Query.(
-        from items
-        |> where (fun row -> Expr.column row id =. runtime_id)
-        |> select projection))
+      params.query_many
+        Query.(
+          from items
+          |> where (fun row -> Expr.column row id =. runtime_id)
+          |> select projection))
   in
   let sql = Statement.sql_exn ~dialect:Dialect.Sqlite statement in
   assert (String.is_substring sql ~substring:"?1");
@@ -228,114 +238,110 @@ let%test_unit "choose selects only precompiled statement variants" =
   assert (not (String.is_substring all ~substring:"WHERE"))
 ;;
 
+let%test "statement exception printer delegates unrelated exceptions" =
+  String.equal (Stdlib.Printexc.to_string Stdlib.Exit) "Stdlib.Exit"
+;;
+
 let statement_query = Query.(from items |> select projection)
 
 let%test_unit "dialect-specific statement constructors require cardinality proofs" =
-  let definition_error (error : Statement.definition_error) =
-    Compile_error.to_string error.error
-  in
   let one =
-    Statement.For_dialect.query_one ~dialect:Dialect.postgresql (fun _ ->
+    Statement.query_one
+      ~dialect:Dialect.postgresql
       Query.(
         from items
         |> limit_one
-        |> select_exactly_one (fun _ -> Projection.expr Expr.count_all)))
-    |> Result.map_error ~f:definition_error
-    |> Result.ok_or_failwith
+        |> select_exactly_one (fun _ -> Projection.expr Expr.count_all))
   in
   let optional =
-    Statement.For_dialect.query_optional ~dialect:Dialect.postgresql (fun _ ->
-      Query.(from items |> limit_one |> select projection))
-    |> Result.map_error ~f:definition_error
-    |> Result.ok_or_failwith
+    Statement.query_optional
+      ~dialect:Dialect.postgresql
+      Query.(from items |> limit_one |> select projection)
   in
   let one_without_limit =
-    Statement.For_dialect.query_one ~dialect:Dialect.postgresql (fun _ ->
-      Query.(from items |> select_exactly_one (fun _ -> Projection.expr Expr.count_all)))
-    |> Result.map_error ~f:definition_error
-    |> Result.ok_or_failwith
+    Statement.query_one
+      ~dialect:Dialect.postgresql
+      Query.(from items |> select_exactly_one (fun _ -> Projection.expr Expr.count_all))
   in
   ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() one);
   ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() optional);
   ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() one_without_limit);
   ignore
-    (Statement.For_dialect.query_one_exn ~dialect:Dialect.postgresql (fun _ ->
+    (Statement.query_one
+       ~dialect:Dialect.postgresql
        Query.(
          from items
          |> limit_one
-         |> select_exactly_one (fun _ -> Projection.expr Expr.count_all))));
+         |> select_exactly_one (fun _ -> Projection.expr Expr.count_all)));
   ignore
-    (Statement.For_dialect.query_optional_exn ~dialect:Dialect.postgresql (fun _ ->
-       Query.(from items |> limit_one |> select projection)));
-  ignore
-    (Statement.For_dialect.expect_one_exn ~dialect:Dialect.postgresql (fun _ ->
-       statement_query));
-  ignore
-    (Statement.For_dialect.expect_optional_exn ~dialect:Dialect.postgresql (fun _ ->
-       statement_query))
+    (Statement.query_optional
+       ~dialect:Dialect.postgresql
+       Query.(from items |> limit_one |> select projection));
+  ignore (Statement.expect_one ~dialect:Dialect.postgresql statement_query);
+  ignore (Statement.expect_optional ~dialect:Dialect.postgresql statement_query)
 ;;
 
 let%test_unit "select_exactly_one validates its aggregate proof" =
-  let check_not_proven statement =
-    match statement with
-    | Error
-        ({ error = Compile_error.Exactly_one_query_not_proven; _ } :
-          Statement.definition_error) ->
+  let check_not_proven build =
+    match build () with
+    | exception
+        Statement.Definition_error
+          { error = Compile_error.Exactly_one_query_not_proven; _ } ->
       assert (
         String.equal
           (Compile_error.to_string Compile_error.Exactly_one_query_not_proven)
           "exactly-one SELECT requires an ungrouped aggregate without HAVING, OFFSET, or row limit 0")
-    | Error error -> failwith (Compile_error.to_string error.error)
-    | Ok _ -> failwith "invalid SELECT was accepted as exactly one row"
+    | exception Statement.Definition_error error ->
+      failwith (Compile_error.to_string error.error)
+    | _ -> failwith "invalid SELECT was accepted as exactly one row"
   in
-  check_not_proven
-    (Statement.Portable.query_one (fun _ ->
-       Query.(from items |> select_exactly_one projection)));
-  check_not_proven
-    (Statement.Portable.query_one (fun _ ->
-       Query.(
-         from items
-         |> limit 0
-         |> select_exactly_one (fun _ -> Projection.expr Expr.count_all))));
-  check_not_proven
-    (Statement.Portable.query_one (fun parameters ->
-       let maximum = parameters.non_negative_int ~name:"limit" ~get:Fn.id in
-       Query.(
-         from items
-         |> limit_param maximum
-         |> select_exactly_one (fun _ -> Projection.expr Expr.count_all))))
+  check_not_proven (fun () ->
+    Statement.query_one
+      ~dialect:Dialect.portable
+      Query.(from items |> select_exactly_one projection));
+  check_not_proven (fun () ->
+    Statement.query_one
+      ~dialect:Dialect.portable
+      Query.(
+        from items
+        |> limit 0
+        |> select_exactly_one (fun _ -> Projection.expr Expr.count_all)));
+  check_not_proven (fun () ->
+    Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+      let open Statement.Parameters.Let_syntax in
+      let%map maximum = params.non_negative_int ~name:"limit" ~get:Fn.id in
+      params.query_one
+        Query.(
+          from items
+          |> limit_param maximum
+          |> select_exactly_one (fun _ -> Projection.expr Expr.count_all))))
 ;;
 
 let%test_unit "portable statement constructors consume cardinality proofs" =
   let one =
-    Statement.Portable.query_one (fun _ ->
-      Query.(from items |> select_exactly_one (fun _ -> Projection.expr Expr.count_all)))
-    |> Result.map_error ~f:(fun (error : Statement.definition_error) ->
-      Compile_error.to_string error.error)
-    |> Result.ok_or_failwith
+    Statement.query_one
+      ~dialect:Dialect.portable
+      Query.(from items |> select_exactly_one (fun _ -> Projection.expr Expr.count_all))
   in
   let optional =
-    Statement.Portable.query_optional (fun _ ->
-      Query.(from items |> limit_one |> select projection))
-    |> Result.map_error ~f:(fun (error : Statement.definition_error) ->
-      Compile_error.to_string error.error)
-    |> Result.ok_or_failwith
+    Statement.query_optional
+      ~dialect:Dialect.portable
+      Query.(from items |> limit_one |> select projection)
   in
   ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() one);
   ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() optional);
   ignore
-    (Statement.Portable.query_one_exn (fun _ ->
-       Query.(from items |> select_exactly_one (fun _ -> Projection.expr Expr.count_all))));
+    (Statement.query_one
+       ~dialect:Dialect.portable
+       Query.(from items |> select_exactly_one (fun _ -> Projection.expr Expr.count_all)));
   ignore
-    (Statement.Portable.query_optional_exn (fun _ ->
-       Query.(from items |> limit_one |> select projection)))
+    (Statement.query_optional
+       ~dialect:Dialect.portable
+       Query.(from items |> limit_one |> select projection))
 ;;
 
 let%test_unit "statement reports unsupported runtime dialects" =
-  let query =
-    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun _ ->
-      statement_query)
-  in
+  let query = Statement.query_many ~dialect:Dialect.postgresql statement_query in
   (match Statement.sql ~dialect:Dialect.Sqlite ~input:() query with
    | Error (Statement.Unsupported_dialect Dialect.Sqlite) -> ()
    | Error _ | Ok _ -> failwith "PostgreSQL statement accepted SQLite");
@@ -346,8 +352,9 @@ let%test_unit "statement reports unsupported runtime dialects" =
    | exception Failure _ -> ()
    | _ -> failwith "sql_exn accepted an unsupported dialect");
   let command =
-    Statement.For_dialect.command_exn ~dialect:Dialect.postgresql (fun _ ->
-      Insert.(into items |> set id 1 |> command))
+    Statement.command
+      ~dialect:Dialect.postgresql
+      Insert.(into items |> set id 1 |> command)
   in
   (match Statement.sql ~dialect:Dialect.Sqlite ~input:() command with
    | Error (Statement.Unsupported_dialect Dialect.Sqlite) -> ()
@@ -358,10 +365,7 @@ let%test_unit "statement reports unsupported runtime dialects" =
 ;;
 
 let%test "SQLite statement reports PostgreSQL as unsupported" =
-  let statement =
-    Statement.For_dialect.query_many_exn ~dialect:Dialect.sqlite (fun _ ->
-      statement_query)
-  in
+  let statement = Statement.query_many ~dialect:Dialect.sqlite statement_query in
   match Statement.sql ~dialect:Dialect.Postgresql ~input:() statement with
   | Error (Statement.Unsupported_dialect Dialect.Postgresql) -> true
   | Error _ | Ok _ -> false
@@ -369,8 +373,9 @@ let%test "SQLite statement reports PostgreSQL as unsupported" =
 
 let%test_unit "statement exn constructors expose definition and binding failures" =
   (match
-     Statement.Portable.query_many_exn (fun _ ->
-       Query.(from items |> limit (-1) |> select projection))
+     Statement.query_many
+       ~dialect:Dialect.portable
+       Query.(from items |> limit (-1) |> select projection)
    with
    | exception Statement.Definition_error { error = Compile_error.Negative_limit -1; _ }
      -> ()
@@ -385,8 +390,9 @@ let%test_unit "statement exn constructors expose definition and binding failures
 let%expect_test "definition error shows its compilation failure" =
   (try
      ignore
-       (Statement.Portable.query_many_exn (fun _ ->
-          Query.(from items |> limit (-1) |> select projection)))
+       (Statement.query_many
+          ~dialect:Dialect.portable
+          Query.(from items |> limit (-1) |> select projection))
    with
    | Statement.Definition_error _ as error ->
      Stdlib.print_endline (Stdlib.Printexc.to_string error));

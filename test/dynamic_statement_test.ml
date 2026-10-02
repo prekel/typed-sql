@@ -43,7 +43,7 @@ module Search_people = struct
   end
 
   let statement =
-    Statement.Dynamic.Portable.query_many (fun (input : Input.t) ->
+    Statement.Dynamic.query_many ~dialect:Dialect.portable (fun (input : Input.t) ->
       Query.(
         from Person.table
         |> where (fun row -> Predicate.condition row input.predicate)
@@ -134,19 +134,20 @@ let%test_unit "nested predicates and variable IN preserve portable SQL" =
 let%test_unit "callbacks are deferred, selected once, and exceptions propagate" =
   let calls = ref 0 in
   let dynamic =
-    Statement.Dynamic.Portable.query_many (fun () ->
+    Statement.Dynamic.query_many ~dialect:Dialect.portable (fun () ->
       Int.incr calls;
       Query.(from Person.table |> select (fun row -> Projection.expr (Person.id row))))
   in
   let static =
-    Statement.Portable.query_many_exn (fun _ ->
-      Query.(from Person.table |> select (fun row -> Projection.expr (Person.id row))))
+    Statement.query_many
+      ~dialect:Dialect.portable
+      Query.(from Person.table |> select (fun row -> Projection.expr (Person.id row)))
   in
   (match Statement.sql ~dialect:Dialect.Sqlite dynamic with
    | Error Statement.Dynamic_input_required -> ()
    | _ -> failwith "dynamic statement exposed SQL without input");
   let dynamic_command =
-    Statement.Dynamic.Portable.command (fun () ->
+    Statement.Dynamic.command ~dialect:Dialect.portable (fun () ->
       Delete.(from Person.table |> all_rows |> command))
   in
   (match Statement.sql ~dialect:Dialect.Sqlite dynamic_command with
@@ -172,12 +173,12 @@ let%test_unit "callbacks are deferred, selected once, and exceptions propagate" 
   ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() chosen);
   assert (Int.(!calls = 2));
   let strict_one =
-    Statement.Dynamic.Portable.query_one (fun () ->
+    Statement.Dynamic.query_one ~dialect:Dialect.portable (fun () ->
       Query.(
         from Person.table |> select_exactly_one (fun _ -> Projection.expr Expr.count_all)))
   in
   let strict_optional =
-    Statement.Dynamic.Portable.query_optional (fun () ->
+    Statement.Dynamic.query_optional ~dialect:Dialect.portable (fun () ->
       Query.(
         from Person.table
         |> limit_one
@@ -185,7 +186,9 @@ let%test_unit "callbacks are deferred, selected once, and exceptions propagate" 
   in
   ignore (Statement.sql_exn ~dialect:Dialect.Sqlite ~input:() strict_one);
   ignore (Statement.sql_exn ~dialect:Dialect.Sqlite ~input:() strict_optional);
-  let raising = Statement.Dynamic.Portable.query_many (fun () -> raise Stdlib.Exit) in
+  let raising =
+    Statement.Dynamic.query_many ~dialect:Dialect.portable (fun () -> raise Stdlib.Exit)
+  in
   match Statement.sql ~dialect:Dialect.Sqlite ~input:() raising with
   | exception Stdlib.Exit -> ()
   | _ -> failwith "callback exception was swallowed"
@@ -207,7 +210,7 @@ let%test_unit "dynamic compilation errors are explicit" =
         escaped := Some row;
         Projection.expr (Person.id row)));
   let bad =
-    Statement.Dynamic.Portable.query_many (fun () ->
+    Statement.Dynamic.query_many ~dialect:Dialect.portable (fun () ->
       Query.(
         from Person.table
         |> select (fun _ -> Projection.expr (Person.id (Option.value_exn !escaped)))))
@@ -215,4 +218,31 @@ let%test_unit "dynamic compilation errors are explicit" =
   match Statement.sql ~dialect:Dialect.Sqlite ~input:() bad with
   | Error (Compilation_error { error = Foreign_source _; _ }) -> ()
   | _ -> failwith "escaped source was accepted"
+;;
+
+let%test_unit "dynamic statements reject unsupported dialects before callbacks" =
+  let calls = ref 0 in
+  let query =
+    Statement.Dynamic.query_many ~dialect:Dialect.postgresql (fun () ->
+      Int.incr calls;
+      Query.(from Person.table |> select (fun row -> Projection.expr (Person.id row))))
+  in
+  let command =
+    Statement.Dynamic.command ~dialect:Dialect.postgresql (fun () ->
+      Int.incr calls;
+      Delete.(from Person.table |> all_rows |> command))
+  in
+  (match Statement.sql ~dialect:Dialect.Sqlite ~input:() query with
+   | Error (Statement.Unsupported_dialect Dialect.Sqlite) -> ()
+   | _ -> failwith "dynamic query accepted SQLite");
+  (match Statement.sql ~dialect:Dialect.Sqlite query with
+   | Error (Statement.Unsupported_dialect Dialect.Sqlite) -> ()
+   | _ -> failwith "inputless dynamic query accepted SQLite");
+  (match Statement.sql ~dialect:Dialect.Sqlite ~input:() command with
+   | Error (Statement.Unsupported_dialect Dialect.Sqlite) -> ()
+   | _ -> failwith "dynamic command accepted SQLite");
+  assert (Int.(!calls = 0));
+  ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() query);
+  ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() command);
+  assert (Int.(!calls = 2))
 ;;

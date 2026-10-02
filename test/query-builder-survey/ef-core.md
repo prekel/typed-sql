@@ -125,15 +125,20 @@ typed-sql рендерит portable PostgreSQL SQL; значения стран�
 
 ```ocaml
 let ef01 =
-  Statement.Portable.query_many_exn (fun params ->
-    let skip = params.non_negative_int ~name:"skip" ~get:(fun (skip, _) -> skip) in
-    let take = params.non_negative_int ~name:"take" ~get:(fun (_, take) -> take) in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ skip =
+      params.non_negative_int ~name:"skip" ~get:(fun (skip, _) -> skip)
+    and+ take =
+      params.non_negative_int ~name:"take" ~get:(fun (_, take) -> take)
+    in
+    params.query_many (
     Query.(
       from Post.table
       |> order_by Post.id `Asc
       |> Query.limit_param take
       |> Query.offset_param skip
-      |> select (fun post -> Projection.expr (Post.id post))))
+      |> select (fun post -> Projection.expr (Post.id post)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -187,10 +192,20 @@ let last_date =
   Ptime.of_date_time ((2020, 1, 1), ((0, 0, 0), 0)) |> Option.value_exn
 
 let ef02 =
-  Statement.Portable.query_many_exn (fun params ->
-    let last_date = params.expr Db_type.timestamp ~get:(fun (last_date, _, _) -> last_date) in
-    let last_id = params.expr Db_type.int64 ~get:(fun (_, last_id, _) -> last_id) in
-    let take = params.non_negative_int ~name:"take" ~get:(fun (_, _, take) -> take) in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ last_date =
+      params.expr
+        Db_type.timestamp
+        ~get:(fun (last_date, _, _) -> last_date)
+    and+ last_id =
+      params.expr Db_type.int64 ~get:(fun (_, last_id, _) -> last_id)
+    and+ take =
+      params.non_negative_int
+        ~name:"take"
+        ~get:(fun (_, _, take) -> take)
+    in
+    params.query_many (
     Query.(
       from Post.table
       |> where (fun post ->
@@ -199,7 +214,7 @@ let ef02 =
       |> order_by Post.date `Asc
       |> order_by Post.id `Asc
       |> Query.limit_param take
-      |> select (fun post -> Projection.pair (Post.id post) (Post.date post))))
+      |> select (fun post -> Projection.pair (Post.id post) (Post.date post)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -252,7 +267,7 @@ var query =
 
 ```ocaml
 let ef03 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
       |> inner_join Post.table ~on:(fun blog post ->
@@ -302,7 +317,7 @@ var query =
 
 ```ocaml
 let ef04 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
       |> left_join Post.table ~on:(fun blog post ->
@@ -352,7 +367,7 @@ var query =
 
 ```ocaml
 let ef05 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
       |> inner_join Post.table ~on:(fun _blog _post -> Condition.true_)
@@ -400,7 +415,7 @@ var query =
 
 ```ocaml
 let ef06 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
       |> inner_join Post.table ~on:(fun blog post ->
@@ -449,7 +464,7 @@ var query =
 
 ```ocaml
 let ef07 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
       |> inner_join Post.table ~on:(fun _blog _post -> Condition.true_)
@@ -498,7 +513,7 @@ var query = context.Posts
 
 ```ocaml
 let ef08 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Post.table
       |> group_by Post.author_id
@@ -547,7 +562,7 @@ var query = context.Posts
 
 ```ocaml
 let ef09 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Post.table
       |> group_by Post.author_id
@@ -600,7 +615,7 @@ var blogs = await context.Blogs
 
 ```ocaml
 let ef10 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
       |> where (fun blog ->
@@ -658,7 +673,7 @@ typed-sql может выразить серверную выборку стро
 
 ```ocaml
 let ef11 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Book.table
       |> order_by Book.price `Asc
@@ -713,7 +728,7 @@ var blogs = await context.Blogs
 
 ```ocaml
 let ef12 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
       |> left_join Post.table ~on:(fun blog post ->
@@ -779,14 +794,14 @@ var blogs = await context.Blogs
 
 ```ocaml
 let ef13_blogs =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
       |> order_by Blog.id `Asc
       |> select (fun blog -> Projection.expr (Blog.id blog))))
 
 let ef13_posts =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
       |> inner_join Post.table ~on:(fun blog post ->
@@ -885,7 +900,7 @@ await context.Blogs
 
 ```ocaml
 let ef15 =
-  Statement.Portable.command_exn (fun _ ->
+  Statement.command ~dialect:Dialect.portable (
     Delete.(
       from Blog.table
       |> where (fun blog -> Blog.rating blog <$ 3)
@@ -929,7 +944,7 @@ var blogs = await context.Blogs
 
 ```ocaml
 let ef16 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
       |> select (fun blog -> Projection.pair (Blog.id blog) (Blog.url blog))))
@@ -974,7 +989,7 @@ var blogs = await context.Blogs
 
 ```ocaml
 let ef17 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
       |> where (fun blog -> Blog.url blog =~$ "https://example.%")
@@ -1025,7 +1040,7 @@ var hasPosts = await context.Blogs
 
 ```ocaml
 let ef18 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
       |> select (fun blog ->
@@ -1084,7 +1099,7 @@ var allPopular = await context.Blogs
 
 ```ocaml
 let ef19 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
       |> select (fun blog ->
@@ -1145,7 +1160,7 @@ var authorIds = await context.Posts
 
 ```ocaml
 let ef20 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Post.table
       |> distinct
@@ -1185,7 +1200,7 @@ var count = await context.Posts
 
 ```ocaml
 let ef21 =
-  Statement.Portable.query_one_exn (fun _ ->
+  Statement.query_one ~dialect:Dialect.portable (
     Query.Aggregate.(
       from Post.table
       |> where (fun post -> Post.blog_id post =$ 7L)
@@ -1230,11 +1245,11 @@ var latest = await context.Posts
 
 #### OCaml (typed-sql)
 
-`limit_one` доказывает верхнюю границу, а `query_optional_exn` возвращает `None` при отсутствии подходящей строки.
+`limit_one` доказывает верхнюю границу, а `params.query_optional` возвращает `None` при отсутствии подходящей строки.
 
 ```ocaml
 let ef22 =
-  Statement.Portable.query_optional_exn (fun _ ->
+  Statement.query_optional ~dialect:Dialect.portable (
     Query.(
       from Post.table
       |> where (fun post -> Post.blog_id post =$ 7L)
@@ -1298,7 +1313,7 @@ var posts = await context.Posts
 
 ```ocaml
 let ef23 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Post.table
       |> where (fun post ->
@@ -1344,7 +1359,7 @@ var urls = await context.Blogs
 
 ```ocaml
 let ef24 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
       |> select (fun blog ->
@@ -1389,7 +1404,7 @@ var labels = await context.Blogs
 
 ```ocaml
 let ef25 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
       |> select (fun blog ->
@@ -1442,7 +1457,7 @@ typed-sql не имеет model-level global filters. Эквивалентный
 
 ```ocaml
 let ef26 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
       |> where (fun blog -> Blog.is_deleted blog =$ false)
@@ -1503,7 +1518,7 @@ var blogs = await context.Blogs
 
 ```ocaml
 let ef27 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
       |> left_join Post.table ~on:(fun blog post ->
@@ -1609,7 +1624,7 @@ var blogs = await context.Blogs
 
 ```ocaml
 let ef28 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
       |> left_join Post.table ~on:(fun blog post ->
@@ -1674,7 +1689,7 @@ typed-sql может построить сам rowset, но tracking, identity r
 
 ```ocaml
 let ef29 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
       |> select (fun blog ->
@@ -1724,7 +1739,7 @@ var blogs = await context.Blogs
 
 ```ocaml
 let ef30_query =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
       |> order_by (fun blog -> Blog.rating blog) `Desc
@@ -1797,7 +1812,7 @@ var walks = await context.Walks
 
 ```ocaml
 let ef32 =
-  Statement.Dynamic.Portable.query_many (fun terrain_ids ->
+  Statement.Dynamic.query_many ~dialect:Dialect.portable (fun terrain_ids ->
     Query.(
       from Book.table
       |> where (fun book -> Expr.in_ (Book.author_id book) terrain_ids)
@@ -1945,7 +1960,7 @@ let ef36_posts =
     |> select (fun post -> Projection.expr (Post.blog_id post)))
 
 let ef36 =
-  Statement.Portable.query_many_exn (fun _ -> Query.union ef36_blogs ef36_posts)
+  Statement.query_many ~dialect:Dialect.portable (Query.union ef36_blogs ef36_posts)
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1999,7 +2014,7 @@ var changed = await context.Blogs
 
 ```ocaml
 let ef37 =
-  Statement.Portable.command_exn (fun _ ->
+  Statement.command ~dialect:Dialect.portable (
     Update.(
       table Blog.table
       |> from Blog.table ~f:(fun target source update ->
@@ -2147,7 +2162,7 @@ var posts = await context.Posts.Where(p => p.Rating >= minimum)
 
 ```ocaml
 let ef41 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Post.table
       |> where (fun post -> Post.rating post >=$ 4)
@@ -2200,7 +2215,7 @@ var result = await context.Blogs.Select(b => new {
 
 ```ocaml
 let ef42 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
       |> select (fun blog ->
@@ -2248,7 +2263,7 @@ var ids = await context.Posts.Where(p => p.Rating >= minimum)
 
 ```ocaml
 let ef43 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(from Post.table |> where (fun post -> Post.rating post >=$ 4) |> distinct |> order_by Post.author_id `Asc |> select (fun post -> Projection.expr (Post.author_id post))))
 ```
 
@@ -2288,7 +2303,7 @@ var books = await context.Books.Where(b => !context.Authors
 
 ```ocaml
 let ef44 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(from Book.table |> where (fun book -> not_exists (Query.(from Author.table |> where (fun author -> (Author.id author =. Book.author_id book) &&. (Author.name author =$ "Ada")))) ) |> select (fun book -> Projection.pair (Book.id book) (Book.price book))))
 ```
 
@@ -2333,7 +2348,7 @@ var removed = await context.Posts.Where(p => p.Rating < threshold).ExecuteDelete
 #### OCaml (typed-sql)
 
 ```ocaml
-let ef45 = Statement.Portable.command_exn (fun _ -> Delete.(from Post.table |> where (fun post -> Post.rating post <$ 2) |> command))
+let ef45 = Statement.command ~dialect:Dialect.portable (Delete.(from Post.table |> where (fun post -> Post.rating post <$ 2) |> command))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2366,7 +2381,7 @@ var posts = await context.Posts.Where(p => authorIds.Contains(p.AuthorId))
 #### OCaml (typed-sql)
 
 ```ocaml
-let ef46 = Statement.Portable.query_many_exn (fun _ -> Query.(from Post.table |> where (fun post -> Expr.in_ (Post.author_id post) [ 1L; 2L ]) |> select (fun post -> Projection.pair (Post.id post) (Post.author_id post))))
+let ef46 = Statement.query_many ~dialect:Dialect.portable (Query.(from Post.table |> where (fun post -> Expr.in_ (Post.author_id post) [ 1L; 2L ]) |> select (fun post -> Projection.pair (Post.id post) (Post.author_id post))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2406,7 +2421,7 @@ var page = await context.Blogs.OrderBy(b => b.BlogId).Skip(5).Take(10)
 #### OCaml (typed-sql)
 
 ```ocaml
-let ef47 = Statement.Portable.query_many_exn (fun _ -> Query.(from Blog.table |> order_by Blog.id `Asc |> limit 10 |> offset 5 |> select (fun blog -> Projection.pair (Blog.id blog) (Expr.coalesce (Blog.nullable_url blog) ~default:(Expr.constant Db_type.text "(missing)")))))
+let ef47 = Statement.query_many ~dialect:Dialect.portable (Query.(from Blog.table |> order_by Blog.id `Asc |> limit 10 |> offset 5 |> select (fun blog -> Projection.pair (Blog.id blog) (Expr.coalesce (Blog.nullable_url blog) ~default:(Expr.constant Db_type.text "(missing)")))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2447,7 +2462,7 @@ var blogs = await context.Blogs.Where(b => b.Rating >= 4)
 ```ocaml
 let ef48_relation = Derived_table.create ~table:Blog.table ~columns:(fun blog -> Projection.pair (Blog.id blog) (Blog.rating blog)) Query.(from Blog.table |> where (fun blog -> Blog.rating blog >=$ 4) |> select (fun blog -> Projection.pair (Blog.id blog) (Blog.rating blog)))
 let ef48_cte = Cte.select ef48_relation
-let ef48 = Statement.Portable.query_many_exn (fun _ -> Cte.with_result ef48_cte ~f:(fun selected -> Query.(from_cte selected |> order_by Blog.rating `Desc |> select (fun blog -> Projection.pair (Blog.id blog) (Blog.rating blog)))))
+let ef48 = Statement.query_many ~dialect:Dialect.portable (Cte.with_result ef48_cte ~f:(fun selected -> Query.(from_cte selected |> order_by Blog.rating `Desc |> select (fun blog -> Projection.pair (Blog.id blog) (Blog.rating blog)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2498,7 +2513,7 @@ var ids = context.Blogs.Where(b => b.Rating >= 4).Select(b => b.BlogId)
 ```ocaml
 let ef49_blogs = Query.(from Blog.table |> where (fun blog -> Blog.rating blog >=$ 4) |> select (fun blog -> Projection.expr (Blog.id blog)))
 let ef49_posts = Query.(from Post.table |> where (fun post -> Post.rating post >=$ 4) |> select (fun post -> Projection.expr (Post.blog_id post)))
-let ef49 = Statement.Portable.query_many_exn (fun _ -> Query.union_all ef49_blogs ef49_posts)
+let ef49 = Statement.query_many ~dialect:Dialect.portable (Query.union_all ef49_blogs ef49_posts)
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2547,7 +2562,7 @@ var counts = await context.Blogs.Select(b => new { b.BlogId, Count = b.Posts.Cou
 #### OCaml (typed-sql)
 
 ```ocaml
-let ef50 = Statement.Portable.query_many_exn (fun _ -> Query.(from Blog.table |> left_join Post.table ~on:(fun blog post -> Blog.id blog =. Post.blog_id post) |> group_by (fun (blog, _post) -> Blog.id blog) |> having (fun (_blog, post) -> Expr.count (Post.nullable_id post) >=$ 2L) |> order_by (fun (blog, _post) -> Blog.id blog) `Asc |> select (fun (blog, post) -> Projection.pair (Blog.id blog) (Expr.count (Post.nullable_id post)))))
+let ef50 = Statement.query_many ~dialect:Dialect.portable (Query.(from Blog.table |> left_join Post.table ~on:(fun blog post -> Blog.id blog =. Post.blog_id post) |> group_by (fun (blog, _post) -> Blog.id blog) |> having (fun (_blog, post) -> Expr.count (Post.nullable_id post) >=$ 2L) |> order_by (fun (blog, _post) -> Blog.id blog) `Asc |> select (fun (blog, post) -> Projection.pair (Blog.id blog) (Expr.count (Post.nullable_id post)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)

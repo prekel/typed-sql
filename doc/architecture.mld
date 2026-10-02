@@ -44,9 +44,9 @@ Discovery запускается отдельно, а сохранённый gen
 [Expr] и [Projection] сохраняют OCaml-типы во время построения DSL. Второй
 phantom-параметр выражений, условий, projections и statements накапливает
 requirements dialect: пустой row variant означает portable SQL, а
-[`Postgresql] — требование PostgreSQL. [Statement.Portable] компилирует оба
-плана, а [Statement.For_dialect] принимает typed [Dialect.witness]. Поэтому
-PostgreSQL-only statement нельзя создать с witness SQLite. Внутренний compiler
+[`Postgresql] — требование PostgreSQL. Статические конструкторы [Statement]
+принимают typed [Dialect.witness]; [Dialect.portable] компилирует оба плана.
+Поэтому PostgreSQL-only statement нельзя создать с witness SQLite. Внутренний compiler
 получает type-erased semantic nodes только после того, как публичные функции
 проверили совместимость выражений. Source identity остаётся в AST для проверки
 принадлежности колонок, а SQL aliases назначаются только renderer. Обычная
@@ -79,12 +79,13 @@ bind parameters; relation доступна в [FROM], [INNER JOIN] и [LEFT JOIN
 Варианты VALUES и SELECT взаимоисключаются. При SQLite UPSERT renderer добавляет
 [WHERE TRUE] к SELECT без фильтра для однозначного разбора [ON CONFLICT].
 
-[Statement.Dynamic.Portable] сохраняет callback вместо готовых планов. При
+[Statement.Dynamic] сохраняет callback вместо готовых планов. При
 каждом resolution callback получает input, после чего AST проходит тот же
 normalization, validation, lowering и rendering для dialect соединения.
-Получившиеся значения остаются bind parameters. Dynamic callback обязан вернуть
-portable query или command, поэтому dialect requirement по-прежнему
-проверяется OCaml-типами.
+Получившиеся значения остаются bind parameters. Typed [Dialect.witness]
+ограничивает callback concrete диалектом или разрешает оба portable диалекта;
+несовместимый query или command не пройдёт проверку requirements в OCaml.
+Неподдерживаемый runtime dialect отклоняется до вызова callback.
 
 {1 API приложения, адаптеров и тестов}
 

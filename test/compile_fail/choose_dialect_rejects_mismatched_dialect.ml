@@ -8,17 +8,6 @@ module Item = struct
 end
 
 let query = Query.(from Item.table |> select (fun _ -> Projection.expr Expr.count_all))
-
-let postgresql =
-  Statement.For_dialect.query_many_exn
-    ~dialect:Dialect.postgresql
-    (fun (_ : (unit, Dialect.postgresql) Statement.parameters) -> query)
-;;
-
-let sqlite =
-  Statement.For_dialect.query_many_exn
-    ~dialect:Dialect.sqlite
-    (fun (_ : (unit, Dialect.sqlite) Statement.parameters) -> query)
-;;
-
+let postgresql = Statement.query_many ~dialect:Dialect.postgresql query
+let sqlite = Statement.query_many ~dialect:Dialect.sqlite query
 let _ = Statement.choose_dialect ~postgresql:sqlite ~sqlite:postgresql

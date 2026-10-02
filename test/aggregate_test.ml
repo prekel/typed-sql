@@ -287,12 +287,15 @@ let%test_unit "SQLite rejects numeric values and runtime parameter slots" =
   (match Compiler.compile ~dialect:Dialect.sqlite query with
    | Error _ -> ()
    | Ok _ -> failwith "numeric value unexpectedly compiled for SQLite");
-  let statement =
-    Statement.Portable.query_many (fun params ->
-      let amount = params.expr Db_type.numeric ~get:Fn.id in
-      Query.(from Item.table |> select (fun _ -> Projection.expr amount)))
-  in
-  assert (Result.is_error statement)
+  match
+    Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+      let open Statement.Parameters.Let_syntax in
+      let%map amount = params.expr Db_type.numeric ~get:Fn.id in
+      params.query_many
+        Query.(from Item.table |> select (fun _ -> Projection.expr amount)))
+  with
+  | exception Statement.Definition_error _ -> ()
+  | _ -> failwith "SQLite accepted a numeric parameter slot"
 ;;
 
 let%test_unit "SQLite rejects numeric values in RETURNING projections" =

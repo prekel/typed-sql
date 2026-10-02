@@ -16,4 +16,4 @@ let query =
            (Expr.column row value_column))))
 ;;
 
-let _statement = Statement.Portable.query_one (fun _ -> query)
+let _statement = Statement.query_one ~dialect:Dialect.portable query

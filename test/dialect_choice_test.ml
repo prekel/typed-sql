@@ -21,29 +21,33 @@ let postgresql_getter_calls = ref 0
 let sqlite_getter_calls = ref 0
 
 let postgresql_statement =
-  Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun parameters ->
-    let id =
-      parameters.column Person.id_column ~get:(fun input ->
+  Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let%map id =
+      params.column Person.id_column ~get:(fun input ->
         Int.incr postgresql_getter_calls;
         input.id)
     in
-    Query.(
-      from Person.table
-      |> where (fun person -> Person.id person =. id)
-      |> select (fun person -> Projection.expr (Person.name person))))
+    params.query_many
+      Query.(
+        from Person.table
+        |> where (fun person -> Person.id person =. id)
+        |> select (fun person -> Projection.expr (Person.name person))))
 ;;
 
 let sqlite_statement =
-  Statement.For_dialect.query_many_exn ~dialect:Dialect.sqlite (fun parameters ->
-    let name =
-      parameters.column Person.name_column ~get:(fun input ->
+  Statement.with_parameters ~dialect:Dialect.sqlite (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let%map name =
+      params.column Person.name_column ~get:(fun input ->
         Int.incr sqlite_getter_calls;
         input.name)
     in
-    Query.(
-      from Person.table
-      |> where (fun person -> Person.name person =. name)
-      |> select (fun person -> Projection.expr (Person.name person))))
+    params.query_many
+      Query.(
+        from Person.table
+        |> where (fun person -> Person.name person =. name)
+        |> select (fun person -> Projection.expr (Person.name person))))
 ;;
 
 let statement : (input, string list, Dialect.portable) Statement.t =

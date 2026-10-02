@@ -449,8 +449,10 @@ let where_opt value ~f query =
 ;;
 
 let where_optional_param parameter ~f query =
+  let nullable_expr = Optional_parameter.nullable_expr parameter in
+  let value_expr = Optional_parameter.value_expr parameter in
   where
-    (fun context -> Condition.Infix.(Expr.is_null parameter ||. f context parameter))
+    (fun context -> Condition.Infix.(Expr.is_null nullable_expr ||. f context value_expr))
     query
 ;;
 
@@ -519,11 +521,30 @@ let limit_param parameter query =
   }
 ;;
 
+let limit_param_opt parameter query =
+  { query with
+    ast =
+      { query.ast with
+        limit =
+          Some (Ast.Limit (Ast.Parameter (Pagination_parameter.optional_node parameter)))
+      }
+  }
+;;
+
 let offset_param parameter query =
   { query with
     ast =
       { query.ast with
         offset = Some (Ast.Parameter (Pagination_parameter.node parameter))
+      }
+  }
+;;
+
+let offset_param_opt parameter query =
+  { query with
+    ast =
+      { query.ast with
+        offset = Some (Ast.Parameter (Pagination_parameter.optional_node parameter))
       }
   }
 ;;

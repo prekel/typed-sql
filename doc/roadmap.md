@@ -151,11 +151,13 @@ PostgreSQL requirement, поэтому SQLite witness и portable Caqti API от
 ### Requirements dialect
 
 Публичные `Expr`, `Condition`, `Projection`, query и DML builders несут
-covariant phantom requirement. `Statement.Portable` компилирует планы
-PostgreSQL и SQLite при создании. PostgreSQL-only operation добавляет
+covariant phantom requirement. Статические конструкторы `Statement` принимают
+обязательный witness: `Dialect.portable` компилирует планы PostgreSQL и SQLite,
+а concrete witness выбирает один dialect. PostgreSQL-only operation добавляет
 [`Postgresql], а requirement проходит через subquery, projection, UPSERT и
-assignments. `Statement.For_dialect` принимает статический witness, а adapter
-при едином `run` сверяет сохранённый dialect с connection.
+assignments. Несколько запросов с общими параметрами собираются через
+`Statement.with_parameters`, а adapter при едином `run` сверяет сохранённый dialect
+с connection.
 
 ### Execution adapters
 
@@ -410,8 +412,9 @@ dbmate: выполнение миграций остаётся отдельны�
   `expect_one`/`expect_optional`.
 
 `Query.t` и `Result_query.t` различают `many`, `at_most_one` и `exactly_one`.
-`Statement.query_many` принимает любую из этих cardinality; `query_optional` —
-`at_most_one` или `exactly_one`; `query_one` — только `exactly_one`.
+Метод `params.query_many` внутри `Statement.with_parameters` принимает
+любую из этих cardinality; `params.query_optional` — `at_most_one` или
+`exactly_one`; `params.query_one` — только `exactly_one`.
 
 `Query.limit_one` рендерит `LIMIT 1` и доказывает `at_most_one`. Обычные
 `Query.limit` и runtime `limit_param` сбрасывают доказательство, поэтому после
@@ -632,7 +635,7 @@ PostgreSQL-возможностями. Portable approximation с другой с
 #### Статические параметры и server-side prepare
 
 - [x] Разделять скомпилированный template и значения input; поддерживать
-  runtime `LIMIT`/`OFFSET`, `Statement.choose` и `Statement.Dynamic.Portable`.
+  runtime `LIMIT`/`OFFSET`, `Statement.choose` и `Statement.Dynamic`.
 
 `Statement` теперь разделяет заранее скомпилированный template и значения
 текущего input. Getter каждого слота запускается при `run`; AST, validation,
@@ -641,7 +644,7 @@ lowering и rendering не повторяются. Runtime `LIMIT`/`OFFSET` по
 `Statement.choose`.
 
 Для неограниченного набора SQL shapes реализован
-`Statement.Dynamic.Portable`: callback строит AST из input, а compilation
+`Statement.Dynamic`: callback строит AST из input, а compilation
 повторяется при каждом вызове без core cache. Это явный режим с отдельной
 ошибкой compilation; статический путь сохраняет прежнюю гарантию compile-once.
 `Statement.choose_dialect` объединяет статические PostgreSQL и SQLite ветки с

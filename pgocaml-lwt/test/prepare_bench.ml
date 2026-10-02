@@ -54,8 +54,10 @@ let main () =
        let* () = Pgocaml.close_statement conn ~name:"typed_sql_bench" () in
        let open Typed_sql in
        let statement =
-         Statement.For_dialect.query_one_exn ~dialect:Dialect.postgresql (fun params ->
-           Query.select_one (params.expr ~name:"value" Db_type.int64 ~get:Fn.id))
+         Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
+           Statement.Parameters.map
+             (params.expr ~name:"value" Db_type.int64 ~get:Fn.id)
+             ~f:(fun value -> params.query_one (Query.select_one value)))
        in
        let cache =
          Adapter.Prepared_cache.create ~conn ()

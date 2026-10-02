@@ -14,4 +14,4 @@ let query =
     |> select (fun _ -> Projection.expr Expr.count_all))
 ;;
 
-let _ = Statement.For_dialect.query_many ~dialect:Dialect.sqlite (fun _ -> query)
+let _ = Statement.query_many ~dialect:Dialect.sqlite query

@@ -96,7 +96,7 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 
 ```ocaml
 let seaquery01 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Users.table
       |> where (fun user -> Users.country user =$ "US")
@@ -147,7 +147,7 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 
 ```ocaml
 let seaquery02 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Users.table
       |> where (fun user ->
@@ -205,7 +205,7 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 
 ```ocaml
 let seaquery03 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Users.table
       |> order_by Users.id `Asc
@@ -264,7 +264,7 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 
 ```ocaml
 let seaquery04 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Users.table
       |> inner_join Posts.table ~on:(fun user post ->
@@ -321,7 +321,7 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 
 ```ocaml
 let seaquery05 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Users.table
       |> left_join Posts.table ~on:(fun user post ->
@@ -384,7 +384,7 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 
 ```ocaml
 let seaquery06 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Users.table
       |> inner_join Posts.table ~on:(fun user post ->
@@ -464,7 +464,7 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 
 ```ocaml
 let seaquery07 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Users.table
       |> where (fun user ->
@@ -559,7 +559,7 @@ let seaquery08_counts =
         Expr.count_all))
 
 let seaquery08 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Users.table
       |> inner_join_relation seaquery08_counts ~on:(fun user (post_user_id, _count) ->
@@ -628,7 +628,7 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 
 ```ocaml
 let seaquery09 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     let by_country country =
       Query.(
         from Users.table
@@ -704,7 +704,7 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 
 ```ocaml
 let seaquery10 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Posts.table
       |> order_by Posts.user_id `Asc
@@ -781,7 +781,7 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 
 ```ocaml
 let seaquery11 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Users.table
       |> where (fun user ->
@@ -848,7 +848,7 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 
 ```ocaml
 let seaquery12 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Posts.table
       |> where (fun post ->
@@ -925,7 +925,7 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 
 ```ocaml
 let seaquery13 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Users.table
       |> where (fun user ->
@@ -983,10 +983,12 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 
 ```ocaml
 let seaquery14 =
-  Statement.Portable.command_exn (fun params ->
-    let id = params.expr Db_type.int64 ~get:(fun (id, _, _) -> id) in
-    let user_id = params.expr Db_type.int64 ~get:(fun (_, user_id, _) -> user_id) in
-    let title = params.expr Db_type.text ~get:(fun (_, _, title) -> title) in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ id = params.expr Db_type.int64 ~get:(fun (id, _, _) -> id)
+    and+ user_id = params.expr Db_type.int64 ~get:(fun (_, user_id, _) -> user_id)
+    and+ title = params.expr Db_type.text ~get:(fun (_, _, title) -> title) in
+    params.command (
     Insert.(
       into Posts.table
       |> set_expr Posts.id_column id
@@ -996,7 +998,7 @@ let seaquery14 =
       |> do_update (fun ~existing:_ ~excluded ->
         Conflict_update.empty
         |> Conflict_update.set_expr Posts.title_column (Posts.title excluded))
-      |> command))
+      |> command)))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1048,14 +1050,16 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 
 ```ocaml
 let seaquery15 =
-  Statement.Portable.query_many_exn (fun params ->
-    let title = params.expr Db_type.text ~get:(fun (title, _) -> title) in
-    let user_id = params.expr Db_type.int64 ~get:(fun (_, user_id) -> user_id) in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ title = params.expr Db_type.text ~get:(fun (title, _) -> title)
+    and+ user_id = params.expr Db_type.int64 ~get:(fun (_, user_id) -> user_id) in
+    params.query_many (
     Update.(
       table Posts.table
       |> set_expr Posts.title_column title
       |> where (fun post -> Posts.user_id post =. user_id)
-      |> returning (fun post -> Projection.expr (Posts.id post))))
+      |> returning (fun post -> Projection.expr (Posts.id post)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1105,7 +1109,7 @@ GROUP BY users.id
 
 ```ocaml
 let seaquery16 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Users.table
       |> left_join Posts.table ~on:(fun user post -> (Users.id user =. Posts.user_id post) &&. (Posts.title post =~$ "%guide%"))
@@ -1154,7 +1158,7 @@ let seaquery17_relation =
     Query.(from Users.table |> where (fun user -> Users.id user >$ 10L) |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))
 let seaquery17_cte = Cte.select seaquery17_relation
 let seaquery17 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Cte.with_result seaquery17_cte ~f:(fun selected ->
       Query.(from_cte selected |> order_by Users.id `Asc |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))))
 ```
@@ -1202,7 +1206,7 @@ WHERE posts.title IS DISTINCT FROM EXCLUDED.title
 
 ```ocaml
 let seaquery18 =
-  Statement.Portable.command_exn (fun _ ->
+  Statement.command ~dialect:Dialect.portable (
     Insert.(
       into Posts.table
       |> set Posts.id_column 8L
@@ -1256,7 +1260,7 @@ RETURNING posts.id
 
 ```ocaml
 let seaquery19 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Update.(
       table Posts.table
       |> from Users.table ~f:(fun post user update ->
@@ -1301,7 +1305,7 @@ SELECT id FROM users EXCEPT SELECT user_id FROM posts
 ```ocaml
 let seaquery20_users = Query.(from Users.table |> select (fun user -> Projection.expr (Users.id user)))
 let seaquery20_posts = Query.(from Posts.table |> select (fun post -> Projection.expr (Posts.user_id post)))
-let seaquery20 = Statement.Portable.query_many_exn (fun _ -> Query.except seaquery20_users seaquery20_posts)
+let seaquery20 = Statement.query_many ~dialect:Dialect.portable (Query.except seaquery20_users seaquery20_posts)
 ```
 
 #### SQL typed-sql (PostgreSQL)

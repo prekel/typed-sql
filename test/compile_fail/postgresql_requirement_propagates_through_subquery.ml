@@ -17,4 +17,4 @@ let scalar =
 ;;
 
 let query = Query.(from Item.table |> select (fun _ -> Projection.expr scalar))
-let _ = Statement.For_dialect.query_many ~dialect:Dialect.sqlite (fun _ -> query)
+let _ = Statement.query_many ~dialect:Dialect.sqlite query

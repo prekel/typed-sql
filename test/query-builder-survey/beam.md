@@ -109,7 +109,7 @@ select $
 
 ```ocaml
 let beam01 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Customer.table
       |> where (fun customer -> Customer.country customer =$ "USA")
@@ -159,7 +159,7 @@ select $
 
 ```ocaml
 let beam02 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Customer.table
       |> where (fun customer ->
@@ -217,7 +217,7 @@ select $
 
 ```ocaml
 let beam03 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Album.table
       |> order_by Album.title `Asc
@@ -268,7 +268,7 @@ select $ do
 
 ```ocaml
 let beam04 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Invoice.table
       |> inner_join Invoice_line.table ~on:(fun invoice line ->
@@ -317,7 +317,7 @@ select $ do
 
 ```ocaml
 let beam05 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Customer.table
       |> left_join Invoice.table ~on:(fun customer invoice ->
@@ -368,7 +368,7 @@ select $
 
 ```ocaml
 let beam06 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Invoice.table
       |> group_by Invoice.customer_id
@@ -426,7 +426,7 @@ select $ do
 
 ```ocaml
 let beam07 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Customer.table
       |> where (fun customer ->
@@ -505,7 +505,7 @@ let beam08_invoice_counts =
         Expr.count_all))
 
 let beam08 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Customer.table
       |> inner_join_relation beam08_invoice_counts
@@ -571,7 +571,7 @@ select $
 
 ```ocaml
 let be09 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Invoice.table
       |> select (fun invoice ->
@@ -659,7 +659,7 @@ let beam10_usa_first_names =
     |> select (fun customer -> Projection.expr (Customer.first_name customer)))
 
 let beam10 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.except
       (Query.intersect beam10_first_names beam10_last_names)
       beam10_usa_first_names)
@@ -727,7 +727,7 @@ select $ nub_ $ do
 
 ```ocaml
 let beam11 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Customer.table
       |> where (fun customer ->
@@ -790,7 +790,7 @@ select $ do
 
 ```ocaml
 let beam12 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Customer.table
       |> where (fun customer ->
@@ -856,7 +856,7 @@ select $
 
 ```ocaml
 let beam13 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Customer.table
       |> inner_join Invoice.table ~on:(fun customer invoice ->
@@ -934,7 +934,7 @@ let beam14_counts_relation =
         Projection.pair (Invoice.customer_id invoice) Expr.count_all))
 
 let beam14 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Cte.with_result (Cte.select beam14_counts_relation) ~f:(fun invoice_counts ->
       Query.(
         from Customer.table
@@ -1005,7 +1005,7 @@ select $
 
 ```ocaml
 let beam15 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Invoice.table
       |> group_by Invoice.customer_id
@@ -1068,7 +1068,7 @@ GROUP BY Customer.CustomerId
 
 ```ocaml
 let beam16 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Customer.table
       |> left_join Invoice.table ~on:(fun customer invoice -> Customer.id customer =. Invoice.customer_id invoice)
@@ -1109,7 +1109,7 @@ FROM Customer
 
 ```ocaml
 let beam17 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Customer.table
       |> select (fun customer ->
@@ -1157,7 +1157,7 @@ WHERE Country = ? AND FirstName LIKE ?
 
 ```ocaml
 let beam18 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Customer.table
       |> where_opt (Some "USA") ~f:(fun customer country -> Customer.country customer =$ country)
@@ -1200,7 +1200,7 @@ GROUP BY Customer.Country HAVING COUNT(*) > 1
 
 ```ocaml
 let beam19 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Customer.table
       |> inner_join Invoice.table ~on:(fun customer invoice -> Customer.id customer =. Invoice.customer_id invoice)
@@ -1245,7 +1245,7 @@ UPDATE Invoice SET Total = 0 WHERE Total < 1 RETURNING InvoiceId
 
 ```ocaml
 let beam20 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Update.(
       table Invoice.table
       |> set Invoice.total_column 0.0

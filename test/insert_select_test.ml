@@ -40,24 +40,27 @@ let%test_module "INSERT from SELECT" =
     ;;
 
     let filtered_statement =
-      Statement.Portable.command_exn (fun params ->
-        let cutoff = params.expr Db_type.int64 ~get:Fn.id in
+      Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+        let open Statement.Parameters.Let_syntax in
+        let%map cutoff = params.expr Db_type.int64 ~get:Fn.id in
         let source =
           Query.(
             from Book.table
             |> where (fun book -> Book.year book <. cutoff)
             |> select (fun book -> Projection.pair (Book.id book) (Book.title book)))
         in
-        Insert.(into Archive.table |> from_select columns source |> command))
+        params.command
+          Insert.(into Archive.table |> from_select columns source |> command))
     ;;
 
     let on_conflict_statement =
-      Statement.Portable.command_exn (fun _ ->
+      Statement.command
+        ~dialect:Dialect.portable
         Insert.(
           into Archive.table
           |> from_select columns source
           |> on_conflict_do_nothing
-          |> command))
+          |> command)
     ;;
 
     let error command =
@@ -236,14 +239,15 @@ let%test_module "INSERT from SELECT" =
     ;;
 
     let singleton_statement =
-      Statement.Portable.command_exn (fun _ ->
+      Statement.command
+        ~dialect:Dialect.portable
         Insert.(
           into Archive.table
           |> from_select
                (Columns.column Archive.id_column)
                (Query.select_one (Expr.constant Db_type.int64 7L))
           |> on_conflict_do_nothing
-          |> command))
+          |> command)
     ;;
 
     let%expect_test "PostgreSQL INSERT from a source-free SELECT" =
@@ -276,11 +280,12 @@ let%test_module "INSERT from SELECT" =
 
     let%expect_test "INSERT SELECT RETURNING" =
       let statement =
-        Statement.Portable.query_many_exn (fun _ ->
+        Statement.query_many
+          ~dialect:Dialect.portable
           Insert.(
             into Archive.table
             |> from_select columns source
-            |> returning (fun row -> Projection.expr (Archive.id row))))
+            |> returning (fun row -> Projection.expr (Archive.id row)))
       in
       Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql statement);
       [%expect
@@ -312,12 +317,13 @@ let%test_module "INSERT from SELECT" =
           |> select (fun book -> Projection.pair (Book.id book) (Book.title book)))
       in
       let statement =
-        Statement.Portable.command_exn (fun _ ->
+        Statement.command
+          ~dialect:Dialect.portable
           Insert.(
             into Archive.table
             |> from_select columns (Query.union_all left right)
             |> on_conflict_do_nothing
-            |> command))
+            |> command)
       in
       Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Sqlite statement);
       [%expect

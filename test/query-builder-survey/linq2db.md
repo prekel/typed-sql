@@ -81,14 +81,16 @@ var query = from b in db.GetTable<Book>()
 
 ```ocaml
 let ld01 =
-  Statement.Portable.query_many_exn (fun params ->
-    let minimum_year = params.expr Db_type.int64 ~get:Fn.id in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ minimum_year = params.expr Db_type.int64 ~get:Fn.id in
+    params.query_many (
     Query.(
       from Book.table
       |> where (fun book -> Book.published_in book >. minimum_year)
       |> order_by Book.published_in `Desc
       |> select (fun book ->
-        Projection.pair (Book.id book) (Book.title book))))
+        Projection.pair (Book.id book) (Book.title book)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -130,7 +132,7 @@ var query = from a in db.GetTable<Author>()
 
 ```ocaml
 let ld02 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Author.table
       |> inner_join Book.table ~on:(fun author book ->
@@ -180,15 +182,17 @@ var query = from b in db.GetTable<Book>()
 
 ```ocaml
 let ld03 =
-  Statement.Portable.query_many_exn (fun params ->
-    let minimum_count = params.expr Db_type.int64 ~get:Fn.id in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ minimum_count = params.expr Db_type.int64 ~get:Fn.id in
+    params.query_many (
     Query.(
       from Book.table
       |> group_by Book.author_id
       |> having (fun _ -> Expr.count_all >=. minimum_count)
       |> order_by Book.author_id `Asc
       |> select (fun book ->
-        Projection.pair (Book.author_id book) Expr.count_all)))
+        Projection.pair (Book.author_id book) Expr.count_all))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -248,7 +252,7 @@ let ld04_relation =
         Projection.pair (Book.id book) (Book.title book)))
 
 let ld04 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Cte.with_result (Cte.select ld04_relation) ~f:(fun recent_books ->
       Query.(
         from_cte recent_books
@@ -306,7 +310,7 @@ var query = db.GetTable<Author>()
 
 ```ocaml
 let ld05 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Author.table
       |> where (fun author ->
@@ -363,7 +367,7 @@ var query =
 
 ```ocaml
 let ld06 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Author.table
       |> left_join Book.table ~on:(fun author book ->
@@ -412,7 +416,7 @@ var query = db.GetTable<Author>()
 
 ```ocaml
 let ld07 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Author.table
       |> where (fun author ->
@@ -481,7 +485,7 @@ var query = ranked.Where(row => row.RowNo <= 2)
 
 ```ocaml
 let ld08 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Book.table
       |> where (fun book ->
@@ -561,7 +565,7 @@ var query = before.UnionAll(after);
 
 ```ocaml
 let ld09 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     let before =
       Query.(
         from Book.table
@@ -629,8 +633,10 @@ var changed = db.GetTable<Book>()
 
 ```ocaml
 let ld10 =
-  Statement.Portable.command_exn (fun params ->
-    let cutoff = params.expr Db_type.int64 ~get:Fn.id in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ cutoff = params.expr Db_type.int64 ~get:Fn.id in
+    params.command (
     Update.(
       table Book.table
       |> from Book.table ~f:(fun _target source update ->
@@ -640,7 +646,7 @@ let ld10 =
              (Book.published_in source +. Expr.constant Db_type.int64 1L)
         |> where (fun book ->
           (Book.id book =. Book.id source) &&. (Book.published_in book <. cutoff)))
-      |> command))
+      |> command)))
 ```
 
 #### SQL typed-sql (PostgreSQL)

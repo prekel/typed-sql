@@ -12,7 +12,7 @@ module Compiler = struct
   ;;
 
   let compile ~dialect query =
-    Raw_compiler.compile_query_plan ~dialect:(Dialect.kind dialect) query
+    Raw_compiler.compile_query_plan ~dialect query
     |> Result.map ~f:(fun (plan : _ Raw_compiler.query_plan) ->
       Compiled_query.create
         ~dialect:plan.dialect
@@ -23,7 +23,7 @@ module Compiler = struct
   ;;
 
   let compile_command ~dialect command =
-    Raw_compiler.compile_command_plan ~dialect:(Dialect.kind dialect) command
+    Raw_compiler.compile_command_plan ~dialect command
     |> Result.map ~f:(fun (plan : Raw_compiler.command_plan) ->
       Compiled_command.create
         ~dialect:plan.dialect
@@ -155,7 +155,7 @@ let%test_module "private query inspection" =
     let projection = Result_query.projection original
     let rebuilt_ast = { ast with A.projection = Projection.expressions projection }
     let rebuilt = Result_query.create_select (A.Simple rebuilt_ast) projection
-    let compile query = Compiler.compile ~dialect:Dialect.sqlite query |> ok_exn
+    let compile query = Compiler.compile ~dialect:Dialect.Sqlite query |> ok_exn
     let compiled_original = compile original
     let compiled_rebuilt = compile rebuilt
 
@@ -339,21 +339,21 @@ let%test_module "FOR UPDATE compiler invariants" =
     ;;
 
     let%test "shape excludes generative lock target IDs" =
-      let first = Compiler.compile ~dialect:Dialect.postgresql (make ()) |> ok_exn in
-      let second = Compiler.compile ~dialect:Dialect.postgresql (make ()) |> ok_exn in
+      let first = Compiler.compile ~dialect:Dialect.Postgresql (make ()) |> ok_exn in
+      let second = Compiler.compile ~dialect:Dialect.Postgresql (make ()) |> ok_exn in
       Shape.equal (Compiled_query.shape first) (Compiled_query.shape second)
     ;;
 
     let%test "SKIP LOCKED changes shape" =
-      let plain = Compiler.compile ~dialect:Dialect.postgresql (make ()) |> ok_exn in
+      let plain = Compiler.compile ~dialect:Dialect.Postgresql (make ()) |> ok_exn in
       let skip =
-        Compiler.compile ~dialect:Dialect.postgresql (make ~skip_locked:true ()) |> ok_exn
+        Compiler.compile ~dialect:Dialect.Postgresql (make ~skip_locked:true ()) |> ok_exn
       in
       not (Shape.equal (Compiled_query.shape plain) (Compiled_query.shape skip))
     ;;
 
     let%test_unit "SQLite rejects the locking clause" =
-      match Compiler.compile ~dialect:Dialect.sqlite (make ()) with
+      match Compiler.compile ~dialect:Dialect.Sqlite (make ()) with
       | Error
           (Compile_error.Unsupported_operation
              { operation = "FOR UPDATE"; dialect = Dialect.Sqlite }) -> ()
@@ -683,7 +683,7 @@ let%test_module "private conflict validator diagnostics" =
 
 let%test "private commands reach compiler validation" =
   let invalid = command A.Update [] |> Command.create in
-  match Compiler.compile_command ~dialect:Dialect.sqlite invalid with
+  match Compiler.compile_command ~dialect:Dialect.Sqlite invalid with
   | Error (Compile_error.Empty_assignments `Update) -> true
   | _ -> false
 ;;
@@ -705,11 +705,11 @@ let%test_module "private UPSERT DEFAULT capability" =
     ;;
 
     let%test_unit "PostgreSQL accepts DEFAULT in UPSERT assignments" =
-      ignore (Compiler.compile_command ~dialect:Dialect.postgresql command |> ok_exn)
+      ignore (Compiler.compile_command ~dialect:Dialect.Postgresql command |> ok_exn)
     ;;
 
     let%test_unit "SQLite rejects DEFAULT in UPSERT assignments" =
-      match Compiler.compile_command ~dialect:Dialect.sqlite command with
+      match Compiler.compile_command ~dialect:Dialect.Sqlite command with
       | Error
           (Compile_error.Unsupported_operation { operation; dialect = Dialect.Sqlite }) ->
         assert (String.equal operation "ON CONFLICT DO UPDATE SET DEFAULT")
@@ -1437,7 +1437,7 @@ let%test_unit "exactly-one proof rejects compound SELECTs" =
   in
   let compound = Query.union selected selected in
   let forged = { compound with Result_query.requires_exactly_one = true } in
-  match Compiler.compile ~dialect:Dialect.Sqlite forged with
+  match Raw_compiler.compile_query_plan ~dialect:Dialect.Sqlite forged with
   | Error Compile_error.Exactly_one_query_not_proven -> ()
   | Error error -> failwith (Compile_error.to_string error)
   | Ok _ -> failwith "compound SELECT was accepted as exactly one row"

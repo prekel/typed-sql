@@ -9,4 +9,4 @@ module Item = struct
 end
 
 let command = Update.(table Item.table |> default Item.name |> all_rows |> command)
-let _ = Statement.For_dialect.command ~dialect:Dialect.sqlite (fun _ -> command)
+let _ = Statement.command ~dialect:Dialect.sqlite command

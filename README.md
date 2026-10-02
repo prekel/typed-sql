@@ -42,29 +42,39 @@ type find_people =
   }
 
 let find_people =
-  Statement.Portable.query_many_exn (fun params ->
-    let name = params.column Person.name_col ~get:(fun input -> input.name) in
-    let maximum_rows =
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ name = params.column Person.name_col ~get:(fun input -> input.name)
+    and+ maximum_rows =
       params.non_negative_int
         ~name:"maximum_rows"
         ~get:(fun input -> input.maximum_rows)
     in
-    Query.(
-      from Person.table
-      |> where (fun person -> Person.name person =. name)
-      |> order_by (fun person -> Person.id person) `Asc
-      |> limit_param maximum_rows
-      |> select (fun person ->
-        Projection.pair (Person.id person) (Person.name person))))
+    params.query_many
+      Query.(
+        from Person.table
+        |> where (fun person -> Person.name person =. name)
+        |> order_by (fun person -> Person.id person) `Asc
+        |> limit_param maximum_rows
+        |> select (fun person ->
+          Projection.pair (Person.id person) (Person.name person))))
 ```
 
 `Query.(...)` локально открывает только query-builder и сохраняет видимой
 границу DSL. `select` ставится последним: он задаёт projection и превращает
 builder в готовый `Result_query.t`.
 
-Callback `query_many_exn` вызывается один раз во время создания значения.
-`params.column` выводит SQL-тип из descriptor колонки, поэтому отдельный
-аппликативный список параметров не нужен. Для статического statement
+`with_parameters` вызывает callback один раз при создании значения, а
+`params.query_many` компилирует statement сразу.
+`params.column` выводит SQL-тип из descriptor колонки. Параметры объединяются
+через `Statement.Parameters.Let_syntax` до построения запроса. Объявление
+параметра само по себе не является `Expr.t`: его значение становится доступно
+внутри `let%map`/`and` или `let+`/`and+`. Для запроса без runtime-параметров
+используйте `Statement.query_many`, `query_one`, `query_optional`, `expect_one`,
+`expect_optional` или `command`; такой statement принимает `unit`.
+`Dialect.portable` заранее компилирует оба portable-плана, а конкретные
+`Dialect.postgresql` и `Dialect.sqlite` ограничивают statement соответствующим
+диалектом. Для статического statement
 `Statement.sql` возвращает канонический SQL без input: он читает заранее
 скомпилированный template и не запускает parameter getters. Если передать
 `~input`, getters и проверки параметров выполняются так же, как перед запуском
@@ -78,10 +88,18 @@ Input может быть обычным кортежем, кортежем с �
 
 Если input задаёт саму структуру запроса, например рекурсивный язык предикатов
 или список переменной длины для `IN`, используется
-`Statement.Dynamic.Portable`. Callback получает input целиком; DSL всё равно
-создаёт bind parameters и компилирует portable SQL для dialect соединения.
+`Statement.Dynamic`. Callback получает input целиком; DSL всё равно
+создаёт bind parameters и компилирует SQL для диалектов, выбранных через
+`~dialect`. `Dialect.portable` разрешает PostgreSQL и SQLite; конкретный witness
+ограничивает statement одним диалектом. Неподдерживаемый диалект отклоняется до
+вызова callback.
 Подробный пример находится в
 [документации динамических statements](doc/dynamic_statements.mld).
+
+Для nullable значений используйте `params.optional_expr`: nullable и
+non-null views указывают на один bind slot. Nullable pagination через
+`params.non_negative_int_opt` принимает `None` как SQL `NULL` и доступна только
+в PostgreSQL. Примеры есть в [руководстве по input](doc/statement_inputs.mld).
 
 Если PostgreSQL и SQLite должны использовать разные SQL-запросы, готовые
 статические ветки можно объединить через `Statement.choose_dialect`:
@@ -320,16 +338,16 @@ PostgreSQL поддерживает `FETCH FIRST ... WITH TIES` через
 
 ```ocaml
 let tied_people =
-  Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun parameters ->
-    let page_size =
-      parameters.non_negative_int ~name:"page_size" ~get:Fn.id
-    in
-    Query.(
-      from Person.table
-      |> order_by Person.name `Asc
-      |> Postgresql.Query.fetch_with_ties_param page_size
-      |> select (fun person ->
-        Projection.pair (Person.id person) (Person.name person))))
+  Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ page_size = params.non_negative_int ~name:"page_size" ~get:Fn.id in
+    params.query_many
+      Query.(
+        from Person.table
+        |> order_by Person.name `Asc
+        |> Postgresql.Query.fetch_with_ties_param page_size
+        |> select (fun person ->
+          Projection.pair (Person.id person) (Person.name person))))
 ```
 
 Вызов `limit`, `limit_param` или `fetch_with_ties` позже в pipeline заменяет
@@ -386,7 +404,7 @@ module Archive = struct
 end
 
 let archive_people =
-  Statement.Portable.command_exn (fun _ ->
+  Statement.command ~dialect:Dialect.portable (
     let source =
       Query.(
         from Person.table
@@ -405,7 +423,7 @@ let archive_people =
 
 ```ocaml
 let insert_once =
-  Statement.Portable.command_exn (fun _ ->
+  Statement.command ~dialect:Dialect.portable (
     Insert.(
       into Person.table
       |> set Person.id_col 1L
@@ -442,7 +460,8 @@ let upsert_person id name =
 `Conflict_update.where` ограничивает обновление при конфликте; обычную вставку
 он не фильтрует. Повторные условия объединяются через `AND`. Если условие
 ложно или равно SQL NULL, строка не обновляется и не попадает в `RETURNING` —
-для одной строки используйте `Statement.Portable.expect_optional_exn`. Без
+для одной строки используйте `params.expect_optional` внутри
+`Statement.with_parameters ~dialect:Dialect.portable`. Без
 `where` обновляется каждая
 конфликтующая строка. `set_opt` и `set_expr_opt` пропускают `None`;
 `set_opt nullable_col (Some None)` записывает NULL.

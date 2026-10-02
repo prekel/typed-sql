@@ -360,6 +360,9 @@ end
 (** A validated runtime parameter for [LIMIT] or [OFFSET]. *)
 module Pagination_parameter : sig
   type +'requirements t
+
+  (** A validated nullable runtime parameter for PostgreSQL [LIMIT] or [OFFSET]. *)
+  type +'requirements optional
 end
 
 (** SQL predicates and boolean composition. *)
@@ -635,6 +638,15 @@ module Expr : sig
         are interpreted by the database and are not escaped by typed-sql. *)
     val ( =~$ ) : (string, 'r) t -> string -> 'r Condition.t
   end
+end
+
+(** A nullable runtime bind slot with a base-typed view for a guarded predicate.
+    Both views refer to the same SQL parameter. *)
+module Optional_parameter : sig
+  type ('value, +'requirements) t
+
+  (** Refer to the nullable bind value outside [Query.where_optional_param]. *)
+  val nullable_expr : ('value, 'requirements) t -> ('value option, 'requirements) Expr.t
 end
 
 (** All expression-comparison and condition-composition operators. Opening this
@@ -1137,10 +1149,11 @@ module Query : sig
       -> ('ctx, 'r) t
 
     (** Keep SQL shape stable for an optional bind parameter: absent values
-        disable the predicate without rebuilding the statement. *)
+        disable the predicate without rebuilding the statement. The predicate
+        receives the base-typed view of the guarded bind slot. *)
     val where_optional_param
-      :  ('a option, 'r) Expr.t
-      -> f:('ctx -> ('a option, 'r) Expr.t -> 'r Condition.t)
+      :  ('a, 'r) Optional_parameter.t
+      -> f:('ctx -> ('a, 'r) Expr.t -> 'r Condition.t)
       -> ('ctx, 'r) t
       -> ('ctx, 'r) t
   end
@@ -1415,15 +1428,16 @@ module Query : sig
     -> ('ctx, 'grouping, 'cardinality, 'requirements) t
     -> ('ctx, 'grouping, 'cardinality, 'requirements) t
 
-  (** Add a fixed-shape optional predicate controlled by a nullable expression.
+  (** Add a fixed-shape optional predicate controlled by a nullable bind slot.
       The rendered condition is [(parameter IS NULL OR predicate)]. This is
       useful for nullable runtime parameters in static statements: unlike
-      [where_opt], it does not change the SQL shape. The predicate receives the
-      same nullable expression so it can be compared with nullable columns or
-      expressions. The cardinality bound is preserved. *)
+      [where_opt], it does not change the SQL shape. The predicate receives a
+      base-typed view of the same slot; SQL still binds [None] as [NULL], so
+      only the enclosing null guard disables the predicate. The cardinality
+      bound is preserved. *)
   val where_optional_param
-    :  ('value option, 'requirements) Expr.t
-    -> f:('ctx -> ('value option, 'requirements) Expr.t -> 'requirements Condition.t)
+    :  ('value, 'requirements) Optional_parameter.t
+    -> f:('ctx -> ('value, 'requirements) Expr.t -> 'requirements Condition.t)
     -> ('ctx, 'grouping, 'cardinality, 'requirements) t
     -> ('ctx, 'grouping, 'cardinality, 'requirements) t
 
@@ -1470,7 +1484,7 @@ module Query : sig
       later [limit], [limit_param], or PostgreSQL
       [Postgresql.Query.fetch_with_ties] replaces that proof. It does not
       prove that a row exists, so the result is unsuitable for
-      [Statement.Portable.query_one]. *)
+      [Statement.with_parameters] with [parameters.query_one]. *)
   val limit_one
     :  ('ctx, 'grouping, 'cardinality, 'requirements) t
     -> ('ctx, 'grouping, Cardinality.at_most_one, 'requirements) t
@@ -1713,9 +1727,9 @@ module Insert : sig
 
   (** Finish an INSERT with a typed [RETURNING] projection. DML does not carry
       a row-count proof, so the result cardinality is [Cardinality.many]. Use
-      [Statement.Portable.expect_one] or
-      [Statement.Portable.expect_optional] when an application invariant
-      expects fewer rows. *)
+      [Statement.with_parameters] with [parameters.expect_one] or
+      [parameters.expect_optional] when an application invariant expects fewer
+      rows. *)
   val returning
     :  ('row Table_ref.t -> ('result, 'requirements) Projection.t)
     -> ('row, 'requirements) t
@@ -1896,12 +1910,15 @@ module Dialect : sig
   (** A statement requiring SQLite semantics. *)
   type sqlite = [ `Sqlite ]
 
-  (** A typed choice of compilation dialect. *)
+  (** A typed choice of compilation dialect. Portable statements use both
+      supported dialects. *)
   type 'requirements witness
+
+  (** A witness that compiles for both supported dialects. *)
+  val portable : portable witness
 
   val postgresql : postgresql witness
   val sqlite : sqlite witness
-  val kind : _ witness -> t
 
   (** Return the stable lowercase dialect name used in diagnostics. *)
   val to_string : t -> string
@@ -2068,6 +2085,21 @@ module Postgresql : sig
       :  'requirements Pagination_parameter.t
       -> ('ctx, 'grouping, 'cardinality, ([> `Postgresql ] as 'requirements)) Query.t
       -> ('ctx, 'grouping, Cardinality.many, 'requirements) Query.t
+
+    (** Set [LIMIT] from a nullable runtime parameter. PostgreSQL treats [NULL]
+        as an unlimited row count. The unknown count resets the cardinality
+        proof to [Cardinality.many]. *)
+    val limit_param_opt
+      :  'requirements Pagination_parameter.optional
+      -> ('ctx, 'grouping, 'cardinality, ([> `Postgresql ] as 'requirements)) Query.t
+      -> ('ctx, 'grouping, Cardinality.many, 'requirements) Query.t
+
+    (** Set [OFFSET] from a nullable runtime parameter. PostgreSQL treats [NULL]
+        as zero skipped rows. An existing cardinality bound is preserved. *)
+    val offset_param_opt
+      :  'requirements Pagination_parameter.optional
+      -> ('ctx, 'grouping, 'cardinality, ([> `Postgresql ] as 'requirements)) Query.t
+      -> ('ctx, 'grouping, 'cardinality, 'requirements) Query.t
 
     (** PostgreSQL's duplicate-preserving [INTERSECT ALL]. It resets result
         cardinality to [Cardinality.many]. The optional [order_by] orders the
@@ -2284,9 +2316,9 @@ module Affected_rows : sig
   val pp : Formatter.t -> t -> unit
 end
 
-(** A reusable query or command accepting one typed input. Static constructors
-    compile at definition time and use [parameters] for runtime values.
-    [Dynamic.Portable] builds and compiles from input on each execution. *)
+(** A reusable query or command accepting one typed input. [with_parameters]
+    compiles static statements at definition time; [Dynamic] builds and
+    compiles from input on each execution. *)
 module Statement : sig
   (** A reusable statement from ['input] to ['output]. ['requirements]
       constrains the dialects that may compile or execute it. Query output
@@ -2301,7 +2333,7 @@ module Statement : sig
     ; error : Compile_error.t (** Structural compilation error. *)
     }
 
-  (** Raised by static constructors ending in [_exn]. *)
+  (** Raised when a static statement cannot be compiled. *)
   exception Definition_error of definition_error
 
   (** A runtime input that could not be converted into bind parameters. *)
@@ -2323,209 +2355,221 @@ module Statement : sig
     | Compilation_error of definition_error
     (** Building a dynamic statement for the supplied input failed. *)
 
-  (** Runtime input slots for one statement. Each getter is retained in the
-      compiled statement and applied to the input supplied to [sql] or an
-      execution adapter. Reusing the returned expression reuses one bind slot. *)
+  (** Opaque applicative value returned by a parameter declaration. Its SQL
+      value becomes available only inside a mapping operation. *)
+  module Parameters : sig
+    type ('input, 'requirements, 'value) t
+
+    include
+      Applicative.S3
+      with type ('value, 'input, 'requirements) t := ('input, 'requirements, 'value) t
+
+    (** Syntax for combining parameter declarations with [let%map]/[and] or
+        [let+]/[and+]. *)
+    module Let_syntax : sig
+      val return : 'value -> ('input, 'requirements, 'value) t
+
+      include
+        Applicative.Applicative_infix3
+        with type ('value, 'input, 'requirements) t := ('input, 'requirements, 'value) t
+
+      val ( let+ )
+        :  ('input, 'requirements, 'value) t
+        -> ('value -> 'result)
+        -> ('input, 'requirements, 'result) t
+
+      val ( and+ )
+        :  ('input, 'requirements, 'left) t
+        -> ('input, 'requirements, 'right) t
+        -> ('input, 'requirements, 'left * 'right) t
+
+      module Let_syntax : sig
+        val return : 'value -> ('input, 'requirements, 'value) t
+
+        val map
+          :  ('input, 'requirements, 'value) t
+          -> f:('value -> 'result)
+          -> ('input, 'requirements, 'result) t
+
+        val both
+          :  ('input, 'requirements, 'left) t
+          -> ('input, 'requirements, 'right) t
+          -> ('input, 'requirements, 'left * 'right) t
+
+        val ( let+ )
+          :  ('input, 'requirements, 'value) t
+          -> ('value -> 'result)
+          -> ('input, 'requirements, 'result) t
+
+        val ( and+ )
+          :  ('input, 'requirements, 'left) t
+          -> ('input, 'requirements, 'right) t
+          -> ('input, 'requirements, 'left * 'right) t
+
+        module Open_on_rhs : sig end
+      end
+    end
+  end
+
+  (** Parameter declarations and statement builders for one input type. The
+      declarations share bind slots; combine declaration results
+      applicatively before using their values in SQL. *)
   type ('input, 'requirements) parameters = private
     { expr :
         'value.
         ?name:string
         -> 'value Db_type.t
         -> get:('input -> 'value)
-        -> ('value, 'requirements) Expr.t
-      (** Declare a typed bind slot read from ['input]. Reusing the returned
-          expression reuses the same slot and parameter index. *)
+        -> ('input, 'requirements, ('value, 'requirements) Expr.t) Parameters.t
+      (** Declare a typed bind slot read from ['input]. Reusing the expression
+          inside the mapping operation reuses this slot and its parameter
+          index. *)
+    ; optional_expr :
+        'value.
+        ?name:string
+        -> 'value Db_type.t
+        -> get:('input -> 'value option)
+        -> ( 'input
+             , 'requirements
+             , ('value, 'requirements) Optional_parameter.t )
+             Parameters.t
+      (** Declare one nullable bind slot with nullable and non-null views.
+          Both views refer to the same SQL parameter. *)
     ; column :
         'row 'base 'value.
         ?name:string
         -> ('row, 'base, 'value) Column.t
         -> get:('input -> 'value)
-        -> ('value, 'requirements) Expr.t
-      (** Declare a bind slot using a column's database type. *)
+        -> ('input, 'requirements, ('value, 'requirements) Expr.t) Parameters.t
+      (** Declare a bind slot using a column's database type. Reusing the
+          expression inside the mapping operation reuses this slot and its
+          parameter index. *)
     ; non_negative_int :
-        name:string -> get:('input -> int) -> 'requirements Pagination_parameter.t
+        name:string
+        -> get:('input -> int)
+        -> ('input, 'requirements, 'requirements Pagination_parameter.t) Parameters.t
       (** Declare a pagination slot. Binding fails before execution when the
           getter returns a negative integer. *)
+    ; non_negative_int_opt :
+        name:string
+        -> get:('input -> int option)
+        -> ( 'input
+             , 'requirements
+             , 'requirements Pagination_parameter.optional )
+             Parameters.t
+      (** Declare an optional pagination slot. [None] is bound as SQL [NULL];
+          [Some n] must be non-negative. Only PostgreSQL query builders accept
+          this slot. *)
+    ; query_many :
+        'row 'kind 'cardinality.
+        ('row, 'kind, 'cardinality, 'requirements) Result_query.t
+        -> ('input, 'row list, 'requirements) t
+      (** Compile a query with the parameters declared so far. Its runtime
+          input type is ['input]. Raises [Definition_error] if compilation
+          fails for any dialect selected by the witness. *)
+    ; query_one :
+        'row 'kind 'cardinality.
+        ('row, 'kind, ([> `Exactly_one ] as 'cardinality), 'requirements) Result_query.t
+        -> ('input, 'row, 'requirements) t
+      (** Compile a query with a static exactly-one proof. Raises
+          [Definition_error] if compilation fails for any selected dialect. *)
+    ; query_optional :
+        'row 'kind 'cardinality.
+        ('row, 'kind, ([> `At_most_one ] as 'cardinality), 'requirements) Result_query.t
+        -> ('input, 'row option, 'requirements) t
+      (** Compile a query with a static at-most-one proof. Raises
+          [Definition_error] if compilation fails for any selected dialect. *)
+    ; expect_one :
+        'row 'kind 'cardinality.
+        ('row, 'kind, 'cardinality, 'requirements) Result_query.t
+        -> ('input, 'row, 'requirements) t
+      (** Compile a query with an execution-time exactly-one check. Raises
+          [Definition_error] if compilation fails for any selected dialect. *)
+    ; expect_optional :
+        'row 'kind 'cardinality.
+        ('row, 'kind, 'cardinality, 'requirements) Result_query.t
+        -> ('input, 'row option, 'requirements) t
+      (** Compile a query with an execution-time at-most-one check. Raises
+          [Definition_error] if compilation fails for any selected dialect. *)
+    ; command : 'requirements Command.t -> ('input, Affected_rows.t, 'requirements) t
+      (** Compile a command. Raises [Definition_error] if compilation fails for
+          any selected dialect. *)
     }
 
-  (** Fix the input type to [unit] in a static statement without runtime
-      parameters. Call this inside the constructor callback; it adds no bind
-      slot. *)
-  val no_params : (unit, 'requirements) parameters -> unit
+  (** Build static statements with shared parameter declarations. Combine
+      declarations with [Parameters.Let_syntax] before using their values in a
+      query. The callback returns an applicative value containing compiled
+      statements; each compilation captures the declarations made so far. Use
+      [Dialect.portable] to compile for PostgreSQL and SQLite. *)
+  val with_parameters
+    :  dialect:'requirements Dialect.witness
+    -> (params:('input, 'requirements) parameters
+        -> ('input, 'requirements, 'a) Parameters.t)
+    -> 'a
 
-  (** Static statements compiled immediately for PostgreSQL and SQLite.
-      Constructors return definition errors; their [_exn] forms raise
-      [Definition_error] for the same failures. Runtime cardinality failures
-      remain adapter errors. *)
-  module Portable : sig
-    (** Compile a row-returning statement for both portable dialects. Any
-        cardinality proof is accepted and execution returns every row. *)
-    val query_many
-      :  (('input, Dialect.portable) parameters
-          -> ('row, 'kind, 'cardinality, Dialect.portable) Result_query.t)
-      -> (('input, 'row list, Dialect.portable) t, definition_error) Result.t
+  (** Compile a query without runtime parameters. The statement accepts [unit]
+      as input. Compilation failures raise [Definition_error]. *)
+  val query_many
+    :  dialect:'requirements Dialect.witness
+    -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t
+    -> (unit, 'row list, 'requirements) t
 
-    (** Build a statement whose SELECT is statically known to return one row.
-        Only [Cardinality.exactly_one] is accepted. Adapters still reject an unexpected
-        zero-row or multi-row driver result. Use [expect_one] when the query has
-        no static proof. *)
-    val query_one
-      :  (('input, Dialect.portable) parameters
-          -> ( 'row
-               , 'kind
-               , ([> `Exactly_one ] as 'cardinality)
-               , Dialect.portable )
-               Result_query.t)
-      -> (('input, 'row, Dialect.portable) t, definition_error) Result.t
+  (** Compile a query with a static exactly-one proof and no runtime
+      parameters. The statement accepts [unit] as input. *)
+  val query_one
+    :  dialect:'requirements Dialect.witness
+    -> ('row, 'kind, ([> `Exactly_one ] as 'cardinality), 'requirements) Result_query.t
+    -> (unit, 'row, 'requirements) t
 
-    (** Build a statement whose SELECT is statically known to return at most
-        one row. [Cardinality.exactly_one] is also accepted. Execution returns
-        [None] for no row and adapters reject an unexpected multi-row result. *)
-    val query_optional
-      :  (('input, Dialect.portable) parameters
-          -> ( 'row
-               , 'kind
-               , ([> `At_most_one ] as 'cardinality)
-               , Dialect.portable )
-               Result_query.t)
-      -> (('input, 'row option, Dialect.portable) t, definition_error) Result.t
+  (** Compile a query with a static at-most-one proof and no runtime
+      parameters. The statement accepts [unit] as input. *)
+  val query_optional
+    :  dialect:'requirements Dialect.witness
+    -> ('row, 'kind, ([> `At_most_one ] as 'cardinality), 'requirements) Result_query.t
+    -> (unit, 'row option, 'requirements) t
 
-    (** Compile any row-returning query with the runtime contract that exactly
-        one row must be returned. Adapters report an error for zero or multiple
-        rows. This is useful when uniqueness is a database or application
-        invariant not represented by the DSL. *)
-    val expect_one
-      :  (('input, Dialect.portable) parameters
-          -> ('row, 'kind, 'cardinality, Dialect.portable) Result_query.t)
-      -> (('input, 'row, Dialect.portable) t, definition_error) Result.t
+  (** Compile a query without runtime parameters and require exactly one row at
+      execution time. The statement accepts [unit] as input. *)
+  val expect_one
+    :  dialect:'requirements Dialect.witness
+    -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t
+    -> (unit, 'row, 'requirements) t
 
-    (** Build an optional-row statement with an explicit runtime cardinality
-        check. Adapters return [None] for zero rows and report an error for more
-        than one row. *)
-    val expect_optional
-      :  (('input, Dialect.portable) parameters
-          -> ('row, 'kind, 'cardinality, Dialect.portable) Result_query.t)
-      -> (('input, 'row option, Dialect.portable) t, definition_error) Result.t
+  (** Compile a query without runtime parameters and require at most one row at
+      execution time. The statement accepts [unit] as input. *)
+  val expect_optional
+    :  dialect:'requirements Dialect.witness
+    -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t
+    -> (unit, 'row option, 'requirements) t
 
-    (** Compile a portable command returning its affected-row result. *)
-    val command
-      :  (('input, Dialect.portable) parameters -> Dialect.portable Command.t)
-      -> (('input, Affected_rows.t, Dialect.portable) t, definition_error) Result.t
+  (** Compile a command without runtime parameters. The statement accepts
+      [unit] as input. *)
+  val command
+    :  dialect:'requirements Dialect.witness
+    -> 'requirements Command.t
+    -> (unit, Affected_rows.t, 'requirements) t
 
-    (** Raising form of [query_many]. *)
-    val query_many_exn
-      :  (('input, Dialect.portable) parameters
-          -> ('row, 'kind, 'cardinality, Dialect.portable) Result_query.t)
-      -> ('input, 'row list, Dialect.portable) t
-
-    (** Raising form of [query_one]. *)
-    val query_one_exn
-      :  (('input, Dialect.portable) parameters
-          -> ( 'row
-               , 'kind
-               , ([> `Exactly_one ] as 'cardinality)
-               , Dialect.portable )
-               Result_query.t)
-      -> ('input, 'row, Dialect.portable) t
-
-    (** Raising form of [query_optional]. *)
-    val query_optional_exn
-      :  (('input, Dialect.portable) parameters
-          -> ( 'row
-               , 'kind
-               , ([> `At_most_one ] as 'cardinality)
-               , Dialect.portable )
-               Result_query.t)
-      -> ('input, 'row option, Dialect.portable) t
-
-    (** Raising form of [expect_one]. *)
-    val expect_one_exn
-      :  (('input, Dialect.portable) parameters
-          -> ('row, 'kind, 'cardinality, Dialect.portable) Result_query.t)
-      -> ('input, 'row, Dialect.portable) t
-
-    (** Raising form of [expect_optional]. *)
-    val expect_optional_exn
-      :  (('input, Dialect.portable) parameters
-          -> ('row, 'kind, 'cardinality, Dialect.portable) Result_query.t)
-      -> ('input, 'row option, Dialect.portable) t
-
-    (** Raising form of [command]. *)
-    val command_exn
-      :  (('input, Dialect.portable) parameters -> Dialect.portable Command.t)
-      -> ('input, Affected_rows.t, Dialect.portable) t
-  end
-
-  (** Static statements compiled immediately for one dialect selected by its
-      typed witness. The callback may use operations required by that dialect.
-      Constructors return definition errors; their [_exn] forms raise
-      [Definition_error] for the same failures. *)
-  module For_dialect : sig
-    (** Compile a row-returning statement for [dialect]. Any cardinality proof
-        is accepted and execution returns every row. *)
+  (** Statements whose SQL shape depends on the runtime input. The witness
+      restricts compilation to one concrete dialect or to both portable
+      dialects. Constructors
+      retain a pure callback without invoking it or compiling a plan. Each
+      [sql] or adapter [run] invokes it once and compiles for the selected
+      supported dialect, without caching. Values supplied to the DSL remain
+      bound parameters of that invocation, including values passed through
+      [Expr.constant]. Compilation failures are returned at execution time;
+      exceptions raised by the callback propagate unchanged. Result
+      cardinality is checked by the adapter. *)
+  module Dynamic : sig
+    (** Build a query from each runtime input and return every row. *)
     val query_many
       :  dialect:'requirements Dialect.witness
-      -> (('input, 'requirements) parameters
-          -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t)
-      -> (('input, 'row list, 'requirements) t, definition_error) Result.t
-
-    (** Compile a [Cardinality.exactly_one] query for [dialect]. Adapters retain
-        the defensive runtime cardinality check. *)
-    val query_one
-      :  dialect:'requirements Dialect.witness
-      -> (('input, 'requirements) parameters
-          -> ( 'row
-               , 'kind
-               , ([> `Exactly_one ] as 'cardinality)
-               , 'requirements )
-               Result_query.t)
-      -> (('input, 'row, 'requirements) t, definition_error) Result.t
-
-    (** Build a statement whose SELECT is statically known to return at most
-        one row for [dialect]. [Cardinality.exactly_one] is also accepted. *)
-    val query_optional
-      :  dialect:'requirements Dialect.witness
-      -> (('input, 'requirements) parameters
-          -> ( 'row
-               , 'kind
-               , ([> `At_most_one ] as 'cardinality)
-               , 'requirements )
-               Result_query.t)
-      -> (('input, 'row option, 'requirements) t, definition_error) Result.t
-
-    (** Compile any row-returning query for [dialect] and require exactly one
-        row at execution time. *)
-    val expect_one
-      :  dialect:'requirements Dialect.witness
-      -> (('input, 'requirements) parameters
-          -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t)
-      -> (('input, 'row, 'requirements) t, definition_error) Result.t
-
-    (** Compile any row-returning query for [dialect] and require at most one
-        row at execution time. *)
-    val expect_optional
-      :  dialect:'requirements Dialect.witness
-      -> (('input, 'requirements) parameters
-          -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t)
-      -> (('input, 'row option, 'requirements) t, definition_error) Result.t
-
-    (** Compile a command for [dialect]. *)
-    val command
-      :  dialect:'requirements Dialect.witness
-      -> (('input, 'requirements) parameters -> 'requirements Command.t)
-      -> (('input, Affected_rows.t, 'requirements) t, definition_error) Result.t
-
-    (** Raising form of [query_many]. *)
-    val query_many_exn
-      :  dialect:'requirements Dialect.witness
-      -> (('input, 'requirements) parameters
-          -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t)
+      -> ('input -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t)
       -> ('input, 'row list, 'requirements) t
 
-    (** Raising form of [query_one]. *)
-    val query_one_exn
+    (** Build a query with a static exactly-one proof from each runtime input. *)
+    val query_one
       :  dialect:'requirements Dialect.witness
-      -> (('input, 'requirements) parameters
+      -> ('input
           -> ( 'row
                , 'kind
                , ([> `Exactly_one ] as 'cardinality)
@@ -2533,10 +2577,10 @@ module Statement : sig
                Result_query.t)
       -> ('input, 'row, 'requirements) t
 
-    (** Raising form of [query_optional]. *)
-    val query_optional_exn
+    (** Build a query with a static at-most-one proof from each runtime input. *)
+    val query_optional
       :  dialect:'requirements Dialect.witness
-      -> (('input, 'requirements) parameters
+      -> ('input
           -> ( 'row
                , 'kind
                , ([> `At_most_one ] as 'cardinality)
@@ -2544,83 +2588,25 @@ module Statement : sig
                Result_query.t)
       -> ('input, 'row option, 'requirements) t
 
-    (** Raising form of [expect_one]. *)
-    val expect_one_exn
+    (** Build a query from each runtime input and require exactly one row at
+        execution time. *)
+    val expect_one
       :  dialect:'requirements Dialect.witness
-      -> (('input, 'requirements) parameters
-          -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t)
+      -> ('input -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t)
       -> ('input, 'row, 'requirements) t
 
-    (** Raising form of [expect_optional]. *)
-    val expect_optional_exn
+    (** Build a query from each runtime input and require at most one row at
+        execution time. *)
+    val expect_optional
       :  dialect:'requirements Dialect.witness
-      -> (('input, 'requirements) parameters
-          -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t)
+      -> ('input -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t)
       -> ('input, 'row option, 'requirements) t
 
-    (** Raising form of [command]. *)
-    val command_exn
+    (** Build a command from each runtime input. *)
+    val command
       :  dialect:'requirements Dialect.witness
-      -> (('input, 'requirements) parameters -> 'requirements Command.t)
+      -> ('input -> 'requirements Command.t)
       -> ('input, Affected_rows.t, 'requirements) t
-  end
-
-  (** Statements whose SQL shape depends on the runtime input. Constructors do
-      not invoke the callback or compile a plan. *)
-  module Dynamic : sig
-    (** Constructors retain a pure callback without invoking it. Each [sql] or
-        adapter [run] invokes it once and compiles for the selected dialect,
-        without caching. Values supplied to the DSL remain bound parameters
-        of that invocation, including values passed through [Expr.constant].
-        Compilation failures are returned at execution time; exceptions raised
-        by the callback propagate unchanged. Result cardinality is checked by
-        the adapter. *)
-    module Portable : sig
-      (** Build and compile a portable query from each runtime input. Any
-          cardinality proof is accepted and execution returns every row. *)
-      val query_many
-        :  ('input -> ('row, 'kind, 'cardinality, Dialect.portable) Result_query.t)
-        -> ('input, 'row list, Dialect.portable) t
-
-      (** Build a [Cardinality.exactly_one] query from each runtime input.
-          Compilation validates the proof before the adapter executes it. *)
-      val query_one
-        :  ('input
-            -> ( 'row
-                 , 'kind
-                 , ([> `Exactly_one ] as 'cardinality)
-                 , Dialect.portable )
-                 Result_query.t)
-        -> ('input, 'row, Dialect.portable) t
-
-      (** Build a [Cardinality.at_most_one] or [Cardinality.exactly_one] query
-          from each runtime input. *)
-      val query_optional
-        :  ('input
-            -> ( 'row
-                 , 'kind
-                 , ([> `At_most_one ] as 'cardinality)
-                 , Dialect.portable )
-                 Result_query.t)
-        -> ('input, 'row option, Dialect.portable) t
-
-      (** Build any row-returning query from the input and require exactly one
-          row at execution time. *)
-      val expect_one
-        :  ('input -> ('row, 'kind, 'cardinality, Dialect.portable) Result_query.t)
-        -> ('input, 'row, Dialect.portable) t
-
-      (** Build any row-returning query from the input and require at most one
-          row at execution time. *)
-      val expect_optional
-        :  ('input -> ('row, 'kind, 'cardinality, Dialect.portable) Result_query.t)
-        -> ('input, 'row option, Dialect.portable) t
-
-      (** Build and compile a portable command from each runtime input. *)
-      val command
-        :  ('input -> Dialect.portable Command.t)
-        -> ('input, Affected_rows.t, Dialect.portable) t
-    end
   end
 
   (** Select between two statement branches for the current

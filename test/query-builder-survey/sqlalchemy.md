@@ -85,13 +85,15 @@ Bind-значение сравнивается с выражением коло�
 
 ```ocaml
 let sqlalchemy01 =
-  Statement.Portable.query_many_exn (fun params ->
-    let name = params.expr Db_type.text ~get:Fn.id in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ name = params.expr Db_type.text ~get:Fn.id in
+    params.query_many (
     Query.(
       from User_account.table
       |> where (fun user -> User_account.name user =. name)
       |> select (fun user ->
-        Projection.pair (User_account.id user) (User_account.name user))))
+        Projection.pair (User_account.id user) (User_account.name user)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -136,17 +138,23 @@ OR-группа явно вложена в AND-группу.
 
 ```ocaml
 let sqlalchemy02 =
-  Statement.Portable.query_many_exn (fun params ->
-    let name1 = params.expr Db_type.text ~get:(fun (name1, _, _) -> name1) in
-    let name2 = params.expr Db_type.text ~get:(fun (_, name2, _) -> name2) in
-    let min_id = params.expr Db_type.int64 ~get:(fun (_, _, min_id) -> min_id) in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ name1 =
+      params.expr Db_type.text ~get:(fun (name1, _, _) -> name1)
+    and+ name2 =
+      params.expr Db_type.text ~get:(fun (_, name2, _) -> name2)
+    and+ min_id =
+      params.expr Db_type.int64 ~get:(fun (_, _, min_id) -> min_id)
+    in
+    params.query_many (
     Query.(
       from User_account.table
       |> where (fun user ->
         ((User_account.name user =. name1)
          ||. (User_account.name user =. name2))
         &&. (User_account.id user >. min_id))
-      |> select (fun user -> Projection.expr (User_account.id user))))
+      |> select (fun user -> Projection.expr (User_account.id user)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -198,16 +206,25 @@ stmt = (
 
 ```ocaml
 let sqlalchemy03 =
-  Statement.Portable.query_many_exn (fun params ->
-    let page_size = params.non_negative_int ~name:"page_size" ~get:(fun (page_size, _) -> page_size) in
-    let page_offset = params.non_negative_int ~name:"page_offset" ~get:(fun (_, page_offset) -> page_offset) in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ page_size =
+      params.non_negative_int
+        ~name:"page_size"
+        ~get:(fun (page_size, _) -> page_size)
+    and+ page_offset =
+      params.non_negative_int
+        ~name:"page_offset"
+        ~get:(fun (_, page_offset) -> page_offset)
+    in
+    params.query_many (
     Query.(
       from User_account.table
       |> order_by User_account.id `Asc
       |> Query.limit_param page_size
       |> Query.offset_param page_offset
       |> select (fun user ->
-        Projection.pair (User_account.id user) (User_account.name user))))
+        Projection.pair (User_account.id user) (User_account.name user)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -253,7 +270,7 @@ Foreign key связь задаётся явно через callback JOIN.
 
 ```ocaml
 let sqlalchemy04 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from User_account.table
       |> inner_join Address.table ~on:(fun user address ->
@@ -302,7 +319,7 @@ Nullable-колонка адреса в результате имеет тип s
 
 ```ocaml
 let sqlalchemy05 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from User_account.table
       |> left_join Address.table ~on:(fun user address ->
@@ -354,7 +371,7 @@ stmt = (
 
 ```ocaml
 let sqlalchemy06 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Address.table
       |> group_by Address.user_id
@@ -409,7 +426,7 @@ stmt = select(user_table.c.id, address_count.label("address_count"))
 
 ```ocaml
 let sqlalchemy07 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from User_account.table
       |> select (fun user ->
@@ -469,7 +486,7 @@ stmt = select(user_table.c.id).where(has_address)
 
 ```ocaml
 let sqlalchemy08 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from User_account.table
       |> where (fun user ->
@@ -541,7 +558,7 @@ let sqlalchemy09_counts =
       Derived_table.Fields.pair (Address.user_id address) Expr.count_all))
 
 let sqlalchemy09 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from_relation sqlalchemy09_counts
       |> order_by fst `Asc
@@ -612,7 +629,7 @@ let sqlalchemy10_relation =
 let sqlalchemy10_cte = Cte.select sqlalchemy10_relation
 
 let sqlalchemy10 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Cte.with_result sqlalchemy10_cte ~f:(fun selected ->
       Query.(
         from_cte selected
@@ -671,7 +688,7 @@ stmt = union(
 ```ocaml
 let sqlalchemy11_left = Query.(from User_account.table |> where (fun user -> User_account.name user =$ "sandy") |> select (fun user -> Projection.expr (User_account.id user)))
 let sqlalchemy11_right = Query.(from User_account.table |> where (fun user -> User_account.name user =$ "spongebob") |> select (fun user -> Projection.expr (User_account.id user)))
-let sqlalchemy11 = Statement.Portable.query_many_exn (fun _ -> Query.union sqlalchemy11_left sqlalchemy11_right)
+let sqlalchemy11 = Statement.query_many ~dialect:Dialect.portable (Query.union sqlalchemy11_left sqlalchemy11_right)
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -756,7 +773,7 @@ stmt = (
 
 ```ocaml
 let sqlalchemy13 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Insert.(
       into User_account.table
       |> set User_account.name_column "sandy"
@@ -809,7 +826,7 @@ stmt = update(user_table).values(fullname=first_email)
 
 ```ocaml
 let sqlalchemy14 =
-  Statement.Portable.command_exn (fun _ ->
+  Statement.command ~dialect:Dialect.portable (
     Update.(
       table User_account.table
       |> from User_account.table ~f:(fun target source update ->
@@ -873,7 +890,7 @@ stmt = (
 
 ```ocaml
 let sqlalchemy15 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Delete.(
       from Address.table
       |> where (fun address -> Address.user_id address =$ 1L)
@@ -913,7 +930,7 @@ stmt = select(address_table.c.user_id).distinct()
 
 ```ocaml
 let sqlalchemy16 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(from Address.table |> distinct |> select (fun address -> Projection.expr (Address.user_id address))))
 ```
 
@@ -951,7 +968,7 @@ stmt = select(user_table.c.id).where(
 
 ```ocaml
 let sqlalchemy17 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(from User_account.table |> where (fun user -> Expr.in_ (User_account.name user) [ "sandy"; "spongebob" ]) |> select (fun user -> Projection.expr (User_account.id user))))
 ```
 
@@ -992,7 +1009,7 @@ stmt = select(user_table.c.id).where(user_table.c.name.like(name_pattern))
 
 ```ocaml
 let sqlalchemy18 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(from User_account.table |> where (fun user -> User_account.name user =~$ "%sandy%") |> select (fun user -> Projection.expr (User_account.id user))))
 ```
 
@@ -1030,7 +1047,7 @@ stmt = select(address_table.c.id).where(address_table.c.email_address.is_(None))
 
 ```ocaml
 let sqlalchemy19 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(from Address.table |> where (fun address -> Expr.is_null (Expr.to_nullable (Address.email address))) |> select (fun address -> Projection.expr (Address.id address))))
 ```
 
@@ -1072,7 +1089,7 @@ stmt = select(user_table.c.id, category)
 
 ```ocaml
 let sqlalchemy20 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(from User_account.table |> select (fun user -> Projection.pair (User_account.id user) (Expr.case [ User_account.name user =$ "sandy", Expr.constant Db_type.text "matched" ] ~else_:(Expr.constant Db_type.text "other")))))
 ```
 
@@ -1115,7 +1132,7 @@ stmt = select(address_table.c.id, address_table.c.email_address).order_by(
 
 ```ocaml
 let sqlalchemy21 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Address.table
       |> order_by (fun address -> Expr.case [ Expr.is_null (Expr.to_nullable (Address.email address)), Expr.constant Db_type.int 1 ] ~else_:(Expr.constant Db_type.int 0)) `Asc
@@ -1168,7 +1185,7 @@ stmt = select(user_table.c.name, related_user.c.name).join_from(
 
 ```ocaml
 let sqlalchemy22 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(from User_account.table |> inner_join User_account.table ~on:(fun user related -> User_account.id user <. User_account.id related) |> select (fun (user, related) -> Projection.pair (User_account.name user) (User_account.name related))))
 ```
 
@@ -1211,7 +1228,7 @@ stmt = select(user_table.c.id, address_table.c.id).select_from(
 
 ```ocaml
 let sqlalchemy23 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(from User_account.table |> inner_join Address.table ~on:(fun _ _ -> Condition.true_) |> select (fun (user, address) -> Projection.pair (User_account.id user) (Address.id address))))
 ```
 
@@ -1261,7 +1278,7 @@ let sqlalchemy24_left =
 let sqlalchemy24_right =
   Query.(from Address.table |> left_join User_account.table ~on:(fun address user -> User_account.id user =. Address.user_id address) |> select (fun (address, user) -> Projection.pair (User_account.nullable_id user) (Expr.to_nullable (Address.id address))))
 
-let sqlalchemy24 = Statement.Portable.query_many_exn (fun _ -> Query.union_all sqlalchemy24_left sqlalchemy24_right)
+let sqlalchemy24 = Statement.query_many ~dialect:Dialect.portable (Query.union_all sqlalchemy24_left sqlalchemy24_right)
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1328,7 +1345,7 @@ stmt = select(user_table.c.id, latest_address.c.email_address).select_from(
 
 ```ocaml
 let sqlalchemy25 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from User_account.table
       |> select (fun user ->
@@ -1389,7 +1406,7 @@ stmt = union_all(
 ```ocaml
 let sqlalchemy26_left = Query.(from User_account.table |> where (fun user -> User_account.name user =$ "sandy") |> select (fun user -> Projection.expr (User_account.id user)))
 let sqlalchemy26_right = Query.(from User_account.table |> where (fun user -> User_account.name user =$ "spongebob") |> select (fun user -> Projection.expr (User_account.id user)))
-let sqlalchemy26 = Statement.Portable.query_many_exn (fun _ -> Query.union_all sqlalchemy26_left sqlalchemy26_right)
+let sqlalchemy26 = Statement.query_many ~dialect:Dialect.portable (Query.union_all sqlalchemy26_left sqlalchemy26_right)
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1444,7 +1461,7 @@ stmt = intersect(
 ```ocaml
 let sqlalchemy27_left = Query.(from Address.table |> where (fun address -> Address.email address =~$ "%@example.com") |> select (fun address -> Projection.expr (Address.user_id address)))
 let sqlalchemy27_right = Query.(from Address.table |> where (fun address -> Address.id address >$ 10L) |> select (fun address -> Projection.expr (Address.user_id address)))
-let sqlalchemy27 = Statement.Portable.query_many_exn (fun _ -> Query.intersect sqlalchemy27_left sqlalchemy27_right)
+let sqlalchemy27 = Statement.query_many ~dialect:Dialect.portable (Query.intersect sqlalchemy27_left sqlalchemy27_right)
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1497,7 +1514,7 @@ stmt = except_(
 ```ocaml
 let sqlalchemy28_users = Query.(from User_account.table |> select (fun user -> Projection.expr (User_account.id user)))
 let sqlalchemy28_addresses = Query.(from Address.table |> select (fun address -> Projection.expr (Address.user_id address)))
-let sqlalchemy28 = Statement.Portable.query_many_exn (fun _ -> Query.except sqlalchemy28_users sqlalchemy28_addresses)
+let sqlalchemy28 = Statement.query_many ~dialect:Dialect.portable (Query.except sqlalchemy28_users sqlalchemy28_addresses)
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1603,7 +1620,7 @@ let sqlalchemy30 =
             Derived_table.Fields.expr
               Expr.Int64.Infix.(number +. Expr.constant Db_type.int64 1L))))
   in
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Cte.with_result definition ~f:(fun numbers ->
       Query.(from_cte_relation numbers |> select Projection.expr)))
 ```
@@ -1657,7 +1674,7 @@ stmt = insert(user_table).values(
 
 ```ocaml
 let sqlalchemy31 =
-  Statement.Portable.command_exn (fun _ ->
+  Statement.command ~dialect:Dialect.portable (
     Insert.rows User_account.table
       [ (fun row -> row |> Insert.set User_account.name_column "sandy" |> Insert.set User_account.fullname_column (Some "Sandy Cheeks"))
       ; (fun row -> row |> Insert.set User_account.name_column "spongebob" |> Insert.set User_account.fullname_column (Some "SpongeBob SquarePants"))
@@ -1710,20 +1727,18 @@ let sqlalchemy32_columns =
   Insert.Columns.(column Address.user_id_column |> add Address.email_column)
 
 let sqlalchemy32 =
-  Statement.Portable.command_exn (fun params ->
-    let email =
-      params.expr Db_type.text ~get:(fun (email, _) -> email)
-    in
-    let name =
-      params.expr Db_type.text ~get:(fun (_, name) -> name)
-    in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ email = params.expr Db_type.text ~get:(fun (email, _) -> email)
+    and+ name = params.expr Db_type.text ~get:(fun (_, name) -> name) in
+    params.command (
     let source =
       Query.(
         from User_account.table
         |> where (fun user -> User_account.name user =. name)
         |> select (fun user -> Projection.pair (User_account.id user) email))
     in
-    Insert.(into Address.table |> from_select sqlalchemy32_columns source |> command))
+    Insert.(into Address.table |> from_select sqlalchemy32_columns source |> command)))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1771,7 +1786,7 @@ stmt = (
 
 ```ocaml
 let sqlalchemy33 =
-  Statement.Portable.command_exn (fun _ ->
+  Statement.command ~dialect:Dialect.portable (
     Update.(
       table User_account.table
       |> from Address.table ~f:(fun user address update ->
@@ -1821,7 +1836,7 @@ stmt = delete(address_table).where(
 
 ```ocaml
 let sqlalchemy34 =
-  Statement.Portable.command_exn (fun _ ->
+  Statement.command ~dialect:Dialect.portable (
     Delete.(
       from Address.table
       |> where (fun address ->
@@ -1879,7 +1894,7 @@ stmt = insert_stmt.on_conflict_do_update(
 
 ```ocaml
 let sqlalchemy35 =
-  Statement.Portable.command_exn (fun _ ->
+  Statement.command ~dialect:Dialect.portable (
     Insert.(
       into User_account.table
       |> set User_account.name_column "sandy"
@@ -1939,7 +1954,7 @@ stmt = select(user_table.c.id, user_table.c.name).where(~addresses)
 
 ```ocaml
 let sqlalchemy36 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from User_account.table
       |> where (fun user -> not_exists (Query.(from Address.table |> where (fun address -> Address.user_id address =. User_account.id user))))
@@ -2003,7 +2018,7 @@ stmt = (
 
 ```ocaml
 let sqlalchemy37 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from User_account.table
       |> left_join Address.table ~on:(fun user address ->
@@ -2079,7 +2094,7 @@ stmt = (
 
 ```ocaml
 let sqlalchemy38 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Address.table
       |> where (fun address ->
@@ -2148,8 +2163,12 @@ stmt = (
 
 ```ocaml
 let sqlalchemy39 =
-  Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun params ->
-    let page_size = params.non_negative_int ~name:"page_size" ~get:Fn.id in
+  Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ page_size =
+      params.non_negative_int ~name:"page_size" ~get:Fn.id
+    in
+    params.query_many (
     Query.(
       from User_account.table
       |> order_by User_account.id `Asc
@@ -2158,7 +2177,7 @@ let sqlalchemy39 =
            ~of_:(fun user -> [ Postgresql.Query.target user ])
            ~skip_locked:true
       |> select (fun user ->
-        Projection.pair (User_account.id user) (User_account.name user))))
+        Projection.pair (User_account.id user) (User_account.name user)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2247,7 +2266,7 @@ WHERE name = :name AND id >= :minimum_id ORDER BY id
 
 ```ocaml
 let sqlalchemy41 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from User_account.table
       |> where_opt (Some "sandy") ~f:(fun user name -> User_account.name user =$ name)
@@ -2292,7 +2311,7 @@ WHERE EXISTS (SELECT 1 FROM address WHERE user_id = user_account.id AND email_ad
 
 ```ocaml
 let sqlalchemy42 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from User_account.table
       |> where (fun user ->
@@ -2367,7 +2386,7 @@ FROM user_account
 
 ```ocaml
 let sqlalchemy43 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from User_account.table
       |> select (fun user ->
@@ -2422,7 +2441,7 @@ GROUP BY user_account.id HAVING COUNT(address.id) >= 2
 
 ```ocaml
 let sqlalchemy44 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from User_account.table
       |> left_join Address.table ~on:(fun user address -> User_account.id user =. Address.user_id address)
@@ -2466,7 +2485,7 @@ ORDER BY name, id LIMIT :page_size
 
 ```ocaml
 let sqlalchemy45 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from User_account.table
       |> where (fun user -> (User_account.name user >$ "sandy") ||. ((User_account.name user =$ "sandy") &&. (User_account.id user >$ 10L)))
@@ -2516,7 +2535,7 @@ FROM address WHERE user_account.id = address.user_id AND address.id = :address_i
 
 ```ocaml
 let sqlalchemy46 =
-  Statement.Portable.command_exn (fun _ ->
+  Statement.command ~dialect:Dialect.portable (
     Update.(
       table User_account.table
       |> from Address.table ~f:(fun user address update ->
@@ -2560,7 +2579,7 @@ WHERE user_account.fullname IS DISTINCT FROM EXCLUDED.fullname
 
 ```ocaml
 let sqlalchemy47 =
-  Statement.Portable.command_exn (fun _ ->
+  Statement.command ~dialect:Dialect.portable (
     Insert.(
       into User_account.table
       |> set User_account.name_column "sandy"
@@ -2610,7 +2629,7 @@ DELETE FROM address WHERE user_id = :user_id AND email_address LIKE :pattern RET
 
 ```ocaml
 let sqlalchemy48 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Delete.(
       from Address.table
       |> where (fun address -> (Address.user_id address =$ 1L) &&. (Address.email address =~$ "%@example.com"))
@@ -2651,7 +2670,7 @@ EXCEPT SELECT user_id FROM address WHERE email_address LIKE '%@blocked.test'
 let sqlalchemy49_users = Query.(from User_account.table |> select (fun user -> Projection.expr (User_account.id user)))
 let sqlalchemy49_address_users = Query.(from Address.table |> select (fun address -> Projection.expr (Address.user_id address)))
 let sqlalchemy49_blocked = Query.(from Address.table |> where (fun address -> Address.email address =~$ "%@blocked.test") |> select (fun address -> Projection.expr (Address.user_id address)))
-let sqlalchemy49 = Statement.Portable.query_many_exn (fun _ -> Query.except (Query.intersect sqlalchemy49_users sqlalchemy49_address_users) sqlalchemy49_blocked)
+let sqlalchemy49 = Statement.query_many ~dialect:Dialect.portable (Query.except (Query.intersect sqlalchemy49_users sqlalchemy49_address_users) sqlalchemy49_blocked)
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2706,7 +2725,7 @@ ORDER BY COUNT(address.id) DESC, user_account.id LIMIT 10
 
 ```ocaml
 let sqlalchemy50 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from User_account.table
       |> inner_join Address.table ~on:(fun user address -> User_account.id user =. Address.user_id address)

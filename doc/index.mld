@@ -8,6 +8,8 @@ execution adapter.
 Текущий срез включает:
 
 - типы БД, table/column descriptors, константы statement и runtime-параметры;
+- статические statements с общим input и аппликативным связыванием параметров;
+- typed witnesses для portable и concrete диалектов, а также dynamic statements;
 - отдельные scalar expressions и SQL conditions;
 - applicative projections произвольного OCaml-типа;
 - [SELECT], joins, filtering, ordering, pagination, grouping и aggregates;

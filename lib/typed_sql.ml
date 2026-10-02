@@ -13,6 +13,7 @@ module Table_ref = Typed_sql_private.Table_ref
 module Nullable_table_ref = Typed_sql_private.Nullable_table_ref
 module Condition = Typed_sql_private.Condition
 module Expr = Typed_sql_private.Expr
+module Optional_parameter = Typed_sql_private.Optional_parameter
 module Scalar_query = Typed_sql_private.Scalar_query
 module Pagination_parameter = Typed_sql_private.Pagination_parameter
 module Aggregate_order = Typed_sql_private.Aggregate_order
@@ -76,6 +77,8 @@ module Postgresql = struct
     let having = Typed_sql_private.Query.having
     let fetch_with_ties = Typed_sql_private.Query.fetch_with_ties
     let fetch_with_ties_param = Typed_sql_private.Query.fetch_with_ties_param
+    let limit_param_opt = Typed_sql_private.Query.limit_param_opt
+    let offset_param_opt = Typed_sql_private.Query.offset_param_opt
     let intersect_all = Typed_sql_private.Query.intersect_all
     let except_all = Typed_sql_private.Query.except_all
   end

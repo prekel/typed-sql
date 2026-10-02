@@ -1,6 +1,41 @@
 # История изменений
 
-## Не выпущено
+## 0.4.0 — 3 октября 2026
+
+### Добавлено
+
+- `Statement.with_parameters ~dialect` собирает несколько statements с общими
+  параметрами и типом input. Callback возвращает аппликативное значение;
+  методы `params.query_many`, `params.query_one`, `params.query_optional`,
+  `params.expect_one`, `params.expect_optional` и `params.command` компилируют
+  statements при создании модуля и сообщают об ошибке через
+  `Statement.Definition_error`.
+- `Dialect.portable`, `Dialect.postgresql` и `Dialect.sqlite` дают typed witness
+  выбора диалектов для статических и динамических statements.
+- `params.optional_expr` связывает nullable input с nullable и non-null views
+  одного bind slot. PostgreSQL pagination принимает nullable runtime-параметры
+  через `params.non_negative_int_opt`, `Postgresql.Query.limit_param_opt` и
+  `offset_param_opt`; `None` передаётся как SQL `NULL`, а отрицательный `Some`
+  отклоняется при binding до выполнения.
+- Statements без runtime-параметров компилируются напрямую через
+  `Statement.query_many`, `query_one`, `query_optional`, `expect_one`,
+  `expect_optional` и `command`; их тип input равен `unit`.
+
+### Изменено
+
+- `Statement.Parameters.t` стал непрозрачным аппликативным типом. Значения
+  параметров нужно объединять через `let%map`/`and` или `let+`/`and+`; прямое
+  использование результата `params.expr` как `Expr.t` больше не компилируется.
+- Типизированный `Dialect.witness` заменил `Dialect.kind` и plain `Dialect.t`
+  в конструкторах. `Statement.Portable` и `Statement.For_dialect` удалены.
+  Portable witness компилирует PostgreSQL и SQLite; concrete witness
+  ограничивает statement одним диалектом.
+- Удалены `Statement.no_params`, `Statement.map_input` и прежние статические
+  `_exn`-конструкторы. `Statement.Dynamic` теперь требует `~dialect` и отклоняет
+  неподдерживаемый dialect до вызова callback.
+- `Statement.Dynamic` сохранён для формы SQL, зависящей от input. Каждый
+  конструктор получает весь input; для вложенных inputs getters статических
+  параметров явно читают нужные поля одного общего типа input.
 
 ## 0.3.8 — 2 октября 2026
 
@@ -235,9 +270,9 @@
 
 ### Добавлено
 
-- `Statement.Portable` и `Statement.For_dialect`: запрос и его SQL-планы
-  создаются один раз при инициализации OCaml-модуля, а выполнение принимает
-  одно типизированное input-значение.
+- Статические statements: запрос и его SQL-планы создаются один раз при
+  инициализации OCaml-модуля, а выполнение принимает одно типизированное
+  input-значение.
 - `Statement.Dynamic.Portable` с `query_many`, `query_one`, `query_optional` и
   `command` для безопасной runtime-компиляции SQL-формы из input без cache.
 - Явные ошибки runtime-компиляции dynamic statement в `Statement.sql`, Caqti

@@ -1,9 +1,9 @@
 {0 Входные значения статического statement}
 
-Эта страница описывает фиксированную SQL-форму, созданную через
-[Statement.Portable] или [Statement.For_dialect]. Когда input меняет структуру
+Эта страница описывает фиксированную SQL-форму, созданную
+[Statement.with_parameters] с typed [~dialect]. Когда input меняет структуру
 предиката, projection или число bind slots, используется
-[Statement.Dynamic.Portable]; см. {!page-dynamic_statements}.
+[Statement.Dynamic]; см. {!page-dynamic_statements}.
 
 У statement есть два разных времени жизни значений. OCaml-значение, переданное
 прямо в DSL через оператор с [$], [Expr.constant], [Insert.set] или
@@ -12,13 +12,12 @@ statement:
 
 {[
 let ada_after_ten =
-  Statement.Portable.query_many_exn (fun params ->
-    let () = Statement.no_params params in
-    Query.(
-      from Person.table
-      |> where (fun person ->
-        Person.name person =$ "Ada" &&. (Person.id person >$ 10L))
-      |> select Person.projection))
+  Statement.query_many ~dialect:Dialect.portable
+      Query.(
+        from Person.table
+        |> where (fun person ->
+          Person.name person =$ "Ada" &&. (Person.id person >$ 10L))
+        |> select Person.projection)
 ]}
 
 ["Ada"] и [10L] остаются SQL bind values: renderer выдаёт placeholders, а не
@@ -64,6 +63,69 @@ Getter сохраняется в скомпилированном statement и �
 вызова. Повторное использование одного expression повторяет один и тот же bind
 slot. Форма SQL и число slots остаются статическими.
 
+{1 Вложенный input и необязательная пагинация PostgreSQL}
+
+[Statement.with_parameters] собирает несколько statements с общими параметрами
+в одном лексическом блоке. Callback возвращает их кортежем, а каждый statement
+компилируется через те же [params]. Все они принимают один тип input; getters
+явно выбирают поля вложенного значения.
+
+{[
+type filters =
+  { min_age : int
+  ; city : string
+  }
+
+type 'a paged =
+  { inner : 'a
+  ; limit : int option
+  ; offset : int
+  }
+
+type input = filters paged
+
+let page, total =
+  Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ min_age =
+      params.column Person.age_column ~get:(fun input -> input.inner.min_age)
+    and+ city = params.column Person.city_column ~get:(fun input -> input.inner.city)
+    and+ maximum_rows =
+      params.non_negative_int_opt ~name:"limit" ~get:(fun input -> input.limit)
+    and+ start_at =
+      params.non_negative_int ~name:"offset" ~get:(fun input -> input.offset)
+    in
+    let filtered =
+      Query.(
+        from Person.table
+        |> where (fun person ->
+          Person.age person >=. min_age &&. (Person.city person =. city)))
+    in
+    let total =
+      params.query_one
+        Query.(filtered |> select_exactly_one (fun _ -> Projection.expr Expr.count_all))
+    in
+    let page =
+      params.query_many
+        Query.(
+          filtered
+          |> order_by Person.id `Asc
+          |> Postgresql.Query.limit_param_opt maximum_rows
+          |> offset_param start_at
+          |> select Person.projection)
+    in
+    page, total)
+]}
+
+Оба statement принимают [input = filters paged]; [total] просто не читает
+поля пагинации. [None] в поле [limit] привязывается как SQL [NULL]: PostgreSQL
+выполняет [LIMIT NULL OFFSET 20] без верхней границы, пропуская первые 20 строк.
+Для nullable [offset] доступны [params.non_negative_int_opt] и
+[Postgresql.Query.offset_param_opt]; [None] соответствует нулевому offset.
+Отрицательный [Some] отклоняется при привязке. SQLite не принимает [NULL] в
+[LIMIT] или [OFFSET], поэтому эти операции доступны только в
+[Postgresql.Query].
+
 {1 Рекомендуемая структура модуля}
 
 Переиспользуемую операцию рекомендуется оформлять отдельным модулем. Вложенный
@@ -82,19 +144,21 @@ module Find_people = struct
   end
 
   let statement =
-    Statement.Portable.query_many_exn (fun params ->
-      let name = params.column Person.name_column ~get:Input.name in
-      let min_id = params.column Person.id_column ~get:Input.min_id in
-      let maximum_rows =
+    Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+      let open Statement.Parameters.Let_syntax in
+      let+ name = params.column Person.name_column ~get:Input.name
+      and+ min_id = params.column Person.id_column ~get:Input.min_id
+      and+ maximum_rows =
         params.non_negative_int ~name:"maximum_rows" ~get:Input.maximum_rows
       in
-      Query.(
-        from Person.table
-        |> where (fun person ->
-          Person.name person =. name
-          &&. (Person.id person >=. min_id))
-        |> limit_param maximum_rows
-        |> select Person.projection))
+      params.query_many
+        Query.(
+          from Person.table
+          |> where (fun person ->
+            Person.name person =. name
+            &&. (Person.id person >=. min_id))
+          |> limit_param maximum_rows
+          |> select Person.projection))
 end
 
 let result =
@@ -132,50 +196,43 @@ type input =
   string * int64 * int64 * string * int * int * string * bool * int * int
 
 let find_people =
-  Statement.Portable.query_many_exn (fun params ->
-    let name =
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ name =
       params.column Person.name_column
         ~get:(fun (name, _, _, _, _, _, _, _, _, _) -> name)
-    in
-    let min_id =
+    and+ min_id =
       params.column Person.id_column
         ~get:(fun (_, min_id, _, _, _, _, _, _, _, _) -> min_id)
-    in
-    let max_id =
+    and+ max_id =
       params.column Person.id_column
         ~get:(fun (_, _, max_id, _, _, _, _, _, _, _) -> max_id)
-    in
-    let email =
+    and+ email =
       params.column Person.email_column
         ~get:(fun (_, _, _, email, _, _, _, _, _, _) -> email)
-    in
-    let min_age =
+    and+ min_age =
       params.column Person.age_column
         ~get:(fun (_, _, _, _, min_age, _, _, _, _, _) -> min_age)
-    in
-    let max_age =
+    and+ max_age =
       params.column Person.age_column
         ~get:(fun (_, _, _, _, _, max_age, _, _, _, _) -> max_age)
-    in
-    let city =
+    and+ city =
       params.column Person.city_column
         ~get:(fun (_, _, _, _, _, _, city, _, _, _) -> city)
-    in
-    let active =
+    and+ active =
       params.column Person.active_column
         ~get:(fun (_, _, _, _, _, _, _, active, _, _) -> active)
-    in
-    let maximum_rows =
+    and+ maximum_rows =
       params.non_negative_int ~name:"maximum_rows"
         ~get:(fun (_, _, _, _, _, _, _, _, value, _) -> value)
-    in
-    let start_at =
+    and+ start_at =
       params.non_negative_int ~name:"start_at"
         ~get:(fun (_, _, _, _, _, _, _, _, _, value) -> value)
     in
-    build_query
-      ~name ~min_id ~max_id ~email ~min_age ~max_age ~city ~active
-      ~maximum_rows ~start_at)
+    params.query_many
+      (build_query
+         ~name ~min_id ~max_id ~email ~min_age ~max_age ~city ~active
+         ~maximum_rows ~start_at))
 
 let result =
   Typed_sql_caqti_lwt.run
@@ -210,26 +267,27 @@ type input =
   }
 
 let find_people =
-  Statement.Portable.query_many_exn (fun params ->
-    let name = params.column Person.name_column ~get:(fun input -> input.name) in
-    let min_id = params.column Person.id_column ~get:(fun input -> input.min_id) in
-    let max_id = params.column Person.id_column ~get:(fun input -> input.max_id) in
-    let email = params.column Person.email_column ~get:(fun input -> input.email) in
-    let min_age = params.column Person.age_column ~get:(fun input -> input.min_age) in
-    let max_age = params.column Person.age_column ~get:(fun input -> input.max_age) in
-    let city = params.column Person.city_column ~get:(fun input -> input.city) in
-    let active = params.column Person.active_column ~get:(fun input -> input.active) in
-    let maximum_rows =
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ name = params.column Person.name_column ~get:(fun input -> input.name)
+    and+ min_id = params.column Person.id_column ~get:(fun input -> input.min_id)
+    and+ max_id = params.column Person.id_column ~get:(fun input -> input.max_id)
+    and+ email = params.column Person.email_column ~get:(fun input -> input.email)
+    and+ min_age = params.column Person.age_column ~get:(fun input -> input.min_age)
+    and+ max_age = params.column Person.age_column ~get:(fun input -> input.max_age)
+    and+ city = params.column Person.city_column ~get:(fun input -> input.city)
+    and+ active = params.column Person.active_column ~get:(fun input -> input.active)
+    and+ maximum_rows =
       params.non_negative_int ~name:"maximum_rows"
         ~get:(fun input -> input.maximum_rows)
-    in
-    let start_at =
+    and+ start_at =
       params.non_negative_int ~name:"start_at"
         ~get:(fun input -> input.start_at)
     in
-    build_query
-      ~name ~min_id ~max_id ~email ~min_age ~max_age ~city ~active
-      ~maximum_rows ~start_at)
+    params.query_many
+      (build_query
+         ~name ~min_id ~max_id ~email ~min_age ~max_age ~city ~active
+         ~maximum_rows ~start_at))
 
 let result =
   Typed_sql_caqti_lwt.run
@@ -274,24 +332,25 @@ module Find_people = struct
   end
 
   let statement =
-    Statement.Portable.query_many_exn (fun params ->
-      let name = params.column Person.name_column ~get:Input.name in
-      let min_id = params.column Person.id_column ~get:Input.min_id in
-      let max_id = params.column Person.id_column ~get:Input.max_id in
-      let email = params.column Person.email_column ~get:Input.email in
-      let min_age = params.column Person.age_column ~get:Input.min_age in
-      let max_age = params.column Person.age_column ~get:Input.max_age in
-      let city = params.column Person.city_column ~get:Input.city in
-      let active = params.column Person.active_column ~get:Input.active in
-      let maximum_rows =
+    Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+      let open Statement.Parameters.Let_syntax in
+      let+ name = params.column Person.name_column ~get:Input.name
+      and+ min_id = params.column Person.id_column ~get:Input.min_id
+      and+ max_id = params.column Person.id_column ~get:Input.max_id
+      and+ email = params.column Person.email_column ~get:Input.email
+      and+ min_age = params.column Person.age_column ~get:Input.min_age
+      and+ max_age = params.column Person.age_column ~get:Input.max_age
+      and+ city = params.column Person.city_column ~get:Input.city
+      and+ active = params.column Person.active_column ~get:Input.active
+      and+ maximum_rows =
         params.non_negative_int ~name:"maximum_rows" ~get:Input.maximum_rows
-      in
-      let start_at =
+      and+ start_at =
         params.non_negative_int ~name:"start_at" ~get:Input.start_at
       in
-      build_query
-        ~name ~min_id ~max_id ~email ~min_age ~max_age ~city ~active
-        ~maximum_rows ~start_at)
+      params.query_many
+        (build_query
+           ~name ~min_id ~max_id ~email ~min_age ~max_age ~city ~active
+           ~maximum_rows ~start_at))
 end
 
 let result =

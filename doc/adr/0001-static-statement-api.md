@@ -39,14 +39,14 @@ type input =
   }
 
 let find_people =
-  Statement.Portable.query_many_exn (fun params ->
-    let name =
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ name =
       params.column Person.name_column ~get:(fun input -> input.name)
-    in
-    let min_id =
+    and+ min_id =
       params.column Person.id_column ~get:(fun input -> input.min_id)
     in
-    Query.(
+    params.query_many Query.(
       from Person.table
       |> where (fun person ->
         Person.name person =. name &&. (Person.id person >=. min_id))
@@ -69,11 +69,13 @@ Input statement не ограничен record: можно использова�
 labeled tuple или любой другой OCaml-тип. Сравнение этих трёх вариантов и
 полные примеры находятся в `doc/statement_inputs.mld`.
 
-Конструктор строит semantic AST один раз. `Statement.Portable` сразу проверяет
-и компилирует планы PostgreSQL и SQLite. `Statement.For_dialect` компилирует
-один план и сохраняет статическое dialect requirement. Варианты без `_exn`
-возвращают `Result`; варианты `_exn` удобны для верхнеуровневого определения и
-останавливают запуск приложения при ошибке определения.
+Конструктор строит semantic AST один раз. Статические конструкторы `Statement`
+принимают обязательный `~dialect`: `Dialect.portable` сразу проверяет и
+компилирует планы PostgreSQL и SQLite, а concrete witness компилирует только
+выбранный dialect. Варианты без `_exn` возвращают `Result`; варианты `_exn`
+удобны для верхнеуровневого определения и останавливают запуск приложения при
+ошибке определения. Несколько запросов с общими параметрами собираются через
+`Statement.with_parameters`.
 
 Слово «статический» здесь означает время инициализации OCaml-модуля, а не
 работу Dune или компилятора OCaml. SQL не вычисляется на этапе сборки бинарника.
@@ -120,7 +122,7 @@ adapter и владелец connection.
 ## Дополнение: динамическая форма
 
 Для пользовательских языков предикатов и других неограниченных наборов shapes
-принят `Statement.Dynamic.Portable`. Он остаётся внутри единого `Statement.t` и
+принят `Statement.Dynamic`. Он остаётся внутри единого `Statement.t` и
 исполняется тем же adapter `run`, но вместо готового плана хранит callback
 `input -> Result_query.t` или `input -> Command.t`.
 
@@ -148,7 +150,7 @@ requirements; один `run` выполняет его. Нельзя случа�
 Список переменной длины в `IN (...)`, произвольный набор сортировок или
 динамический GraphQL projection меняют SQL shape. Для них можно выбрать
 конечные варианты, использовать стабильную SQL-форму с подходящей семантикой
-или применить `Statement.Dynamic.Portable`.
+или применить `Statement.Dynamic`.
 
 Создание portable statement компилирует две версии SQL и немного увеличивает
 время запуска и память. Ошибка обнаруживается при старте процесса, а не при
@@ -163,7 +165,7 @@ requirements; один `run` выполняет его. Нельзя случа�
 зависящую от input. Он оставляет validation и rendering на пути каждого
 запроса и не даёт объект, который явно описывает reusable operation. Такой
 режим отвергнут как поведение всех statements; позднее он принят как явно
-названный opt-in `Statement.Dynamic.Portable` для неограниченного набора форм.
+названный opt-in `Statement.Dynamic` для неограниченного набора форм.
 
 ### Прозрачный cache по shape
 

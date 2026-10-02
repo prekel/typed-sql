@@ -14,4 +14,4 @@ let query =
     |> select (fun item -> Projection.expr (Expr.column item id)))
 ;;
 
-let _ = Statement.Portable.query_optional (fun _ -> query)
+let _ = Statement.query_optional ~dialect:Dialect.portable query

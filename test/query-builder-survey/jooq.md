@@ -143,7 +143,7 @@ create.select(AUTHOR.FIRST_NAME, AUTHOR.LAST_NAME, count())
 
 ```ocaml
 let jq01 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Author.table
       |> inner_join Book.table ~on:(fun author book ->
@@ -216,11 +216,11 @@ create.select(BOOK.ID)
 
 #### OCaml (typed-sql)
 
-`where_opt` добавляет условие только при `Some`. Поэтому здесь используется `Statement.Dynamic.Portable`: форма SQL зависит от входа. Для двух заранее известных вариантов можно также создать два статических statements.
+`where_opt` добавляет условие только при `Some`. Поэтому здесь используется `Statement.Dynamic`: форма SQL зависит от входа. Для двух заранее известных вариантов можно также создать два статических statements.
 
 ```ocaml
 let jq02 =
-  Statement.Dynamic.Portable.query_many (fun book_id ->
+  Statement.Dynamic.query_many ~dialect:Dialect.portable (fun book_id ->
     Query.(
       from Book.table
       |> where_opt book_id ~f:(fun book id -> Book.id book =$ id)
@@ -299,7 +299,7 @@ create.select(AUTHOR.ID, BOOK.ID, BOOK.TITLE)
 
 ```ocaml
 let jq03 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Author.table
       |> left_join Book.table ~on:(fun author book ->
@@ -367,7 +367,7 @@ create.select(AUTHOR.ID, AUTHOR.LAST_NAME)
 
 ```ocaml
 let jq04 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Author.table
       |> where (fun author ->
@@ -435,7 +435,7 @@ create.select(
 
 ```ocaml
 let jq05 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Author.table
       |> order_by Author.id `Asc
@@ -516,7 +516,7 @@ let jq06_relation =
         Expr.count_all))
 
 let jq06 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from_relation jq06_relation
       |> order_by (fun (_author_id, books) -> books) `Desc
@@ -608,7 +608,7 @@ let jq07_relation =
 let jq07_cte = Cte.select jq07_relation
 
 let jq07 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Cte.with_result jq07_cte ~f:(fun book_counts ->
       Query.(
         from_cte book_counts
@@ -681,7 +681,7 @@ select(BOOK.ID)
 
 ```ocaml
 let jq08 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     let by_year =
       Query.(
         from Book.table
@@ -759,7 +759,7 @@ create.select(BOOK.AUTHOR_ID, count())
 
 ```ocaml
 let jq09 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Book.table
       |> group_by Book.author_id
@@ -812,7 +812,7 @@ create.select(count())
 
 ```ocaml
 let jq10 =
-  Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun _ ->
+  Statement.query_many ~dialect:Dialect.postgresql (
     Query.(
       from Book.table
       |> Postgresql.Query.having (fun _ -> Expr.count_all >=$ 4L)
@@ -866,7 +866,7 @@ create.select(
 
 ```ocaml
 let jq11 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Book.table
       |> order_by Book.id `Asc
@@ -944,7 +944,7 @@ create.select(
 
 ```ocaml
 let jq12 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Author.table
       |> order_by Author.id `Asc
@@ -1031,7 +1031,7 @@ create.select(
 
 ```ocaml
 let jq13 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Author.table
       |> inner_join Book.table ~on:(fun author book ->
@@ -1106,7 +1106,7 @@ create.insertInto(AUTHOR, AUTHOR.ID, AUTHOR.LAST_NAME)
 
 ```ocaml
 let jq14 =
-  Statement.Portable.command_exn (fun _ ->
+  Statement.command ~dialect:Dialect.portable (
     let target = Insert.Conflict_target.column Author.id_column in
     Insert.(
       into Author.table
@@ -1181,7 +1181,7 @@ module Book_archive = struct
 end
 
 let jq15 =
-  Statement.Portable.command_exn (fun _ ->
+  Statement.command ~dialect:Dialect.portable (
     Update.(
       table Book_archive.table
       |> from Book.table ~f:(fun target source update ->
@@ -1240,7 +1240,7 @@ create.select(AUTHOR.ID, AUTHOR.LAST_NAME)
 
 ```ocaml
 let jq16 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Author.table
       |> where (fun author ->
@@ -1303,7 +1303,7 @@ create.select(AUTHOR.ID, LANGUAGE.CD)
 
 ```ocaml
 let jq17 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Author.table
       |> inner_join Language.table ~on:(fun _ _ -> Condition.true_)
@@ -1359,7 +1359,7 @@ create.select(BOOK.ID, BOOK.TITLE, BOOK_ARCHIVE.ARCHIVED_AT)
 
 ```ocaml
 let jq18 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Author.table
       |> inner_join Book.table ~on:(fun author book -> Author.id author =. Book.author_id book)
@@ -1426,7 +1426,7 @@ CROSS JOIN LATERAL возвращает только авторов, для ко
 
 ```ocaml
 let jq19 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Author.table
       |> inner_join Book.table ~on:(fun author book -> Author.id author =. Book.author_id book)
@@ -1613,7 +1613,7 @@ let jq21 =
               ~label:(Directory.label directory)
               ~depth:Expr.Int.Infix.(depth +. Expr.constant Db_type.int 1))))
   in
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Cte.with_result definition ~f:(fun directory_cte ->
       Query.(
         from_cte_relation directory_cte
@@ -1691,7 +1691,7 @@ create.select(BOOK.AUTHOR_ID)
 
 ```ocaml
 let jq22 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Book.table
       |> distinct
@@ -1739,7 +1739,7 @@ DISTINCT ON является расширением PostgreSQL; для друг�
 
 ```ocaml
 let jq23 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Book.table
       |> where (fun book ->
@@ -1816,7 +1816,7 @@ create.select(
 
 ```ocaml
 let jq24 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Book.table
       |> select (fun book ->
@@ -1869,7 +1869,7 @@ create.select(BOOK_ARCHIVE.ID, BOOK_ARCHIVE.ARCHIVED_AT)
 
 ```ocaml
 let jq25 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Book_archive.table
       |> order_by (fun archive ->
@@ -1924,7 +1924,7 @@ create.select(BOOK.ID, BOOK.PUBLISHED_IN)
 
 ```ocaml
 let jq26 =
-  Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun _ ->
+  Statement.query_many ~dialect:Dialect.postgresql (
     Query.(
       from Book.table
       |> order_by Book.published_in `Asc
@@ -1984,7 +1984,7 @@ create.select(BOOK.ID, BOOK.TITLE)
 
 ```ocaml
 let jq27 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Author.table
       |> where (fun author ->
@@ -2046,7 +2046,7 @@ create.select(BOOK.ID, BOOK.PUBLISHED_IN)
 
 ```ocaml
 let jq28 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Book.table
       |> where (fun book ->
@@ -2136,7 +2136,7 @@ create.select(
 
 ```ocaml
 let jq30 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Book.table
       |> group_by Book.author_id
@@ -2237,7 +2237,7 @@ QUALIFY доступен не во всех СУБД; jOOQ поддержива�
 
 ```ocaml
 let jq32 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Book.table
       |> where (fun book ->
@@ -2325,7 +2325,7 @@ let jq33_right =
     |> where (fun book -> Book.published_in book >$ 2000)
     |> select (fun book -> Projection.expr (Book.author_id book)))
 
-let jq33 = Statement.Portable.query_many_exn (fun _ -> Query.intersect jq33_left jq33_right)
+let jq33 = Statement.query_many ~dialect:Dialect.portable (Query.intersect jq33_left jq33_right)
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2396,7 +2396,7 @@ let jq34_right =
     |> where (fun book -> Book.published_in book >$ 2000)
     |> select (fun book -> Projection.expr (Book.author_id book)))
 
-let jq34 = Statement.Portable.query_many_exn (fun _ -> Query.except jq34_left jq34_right)
+let jq34 = Statement.query_many ~dialect:Dialect.portable (Query.except jq34_left jq34_right)
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2481,15 +2481,17 @@ let jq36_columns =
   Insert.Columns.(column Book_archive.id_column |> add Book_archive.title_column)
 
 let jq36 =
-  Statement.Portable.command_exn (fun params ->
-    let cutoff = params.expr Db_type.int ~get:Fn.id in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ cutoff = params.expr Db_type.int ~get:Fn.id in
+    params.command (
     let source =
       Query.(
         from Book.table
         |> where (fun book -> Book.published_in book <. cutoff)
         |> select (fun book -> Projection.pair (Book.id book) (Book.title book)))
     in
-    Insert.(into Book_archive.table |> from_select jq36_columns source |> command))
+    Insert.(into Book_archive.table |> from_select jq36_columns source |> command)))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2537,7 +2539,7 @@ Record1<Integer> inserted =
 
 ```ocaml
 let jq37 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Insert.(
       into Book.table
       |> set Book.title_column "New title"
@@ -2586,7 +2588,7 @@ create.update(BOOK)
 
 ```ocaml
 let jq38 =
-  Statement.Portable.command_exn (fun _ ->
+  Statement.command ~dialect:Dialect.portable (
     Update.(
       table Book.table
       |> from Book.table ~f:(fun target source update ->
@@ -2644,7 +2646,7 @@ create.deleteFrom(BOOK_ARCHIVE)
 
 ```ocaml
 let jq39 =
-  Statement.Portable.command_exn (fun _ ->
+  Statement.command ~dialect:Dialect.portable (
     Delete.(
       from Book.table
       |> where (fun book ->
@@ -2734,7 +2736,7 @@ create.select(BOOK.ID, BOOK.TITLE, BOOK.PUBLISHED_IN)
 
 ```ocaml
 let jq41 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Book.table
       |> where (fun book ->
@@ -2809,15 +2811,19 @@ create.select(BOOK.ID, BOOK.TITLE)
 
 ```ocaml
 let jooq42 =
-  Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun params ->
-    let cutoff = params.column Book.published_in_column ~get:Fn.id in
+  Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ cutoff =
+      params.column Book.published_in_column ~get:Fn.id
+    in
+    params.query_many (
     Query.(
       from Book.table
       |> where (fun book -> Book.published_in book <. cutoff)
       |> order_by Book.id `Asc
       |> limit 5
       |> Postgresql.Query.for_update ~skip_locked:true
-      |> select (fun book -> Projection.pair (Book.id book) (Book.title book))))
+      |> select (fun book -> Projection.pair (Book.id book) (Book.title book)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2887,7 +2893,7 @@ create.deleteFrom(BOOK_ARCHIVE)
 
 ```ocaml
 let jq44 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Delete.(
       from Book_archive.table
       |> where (fun archive -> Expr.is_null (Book_archive.archived_at archive))
@@ -2937,8 +2943,10 @@ create.insertInto(BOOK_ARCHIVE, BOOK_ARCHIVE.ID, BOOK_ARCHIVE.TITLE)
 
 ```ocaml
 let jq45 =
-  Statement.Portable.command_exn (fun params ->
-    let cutoff = params.expr Db_type.int ~get:Fn.id in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ cutoff = params.expr Db_type.int ~get:Fn.id in
+    params.command (
     let source =
       Query.(
         from Book.table
@@ -2950,7 +2958,7 @@ let jq45 =
       |> from_select jq36_columns source
       |> on_conflict (Conflict_target.column Book_archive.id_column)
       |> do_nothing
-      |> command))
+      |> command)))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2993,7 +3001,7 @@ WHERE BOOK_ARCHIVE.ARCHIVED_AT IS NULL
 
 ```ocaml
 let jq46 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Book_archive.table
       |> where (fun archive -> Expr.is_null (Book_archive.archived_at archive))
@@ -3028,7 +3036,7 @@ SELECT COALESCE((SELECT COUNT(*) FROM BOOK WHERE AUTHOR_ID = 1), 0)
 
 ```ocaml
 let jq47 =
-  Statement.Portable.query_one_exn (fun _ ->
+  Statement.query_one ~dialect:Dialect.portable (
     Query.select_one
       (Expr.coalesce
          (Expr.scalar_subquery
@@ -3084,7 +3092,7 @@ let jq48_relation =
 let jq48_cte = Cte.select jq48_relation
 
 let jq48 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Cte.with_result jq48_cte ~f:(fun selected ->
       Query.(
         from_cte selected
@@ -3135,7 +3143,7 @@ RETURNING ID, TITLE
 
 ```ocaml
 let jq49 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Insert.(
       into Book.table
       |> set Book.id_column 9
@@ -3186,7 +3194,7 @@ SELECT ID, TITLE FROM BOOK WHERE PUBLISHED_IN >= 2000 ORDER BY ID
 
 ```ocaml
 let jq50 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Book.table
       |> where_opt (Some 2000) ~f:(fun book year -> Book.published_in book >=$ year)
@@ -3227,7 +3235,7 @@ GROUP BY AUTHOR.ID
 
 ```ocaml
 let jq51 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Author.table
       |> left_join Book.table ~on:(fun author book -> Author.id author =. Book.author_id book)
@@ -3267,7 +3275,7 @@ SELECT ID FROM BOOK WHERE ID NOT IN (1, 2, 3)
 
 ```ocaml
 let jq52 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Book.table
       |> where (fun book -> Expr.not_in (Book.id book) [ 1; 2; 3 ])
@@ -3307,7 +3315,7 @@ GROUP BY AUTHOR.ID HAVING COUNT(*) >= 2 ORDER BY AUTHOR.ID
 
 ```ocaml
 let jq53 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Author.table
       |> inner_join Book.table ~on:(fun author book -> Author.id author =. Book.author_id book)
@@ -3353,7 +3361,7 @@ FROM BOOK WHERE AUTHOR_ID = 1
 
 ```ocaml
 let jq54 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Book.table
       |> where (fun book -> Book.author_id book =$ 1)
@@ -3398,7 +3406,7 @@ UPDATE BOOK SET PUBLISHED_IN = 2020 WHERE PUBLISHED_IN < 1900 RETURNING ID, PUBL
 
 ```ocaml
 let jq55 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Update.(
       table Book.table
       |> set Book.published_in_column 2020
@@ -3437,7 +3445,7 @@ INSERT INTO BOOK (ID, TITLE, AUTHOR_ID) VALUES (101, 'A', 1), (102, 'B', 1)
 
 ```ocaml
 let jq56 =
-  Statement.Portable.command_exn (fun _ ->
+  Statement.command ~dialect:Dialect.portable (
     Insert.rows Book.table
       [ (fun row -> row |> Insert.set Book.id_column 101 |> Insert.set Book.title_column "A" |> Insert.set Book.author_id_column 1)
       ; (fun row -> row |> Insert.set Book.id_column 102 |> Insert.set Book.title_column "B" |> Insert.set Book.author_id_column 1)
@@ -3478,7 +3486,7 @@ UNION ALL SELECT AUTHOR_ID FROM BOOK WHERE PUBLISHED_IN > 2000
 ```ocaml
 let jq57_old = Query.(from Book.table |> where (fun book -> Book.published_in book <$ 1950) |> select (fun book -> Projection.expr (Book.author_id book)))
 let jq57_new = Query.(from Book.table |> where (fun book -> Book.published_in book >$ 2000) |> select (fun book -> Projection.expr (Book.author_id book)))
-let jq57 = Statement.Portable.query_many_exn (fun _ -> Query.union_all jq57_old jq57_new)
+let jq57 = Statement.query_many ~dialect:Dialect.portable (Query.union_all jq57_old jq57_new)
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -3522,7 +3530,7 @@ WHERE ID < (SELECT MAX(ID) FROM BOOK AS B2 WHERE B2.AUTHOR_ID = BOOK.AUTHOR_ID)
 
 ```ocaml
 let jq58 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Book.table
       |> where (fun book ->
@@ -3574,7 +3582,7 @@ AND NOT EXISTS (SELECT 1 FROM BOOK WHERE AUTHOR_ID = AUTHOR.ID AND PUBLISHED_IN 
 
 ```ocaml
 let jq59 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Author.table
       |> where (fun author ->
@@ -3649,7 +3657,7 @@ ORDER BY AUTHOR.ID LIMIT 10 OFFSET 5
 
 ```ocaml
 let jq60 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Author.table
       |> inner_join Book.table ~on:(fun author book -> Author.id author =. Book.author_id book)

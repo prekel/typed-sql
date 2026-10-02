@@ -32,22 +32,23 @@ let maximum_rows ((~maximum_rows, ..) : input) = maximum_rows
 let start_at ((~start_at, ..) : input) = start_at
 
 let find_people =
-  Statement.Portable.query_many_exn (fun params ->
-    let name = params.column Person.name_column ~get:name in
-    let min_id = params.column Person.id_column ~get:min_id in
-    let max_id = params.column Person.id_column ~get:max_id in
-    let email = params.column Person.email_column ~get:email in
-    let min_age = params.column Person.age_column ~get:min_age in
-    let max_age = params.column Person.age_column ~get:max_age in
-    let city = params.column Person.city_column ~get:city in
-    let active = params.column Person.active_column ~get:active in
-    let maximum_rows =
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ name = params.column Person.name_column ~get:name
+    and+ min_id = params.column Person.id_column ~get:min_id
+    and+ max_id = params.column Person.id_column ~get:max_id
+    and+ email = params.column Person.email_column ~get:email
+    and+ min_age = params.column Person.age_column ~get:min_age
+    and+ max_age = params.column Person.age_column ~get:max_age
+    and+ city = params.column Person.city_column ~get:city
+    and+ active = params.column Person.active_column ~get:active
+    and+ maximum_rows =
       params.non_negative_int ~name:"maximum_rows" ~get:maximum_rows
-    in
-    let start_at = params.non_negative_int ~name:"start_at" ~get:start_at in
-    build_query
-      ~name ~min_id ~max_id ~email ~min_age ~max_age ~city ~active
-      ~maximum_rows ~start_at)
+    and+ start_at = params.non_negative_int ~name:"start_at" ~get:start_at in
+    params.query_many
+      (build_query
+         ~name ~min_id ~max_id ~email ~min_age ~max_age ~city ~active
+         ~maximum_rows ~start_at))
 
 let result =
   Typed_sql_caqti_lwt.run
@@ -73,8 +74,9 @@ partial patterns:
 
 {[
 let find_people =
-  Statement.Portable.query_many_exn (fun params ->
-    let name =
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ name =
       params.column Person.name_column
         ~get:
           (fun
@@ -89,42 +91,33 @@ let find_people =
             , ~maximum_rows:_
             , ~start_at:_ )
           -> name)
-    in
-    let min_id =
+    and+ min_id =
       params.column Person.id_column ~get:(fun (~min_id, ..) -> min_id)
-    in
-    let max_id =
+    and+ max_id =
       params.column Person.id_column ~get:(fun (~max_id, ..) -> max_id)
-    in
-    let email =
+    and+ email =
       params.column Person.email_column ~get:(fun (~email, ..) -> email)
-    in
-    let min_age =
+    and+ min_age =
       params.column Person.age_column ~get:(fun (~min_age, ..) -> min_age)
-    in
-    let max_age =
+    and+ max_age =
       params.column Person.age_column ~get:(fun (~max_age, ..) -> max_age)
-    in
-    let city =
+    and+ city =
       params.column Person.city_column ~get:(fun (~city, ..) -> city)
-    in
-    let active =
+    and+ active =
       params.column Person.active_column ~get:(fun (~active, ..) -> active)
-    in
-    let maximum_rows =
+    and+ maximum_rows =
       params.non_negative_int ~name:"maximum_rows"
         ~get:(fun (~maximum_rows, ..) -> maximum_rows)
-    in
-    let start_at =
+    and+ start_at =
       params.non_negative_int ~name:"start_at"
         ~get:(fun (~start_at, ..) -> start_at)
     in
-    build_query
-      ~name ~min_id ~max_id ~email ~min_age ~max_age ~city ~active
-      ~maximum_rows ~start_at)
+    params.query_many
+      (build_query
+         ~name ~min_id ~max_id ~email ~min_age ~max_age ~city ~active
+         ~maximum_rows ~start_at))
 ]}
 
 Если все getters используют [..] и тип не указан снаружи, компилятор не может
 восстановить пропущенные поля. Поэтому вариант без объявления типа всё равно
 требует один полный десятиэлементный pattern.
-

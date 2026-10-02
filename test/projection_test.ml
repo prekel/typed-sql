@@ -11,12 +11,7 @@ let compile_exn
   =
   fun dialect projection ->
   let query = Query.(from (Table.v_exn "items") |> select (fun _ -> projection)) in
-  let statement =
-    Statement.Portable.query_many (fun _ -> query)
-    |> Result.map_error ~f:(fun (error : Statement.definition_error) ->
-      Compile_error.to_string error.error)
-    |> Result.ok_or_failwith
-  in
+  let statement = Statement.query_many ~dialect:Dialect.portable query in
   match B.Statement.resolve ~dialect () statement with
   | Ok (B.Statement.Query_execution { cardinality = B.Statement.Many; compiled }) ->
     compiled

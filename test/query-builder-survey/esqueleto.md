@@ -87,7 +87,7 @@ select $ do
 
 ```ocaml
 let esqueleto01 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Eq_person.table
       |> where (fun person -> Eq_person.name person =$ "John")
@@ -137,7 +137,7 @@ select $ do
 
 ```ocaml
 let esqueleto02 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Eq_person.table
       |> where (fun person ->
@@ -195,7 +195,7 @@ select $ do
 
 ```ocaml
 let esqueleto03 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Eq_person.table
       |> order_by Eq_person.name `Asc
@@ -248,7 +248,7 @@ select $ do
 
 ```ocaml
 let esqueleto04 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Eq_person.table
       |> inner_join Eq_blog_post.table ~on:(fun person post ->
@@ -298,7 +298,7 @@ select $ do
 
 ```ocaml
 let esqueleto05 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Eq_person.table
       |> left_join Eq_blog_post.table ~on:(fun person post ->
@@ -350,7 +350,7 @@ select $ do
 
 ```ocaml
 let esqueleto06 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Eq_blog_post.table
       |> group_by Eq_blog_post.author_id
@@ -412,7 +412,7 @@ select $ do
 
 ```ocaml
 let esqueleto07 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Eq_person.table
       |> where (fun person ->
@@ -481,7 +481,7 @@ select $ do
 
 ```ocaml
 let esqueleto08 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Eq_person.table
       |> select (fun person ->
@@ -547,7 +547,7 @@ select $ do
 
 ```ocaml
 let esqueleto09 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Eq_person.table
       |> where (fun person ->
@@ -622,7 +622,7 @@ let esqueleto10_counts =
         (Expr.count (Eq_blog_post.id post))))
 
 let esqueleto10 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from_relation esqueleto10_counts
       |> where (fun (_author_id, post_count) -> post_count >$ 2L)
@@ -690,7 +690,7 @@ let esqueleto11_by_name pattern =
     |> select (fun person -> Projection.expr (Eq_person.name person)))
 
 let esqueleto11 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.union_all (esqueleto11_by_name "A%") (esqueleto11_by_name "%a"))
 ```
 
@@ -765,7 +765,7 @@ let esqueleto12_sql_authors =
     |> select (fun post -> Projection.expr (Eq_blog_post.author_id post)))
 
 let esqueleto12 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.intersect esqueleto12_adults esqueleto12_sql_authors)
 ```
 
@@ -829,7 +829,7 @@ select $ do
 
 ```ocaml
 let esqueleto13 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.except esqueleto12_adults esqueleto12_sql_authors)
 ```
 
@@ -913,7 +913,7 @@ let esqueleto14_relation =
 let esqueleto14_cte = Cte.select esqueleto14_relation
 
 let esqueleto14 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Cte.with_result esqueleto14_cte ~f:(fun post_counts ->
       Query.(
         from Eq_person.table
@@ -988,7 +988,7 @@ select $ do
 
 ```ocaml
 let esqueleto15 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Eq_person.table
       |> select (fun person ->
@@ -1046,7 +1046,7 @@ select $ distinct $ do
 
 ```ocaml
 let esqueleto16 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Eq_person.table
       |> inner_join Eq_blog_post.table ~on:(fun person post ->
@@ -1109,7 +1109,7 @@ select $ do
 
 ```ocaml
 let esqueleto17 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Eq_person.table
       |> select (fun person ->
@@ -1198,7 +1198,7 @@ let esqueleto18_orphan_posts =
         (Expr.to_nullable (Eq_blog_post.title post))))
 
 let esqueleto18 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.union_all esqueleto18_people esqueleto18_orphan_posts)
 ```
 
@@ -1262,7 +1262,7 @@ select $ do
 
 ```ocaml
 let esqueleto19 =
-  Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun _ ->
+  Statement.query_many ~dialect:Dialect.postgresql (
     Query.(
       from Eq_person.table
       |> order_by Eq_person.id `Asc
@@ -1342,7 +1342,7 @@ let esqueleto20_blocked =
     |> select (fun person -> Projection.expr (Eq_person.id person)))
 
 let esqueleto20 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.except
       (Query.union_all esqueleto20_adults esqueleto20_unknown_age)
       esqueleto20_blocked)

@@ -90,13 +90,15 @@ let rows = users::table
 
 ```ocaml
 let diesel01 =
-  Statement.Portable.query_many_exn (fun params ->
-    let name = params.expr Db_type.text ~get:Fn.id in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ name = params.expr Db_type.text ~get:Fn.id in
+    params.query_many (
     Query.(
       from Users.table
       |> where (fun user -> Users.name user =. name)
       |> select (fun user ->
-        Projection.pair (Users.id user) (Users.name user))))
+        Projection.pair (Users.id user) (Users.name user)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -139,15 +141,17 @@ let rows = users::table
 
 ```ocaml
 let diesel02 =
-  Statement.Portable.query_many_exn (fun params ->
-    let min_id = params.expr Db_type.int ~get:(fun (min_id, _) -> min_id) in
-    let name_pattern = params.expr Db_type.text ~get:(fun (_, name_pattern) -> name_pattern) in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ min_id = params.expr Db_type.int ~get:(fun (min_id, _) -> min_id)
+    and+ name_pattern = params.expr Db_type.text ~get:(fun (_, name_pattern) -> name_pattern) in
+    params.query_many (
     Query.(
       from Users.table
       |> where (fun user ->
         (Users.id user >. min_id) &&. (Users.name user =~. name_pattern))
       |> select (fun user ->
-        Projection.pair (Users.id user) (Users.name user))))
+        Projection.pair (Users.id user) (Users.name user)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -195,16 +199,18 @@ let rows = users::table
 
 ```ocaml
 let diesel03 =
-  Statement.Portable.query_many_exn (fun params ->
-    let page_size = params.non_negative_int ~name:"page_size" ~get:fst in
-    let page_offset = params.non_negative_int ~name:"page_offset" ~get:snd in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ page_size = params.non_negative_int ~name:"page_size" ~get:fst
+    and+ page_offset = params.non_negative_int ~name:"page_offset" ~get:snd in
+    params.query_many (
     Query.(
       from Users.table
       |> order_by Users.id `Asc
       |> Query.limit_param page_size
       |> Query.offset_param page_offset
       |> select (fun user ->
-        Projection.pair (Users.id user) (Users.name user))))
+        Projection.pair (Users.id user) (Users.name user)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -247,7 +253,7 @@ let rows = users::table
 
 ```ocaml
 let diesel04 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Users.table
       |> inner_join Posts.table ~on:(fun user post ->
@@ -296,7 +302,7 @@ let rows = users::table
 
 ```ocaml
 let diesel05 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Users.table
       |> left_join Posts.table ~on:(fun user post ->
@@ -348,8 +354,10 @@ let rows = users::table
 
 ```ocaml
 let diesel06 =
-  Statement.Portable.query_many_exn (fun params ->
-    let min_posts = params.expr Db_type.int64 ~get:Fn.id in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ min_posts = params.expr Db_type.int64 ~get:Fn.id in
+    params.query_many (
     Query.(
       from Users.table
       |> inner_join Posts.table ~on:(fun user post ->
@@ -357,7 +365,7 @@ let diesel06 =
       |> group_by (fun (user, _post) -> Users.id user)
       |> having (fun (_user, post) -> Expr.count (Posts.id post) >. min_posts)
       |> select (fun (user, post) ->
-        Projection.pair (Users.id user) (Expr.count (Posts.id post)))))
+        Projection.pair (Users.id user) (Expr.count (Posts.id post))))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -411,8 +419,10 @@ let rows = users::table
 
 ```ocaml
 let diesel07 =
-  Statement.Portable.query_many_exn (fun params ->
-    let title_pattern = params.expr Db_type.text ~get:Fn.id in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ title_pattern = params.expr Db_type.text ~get:Fn.id in
+    params.query_many (
     Query.(
       from Users.table
       |> where (fun user ->
@@ -423,7 +433,7 @@ let diesel07 =
               (Posts.user_id post =. Users.id user)
               &&. (Posts.title post =~. title_pattern))))
       |> select (fun user ->
-        Projection.pair (Users.id user) (Users.name user))))
+        Projection.pair (Users.id user) (Users.name user)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -482,8 +492,10 @@ let rows = users::table
 
 ```ocaml
 let diesel08 =
-  Statement.Portable.query_many_exn (fun params ->
-    let title_pattern = params.expr Db_type.text ~get:Fn.id in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ title_pattern = params.expr Db_type.text ~get:Fn.id in
+    params.query_many (
     Query.(
       from Users.table
       |> where (fun user ->
@@ -495,7 +507,7 @@ let diesel08 =
         in
         Query.in_subquery (Users.id user) post_user_ids)
       |> select (fun user ->
-        Projection.pair (Users.id user) (Users.name user))))
+        Projection.pair (Users.id user) (Users.name user)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -554,9 +566,11 @@ let rows = by_owner
 
 ```ocaml
 let diesel09 =
-  Statement.Portable.query_many_exn (fun params ->
-    let owner_id = params.expr Db_type.int ~get:(fun (owner_id, _) -> owner_id) in
-    let title_pattern = params.expr Db_type.text ~get:(fun (_, title_pattern) -> title_pattern) in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ owner_id = params.expr Db_type.int ~get:(fun (owner_id, _) -> owner_id)
+    and+ title_pattern = params.expr Db_type.text ~get:(fun (_, title_pattern) -> title_pattern) in
+    params.query_many (
     let by_owner =
       Query.(
         from Posts.table
@@ -569,7 +583,7 @@ let diesel09 =
         |> where (fun post -> Posts.title post =~. title_pattern)
         |> select (fun post -> Projection.expr (Posts.title post)))
     in
-    Query.union_all by_owner by_title)
+    Query.union_all by_owner by_title))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -630,7 +644,7 @@ let rows = posts::table
 
 ```ocaml
 let diesel10 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Posts.table
       |> order_by Posts.user_id `Asc
@@ -699,7 +713,7 @@ let user_ids = posts::table
 
 ```ocaml
 let diesel11 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Posts.table
       |> where (fun post -> Posts.title post =~$ "SQL%")
@@ -758,7 +772,7 @@ let rows = query
 
 ```ocaml
 let diesel12 =
-  Statement.Dynamic.Portable.query_many (fun (title_pattern, minimum_id) ->
+  Statement.Dynamic.query_many ~dialect:Dialect.portable (fun (title_pattern, minimum_id) ->
     Query.(
       from Posts.table
       |> where_opt title_pattern ~f:(fun post pattern -> Posts.title post =~$ pattern)
@@ -831,10 +845,12 @@ let saved = diesel::insert_into(posts::table)
 
 ```ocaml
 let diesel13 =
-  Statement.Portable.expect_one_exn (fun params ->
-    let id = params.expr Db_type.int ~get:(fun (id, _, _) -> id) in
-    let user_id = params.expr Db_type.int ~get:(fun (_, user_id, _) -> user_id) in
-    let title = params.expr Db_type.text ~get:(fun (_, _, title) -> title) in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ id = params.expr Db_type.int ~get:(fun (id, _, _) -> id)
+    and+ user_id = params.expr Db_type.int ~get:(fun (_, user_id, _) -> user_id)
+    and+ title = params.expr Db_type.text ~get:(fun (_, _, title) -> title) in
+    params.expect_one (
     Insert.(
       into Posts.table
       |> set_expr Posts.id_column id
@@ -844,7 +860,7 @@ let diesel13 =
       |> do_update (fun ~existing:_ ~excluded ->
         Conflict_update.empty
         |> Conflict_update.set_expr Posts.title_column (Posts.title excluded))
-      |> returning (fun post -> Projection.pair (Posts.id post) (Posts.title post))))
+      |> returning (fun post -> Projection.pair (Posts.id post) (Posts.title post)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -896,14 +912,16 @@ let changed = diesel::update(posts::table.filter(posts::user_id.eq(user_id)))
 
 ```ocaml
 let diesel14 =
-  Statement.Portable.query_many_exn (fun params ->
-    let title = params.expr Db_type.text ~get:(fun (title, user_id) -> title) in
-    let user_id = params.expr Db_type.int ~get:(fun (_, user_id) -> user_id) in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ title = params.expr Db_type.text ~get:(fun (title, user_id) -> title)
+    and+ user_id = params.expr Db_type.int ~get:(fun (_, user_id) -> user_id) in
+    params.query_many (
     Update.(
       table Posts.table
       |> set_expr Posts.title_column title
       |> where (fun post -> Posts.user_id post =. user_id)
-      |> returning (fun post -> Projection.pair (Posts.id post) (Posts.title post))))
+      |> returning (fun post -> Projection.pair (Posts.id post) (Posts.title post)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -950,12 +968,14 @@ let removed_ids = diesel::delete(
 
 ```ocaml
 let diesel15 =
-  Statement.Portable.query_many_exn (fun params ->
-    let pattern = params.expr Db_type.text ~get:Fn.id in
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let+ pattern = params.expr Db_type.text ~get:Fn.id in
+    params.query_many (
     Delete.(
       from Posts.table
       |> where (fun post -> Posts.title post =~. pattern)
-      |> returning (fun post -> Projection.expr (Posts.id post))))
+      |> returning (fun post -> Projection.expr (Posts.id post)))))
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1003,7 +1023,7 @@ ORDER BY users.id
 
 ```ocaml
 let diesel16 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Users.table
       |> inner_join Posts.table ~on:(fun user post -> Users.id user =. Posts.user_id post)
@@ -1050,7 +1070,7 @@ ORDER BY user_id, id LIMIT 20
 
 ```ocaml
 let diesel17 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Posts.table
       |> where (fun post -> (Posts.user_id post >$ 2) ||. ((Posts.user_id post =$ 2) &&. (Posts.id post >$ 10)))
@@ -1101,7 +1121,7 @@ WHERE NOT EXISTS (SELECT 1 FROM posts WHERE posts.user_id = users.id)
 
 ```ocaml
 let diesel18 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Users.table
       |> where (fun user -> not_exists (Query.(from Posts.table |> where (fun post -> Posts.user_id post =. Users.id user))))
@@ -1143,7 +1163,7 @@ DELETE FROM posts WHERE title LIKE '%draft%' RETURNING id
 
 ```ocaml
 let diesel19 =
-  Statement.Portable.query_many_exn (fun _ ->
+  Statement.query_many ~dialect:Dialect.portable (
     Delete.(
       from Posts.table
       |> where (fun post -> Posts.title post =~$ "%draft%")
@@ -1179,7 +1199,7 @@ SELECT id FROM users INTERSECT SELECT user_id FROM posts
 ```ocaml
 let diesel20_users = Query.(from Users.table |> select (fun user -> Projection.expr (Users.id user)))
 let diesel20_posts = Query.(from Posts.table |> select (fun post -> Projection.expr (Posts.user_id post)))
-let diesel20 = Statement.Portable.query_many_exn (fun _ -> Query.intersect diesel20_users diesel20_posts)
+let diesel20 = Statement.query_many ~dialect:Dialect.portable (Query.intersect diesel20_users diesel20_posts)
 ```
 
 #### SQL typed-sql (PostgreSQL)

@@ -48,8 +48,9 @@ let test_existing_pgocaml () =
   Lwt.finalize
     (fun () ->
        let statement =
-         Statement.For_dialect.query_one_exn ~dialect:Dialect.postgresql (fun _ ->
-           Query.select_one (Expr.constant Db_type.int64 1L))
+         Statement.query_one
+           ~dialect:Dialect.postgresql
+           (Query.select_one (Expr.constant Db_type.int64 1L))
        in
        let* result = Existing_adapter.run ~conn statement () in
        match result with
@@ -129,9 +130,7 @@ let decimal_exn value =
 
 let test_queries conn =
   let query_many query =
-    let statement =
-      Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun _ -> query)
-    in
+    let statement = Statement.query_many ~dialect:Dialect.postgresql query in
     Adapter.run ~conn statement () >>= or_fail
   in
   let multiset =
@@ -202,8 +201,9 @@ let test_queries conn =
     exec_sql conn "CREATE TABLE pgocaml_numeric_items (amount NUMERIC NOT NULL)"
   in
   let insert_numeric amount =
-    Statement.For_dialect.command_exn ~dialect:Dialect.postgresql (fun _ ->
-      Insert.(into Numeric_item.table |> set Numeric_item.amount_column amount |> command))
+    Statement.command
+      ~dialect:Dialect.postgresql
+      Insert.(into Numeric_item.table |> set Numeric_item.amount_column amount |> command)
   in
   let* _ =
     Adapter.run ~conn (insert_numeric (decimal_exn "9223372036854775807")) () >>= or_fail
@@ -242,8 +242,9 @@ let test_sqlstates conn =
       "CREATE TRIGGER raise_sqlstate BEFORE INSERT ON pgocaml_sqlstate_cases FOR EACH ROW EXECUTE FUNCTION pgocaml_raise_sqlstate()"
   in
   let trigger code =
-    Statement.For_dialect.command_exn ~dialect:Dialect.postgresql (fun _ ->
-      Insert.(into Sqlstate_item.table |> set Sqlstate_item.code_column code |> command))
+    Statement.command
+      ~dialect:Dialect.postgresql
+      Insert.(into Sqlstate_item.table |> set Sqlstate_item.code_column code |> command)
   in
   let equal_kind left right =
     match left, right with
@@ -299,7 +300,8 @@ let test_codecs conn =
   let uuid = uuid_exn "123e4567-e89b-12d3-a456-426614174000" in
   let bytes = Bytes.of_string "a\000b\\c" in
   let insert =
-    Statement.For_dialect.command_exn ~dialect:Dialect.postgresql (fun _ ->
+    Statement.command
+      ~dialect:Dialect.postgresql
       Insert.(
         into Item.table
         |> set Item.id_column 1L
@@ -312,15 +314,16 @@ let test_codecs conn =
         |> set Item.timestamp_column timestamp
         |> set Item.uuid_column uuid
         |> set Item.nullable_column None
-        |> command))
+        |> command)
   in
   let* _ = Adapter.run ~conn insert () >>= or_fail in
   let select =
-    Statement.For_dialect.expect_one_exn ~dialect:Dialect.postgresql (fun _ ->
+    Statement.expect_one
+      ~dialect:Dialect.postgresql
       Query.(
         from Item.table
         |> where (fun item -> Item.id item =$ 1L)
-        |> select Item.projection))
+        |> select Item.projection)
   in
   let* ( ((boolean, integer), (floating, text))
        , ((actual_bytes, actual_date), (actual_uuid, nullable)) )
@@ -340,11 +343,12 @@ let test_codecs conn =
   then
     failwith "PG'OCaml codec round-trip failed";
   let select_timestamp =
-    Statement.For_dialect.expect_one_exn ~dialect:Dialect.postgresql (fun _ ->
+    Statement.expect_one
+      ~dialect:Dialect.postgresql
       Query.(
         from Item.table
         |> where (fun item -> Item.id item =$ 1L)
-        |> select (fun item -> Projection.expr (Item.timestamp item))))
+        |> select (fun item -> Projection.expr (Item.timestamp item)))
   in
   let* actual_timestamp = Adapter.run ~conn select_timestamp () >>= or_fail in
   if not (Ptime.equal actual_timestamp timestamp) then
@@ -357,8 +361,9 @@ let test_codecs conn =
       Db_type.text
   in
   let encode_query =
-    Statement.For_dialect.query_one_exn ~dialect:Dialect.postgresql (fun _ ->
-      Query.select_one (Expr.constant rejecting_encode "value"))
+    Statement.query_one
+      ~dialect:Dialect.postgresql
+      (Query.select_one (Expr.constant rejecting_encode "value"))
   in
   let* encoded = Adapter.run ~conn encode_query () in
   (match encoded with
@@ -374,10 +379,11 @@ let test_codecs conn =
   in
   let decoded_column = Column.v_exn Item.table "text_value" rejecting_decode in
   let decode_query =
-    Statement.For_dialect.expect_one_exn ~dialect:Dialect.postgresql (fun _ ->
+    Statement.expect_one
+      ~dialect:Dialect.postgresql
       Query.(
         from Item.table
-        |> select (fun item -> Projection.expr (Expr.column item decoded_column))))
+        |> select (fun item -> Projection.expr (Expr.column item decoded_column)))
   in
   let* decoded = Adapter.run ~conn decode_query () in
   (match decoded with
@@ -389,7 +395,8 @@ let test_codecs conn =
 
 let test_transactions conn =
   let insert id =
-    Statement.For_dialect.command_exn ~dialect:Dialect.postgresql (fun _ ->
+    Statement.command
+      ~dialect:Dialect.postgresql
       Insert.(
         into Item.table
         |> set Item.id_column id
@@ -402,7 +409,7 @@ let test_transactions conn =
         |> set Item.timestamp_column (timestamp_exn "2024-01-01T00:00:00Z")
         |> set Item.uuid_column (uuid_exn "123e4567-e89b-12d3-a456-426614174000")
         |> set Item.nullable_column None
-        |> command))
+        |> command)
   in
   let* committed =
     Adapter.transaction ~conn ~f:(fun conn -> Adapter.run ~conn (insert 2L) ())
@@ -419,11 +426,12 @@ let test_transactions conn =
    | Error (Adapter.Encode "rollback marker") -> ()
    | _ -> failwith "PG'OCaml rollback returned wrong result");
   let count id =
-    Statement.For_dialect.expect_one_exn ~dialect:Dialect.postgresql (fun _ ->
+    Statement.expect_one
+      ~dialect:Dialect.postgresql
       Query.(
         from Item.table
         |> where (fun item -> Item.id item =$ id)
-        |> select (fun _ -> Projection.expr Expr.count_all)))
+        |> select (fun _ -> Projection.expr Expr.count_all))
   in
   let* count_committed = Adapter.run ~conn (count 2L) () >>= or_fail in
   let* count_rolled_back = Adapter.run ~conn (count 3L) () >>= or_fail in
@@ -435,19 +443,22 @@ let test_transactions conn =
    | Error error -> failwith (Adapter.error_to_string error)
    | Ok _ -> failwith "PG'OCaml did not classify unique violation");
   let by_id =
-    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun params ->
-      let id = params.column ~name:"id" Item.id_column ~get:Fn.id in
-      Query.(
-        from Item.table
-        |> where (fun item -> Item.id item =. id)
-        |> select (fun item -> Projection.expr (Item.id item))))
+    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
+      let open Statement.Parameters.Let_syntax in
+      let%map id = params.column ~name:"id" Item.id_column ~get:Fn.id in
+      params.query_many
+        Query.(
+          from Item.table
+          |> where (fun item -> Item.id item =. id)
+          |> select (fun item -> Projection.expr (Item.id item))))
   in
   let* bound = Adapter.run ~conn by_id 2L >>= or_fail in
   if not (List.equal Int64.equal bound [ 2L ]) then
     failwith "PG'OCaml bind parameter returned wrong rows";
   let many =
-    Statement.For_dialect.expect_one_exn ~dialect:Dialect.postgresql (fun _ ->
-      Query.(from Item.table |> select (fun item -> Projection.expr (Item.id item))))
+    Statement.expect_one
+      ~dialect:Dialect.postgresql
+      Query.(from Item.table |> select (fun item -> Projection.expr (Item.id item)))
   in
   let* cardinality = Adapter.run ~conn many () in
   (match cardinality with
@@ -491,16 +502,22 @@ let test_prepared_cache conn =
    | _ -> failwith "invalid prepared cache capacity was accepted");
   let* cache = Adapter.Prepared_cache.create ~capacity:2 ~conn () |> or_fail in
   let int_statement =
-    Statement.For_dialect.query_one_exn ~dialect:Dialect.postgresql (fun params ->
-      Query.select_one (params.expr ~name:"value" Db_type.int64 ~get:Fn.id))
+    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
+      Statement.Parameters.map
+        (params.expr ~name:"value" Db_type.int64 ~get:Fn.id)
+        ~f:(fun value -> params.query_one (Query.select_one value)))
   in
   let text_statement =
-    Statement.For_dialect.query_one_exn ~dialect:Dialect.postgresql (fun params ->
-      Query.select_one (params.expr ~name:"value" Db_type.text ~get:Fn.id))
+    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
+      Statement.Parameters.map
+        (params.expr ~name:"value" Db_type.text ~get:Fn.id)
+        ~f:(fun value -> params.query_one (Query.select_one value)))
   in
   let upper_statement =
-    Statement.For_dialect.query_one_exn ~dialect:Dialect.postgresql (fun params ->
-      Query.select_one (Expr.upper (params.expr ~name:"value" Db_type.text ~get:Fn.id)))
+    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
+      Statement.Parameters.map
+        (params.expr ~name:"value" Db_type.text ~get:Fn.id)
+        ~f:(fun value -> params.query_one (Query.select_one (Expr.upper value))))
   in
   let* first = Adapter.Prepared_cache.run cache int_statement 11L >>= or_fail in
   let* second = Adapter.Prepared_cache.run cache int_statement 12L >>= or_fail in
@@ -560,9 +577,10 @@ let test_prepared_cache conn =
   let cached_items : unit Table.t = Table.v_exn "pgocaml_cached_items" in
   let cached_id = Column.v_exn cached_items "id" Db_type.int64 in
   let insert =
-    Statement.For_dialect.command_exn ~dialect:Dialect.postgresql (fun params ->
-      let id = params.column ~name:"id" cached_id ~get:Fn.id in
-      Insert.(into cached_items |> set_expr cached_id id |> command))
+    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
+      let open Statement.Parameters.Let_syntax in
+      let%map id = params.column ~name:"id" cached_id ~get:Fn.id in
+      params.command Insert.(into cached_items |> set_expr cached_id id |> command))
   in
   let* _ = Adapter.Prepared_cache.run transaction_cache insert 1L >>= or_fail in
   let* duplicate = Adapter.Prepared_cache.run transaction_cache insert 1L in
@@ -646,7 +664,8 @@ let test_rich_types conn =
   let inet = Ipaddr.Prefix.of_string_exn "2001:db8::/64" in
   let rational = Q.of_string "5/7" in
   let insert =
-    Statement.For_dialect.command_exn ~dialect:Dialect.postgresql (fun _ ->
+    Statement.command
+      ~dialect:Dialect.postgresql
       Insert.(
         into table
         |> set local_column 12.5
@@ -656,11 +675,12 @@ let test_rich_types conn =
         |> set inet_column inet
         |> set rational_column rational
         |> set geometry_column (3., 4.)
-        |> command))
+        |> command)
   in
   let* _ = Adapter.run ~conn insert () >>= or_fail in
   let query =
-    Statement.For_dialect.expect_one_exn ~dialect:Dialect.postgresql (fun _ ->
+    Statement.expect_one
+      ~dialect:Dialect.postgresql
       Query.(
         from table
         |> select (fun row ->
@@ -672,7 +692,7 @@ let test_rich_types conn =
           and host = Projection.expr (Expr.column row inet_column)
           and rational = Projection.expr (Expr.column row rational_column)
           and geometry = Projection.expr (Expr.column row geometry_column) in
-          local, interval, json, array, host, rational, geometry)))
+          local, interval, json, array, host, rational, geometry))
   in
   let* local, interval, json, array, host, decoded_rational, geometry =
     Adapter.run ~conn query () >>= or_fail
@@ -700,15 +720,17 @@ let test_rich_types conn =
 
 let test_array_lookup conn =
   let list_lookup =
-    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun parameters ->
-      let ids =
-        parameters.expr (Db_type.Postgresql.array_list Db_type.int64) ~get:Fn.id
+    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
+      let open Statement.Parameters.Let_syntax in
+      let%map ids =
+        params.expr (Db_type.Postgresql.array_list Db_type.int64) ~get:Fn.id
       in
-      Query.(
-        from Item.table
-        |> where (fun item -> Postgresql.Expr.equals_any_list (Item.id item) ids)
-        |> order_by Item.id `Asc
-        |> select (fun item -> Projection.expr (Item.id item))))
+      params.query_many
+        Query.(
+          from Item.table
+          |> where (fun item -> Postgresql.Expr.equals_any_list (Item.id item) ids)
+          |> order_by Item.id `Asc
+          |> select (fun item -> Projection.expr (Item.id item))))
   in
   let* selected = Adapter.run ~conn list_lookup [ 1L; 2L ] >>= or_fail in
   if not (List.equal Int64.equal selected [ 1L; 2L ]) then
@@ -717,13 +739,15 @@ let test_array_lookup conn =
   if not (List.is_empty empty) then
     failwith "PG'OCaml empty array lookup returned rows";
   let nullable_lookup =
-    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun parameters ->
-      let ids = parameters.expr (Db_type.Postgresql.array Db_type.int64) ~get:Fn.id in
-      Query.(
-        from Item.table
-        |> where (fun item ->
-          Condition.not_ (Postgresql.Expr.equals_any (Item.id item) ids))
-        |> select (fun item -> Projection.expr (Item.id item))))
+    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
+      let open Statement.Parameters.Let_syntax in
+      let%map ids = params.expr (Db_type.Postgresql.array Db_type.int64) ~get:Fn.id in
+      params.query_many
+        Query.(
+          from Item.table
+          |> where (fun item ->
+            Condition.not_ (Postgresql.Expr.equals_any (Item.id item) ids))
+          |> select (fun item -> Projection.expr (Item.id item))))
   in
   let ids =
     Pg_array.create ~dimensions:[ 2 ] ~lower_bounds:[ 1 ] ~elements:[ Some 2L; None ]
@@ -745,8 +769,9 @@ let main () =
            "CREATE TABLE pgocaml_items (id BIGINT PRIMARY KEY, boolean_value BOOLEAN NOT NULL, integer_value INTEGER NOT NULL, float_value DOUBLE PRECISION NOT NULL, text_value TEXT NOT NULL, bytes_value BYTEA NOT NULL, date_value DATE NOT NULL, timestamp_value TIMESTAMPTZ NOT NULL, uuid_value UUID NOT NULL, nullable_value TEXT)"
        in
        let query =
-         Statement.For_dialect.query_one_exn ~dialect:Dialect.postgresql (fun _ ->
-           Query.select_one (Expr.constant Db_type.int64 1L))
+         Statement.query_one
+           ~dialect:Dialect.postgresql
+           (Query.select_one (Expr.constant Db_type.int64 1L))
        in
        let* value = Adapter.run ~conn query () >>= or_fail in
        if not Int64.(value = 1L) then

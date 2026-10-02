@@ -801,16 +801,20 @@ let%test_module "PostgreSQL FETCH FIRST WITH TIES" =
 
     let%test "parameterized FETCH does not prove exactly one aggregate row" =
       match
-        Statement.For_dialect.query_one ~dialect:Dialect.postgresql (fun parameters ->
-          let page_size = parameters.non_negative_int ~name:"page_size" ~get:Fn.id in
-          Query.(
-            from Person.table
-            |> order_by (fun _ -> Expr.count_all) `Asc
-            |> Postgresql.Query.fetch_with_ties_param page_size
-            |> select_exactly_one (fun _ -> Projection.expr Expr.count_all)))
+        Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
+          let open Statement.Parameters.Let_syntax in
+          let%map page_size = params.non_negative_int ~name:"page_size" ~get:Fn.id in
+          params.query_one
+            Query.(
+              from Person.table
+              |> order_by (fun _ -> Expr.count_all) `Asc
+              |> Postgresql.Query.fetch_with_ties_param page_size
+              |> select_exactly_one (fun _ -> Projection.expr Expr.count_all)))
       with
-      | Error { error = Compile_error.Exactly_one_query_not_proven; _ } -> true
-      | Error _ | Ok _ -> false
+      | exception
+          Statement.Definition_error
+            { error = Compile_error.Exactly_one_query_not_proven; _ } -> true
+      | _ -> false
     ;;
 
     let%test "positive FETCH count preserves exactly-one aggregate proof" =
@@ -2082,14 +2086,12 @@ let%expect_test "correlated SUM subquery renders in SQLite" =
     |}]
 ;;
 
-let%test "aggregate_one can define a portable query_one statement" =
-  Statement.Portable.query_one (fun _ -> sales_summary_query) |> Result.is_ok
+let%test_unit "aggregate_one can define a portable query_one statement" =
+  ignore (Statement.query_one ~dialect:Dialect.portable sales_summary_query)
 ;;
 
-let%test "numeric aggregate can define a PostgreSQL query_one statement" =
-  Statement.For_dialect.query_one ~dialect:Dialect.postgresql (fun _ ->
-    numeric_sales_query)
-  |> Result.is_ok
+let%test_unit "numeric aggregate can define a PostgreSQL query_one statement" =
+  ignore (Statement.query_one ~dialect:Dialect.postgresql numeric_sales_query)
 ;;
 
 let scalar_fallback_query =

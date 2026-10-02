@@ -17,4 +17,4 @@ let query =
     |> select (fun item -> Projection.expr (Expr.column item Item.id)))
 ;;
 
-let _ = Statement.For_dialect.query_optional ~dialect:Dialect.postgresql (fun _ -> query)
+let _ = Statement.query_optional ~dialect:Dialect.postgresql query

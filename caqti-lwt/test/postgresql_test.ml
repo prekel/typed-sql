@@ -65,20 +65,24 @@ type dialect_choice_input =
 
 let dialect_choice_statement =
   let postgresql =
-    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun parameters ->
-      let id = parameters.column Item.id_column ~get:(fun input -> input.id) in
-      Query.(
-        from Item.table
-        |> where (fun item -> Item.id item =. id)
-        |> select (fun item -> Projection.expr (Item.name item))))
+    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params:parameters ->
+      let open Statement.Parameters.Let_syntax in
+      let%map id = parameters.column Item.id_column ~get:(fun input -> input.id) in
+      parameters.query_many
+        Query.(
+          from Item.table
+          |> where (fun item -> Item.id item =. id)
+          |> select (fun item -> Projection.expr (Item.name item))))
   in
   let sqlite =
-    Statement.For_dialect.query_many_exn ~dialect:Dialect.sqlite (fun parameters ->
-      let name = parameters.column Item.name_column ~get:(fun input -> input.name) in
-      Query.(
-        from Item.table
-        |> where (fun item -> Item.name item =. name)
-        |> select (fun item -> Projection.expr (Item.name item))))
+    Statement.with_parameters ~dialect:Dialect.sqlite (fun ~params:parameters ->
+      let open Statement.Parameters.Let_syntax in
+      let%map name = parameters.column Item.name_column ~get:(fun input -> input.name) in
+      parameters.query_many
+        Query.(
+          from Item.table
+          |> where (fun item -> Item.name item =. name)
+          |> select (fun item -> Projection.expr (Item.name item))))
   in
   Statement.choose_dialect ~postgresql ~sqlite
 ;;
@@ -217,19 +221,17 @@ let uuid_exn value =
 let equal_pair (a, b) (c, d) = Int64.(a = c) && String.equal b d
 
 let fetch conn query =
-  let statement = Statement.Portable.query_many_exn (fun _ -> query) in
+  let statement = Statement.query_many ~dialect:Dialect.portable query in
   Adapter.run ~conn statement () >>= adapter_or_fail
 ;;
 
 let execute conn command =
-  let statement = Statement.Portable.command_exn (fun _ -> command) in
+  let statement = Statement.command ~dialect:Dialect.portable command in
   Adapter.run ~conn statement () >>= adapter_or_fail
 ;;
 
 let fetch_postgresql conn query =
-  let statement =
-    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun _ -> query)
-  in
+  let statement = Statement.query_many ~dialect:Dialect.postgresql query in
   Adapter.run ~conn statement () >>= adapter_or_fail
 ;;
 
@@ -831,10 +833,7 @@ let run_goldens ~postgresql conn =
   let* _ = execute conn Q.delete_command in
   let* () =
     if postgresql then (
-      let statement =
-        Statement.For_dialect.command_exn ~dialect:Dialect.postgresql (fun _ ->
-          Q.default_insert)
-      in
+      let statement = Statement.command ~dialect:Dialect.postgresql Q.default_insert in
       let* _ = Adapter.run ~conn statement () >>= adapter_or_fail in
       let* names = fetch conn Q.distinct_query in
       assert_rows ~name:"DEFAULT INSERT golden" ~equal:String.equal [ "Ada" ] names;
@@ -881,8 +880,7 @@ let run_goldens ~postgresql conn =
   let* () =
     if postgresql then (
       let default_update =
-        Statement.For_dialect.command_exn ~dialect:Dialect.postgresql (fun _ ->
-          Q.default_update_command)
+        Statement.command ~dialect:Dialect.postgresql Q.default_update_command
       in
       let* _ = Adapter.run ~conn default_update () >>= adapter_or_fail in
       let* names = fetch conn names_after_join in
@@ -892,10 +890,7 @@ let run_goldens ~postgresql conn =
         Cte.with_result R.inserted_people ~f:(fun people ->
           Query.(from_cte people |> select R.Selected_person.projection))
       in
-      let inserted_cte =
-        Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun _ ->
-          inserted_cte)
-      in
+      let inserted_cte = Statement.query_many ~dialect:Dialect.postgresql inserted_cte in
       let* inserted = Adapter.run ~conn inserted_cte () >>= adapter_or_fail in
       (match inserted with
        | [ (id, "Ada") ] when Int64.(id > 0L) -> ()
@@ -908,10 +903,7 @@ let run_goldens ~postgresql conn =
             |> set Q.Person.name_column "Grace"
             |> command))
       in
-      let command_cte =
-        Statement.For_dialect.command_exn ~dialect:Dialect.postgresql (fun _ ->
-          command_cte)
-      in
+      let command_cte = Statement.command ~dialect:Dialect.postgresql command_cte in
       let* _ = Adapter.run ~conn command_cte () >>= adapter_or_fail in
       let* names = fetch conn names_after_join in
       assert_rows
@@ -1027,15 +1019,17 @@ let test_fetch_with_ties conn =
     [ 2000; 2001; 2001 ]
     locked_tied_years;
   let parameterized_query =
-    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun parameters ->
-      let page_size = parameters.non_negative_int ~name:"page_size" ~get:snd in
-      let start_at = parameters.non_negative_int ~name:"start_at" ~get:fst in
-      Query.(
-        from Tie_item.table
-        |> order_by Tie_item.published_in `Asc
-        |> offset_param start_at
-        |> Postgresql.Query.fetch_with_ties_param page_size
-        |> select (fun item -> Projection.expr (Tie_item.published_in item))))
+    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params:parameters ->
+      let open Statement.Parameters.Let_syntax in
+      let%map page_size = parameters.non_negative_int ~name:"page_size" ~get:snd
+      and start_at = parameters.non_negative_int ~name:"start_at" ~get:fst in
+      parameters.query_many
+        Query.(
+          from Tie_item.table
+          |> order_by Tie_item.published_in `Asc
+          |> offset_param start_at
+          |> Postgresql.Query.fetch_with_ties_param page_size
+          |> select (fun item -> Projection.expr (Tie_item.published_in item))))
   in
   let* parameterized_tied_years =
     Adapter.run ~conn parameterized_query (1, 1) >>= adapter_or_fail
@@ -1095,20 +1089,22 @@ let run ~postgresql conn =
     |> or_fail
   in
   let insert =
-    Statement.Portable.command_exn (fun _ ->
+    Statement.command
+      ~dialect:Dialect.portable
       Insert.(
         into Item.table
         |> set Item.id_column 4L
         |> set Item.name_column "Edsger"
-        |> command))
+        |> command)
   in
   let* _ = Adapter.run ~conn insert () >>= adapter_or_fail in
   let query =
-    Statement.Portable.query_many_exn (fun _ ->
+    Statement.query_many
+      ~dialect:Dialect.portable
       Query.(
         from Item.table
         |> order_by Item.id `Asc
-        |> select (fun row -> Projection.pair (Item.id row) (Item.name row))))
+        |> select (fun row -> Projection.pair (Item.id row) (Item.name row)))
   in
   let* rows = Adapter.run ~conn query () >>= adapter_or_fail in
   assert_rows
@@ -1121,7 +1117,8 @@ let run ~postgresql conn =
   let uuid = uuid_exn "123e4567-e89b-12d3-a456-426614174000" in
   let bytes = Bytes.of_string "a\000b\\c" in
   let codec_insert =
-    Statement.Portable.command_exn (fun _ ->
+    Statement.command
+      ~dialect:Dialect.portable
       Insert.(
         into Codec_item.table
         |> set Codec_item.id_column 1L
@@ -1134,7 +1131,7 @@ let run ~postgresql conn =
         |> set Codec_item.timestamp_column timestamp
         |> set Codec_item.uuid_column uuid
         |> set Codec_item.nullable_column None
-        |> command))
+        |> command)
   in
   let* _ = Adapter.run ~conn codec_insert () >>= adapter_or_fail in
   let codec_query = Query.(from Codec_item.table |> select Codec_item.projection) in
@@ -1290,25 +1287,28 @@ let run ~postgresql conn =
   let* rows = fetch conn empty_count in
   assert_rows ~name:"empty aggregate cardinality" ~equal:Int64.equal [ 0L ] rows;
   let parameterized =
-    Statement.Portable.query_many_exn (fun params ->
-      let id = params.column ~name:"id" Item.id_column ~get:Fn.id in
-      Query.(
-        from Item.table
-        |> where (fun item -> Item.id item >=. id &&. (Item.id item <=. id))
-        |> select (fun item -> Projection.pair (Item.id item) (Item.name item))))
+    Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+      let open Statement.Parameters.Let_syntax in
+      let%map id = params.column ~name:"id" Item.id_column ~get:Fn.id in
+      params.query_many
+        Query.(
+          from Item.table
+          |> where (fun item -> Item.id item >=. id &&. (Item.id item <=. id))
+          |> select (fun item -> Projection.pair (Item.id item) (Item.name item))))
   in
   let* rows = Adapter.run ~conn parameterized 2L >>= adapter_or_fail in
   assert_rows ~name:"reused bind parameter" ~equal:equal_pair [ 2L, "Grace" ] rows;
   let* rows = Adapter.run ~conn parameterized 99L >>= adapter_or_fail in
   assert_rows ~name:"missing bind value" ~equal:equal_pair [] rows;
   let ignored =
-    Statement.Portable.command_exn (fun _ ->
+    Statement.command
+      ~dialect:Dialect.portable
       Insert.(
         into Item.table
         |> set Item.id_column 1L
         |> set Item.name_column "ignored"
         |> on_conflict_do_nothing
-        |> command))
+        |> command)
   in
   let* _ = Adapter.run ~conn ignored () >>= adapter_or_fail in
   let* rows = Adapter.run ~conn query () >>= adapter_or_fail in
@@ -1330,8 +1330,9 @@ let postgres_only conn =
       Db_type.text
   in
   let encode_query =
-    Statement.For_dialect.query_one_exn ~dialect:Dialect.postgresql (fun _ ->
-      Query.select_one (Expr.constant rejecting_encode "value"))
+    Statement.query_one
+      ~dialect:Dialect.postgresql
+      (Query.select_one (Expr.constant rejecting_encode "value"))
   in
   let* encoded = Adapter.run ~conn encode_query () in
   (match encoded with
@@ -1347,10 +1348,11 @@ let postgres_only conn =
   in
   let decoded_column = Column.v_exn Codec_item.table "text_value" rejecting_decode in
   let decode_query =
-    Statement.For_dialect.expect_one_exn ~dialect:Dialect.postgresql (fun _ ->
+    Statement.expect_one
+      ~dialect:Dialect.postgresql
       Query.(
         from Codec_item.table
-        |> select (fun row -> Projection.expr (Expr.column row decoded_column))))
+        |> select (fun row -> Projection.expr (Expr.column row decoded_column)))
   in
   let* decoded = Adapter.run ~conn decode_query () in
   (match decoded with
@@ -1371,8 +1373,9 @@ let postgres_only conn =
     |> or_fail
   in
   let insert_numeric amount =
-    Statement.For_dialect.command_exn ~dialect:Dialect.postgresql (fun _ ->
-      Insert.(into Numeric_item.table |> set Numeric_item.amount_column amount |> command))
+    Statement.command
+      ~dialect:Dialect.postgresql
+      Insert.(into Numeric_item.table |> set Numeric_item.amount_column amount |> command)
   in
   let* _ =
     Adapter.run ~conn (insert_numeric (decimal_exn "9223372036854775807")) ()
@@ -1382,25 +1385,27 @@ let postgres_only conn =
     Adapter.run ~conn (insert_numeric (decimal_exn "1.25")) () >>= adapter_or_fail
   in
   let numeric_sum =
-    Statement.For_dialect.expect_one_exn ~dialect:Dialect.postgresql (fun _ ->
+    Statement.expect_one
+      ~dialect:Dialect.postgresql
       Query.(
         from Numeric_item.table
         |> select (fun item ->
-          Projection.expr (Postgresql.Numeric.sum_numeric (Numeric_item.amount item)))))
+          Projection.expr (Postgresql.Numeric.sum_numeric (Numeric_item.amount item))))
   in
   let* numeric_sum = Adapter.run ~conn numeric_sum () >>= adapter_or_fail in
   (match numeric_sum with
    | Some value when Decimal.equal value (decimal_exn "9223372036854775808.25") -> ()
    | _ -> failwith "Caqti numeric transport lost precision");
   let insert id parent value note =
-    Statement.For_dialect.command_exn ~dialect:Dialect.postgresql (fun _ ->
+    Statement.command
+      ~dialect:Dialect.postgresql
       Insert.(
         into Constraint_item.table
         |> set Constraint_item.id_column id
         |> set Constraint_item.parent_column parent
         |> set Constraint_item.value_column value
         |> set Constraint_item.note_column note
-        |> command))
+        |> command)
   in
   let expect_constraint kind result =
     let equal_kind left right =
@@ -1449,8 +1454,9 @@ let postgres_only conn =
     |> or_fail
   in
   let trigger code =
-    Statement.For_dialect.command_exn ~dialect:Dialect.postgresql (fun _ ->
-      Insert.(into Sqlstate_item.table |> set Sqlstate_item.code_column code |> command))
+    Statement.command
+      ~dialect:Dialect.postgresql
+      Insert.(into Sqlstate_item.table |> set Sqlstate_item.code_column code |> command)
   in
   let* () =
     Lwt_list.iter_s
@@ -1483,11 +1489,12 @@ let postgres_only conn =
    | Error (Adapter.Codec "rollback marker") -> ()
    | _ -> failwith "Caqti transaction rollback failed");
   let count id =
-    Statement.For_dialect.expect_one_exn ~dialect:Dialect.postgresql (fun _ ->
+    Statement.expect_one
+      ~dialect:Dialect.postgresql
       Query.(
         from Constraint_item.table
         |> where (fun row -> Expr.column row Constraint_item.id_column =$ id)
-        |> select (fun _ -> Projection.expr Expr.count_all)))
+        |> select (fun _ -> Projection.expr Expr.count_all))
   in
   let* committed_count = Adapter.run ~conn (count 5L) () >>= adapter_or_fail in
   let* rolled_back_count = Adapter.run ~conn (count 6L) () >>= adapter_or_fail in
@@ -1507,8 +1514,9 @@ let postgres_only conn =
     |> or_fail
   in
   let deferred_insert =
-    Statement.For_dialect.command_exn ~dialect:Dialect.postgresql (fun _ ->
-      Insert.(into Deferred_child.table |> set Deferred_child.id_column 999L |> command))
+    Statement.command
+      ~dialect:Dialect.postgresql
+      Insert.(into Deferred_child.table |> set Deferred_child.id_column 999L |> command)
   in
   let* commit_error =
     Adapter.transaction ~conn ~f:(fun conn -> Adapter.run ~conn deferred_insert ())
@@ -1626,8 +1634,10 @@ let test_caqti_prepared conn =
   if Int64.(existing <= 0L) then
     failwith "Caqti did not retain server-side prepared statements";
   let statement =
-    Statement.Portable.query_one_exn (fun params ->
-      Query.select_one (params.expr ~name:"value" Db_type.int64 ~get:Fn.id))
+    Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+      Statement.Parameters.map
+        (params.expr ~name:"value" Db_type.int64 ~get:Fn.id)
+        ~f:(fun value -> params.query_one (Query.select_one value)))
   in
   let* first = Adapter.run ~conn statement 11L >>= adapter_or_fail in
   let* after_first = count () in
@@ -1642,29 +1652,33 @@ let test_caqti_prepared conn =
 
 let test_array_lookup conn =
   let list_lookup =
-    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun parameters ->
-      let ids =
+    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params:parameters ->
+      let open Statement.Parameters.Let_syntax in
+      let%map ids =
         parameters.expr (Db_type.Postgresql.array_list Db_type.int64) ~get:Fn.id
       in
-      Query.(
-        from Item.table
-        |> where (fun item -> Postgresql.Expr.equals_any_list (Item.id item) ids)
-        |> order_by Item.id `Asc
-        |> select (fun item -> Projection.expr (Item.id item))))
+      parameters.query_many
+        Query.(
+          from Item.table
+          |> where (fun item -> Postgresql.Expr.equals_any_list (Item.id item) ids)
+          |> order_by Item.id `Asc
+          |> select (fun item -> Projection.expr (Item.id item))))
   in
   let* selected = Adapter.run ~conn list_lookup [ 2L; 3L ] >>= adapter_or_fail in
   assert_rows ~name:"array_list lookup" ~equal:Int64.equal [ 2L; 3L ] selected;
   let* empty = Adapter.run ~conn list_lookup [] >>= adapter_or_fail in
   assert_rows ~name:"empty array lookup" ~equal:Int64.equal [] empty;
   let nullable_lookup =
-    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun parameters ->
-      let ids = parameters.expr (Db_type.Postgresql.array Db_type.int64) ~get:Fn.id in
-      Query.(
-        from Item.table
-        |> where (fun item ->
-          Condition.not_ (Postgresql.Expr.equals_any (Item.id item) ids))
-        |> order_by Item.id `Asc
-        |> select (fun item -> Projection.expr (Item.id item))))
+    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params:parameters ->
+      let open Statement.Parameters.Let_syntax in
+      let%map ids = parameters.expr (Db_type.Postgresql.array Db_type.int64) ~get:Fn.id in
+      parameters.query_many
+        Query.(
+          from Item.table
+          |> where (fun item ->
+            Condition.not_ (Postgresql.Expr.equals_any (Item.id item) ids))
+          |> order_by Item.id `Asc
+          |> select (fun item -> Projection.expr (Item.id item))))
   in
   let ids =
     Pg_array.create ~dimensions:[ 2 ] ~lower_bounds:[ 1 ] ~elements:[ Some 2L; None ]
@@ -1696,7 +1710,8 @@ let test_string_agg conn =
     |> or_fail
   in
   let aggregate minimum_position =
-    Statement.For_dialect.query_one_exn ~dialect:Dialect.postgresql (fun _ ->
+    Statement.query_one
+      ~dialect:Dialect.postgresql
       Query.(
         from String_agg_item.table
         |> where (fun row -> String_agg_item.position row >$ minimum_position)
@@ -1705,7 +1720,7 @@ let test_string_agg conn =
             (Postgresql.string_agg_nullable
                ~order_by:[ Aggregate_order.asc (String_agg_item.position row) ]
                ~delimiter:(Expr.constant Db_type.text ",")
-               (String_agg_item.value row)))))
+               (String_agg_item.value row))))
   in
   let* values = Adapter.run ~conn (aggregate 0) () >>= adapter_or_fail in
   if not (Option.equal String.equal values (Some "alpha,beta")) then
@@ -1778,7 +1793,8 @@ let test_rich_schema_types conn =
   let inet_value = Ipaddr.Prefix.of_string_exn "198.51.100.3/24" in
   let rational = Q.of_string "2/3" in
   let insert =
-    Statement.For_dialect.command_exn ~dialect:Dialect.postgresql (fun _ ->
+    Statement.command
+      ~dialect:Dialect.postgresql
       Insert.(
         into table
         |> set float_column 12.5
@@ -1791,11 +1807,12 @@ let test_rich_schema_types conn =
         |> set geometry_column (1., 2.)
         |> set mood_column "happy"
         |> set username_column "Ada"
-        |> command))
+        |> command)
   in
   let* _ = Adapter.run ~conn insert () >>= adapter_or_fail in
   let select =
-    Statement.For_dialect.expect_one_exn ~dialect:Dialect.postgresql (fun _ ->
+    Statement.expect_one
+      ~dialect:Dialect.postgresql
       Query.(
         from table
         |> select (fun row ->
@@ -1808,7 +1825,7 @@ let test_rich_schema_types conn =
           and inet_value = Projection.expr (Expr.column row inet_column)
           and rational = Projection.expr (Expr.column row rational_column)
           and geometry = Projection.expr (Expr.column row geometry_column) in
-          float_value, duration, json, numbers, host, inet_value, rational, geometry)))
+          float_value, duration, json, numbers, host, inet_value, rational, geometry))
   in
   let* float_value, duration, json, numbers, host, inet_value, rational, geometry =
     Adapter.run ~conn select () >>= adapter_or_fail

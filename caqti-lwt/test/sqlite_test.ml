@@ -8,22 +8,22 @@ module Typed_sql_caqti_lwt = struct
   include Adapter
 
   let fetch ?observer ?name ~conn query =
-    let statement = Statement.Portable.query_many_exn (fun _ -> query) in
+    let statement = Statement.query_many ~dialect:Dialect.portable query in
     run ?observer ?name ~conn statement ()
   ;;
 
   let fetch_one ?observer ?name ~conn query =
-    let statement = Statement.Portable.expect_one_exn (fun _ -> query) in
+    let statement = Statement.expect_one ~dialect:Dialect.portable query in
     run ?observer ?name ~conn statement ()
   ;;
 
   let fetch_opt ?observer ?name ~conn query =
-    let statement = Statement.Portable.expect_optional_exn (fun _ -> query) in
+    let statement = Statement.expect_optional ~dialect:Dialect.portable query in
     run ?observer ?name ~conn statement ()
   ;;
 
   let execute ?observer ?name ~conn command =
-    let statement = Statement.Portable.command_exn (fun _ -> command) in
+    let statement = Statement.command ~dialect:Dialect.portable command in
     run ?observer ?name ~conn statement ()
   ;;
 end
@@ -108,20 +108,26 @@ type dialect_choice_input =
 
 let dialect_choice_statement =
   let postgresql =
-    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun parameters ->
-      let id = parameters.column Person.id_column ~get:(fun input -> input.id) in
-      Query.(
-        from Person.table
-        |> where (fun person -> Person.id person =. id)
-        |> select (fun person -> Projection.expr (Person.name person))))
+    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params:parameters ->
+      let open Statement.Parameters.Let_syntax in
+      let%map id = parameters.column Person.id_column ~get:(fun input -> input.id) in
+      parameters.query_many
+        Query.(
+          from Person.table
+          |> where (fun person -> Person.id person =. id)
+          |> select (fun person -> Projection.expr (Person.name person))))
   in
   let sqlite =
-    Statement.For_dialect.query_many_exn ~dialect:Dialect.sqlite (fun parameters ->
-      let name = parameters.column Person.name_column ~get:(fun input -> input.name) in
-      Query.(
-        from Person.table
-        |> where (fun person -> Person.name person =. name)
-        |> select (fun person -> Projection.expr (Person.name person))))
+    Statement.with_parameters ~dialect:Dialect.sqlite (fun ~params:parameters ->
+      let open Statement.Parameters.Let_syntax in
+      let%map name =
+        parameters.column Person.name_column ~get:(fun input -> input.name)
+      in
+      parameters.query_many
+        Query.(
+          from Person.table
+          |> where (fun person -> Person.name person =. name)
+          |> select (fun person -> Projection.expr (Person.name person))))
   in
   Statement.choose_dialect ~postgresql ~sqlite
 ;;
@@ -226,19 +232,20 @@ type person_lookup =
   }
 
 let person_lookup_statement =
-  Statement.Portable.query_many_exn (fun params ->
-    let person_id =
+  Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+    let open Statement.Parameters.Let_syntax in
+    let%map person_id =
       params.column ~name:"person_id" Person.id_column ~get:(fun input -> input.person_id)
-    in
-    let maximum_rows =
+    and maximum_rows =
       params.non_negative_int ~name:"maximum_rows" ~get:(fun input -> input.maximum_rows)
     in
-    Query.(
-      from Person.table
-      |> where (fun person ->
-        Person.id person >=. person_id &&. (Person.id person <=. person_id))
-      |> limit_param maximum_rows
-      |> select Person.projection))
+    params.query_many
+      Query.(
+        from Person.table
+        |> where (fun person ->
+          Person.id person >=. person_id &&. (Person.id person <=. person_id))
+        |> limit_param maximum_rows
+        |> select Person.projection))
 ;;
 
 module Department = struct
@@ -553,6 +560,26 @@ let run conn =
       ()
     |> caqti_or_fail
   in
+  let optional_id_statement =
+    Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+      Statement.Parameters.map
+        (params.optional_expr Db_type.int64 ~get:Fn.id)
+        ~f:(fun id ->
+          params.query_many
+            Query.(
+              from Person.table
+              |> where_optional_param id ~f:(fun person id -> Person.id person =. id)
+              |> order_by Person.id `Asc
+              |> select (fun person -> Projection.expr (Person.id person)))))
+  in
+  let* all_ids = Adapter.run ~conn optional_id_statement None >>= adapter_or_fail in
+  if not (List.equal Int64.equal all_ids [ 1L; 2L; 3L ]) then
+    failwith "absent optional ID did not disable the SQLite predicate";
+  let* matching_ids =
+    Adapter.run ~conn optional_id_statement (Some 2L) >>= adapter_or_fail
+  in
+  if not (List.equal Int64.equal matching_ids [ 2L ]) then
+    failwith "present optional ID did not filter SQLite rows";
   let* dialect_choice_rows =
     Adapter.run ~conn dialect_choice_statement { id = 1L; name = "Grace" }
     >>= adapter_or_fail
@@ -620,7 +647,7 @@ let run conn =
       Query.select_one
         (Expr.coalesce nullable ~default:(Expr.constant Db_type.text "unknown"))
     in
-    let statement = Statement.Portable.query_one_exn (fun _ -> query) in
+    let statement = Statement.query_one ~dialect:Dialect.portable query in
     Adapter.run ~conn statement () >>= adapter_or_fail
   in
   let* present = run_fallback (Expr.scalar_subquery (scalar_name 1L)) in
@@ -665,7 +692,7 @@ let run conn =
            (Expr.scalar_subquery value)
            ~default:(Expr.constant Db_type.int64 0L)))
   in
-  let statement = Statement.Portable.query_one_exn (fun _ -> source_free_cte_query) in
+  let statement = Statement.query_one ~dialect:Dialect.portable source_free_cte_query in
   let* cte_value = Adapter.run ~conn statement () >>= adapter_or_fail in
   if not (Int64.equal cte_value 7L) then
     failwith "source-free SELECT lost its CTE";
@@ -1109,9 +1136,9 @@ let run conn =
      assert (String.equal name "maximum_rows")
    | Error error -> failwith (Typed_sql_caqti_lwt.error_to_string error)
    | Ok _ -> failwith "negative runtime LIMIT reached SQLite");
-  let many = Statement.Portable.query_many_exn (fun _ -> query) in
-  let one = Statement.Portable.expect_one_exn (fun _ -> query) in
-  let optional = Statement.Portable.expect_optional_exn (fun _ -> query) in
+  let many = Statement.query_many ~dialect:Dialect.portable query in
+  let one = Statement.expect_one ~dialect:Dialect.portable query in
+  let optional = Statement.expect_optional ~dialect:Dialect.portable query in
   let observed = ref None in
   let observer event = observed := Some event in
   let* profiled_rows =
@@ -1151,9 +1178,7 @@ let run conn =
   in
   if Option.is_none compiled_row then
     failwith "expect_optional returned no row";
-  let postgresql =
-    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun _ -> query)
-  in
+  let postgresql = Statement.query_many ~dialect:Dialect.postgresql query in
   let* mismatch = Typed_sql_caqti_lwt.run ~conn postgresql () in
   (match mismatch with
    | Error
@@ -1168,8 +1193,7 @@ let run conn =
       |> select (fun _ -> Projection.expr Expr.count_all))
   in
   let postgresql_only =
-    Statement.For_dialect.query_many_exn ~dialect:Dialect.postgresql (fun _ ->
-      postgresql_only)
+    Statement.query_many ~dialect:Dialect.postgresql postgresql_only
   in
   let* specific_mismatch = Typed_sql_caqti_lwt.run ~conn postgresql_only () in
   (match specific_mismatch with
@@ -1181,17 +1205,17 @@ let run conn =
   let no_op_delete =
     Delete.(from Person.table |> where (fun person -> Person.id person =$ -1L) |> command)
   in
-  let compiled_delete =
-    Statement.For_dialect.command_exn ~dialect:Dialect.sqlite (fun _ -> no_op_delete)
-  in
+  let compiled_delete = Statement.command ~dialect:Dialect.sqlite no_op_delete in
   let* _ = Typed_sql_caqti_lwt.run ~conn compiled_delete () >>= adapter_or_fail in
   let invalid_limit =
     Query.(from Person.table |> limit (-1) |> select Person.projection)
   in
-  (match Statement.Portable.query_many (fun _ -> invalid_limit) with
-   | Error { error = Compile_error.Negative_limit -1; _ } -> ()
-   | Error error -> failwith (Compile_error.to_string error.error)
-   | Ok _ -> failwith "negative LIMIT unexpectedly compiled");
+  (match Statement.query_many ~dialect:Dialect.portable invalid_limit with
+   | exception Statement.Definition_error { error = Compile_error.Negative_limit -1; _ }
+     -> ()
+   | exception Statement.Definition_error error ->
+     failwith (Compile_error.to_string error.error)
+   | _ -> failwith "negative LIMIT unexpectedly compiled");
   let raising_query =
     Query.(
       from Person.table
@@ -2079,7 +2103,7 @@ let dynamic_test conn =
   let table : unit Table.t = Table.v_exn "dynamic_items" in
   let id = Column.v_exn table "id" Db_type.int in
   let insert =
-    Statement.Dynamic.Portable.command (fun value ->
+    Statement.Dynamic.command ~dialect:Dialect.sqlite (fun value ->
       Insert.(into table |> set id value |> command))
   in
   let* _ = Adapter.run ~conn insert 1 >>= adapter_or_fail in
@@ -2096,9 +2120,9 @@ let dynamic_test conn =
           (Projection.expr (Expr.column row id))
           ~f:(fun value -> Int.to_string value ^ suffix)))
   in
-  let many = Statement.Dynamic.Portable.query_many query in
-  let one = Statement.Dynamic.Portable.expect_one query in
-  let optional = Statement.Dynamic.Portable.expect_optional query in
+  let many = Statement.Dynamic.query_many ~dialect:Dialect.sqlite query in
+  let one = Statement.Dynamic.expect_one ~dialect:Dialect.sqlite query in
+  let optional = Statement.Dynamic.expect_optional ~dialect:Dialect.sqlite query in
   assert (Int.(!builds = 0));
   let* rows = Adapter.run ~conn many ([ 1; 2 ], "a") >>= adapter_or_fail in
   assert (List.equal String.equal rows [ "1a"; "2a" ]);
@@ -2121,7 +2145,7 @@ let dynamic_test conn =
   assert (Result.is_error too_many);
   assert (Int.(!builds = 9));
   let invalid =
-    Statement.Dynamic.Portable.query_many (fun maximum_rows ->
+    Statement.Dynamic.query_many ~dialect:Dialect.sqlite (fun maximum_rows ->
       Query.(
         from table
         |> limit maximum_rows
@@ -2141,7 +2165,7 @@ let dynamic_test conn =
         escaped := Some row;
         Projection.expr (Expr.column row id)));
   let invalid =
-    Statement.Dynamic.Portable.query_many (fun () ->
+    Statement.Dynamic.query_many ~dialect:Dialect.sqlite (fun () ->
       Query.(
         from table
         |> select (fun _ -> Projection.expr (Expr.column (Option.value_exn !escaped) id))))
@@ -2151,7 +2175,7 @@ let dynamic_test conn =
    | Error (Adapter.Compile { error = Foreign_source _; _ }) -> ()
    | _ -> failwith "foreign source did not reach adapter");
   let invalid =
-    Statement.Dynamic.Portable.command (fun value ->
+    Statement.Dynamic.command ~dialect:Dialect.sqlite (fun value ->
       Insert.(into table |> set id value |> set id value |> command))
   in
   let* error = Adapter.run ~conn invalid 3 in

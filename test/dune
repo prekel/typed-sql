@@ -38,7 +38,7 @@
  (libraries base typed-sql)
  (inline_tests)
  (preprocess
-  (pps ppx_expect))
+  (pps ppx_expect ppx_let))
  (enabled_if
   (>= %{ocaml_version} 5.5)))
 
