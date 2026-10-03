@@ -565,6 +565,65 @@ let aggregate_metrics =
 ;;
 
 let calendar_date = Date.of_ymd_exn ~year:2026 ~month:9 ~day:30
+
+let mega_local_timestamp =
+  let parsed =
+    Local_timestamp.of_string "2026-09-30 12:34:56.000789" |> Result.ok_or_failwith
+  in
+  let created =
+    Local_timestamp.create
+      ~date:(Local_timestamp.date parsed)
+      ~hour:(Local_timestamp.hour parsed)
+      ~minute:(Local_timestamp.minute parsed)
+      ~second:(Local_timestamp.second parsed)
+      ~microsecond:(Local_timestamp.microsecond parsed)
+    |> Result.ok_or_failwith
+  in
+  let encoded =
+    Db_type.Postgresql.encode_text Db_type.Postgresql.local_timestamp created
+    |> Result.ok_or_failwith
+  in
+  Db_type.Postgresql.decode_text Db_type.Postgresql.local_timestamp encoded
+  |> Result.ok_or_failwith
+;;
+
+let mega_interval =
+  let parsed =
+    Interval.of_string "1 year 2 mons 3 days 04:05:06.000007" |> Result.ok_or_failwith
+  in
+  let created =
+    Interval.create
+      ~months:(Interval.months parsed)
+      ~days:(Interval.days parsed)
+      ~microseconds:(Interval.microseconds parsed)
+  in
+  let encoded =
+    Db_type.Postgresql.encode_text Db_type.Postgresql.interval created
+    |> Result.ok_or_failwith
+  in
+  Db_type.Postgresql.decode_text Db_type.Postgresql.interval encoded
+  |> Result.ok_or_failwith
+;;
+
+let mega_pg_array =
+  let created =
+    Pg_array.create ~dimensions:[ 2 ] ~lower_bounds:[ 0 ] ~elements:[ Some 1L; None ]
+    |> Result.ok_or_failwith
+  in
+  let preserved =
+    Pg_array.create
+      ~dimensions:(Pg_array.dimensions created)
+      ~lower_bounds:(Pg_array.lower_bounds created)
+      ~elements:(Pg_array.elements created)
+    |> Result.ok_or_failwith
+  in
+  let array_type = Db_type.Postgresql.array Db_type.int64 in
+  let encoded =
+    Db_type.Postgresql.encode_text array_type preserved |> Result.ok_or_failwith
+  in
+  Db_type.Postgresql.decode_text array_type encoded |> Result.ok_or_failwith
+;;
+
 let external_uuid = Uuid.of_string_exn "550e8400-e29b-41d4-a716-446655440000"
 let exact_amount = Decimal.of_string "12.3400e-2" |> Option.value_exn
 
@@ -955,7 +1014,14 @@ let final_update
               &&. Query.in_subquery (Person.id person) first_event_person_id
               &&. (event_labels
                    =. Expr.constant (Db_type.option Db_type.text) (Some "optional"))
-              &&. Postgresql.Expr.equals_any_list (Person.id person) ids_parameter)))))
+              &&. Postgresql.Expr.equals_any_list (Person.id person) ids_parameter
+              &&. is_not_null_parameter
+                    Db_type.Postgresql.local_timestamp
+                    mega_local_timestamp
+              &&. is_not_null_parameter Db_type.Postgresql.interval mega_interval
+              &&. Postgresql.Expr.equals_any
+                    (Expr.constant Db_type.int64 1L)
+                    (Expr.constant (Db_type.Postgresql.array Db_type.int64) mega_pg_array))))))
     |> returning person_result_projection)
 ;;
 
@@ -1906,6 +1972,9 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
             (t5."person_id" = t0."id")
         ) = $86)
         AND (t0."id" = ANY(CAST($87 AS bigint[])))
+        AND (CAST(CAST($88 AS "pg_catalog"."timestamp") AS "pg_catalog"."timestamp") IS NOT NULL)
+        AND (CAST(CAST($89 AS "pg_catalog"."interval") AS "pg_catalog"."interval") IS NOT NULL)
+        AND ($90 = ANY(CAST($91 AS bigint[])))
       )
     RETURNING
       t0."id",
@@ -1997,9 +2066,9 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                       WHERE
                         (
                           (t6."person_id" = t0."id")
-                          AND (t6."value" > $88)
+                          AND (t6."value" > $92)
                         )
-                    )) = $89)
+                    )) = $93)
                   )
                 ),
                 JSONB_BUILD_ARRAY()
@@ -2013,27 +2082,27 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
         SELECT
           COALESCE(SUM((CASE
             WHEN (
-              (t5."id" = (t5."id" + $90))
-              AND ((t5."id" - $91) = $92)
-              AND ((t5."id" * $93) = t5."id")
-              AND ((t5."id" / $94) = t5."id")
-              AND (t5."id" <> $95)
-              AND (t5."id" <> $96)
-              AND (t5."id" < $97)
-              AND (t5."id" <= $98)
-              AND (t5."id" >= $99)
-              AND (t5."id" <= $100)
-              AND (t5."id" >= $101)
+              (t5."id" = (t5."id" + $94))
+              AND ((t5."id" - $95) = $96)
+              AND ((t5."id" * $97) = t5."id")
+              AND ((t5."id" / $98) = t5."id")
+              AND (t5."id" <> $99)
+              AND (t5."id" <> $100)
+              AND (t5."id" < $101)
+              AND (t5."id" <= $102)
+              AND (t5."id" >= $103)
+              AND (t5."id" <= $104)
+              AND (t5."id" >= $105)
               AND (t5."nullable_id" IS NULL)
               AND (t5."nullable_id" IS NOT NULL)
               AND (t5."id" IN (
-                $102,
-                $103
+                $106,
+                $107
               ))
-              AND (t5."id" NOT IN ($104))
-              AND (t5."id" IN ($105))
-              AND (t5."id" NOT IN ($106))
-              AND (t5."id" BETWEEN $107 AND $108)
+              AND (t5."id" NOT IN ($108))
+              AND (t5."id" IN ($109))
+              AND (t5."id" NOT IN ($110))
+              AND (t5."id" BETWEEN $111 AND $112)
               AND (t5."id" IN (
                 SELECT
                   t6."id"
@@ -2064,9 +2133,9 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                 WHERE
                   (t6."person_id" = t5."person_id")
               ))
-              AND (t5."label" IS DISTINCT FROM $109)
-              AND (t5."label" LIKE $110)
-              AND (CHAR_LENGTH(t5."label") > $111)
+              AND (t5."label" IS DISTINCT FROM $113)
+              AND (t5."label" LIKE $114)
+              AND (CHAR_LENGTH(t5."label") > $115)
               AND ((
                 SELECT
                   t6."nullable_id"
@@ -2075,17 +2144,17 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                   (t6."id" = t5."id")
                 LIMIT 1
               ) = t5."id")
-              AND (NOT (t5."id" > $112))
-              AND ((LOWER(t5."label") || $113) LIKE $114)
-              AND (COALESCE(t5."nullable_id", $115) > $116)
+              AND (NOT (t5."id" > $116))
+              AND ((LOWER(t5."label") || $117) LIKE $118)
+              AND (COALESCE(t5."nullable_id", $119) > $120)
               AND ((CASE
                 WHEN TRUE THEN t5."id"
-                ELSE $117
-              END) > $118)
+                ELSE $121
+              END) > $122)
               AND (CURRENT_TIMESTAMP = CURRENT_TIMESTAMP)
             ) THEN t5."value"
-            ELSE $119
-          END)), $120)
+            ELSE $123
+          END)), $124)
         FROM "mega_events" AS t5
       )
     |}]
@@ -2314,14 +2383,18 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
 
 let%expect_test "PostgreSQL choose_dialect branch rejects negative pagination" =
   (match Statement.sql_exn ~dialect:Dialect.Postgresql ~input:([], -1, 1) statement with
-   | exception Failure message -> Stdlib.print_endline message
+   | exception
+       Statement.Sql_error (Statement.Invalid_parameter { name = Some name; message }) ->
+     Stdlib.print_endline (name ^ " " ^ message)
    | _ -> failwith "negative pagination value unexpectedly rendered SQL");
   [%expect {| optional_input_rows_limit must be non-negative, got -1 |}]
 ;;
 
 let%expect_test "SQLite choose_dialect branch rejects negative pagination" =
   (match Statement.sql_exn ~dialect:Dialect.Sqlite ~input:([], -1, 1) statement with
-   | exception Failure message -> Stdlib.print_endline message
+   | exception
+       Statement.Sql_error (Statement.Invalid_parameter { name = Some name; message }) ->
+     Stdlib.print_endline (name ^ " " ^ message)
    | _ -> failwith "negative pagination value unexpectedly rendered SQL");
   [%expect {|input_rows_limit must be non-negative, got -1|}]
 ;;
