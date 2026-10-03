@@ -46,7 +46,7 @@ let named_tuple_input = ~minimum:1L, ~maximum:10L
 
 let%test_unit "annotated and inferred named tuple inputs compile equivalently" =
   let sql statement =
-    Statement.sql_exn ~dialect:postgresql ~input:named_tuple_input statement
+    Statement.sql_exn ~dialect:Postgresql ~input:named_tuple_input statement
   in
   assert (String.equal (sql annotated_statement) (sql inferred_statement))
 ;;

@@ -9,4 +9,4 @@ end
 
 let query = Query.(from Item.table |> select (fun _ -> Projection.expr Expr.count_all))
 let statement = Statement.query_many ~dialect:Dialect.postgresql query
-let _ = Statement.sql_exn ~dialect:sqlite statement
+let _ = Statement.sql_exn ~dialect:Sqlite statement

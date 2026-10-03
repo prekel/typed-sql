@@ -37,10 +37,9 @@ module Update = Typed_sql_private.Update
 module Delete = Typed_sql_private.Delete
 module Dialect = Typed_sql_private.Dialect
 
-type 'supports sql_dialect = 'supports Dialect.Selected.t
-
-let postgresql = Dialect.Selected.postgresql
-let sqlite = Dialect.Selected.sqlite
+type 'supports sql_dialect = 'supports Dialect.Selected.t =
+  | Postgresql : [> `Postgresql ] sql_dialect
+  | Sqlite : [> `Sqlite ] sql_dialect
 
 module Statement = Typed_sql_private.Statement
 

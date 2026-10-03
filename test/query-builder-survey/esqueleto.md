@@ -99,7 +99,7 @@ let esqueleto01 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql esqueleto01);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql esqueleto01);;
 SELECT
   t0."id",
   t0."name"
@@ -151,7 +151,7 @@ let esqueleto02 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql esqueleto02);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql esqueleto02);;
 SELECT
   t0."id",
   t0."name"
@@ -209,7 +209,7 @@ let esqueleto03 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql esqueleto03);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql esqueleto03);;
 SELECT
   t0."id",
   t0."name"
@@ -261,7 +261,7 @@ let esqueleto04 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql esqueleto04);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql esqueleto04);;
 SELECT
   t0."id",
   t1."id"
@@ -313,7 +313,7 @@ let esqueleto05 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql esqueleto05);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql esqueleto05);;
 SELECT
   t0."id",
   t1."id"
@@ -365,7 +365,7 @@ let esqueleto06 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql esqueleto06);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql esqueleto06);;
 SELECT
   t0."author_id",
   COUNT(t0."id")
@@ -429,7 +429,7 @@ let esqueleto07 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql esqueleto07);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql esqueleto07);;
 SELECT
   t0."id",
   t0."name"
@@ -501,7 +501,7 @@ let esqueleto08 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql esqueleto08);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql esqueleto08);;
 SELECT
   t0."id",
   (
@@ -565,7 +565,7 @@ let esqueleto09 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql esqueleto09);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql esqueleto09);;
 SELECT
   t0."id",
   t0."name"
@@ -634,7 +634,7 @@ let esqueleto10 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql esqueleto10);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql esqueleto10);;
 SELECT
   t0."field_1",
   t0."field_2"
@@ -698,7 +698,7 @@ let esqueleto11 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql esqueleto11);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql esqueleto11);;
 SELECT *
 FROM (
   SELECT
@@ -773,7 +773,7 @@ let esqueleto12 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql esqueleto12);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql esqueleto12);;
 SELECT *
 FROM (
   SELECT
@@ -837,7 +837,7 @@ let esqueleto13 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql esqueleto13);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql esqueleto13);;
 SELECT *
 FROM (
   SELECT
@@ -930,7 +930,7 @@ let esqueleto14 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql esqueleto14);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql esqueleto14);;
 WITH
   "c0" (
     "author_id",
@@ -1007,7 +1007,7 @@ let esqueleto15 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql esqueleto15);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql esqueleto15);;
 SELECT
   t0."id",
   (CASE
@@ -1058,7 +1058,7 @@ let esqueleto16 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql esqueleto16);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql esqueleto16);;
 SELECT DISTINCT
   t0."name"
 FROM "person" AS t0
@@ -1129,7 +1129,7 @@ let esqueleto17 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql esqueleto17);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql esqueleto17);;
 SELECT
   t0."id",
   (
@@ -1205,7 +1205,7 @@ let esqueleto18 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql esqueleto18);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql esqueleto18);;
 SELECT *
 FROM (
   SELECT
@@ -1274,7 +1274,7 @@ let esqueleto19 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql esqueleto19);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql esqueleto19);;
 SELECT
   t0."id"
 FROM "person" AS t0
@@ -1351,7 +1351,7 @@ let esqueleto20 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql esqueleto20);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql esqueleto20);;
 SELECT *
 FROM (
   SELECT *

@@ -25,6 +25,9 @@ let ada_after_ten =
 меняются.
 
 Значение времени выполнения объявляется через аргумент [params] конструктора.
+Для объединения параметров рекомендуется [let%map.Statement.Parameters]
+без локального открытия модуля; последующие параметры в том же выражении
+добавляются через [and].
 [params.column] выводит [Db_type] из descriptor колонки, а [params.expr]
 принимает его явно. В следующих вариантах один statement получает десять
 значений: восемь фильтров, [LIMIT] и [OFFSET]. Все варианты вызывают один
@@ -86,13 +89,12 @@ type input = filters paged
 
 let page, total =
   Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
-    let+ min_age =
+    let%map.Statement.Parameters min_age =
       params.column Person.age_column ~get:(fun input -> input.inner.min_age)
-    and+ city = params.column Person.city_column ~get:(fun input -> input.inner.city)
-    and+ maximum_rows =
+    and city = params.column Person.city_column ~get:(fun input -> input.inner.city)
+    and maximum_rows =
       params.non_negative_int_opt ~name:"limit" ~get:(fun input -> input.limit)
-    and+ start_at =
+    and start_at =
       params.non_negative_int ~name:"offset" ~get:(fun input -> input.offset)
     in
     let filtered =
@@ -145,10 +147,9 @@ module Find_people = struct
 
   let statement =
     Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-      let open Statement.Parameters.Let_syntax in
-      let+ name = params.column Person.name_column ~get:Input.name
-      and+ min_id = params.column Person.id_column ~get:Input.min_id
-      and+ maximum_rows =
+      let%map.Statement.Parameters name = params.column Person.name_column ~get:Input.name
+      and min_id = params.column Person.id_column ~get:Input.min_id
+      and maximum_rows =
         params.non_negative_int ~name:"maximum_rows" ~get:Input.maximum_rows
       in
       params.query_many
@@ -197,35 +198,34 @@ type input =
 
 let find_people =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
-    let+ name =
+    let%map.Statement.Parameters name =
       params.column Person.name_column
         ~get:(fun (name, _, _, _, _, _, _, _, _, _) -> name)
-    and+ min_id =
+    and min_id =
       params.column Person.id_column
         ~get:(fun (_, min_id, _, _, _, _, _, _, _, _) -> min_id)
-    and+ max_id =
+    and max_id =
       params.column Person.id_column
         ~get:(fun (_, _, max_id, _, _, _, _, _, _, _) -> max_id)
-    and+ email =
+    and email =
       params.column Person.email_column
         ~get:(fun (_, _, _, email, _, _, _, _, _, _) -> email)
-    and+ min_age =
+    and min_age =
       params.column Person.age_column
         ~get:(fun (_, _, _, _, min_age, _, _, _, _, _) -> min_age)
-    and+ max_age =
+    and max_age =
       params.column Person.age_column
         ~get:(fun (_, _, _, _, _, max_age, _, _, _, _) -> max_age)
-    and+ city =
+    and city =
       params.column Person.city_column
         ~get:(fun (_, _, _, _, _, _, city, _, _, _) -> city)
-    and+ active =
+    and active =
       params.column Person.active_column
         ~get:(fun (_, _, _, _, _, _, _, active, _, _) -> active)
-    and+ maximum_rows =
+    and maximum_rows =
       params.non_negative_int ~name:"maximum_rows"
         ~get:(fun (_, _, _, _, _, _, _, _, value, _) -> value)
-    and+ start_at =
+    and start_at =
       params.non_negative_int ~name:"start_at"
         ~get:(fun (_, _, _, _, _, _, _, _, _, value) -> value)
     in
@@ -268,19 +268,18 @@ type input =
 
 let find_people =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
-    let+ name = params.column Person.name_column ~get:(fun input -> input.name)
-    and+ min_id = params.column Person.id_column ~get:(fun input -> input.min_id)
-    and+ max_id = params.column Person.id_column ~get:(fun input -> input.max_id)
-    and+ email = params.column Person.email_column ~get:(fun input -> input.email)
-    and+ min_age = params.column Person.age_column ~get:(fun input -> input.min_age)
-    and+ max_age = params.column Person.age_column ~get:(fun input -> input.max_age)
-    and+ city = params.column Person.city_column ~get:(fun input -> input.city)
-    and+ active = params.column Person.active_column ~get:(fun input -> input.active)
-    and+ maximum_rows =
+    let%map.Statement.Parameters name = params.column Person.name_column ~get:(fun input -> input.name)
+    and min_id = params.column Person.id_column ~get:(fun input -> input.min_id)
+    and max_id = params.column Person.id_column ~get:(fun input -> input.max_id)
+    and email = params.column Person.email_column ~get:(fun input -> input.email)
+    and min_age = params.column Person.age_column ~get:(fun input -> input.min_age)
+    and max_age = params.column Person.age_column ~get:(fun input -> input.max_age)
+    and city = params.column Person.city_column ~get:(fun input -> input.city)
+    and active = params.column Person.active_column ~get:(fun input -> input.active)
+    and maximum_rows =
       params.non_negative_int ~name:"maximum_rows"
         ~get:(fun input -> input.maximum_rows)
-    and+ start_at =
+    and start_at =
       params.non_negative_int ~name:"start_at"
         ~get:(fun input -> input.start_at)
     in
@@ -333,18 +332,17 @@ module Find_people = struct
 
   let statement =
     Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-      let open Statement.Parameters.Let_syntax in
-      let+ name = params.column Person.name_column ~get:Input.name
-      and+ min_id = params.column Person.id_column ~get:Input.min_id
-      and+ max_id = params.column Person.id_column ~get:Input.max_id
-      and+ email = params.column Person.email_column ~get:Input.email
-      and+ min_age = params.column Person.age_column ~get:Input.min_age
-      and+ max_age = params.column Person.age_column ~get:Input.max_age
-      and+ city = params.column Person.city_column ~get:Input.city
-      and+ active = params.column Person.active_column ~get:Input.active
-      and+ maximum_rows =
+      let%map.Statement.Parameters name = params.column Person.name_column ~get:Input.name
+      and min_id = params.column Person.id_column ~get:Input.min_id
+      and max_id = params.column Person.id_column ~get:Input.max_id
+      and email = params.column Person.email_column ~get:Input.email
+      and min_age = params.column Person.age_column ~get:Input.min_age
+      and max_age = params.column Person.age_column ~get:Input.max_age
+      and city = params.column Person.city_column ~get:Input.city
+      and active = params.column Person.active_column ~get:Input.active
+      and maximum_rows =
         params.non_negative_int ~name:"maximum_rows" ~get:Input.maximum_rows
-      and+ start_at =
+      and start_at =
         params.non_negative_int ~name:"start_at" ~get:Input.start_at
       in
       params.query_many

@@ -20,6 +20,8 @@ type constraint_kind =
 type error =
   | Compile of Typed_sql.Statement.definition_error
   (** A dynamic statement failed compilation before database access. *)
+  | Unsupported_dialect of Typed_sql.Dialect.t
+  (** The statement has no plan for the PostgreSQL adapter's dialect. *)
   | Parameter of Typed_sql.Statement.binding_error
   (** A runtime statement parameter failed validation. *)
   | Encode of string
@@ -108,6 +110,7 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
 
   type error =
     | Compile of Typed_sql.Statement.definition_error
+    | Unsupported_dialect of Typed_sql.Dialect.t
     | Parameter of Typed_sql.Statement.binding_error
     | Encode of string
     | Decode of string

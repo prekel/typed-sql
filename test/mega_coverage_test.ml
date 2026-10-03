@@ -1223,8 +1223,7 @@ let mega_query
 
 let postgresql_statement =
   Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
-    let%map label_parameter =
+    let%map.Statement.Parameters label_parameter =
       params.column ~name:"mega_label" Person.name_column ~get:(fun _ -> "mega")
     and ids_parameter =
       params.expr (Db_type.Postgresql.array_list Db_type.int64) ~get:(fun (ids, _, _) ->
@@ -1254,8 +1253,7 @@ let postgresql_statement =
 
 let sqlite_statement =
   Statement.with_parameters ~dialect:Dialect.sqlite (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
-    let%map label_parameter =
+    let%map.Statement.Parameters label_parameter =
       params.column ~name:"mega_label" Person.name_column ~get:(fun _ -> "mega")
     and limit_parameter =
       params.non_negative_int ~name:"input_rows_limit" ~get:(fun (_, limit, _) -> limit)
@@ -1304,9 +1302,9 @@ let statement =
 
 let%expect_test "PostgreSQL mega query compiles nested DML and relational paths" =
   let cleanup_statement = Statement.command ~dialect:Dialect.postgresql cleanup_command in
-  ignore (Statement.sql_exn ~dialect:postgresql cleanup_statement : string);
+  ignore (Statement.sql_exn ~dialect:Postgresql cleanup_statement : string);
   statement
-  |> Statement.sql_exn ~dialect:postgresql ~input:([ 1L ], 20, 1)
+  |> Statement.sql_exn ~dialect:Postgresql ~input:([ 1L ], 20, 1)
   |> Stdlib.print_endline;
   [%expect
     {|
@@ -2162,7 +2160,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
 
 let%expect_test "SQLite choose_dialect branch compiles the shared output" =
   statement
-  |> Statement.sql_exn ~dialect:sqlite ~input:([], 20, 1)
+  |> Statement.sql_exn ~dialect:Sqlite ~input:([], 20, 1)
   |> Stdlib.print_endline;
   [%expect
     {|
@@ -2382,19 +2380,25 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
 ;;
 
 let%expect_test "PostgreSQL choose_dialect branch rejects negative pagination" =
-  (match Statement.sql_exn ~dialect:postgresql ~input:([], -1, 1) statement with
+  (match Statement.sql_exn ~dialect:Postgresql ~input:([], -1, 1) statement with
    | exception
-       Statement.Sql_error (Statement.Invalid_parameter { name = Some name; message }) ->
-     Stdlib.print_endline (name ^ " " ^ message)
+       Statement.Sql_error
+         (Statement.Invalid_parameter
+            { name = Some name; message = Statement.Negative_pagination_value value }) ->
+     Stdlib.print_endline
+       (Stdlib.Printf.sprintf "%s must be non-negative, got %d" name value)
    | _ -> failwith "negative pagination value unexpectedly rendered SQL");
   [%expect {| optional_input_rows_limit must be non-negative, got -1 |}]
 ;;
 
 let%expect_test "SQLite choose_dialect branch rejects negative pagination" =
-  (match Statement.sql_exn ~dialect:sqlite ~input:([], -1, 1) statement with
+  (match Statement.sql_exn ~dialect:Sqlite ~input:([], -1, 1) statement with
    | exception
-       Statement.Sql_error (Statement.Invalid_parameter { name = Some name; message }) ->
-     Stdlib.print_endline (name ^ " " ^ message)
+       Statement.Sql_error
+         (Statement.Invalid_parameter
+            { name = Some name; message = Statement.Negative_pagination_value value }) ->
+     Stdlib.print_endline
+       (Stdlib.Printf.sprintf "%s must be non-negative, got %d" name value)
    | _ -> failwith "negative pagination value unexpectedly rendered SQL");
   [%expect {|input_rows_limit must be non-negative, got -1|}]
 ;;

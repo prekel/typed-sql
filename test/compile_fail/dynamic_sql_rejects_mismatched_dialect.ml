@@ -12,4 +12,4 @@ let statement =
     Query.(from Item.table |> select (fun _ -> Projection.expr Expr.count_all)))
 ;;
 
-let _ = Statement.sql ~dialect:sqlite ~input:() statement
+let _ = Statement.sql ~dialect:Sqlite ~input:() statement

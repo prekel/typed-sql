@@ -27,21 +27,28 @@ type error =
 
 let error_to_string = function
   | Compile { dialect; error } ->
-    "statement compilation failed for "
-    ^ Typed_sql.Dialect.to_string dialect
-    ^ ": "
-    ^ Typed_sql.Compile_error.to_string error
-  | Unsupported_dialect dialect -> "unsupported Caqti dialect: " ^ dialect
+    Stdlib.Printf.sprintf
+      "statement compilation failed for %s: %s"
+      (Typed_sql.Dialect.to_string dialect)
+      (Typed_sql.Compile_error.to_string error)
+  | Unsupported_dialect dialect ->
+    Stdlib.Printf.sprintf "unsupported Caqti dialect: %s" dialect
   | Dialect_mismatch { expected; connection } ->
-    "statement requires "
-    ^ Typed_sql.Dialect.to_string expected
-    ^ " but the connection uses "
-    ^ Typed_sql.Dialect.to_string connection
+    Stdlib.Printf.sprintf
+      "statement requires %s but the connection uses %s"
+      (Typed_sql.Dialect.to_string expected)
+      (Typed_sql.Dialect.to_string connection)
   | Parameter { name; message } ->
-    Option.value_map name ~default:"parameter" ~f:(fun name -> "parameter " ^ name)
-    ^ " "
-    ^ message
-  | Codec message -> "codec failed: " ^ message
+    let message =
+      match message with
+      | Typed_sql.Statement.Unknown_parameter_slot -> "unknown parameter slot"
+      | Typed_sql.Statement.Negative_pagination_value value ->
+        Stdlib.Printf.sprintf "must be non-negative, got %d" value
+    in
+    (match name with
+     | None -> Stdlib.Printf.sprintf "parameter %s" message
+     | Some name -> Stdlib.Printf.sprintf "parameter %s %s" name message)
+  | Codec message -> Stdlib.Printf.sprintf "codec failed: %s" message
   | Constraint_violation { kind; message } ->
     let kind =
       match kind with
@@ -53,7 +60,7 @@ let error_to_string = function
       | Exclusion -> "exclusion"
       | Other -> "integrity"
     in
-    kind ^ " constraint violation: " ^ message
+    Stdlib.Printf.sprintf "%s constraint violation: %s" kind message
   | Caqti error -> Caqti.Error.show error
 ;;
 

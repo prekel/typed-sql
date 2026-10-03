@@ -76,11 +76,11 @@ let%test_module "typed operation modules" =
     ;;
 
     let query_postgresql =
-      Statement.sql_exn ~dialect:postgresql ~input:query_input Find_people.statement
+      Statement.sql_exn ~dialect:Postgresql ~input:query_input Find_people.statement
     ;;
 
     let query_sqlite =
-      Statement.sql_exn ~dialect:sqlite ~input:query_input Find_people.statement
+      Statement.sql_exn ~dialect:Sqlite ~input:query_input Find_people.statement
     ;;
 
     let command_input : Create_person.Input.t =
@@ -88,11 +88,11 @@ let%test_module "typed operation modules" =
     ;;
 
     let command_postgresql =
-      Statement.sql_exn ~dialect:postgresql ~input:command_input Create_person.statement
+      Statement.sql_exn ~dialect:Postgresql ~input:command_input Create_person.statement
     ;;
 
     let command_sqlite =
-      Statement.sql_exn ~dialect:sqlite ~input:command_input Create_person.statement
+      Statement.sql_exn ~dialect:Sqlite ~input:command_input Create_person.statement
     ;;
 
     let%test_unit "query operation owns its input type and static statement" =

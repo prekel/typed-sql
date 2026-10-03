@@ -1931,16 +1931,6 @@ module Dialect : sig
   val to_string : t -> string
 end
 
-(** A concrete dialect selected for SQL rendering. The row bound allows a
-    portable statement to be rendered in either dialect. *)
-type 'supports sql_dialect
-
-(** Select PostgreSQL SQL rendering. *)
-val postgresql : [> `Postgresql ] sql_dialect
-
-(** Select SQLite SQL rendering. *)
-val sqlite : [> `Sqlite ] sql_dialect
-
 (** PostgreSQL-specific builders. Using one excludes SQLite from the resulting
     statement. *)
 module Postgresql : sig
@@ -2353,11 +2343,21 @@ module Statement : sig
   (** Raised when a static statement cannot be compiled. *)
   exception Definition_error of definition_error
 
+  (** Structured reason why a runtime parameter could not be bound. *)
+  type binding_error_message =
+    | Unknown_parameter_slot
+    (** A bound expression refers to a slot outside the statement's parameter
+        scope. *)
+    | Negative_pagination_value of int
+    (** A pagination getter returned a negative value. *)
+  [@@deriving sexp_of]
+
   (** A runtime input that could not be converted into bind parameters. *)
   type binding_error =
     { name : string option (** Optional name assigned when declaring the slot. *)
-    ; message : string (** Human-readable validation failure. *)
+    ; message : binding_error_message (** Structured reason for the failure. *)
     }
+  [@@deriving sexp_of]
 
   (** Failures produced while resolving or rendering a statement for one
       concrete input and dialect. *)
@@ -2646,6 +2646,12 @@ module Statement : sig
     :  postgresql:('input, 'output, [ `Postgresql ]) t
     -> sqlite:('input, 'output, [ `Sqlite ]) t
     -> ('input, 'output, Dialect.both) t
+
+  (** A concrete dialect selected for SQL rendering. The row bound allows a
+      portable statement to be rendered in either dialect. *)
+  type 'supports sql_dialect =
+    | Postgresql : [> `Postgresql ] sql_dialect (** Select PostgreSQL SQL rendering. *)
+    | Sqlite : [> `Sqlite ] sql_dialect (** Select SQLite SQL rendering. *)
 
   (** Render a statement using a concrete dialect supported by its compiled
       plans. For a static statement, [input] may be omitted:

@@ -29,11 +29,13 @@
   ptime
   yojson
   ppx_let
+  ppx_sexp_conv
   (ppx_fields_conv :with-test)
   (qcheck :with-test)
   (ipaddr :with-test)
   (mdx :with-test)
   (ppx_expect :with-test)
+  (stdio :with-test)
   (bisect_ppx :with-dev-setup)
   (ocamlformat (and (= 0.29.0) :with-dev-setup))
   (ocaml-lsp-server :with-dev-setup))

@@ -96,7 +96,7 @@ let ld01 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ld01);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ld01);;
 SELECT
   t0."id",
   t0."title"
@@ -144,7 +144,7 @@ let ld02 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ld02);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ld02);;
 SELECT
   t0."name",
   t1."title"
@@ -198,7 +198,7 @@ let ld03 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ld03);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ld03);;
 SELECT
   t0."author_id",
   COUNT(*)
@@ -262,7 +262,7 @@ let ld04 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ld04);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ld04);;
 WITH
   "c0" (
     "id",
@@ -325,7 +325,7 @@ let ld05 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ld05);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ld05);;
 SELECT
   t0."id",
   t0."name"
@@ -379,7 +379,7 @@ let ld06 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ld06);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ld06);;
 SELECT
   t0."id",
   t1."title"
@@ -429,7 +429,7 @@ let ld07 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ld07);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ld07);;
 SELECT
   t0."id",
   t0."name"
@@ -511,7 +511,7 @@ let ld08 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ld08);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ld08);;
 SELECT
   t0."id",
   t0."author_id",
@@ -584,7 +584,7 @@ let ld09 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ld09);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ld09);;
 SELECT *
 FROM (
   SELECT
@@ -652,7 +652,7 @@ let ld10 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ld10);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ld10);;
 UPDATE "book" AS t0
 SET
   "published_in" = (t1."published_in" + $1)

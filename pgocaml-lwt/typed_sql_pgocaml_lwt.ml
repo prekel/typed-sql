@@ -44,6 +44,7 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
 
   type error =
     | Compile of Typed_sql.Statement.definition_error
+    | Unsupported_dialect of Typed_sql.Dialect.t
     | Parameter of Typed_sql.Statement.binding_error
     | Encode of string
     | Decode of string
@@ -61,18 +62,29 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
 
   let error_to_string = function
     | Compile { dialect; error } ->
-      "statement compilation failed for "
-      ^ Typed_sql.Dialect.to_string dialect
-      ^ ": "
-      ^ Typed_sql.Compile_error.to_string error
+      Stdlib.Printf.sprintf
+        "statement compilation failed for %s: %s"
+        (Typed_sql.Dialect.to_string dialect)
+        (Typed_sql.Compile_error.to_string error)
+    | Unsupported_dialect dialect ->
+      Stdlib.Printf.sprintf
+        "statement does not support %s"
+        (Typed_sql.Dialect.to_string dialect)
     | Parameter { name; message } ->
+      let message =
+        match message with
+        | Typed_sql.Statement.Unknown_parameter_slot -> "unknown parameter slot"
+        | Typed_sql.Statement.Negative_pagination_value value ->
+          Stdlib.Printf.sprintf "must be non-negative, got %d" value
+      in
       (match name with
-       | None -> "statement parameter failed validation: " ^ message
-       | Some name -> "statement parameter " ^ name ^ " failed validation: " ^ message)
-    | Encode message -> "parameter encoding failed: " ^ message
-    | Decode message -> "row decoding failed: " ^ message
+       | None -> Stdlib.Printf.sprintf "statement parameter failed validation: %s" message
+       | Some name ->
+         Stdlib.Printf.sprintf "statement parameter %s failed validation: %s" name message)
+    | Encode message -> Stdlib.Printf.sprintf "parameter encoding failed: %s" message
+    | Decode message -> Stdlib.Printf.sprintf "row decoding failed: %s" message
     | Cardinality { expected; actual } ->
-      "expected " ^ expected ^ " row(s), got " ^ Int.to_string actual
+      Stdlib.Printf.sprintf "expected %s row(s), got %d" expected actual
     | Constraint_violation { kind; message } ->
       let kind =
         match kind with
@@ -84,9 +96,9 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
         | Exclusion -> "exclusion"
         | Other -> "integrity"
       in
-      kind ^ " constraint violation: " ^ message
+      Stdlib.Printf.sprintf "%s constraint violation: %s" kind message
     | Invalid_cache_capacity capacity ->
-      "prepared cache capacity must be positive, got " ^ Int.to_string capacity
+      Stdlib.Printf.sprintf "prepared cache capacity must be positive, got %d" capacity
     | Prepared_cache_closed -> "prepared cache is closed"
     | Pgocaml error -> Exn.to_string error
   ;;
@@ -482,9 +494,7 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
         statement
     with
     | Error Typed_sql_backend.Statement.Dialect_mismatch ->
-      Lwt.return
-        (Error
-           (Parameter { name = None; message = "statement does not support PostgreSQL" }))
+      Lwt.return (Error (Unsupported_dialect Typed_sql.Dialect.Postgresql))
     | Error (Typed_sql_backend.Statement.Binding error) ->
       Lwt.return (Error (Parameter error))
     | Error (Typed_sql_backend.Statement.Compilation error) ->

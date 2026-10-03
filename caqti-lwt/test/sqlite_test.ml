@@ -1132,8 +1132,14 @@ let run conn =
   (match invalid_parameter with
    | Error
        (Typed_sql_caqti_lwt.Parameter
-          { name = Some name; message = "must be non-negative, got -1" }) ->
-     assert (String.equal name "maximum_rows")
+          ({ name = Some name
+           ; message = Typed_sql.Statement.Negative_pagination_value -1
+           } as error)) ->
+     assert (String.equal name "maximum_rows");
+     assert (
+       String.equal
+         (Typed_sql_caqti_lwt.error_to_string (Typed_sql_caqti_lwt.Parameter error))
+         "parameter maximum_rows must be non-negative, got -1")
    | Error error -> failwith (Typed_sql_caqti_lwt.error_to_string error)
    | Ok _ -> failwith "negative runtime LIMIT reached SQLite");
   let many = Statement.query_many ~dialect:Dialect.portable query in

@@ -11,10 +11,10 @@ let () =
   Stdlib.Printexc.register_printer (function
     | Definition_error { dialect; error } ->
       Some
-        ("Statement.Definition_error ("
-         ^ Dialect.to_string dialect
-         ^ "): "
-         ^ Compile_error.to_string error)
+        (Stdlib.Printf.sprintf
+           "Statement.Definition_error (%s): %s"
+           (Dialect.to_string dialect)
+           (Compile_error.to_string error))
     | _ -> None)
 ;;
 
@@ -72,10 +72,16 @@ module Parameters = struct
   end
 end
 
+type binding_error_message =
+  | Unknown_parameter_slot
+  | Negative_pagination_value of int
+[@@deriving sexp_of]
+
 type binding_error =
   { name : string option
-  ; message : string
+  ; message : binding_error_message
   }
+[@@deriving sexp_of]
 
 type sql_error =
   | Unsupported_dialect of Dialect.t
@@ -86,20 +92,32 @@ type sql_error =
 exception Sql_error of sql_error
 
 let () =
+  let binding_error_message_to_string = function
+    | Unknown_parameter_slot -> "unknown parameter slot"
+    | Negative_pagination_value value ->
+      Stdlib.Printf.sprintf "must be non-negative, got %d" value
+  in
   Stdlib.Printexc.register_printer (function
     | Sql_error (Unsupported_dialect dialect) ->
-      Some ("Statement.Sql_error (unsupported dialect: " ^ Dialect.to_string dialect ^ ")")
+      Some
+        (Stdlib.Printf.sprintf
+           "Statement.Sql_error (unsupported dialect: %s)"
+           (Dialect.to_string dialect))
     | Sql_error Dynamic_input_required ->
       Some "Statement.Sql_error (SQL shape requires input)"
     | Sql_error (Invalid_parameter { name; message }) ->
       let name = Option.value name ~default:"parameter" in
-      Some ("Statement.Sql_error (" ^ name ^ ": " ^ message ^ ")")
+      Some
+        (Stdlib.Printf.sprintf
+           "Statement.Sql_error (%s: %s)"
+           name
+           (binding_error_message_to_string message))
     | Sql_error (Compilation_error { dialect; error }) ->
       Some
-        ("Statement.Sql_error ("
-         ^ Dialect.to_string dialect
-         ^ "): "
-         ^ Compile_error.to_string error)
+        (Stdlib.Printf.sprintf
+           "Statement.Sql_error (%s): %s"
+           (Dialect.to_string dialect)
+           (Compile_error.to_string error))
     | _ -> None)
 ;;
 
@@ -109,7 +127,7 @@ type 'input slot =
       ; name : string option
       ; db_type : 'value Db_type.t
       ; get : 'input -> 'value
-      ; validate : 'value -> string option
+      ; validate : 'value -> binding_error_message option
       }
       -> 'input slot
 
@@ -326,7 +344,7 @@ let make_parameters ~dialect slots =
   let make_non_negative_int ~name ~get =
     let validate value =
       if value < 0 then
-        Some ("must be non-negative, got " ^ Int.to_string value)
+        Some (Negative_pagination_value value)
       else
         None
     in
@@ -337,8 +355,7 @@ let make_parameters ~dialect slots =
   in
   let make_non_negative_int_opt ~name ~get =
     let validate = function
-      | Some value when value < 0 ->
-        Some ("must be non-negative, got " ^ Int.to_string value)
+      | Some value when value < 0 -> Some (Negative_pagination_value value)
       | None | Some _ -> None
     in
     register ~name ~validate (Db_type.option Db_type.int) ~get
@@ -474,7 +491,7 @@ let bind_parameter input slots = function
   | Ast.Value value -> Ok value
   | Ast.Slot { id; _ } ->
     (match find_slot id slots with
-     | None -> Error (Binding { name = None; message = "unknown parameter slot" })
+     | None -> Error (Binding { name = None; message = Unknown_parameter_slot })
      | Some (Slot slot) ->
        let value = slot.get input in
        (match slot.validate value with

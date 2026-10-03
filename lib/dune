@@ -7,7 +7,7 @@
  (instrumentation
   (backend bisect_ppx))
  (preprocess
-  (pps ppx_let)))
+  (pps ppx_let ppx_sexp_conv)))
 
 (library
  (name typed_sql)
@@ -15,4 +15,6 @@
  (modules typed_sql)
  (libraries typed_sql_private)
  (instrumentation
-  (backend bisect_ppx)))
+  (backend bisect_ppx))
+ (preprocess
+  (pps ppx_sexp_conv)))

@@ -23,6 +23,7 @@ query-пакета и выбранного execution-адаптера. Подд�
 оба адаптера; версии 16 и 17 отдельно пока не проверялись.
 
 ```ocaml
+open! Base
 open Typed_sql
 open Infix
 
@@ -43,9 +44,8 @@ type find_people =
 
 let find_people =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
-    let+ name = params.column Person.name_col ~get:(fun input -> input.name)
-    and+ maximum_rows =
+    let%map.Statement.Parameters name = params.column Person.name_col ~get:(fun input -> input.name)
+    and maximum_rows =
       params.non_negative_int
         ~name:"maximum_rows"
         ~get:(fun input -> input.maximum_rows)
@@ -67,9 +67,10 @@ builder в готовый `Result_query.t`.
 `with_parameters` вызывает callback один раз при создании значения, а
 `params.query_many` компилирует statement сразу.
 `params.column` выводит SQL-тип из descriptor колонки. Параметры объединяются
-через `Statement.Parameters.Let_syntax` до построения запроса. Объявление
+через `let%map.Statement.Parameters` до построения запроса; это рекомендуемый
+способ без локального `open`. Связанные объявления записываются через `and`. Объявление
 параметра само по себе не является `Expr.t`: его значение становится доступно
-внутри `let%map`/`and` или `let+`/`and+`. Для запроса без runtime-параметров
+внутри такого выражения. Для запроса без runtime-параметров
 используйте `Statement.query_many`, `query_one`, `query_optional`, `expect_one`,
 `expect_optional` или `command`; такой statement принимает `unit`.
 `Dialect.portable` заранее компилирует оба portable-плана, а конкретные
@@ -109,7 +110,7 @@ non-null views указывают на один bind slot. Nullable pagination �
 статические ветки можно объединить через `Statement.choose_dialect`:
 
 ```ocaml
-let statement =
+let choose_statement postgresql_statement sqlite_statement =
   Statement.choose_dialect
     ~postgresql:postgresql_statement
     ~sqlite:sqlite_statement
@@ -122,11 +123,12 @@ portable dialect и адаптер выбирает нужный заранее 
 ```ocaml
 let sql =
   Statement.sql
-    ~dialect:postgresql
+    ~dialect:Postgresql
     find_people
 ```
 
-```sql
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql find_people);;
 SELECT
   t0."id",
   t0."name"
@@ -203,10 +205,11 @@ let people_with_departments =
 пустую сторону `LEFT JOIN`:
 
 ```ocaml
-Projection.multiset_agg
-  ~filter:(Comment.article_id comment =. Article.id article)
-  ~order_by:[ Aggregate_order.asc (Comment.created_at comment) ]
-  (Comment.projection comment)
+let comments article comment =
+  Projection.multiset_agg
+    ~filter:(Comment.article_id comment =. Article.id article)
+    ~order_by:[ Aggregate_order.asc (Comment.created_at comment) ]
+    (Comment.projection comment)
 ```
 
 Обе операции возвращают пустой список при отсутствии строк и поддерживают
@@ -289,10 +292,11 @@ let selected_people =
 Ключ — checked identifier выходного поля, например:
 
 ```ocaml
-Query.union
-  ~order_by:[ (Column.name Book.id_column, `Asc) ]
-  first_ids
-  second_ids
+let combine_ids first_ids second_ids =
+  Query.union
+    ~order_by:[ (Column.name Book.id_column, `Asc) ]
+    first_ids
+    second_ids
 ```
 
 Поле должно быть выбрано ровно один раз простой колонкой в левой ветви
@@ -343,8 +347,7 @@ PostgreSQL поддерживает `FETCH FIRST ... WITH TIES` через
 ```ocaml
 let tied_people =
   Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
-    let+ page_size = params.non_negative_int ~name:"page_size" ~get:Fn.id in
+    let%map.Statement.Parameters page_size = params.non_negative_int ~name:"page_size" ~get:Fn.id in
     params.query_many
       Query.(
         from Person.table
@@ -484,10 +487,11 @@ assignments принадлежат таблице INSERT, даже если ра
 любой cardinality и для команд:
 
 ```ocaml
-Typed_sql_caqti_lwt.run
-  ~conn
-  find_people
-  { name = "Ada"; maximum_rows = 100 }
+let run_people conn =
+  Typed_sql_caqti_lwt.run
+    ~conn
+    find_people
+    { name = "Ada"; maximum_rows = 100 }
 ```
 
 Чтобы найти запросы, на которых заметна стоимость DSL compilation, Caqti
@@ -522,15 +526,17 @@ let print_profile () =
 Транзакционная граница также принадлежит adapter:
 
 ```ocaml
-Typed_sql_caqti_lwt.transaction ~conn ~f:(fun conn ->
-  Typed_sql_caqti_lwt.run ~conn insert_once ()
-  |> Lwt.map (Result.map ~f:(fun _ -> ())))
+let insert_in_transaction conn =
+  Typed_sql_caqti_lwt.transaction ~conn ~f:(fun conn ->
+    Typed_sql_caqti_lwt.run ~conn insert_once ()
+    |> Lwt.map (Result.map ~f:(fun _ -> ())))
 ```
 
 Чтобы получить OCaml-код из живой PostgreSQL-базы, задайте параметры
 подключения через `PGHOST`, `PGPORT`, `PGUSER`, `PGDATABASE` (или передайте URI)
 и выполните:
 
+<!-- $MDX skip -->
 ```sh
 typed-sql-schema-dump --exclude-table public.audit postgresql:// > schema.json
 typed-sql-codegen --type-rules type-rules.json schema.json > schema.ml
@@ -540,6 +546,7 @@ typed-sql-codegen --type-rules type-rules.json schema.json > schema.ml
 Второй дампер устанавливается с `typed-sql-schema-pgocaml-lwt` и создаёт тот
 же snapshot:
 
+<!-- $MDX skip -->
 ```sh
 typed-sql-pgocaml-schema-dump --exclude-table public.audit postgresql:// > schema.json
 ```
@@ -562,12 +569,13 @@ codegen: отсутствующая в snapshot таблица считаетс�
 Тот же snapshot можно получить из OCaml-кода:
 
 ```ocaml
-Typed_sql_schema_caqti_lwt.introspect ~conn
-|> Lwt.map
-     (Result.map ~f:(fun schema ->
-        Stdlib.Out_channel.with_open_bin "schema.json" (fun channel ->
-          Stdlib.output_string channel
-            (Typed_sql_schema.Schema_snapshot.to_string schema))))
+let save_schema conn =
+  Typed_sql_schema_caqti_lwt.introspect ~conn
+  |> Lwt.map
+       (Result.map ~f:(fun schema ->
+          Stdlib.Out_channel.with_open_bin "schema.json" (fun channel ->
+            Stdlib.output_string channel
+              (Typed_sql_schema.Schema_snapshot.to_string schema))))
 ```
 
 Для PG’OCaml соединения доступен
@@ -579,6 +587,7 @@ Typed_sql_schema_caqti_lwt.introspect ~conn
 Snapshot хранится в репозитории. Установленный вместе с `typed-sql-schema` CLI читает
 его без подключения к базе и выводит OCaml source:
 
+<!-- $MDX skip -->
 ```sh
 typed-sql-codegen schema.json > schema.ml
 typed-sql-codegen - < schema.json > schema.ml
@@ -641,9 +650,16 @@ codec, шаблоны, shape и декодеры. Она разрешает `Sta
 
 ## Сборка
 
+OCaml-примеры и показанный SQL этого README проверяются через MDX при `make test`. Общие
+дескрипторы `Department`, `Article`, `Comment`, `Book` и модуль `Pgocaml`
+заданы в [prelude](doc/readme_prelude.ml). Примеры выполнения оформлены как
+функции: проверка не открывает соединение с БД. Shell-команды помечены
+`MDX skip` и выполняются пользователем отдельно.
+
 Минимальная поддерживаемая версия — OCaml 4.14.1. По умолчанию проект
 создаёт локальный switch OCaml 5.1.1:
 
+<!-- $MDX skip -->
 ```sh
 make create_switch
 make deps_all
@@ -656,6 +672,7 @@ make coverage-mega
 
 Для нового клона с OCaml 4.14.1:
 
+<!-- $MDX skip -->
 ```sh
 make create_switch OCAML_VERSION=4.14.1
 make deps_all
@@ -674,6 +691,7 @@ make check
 Benchmark compiler для маленького запроса и shapes с 20/100 условиями или
 сортировками запускается отдельно:
 
+<!-- $MDX skip -->
 ```sh
 opam exec -- dune exec benchmark/query_bench.exe
 ```
@@ -684,6 +702,7 @@ socket, запускает Caqti и PG'OCaml integration tests, включая �
 cases на PostgreSQL и SQLite, и удаляет кластер после прогона. Версию сервера
 задаёт `pg_config` из `PATH`; для другого установленного сервера укажите путь:
 
+<!-- $MDX skip -->
 ```sh
 TYPED_SQL_PG_CONFIG=/path/to/postgresql-15/bin/pg_config make test-postgres
 ```
@@ -717,7 +736,7 @@ PG'OCaml `run` по умолчанию вызывает `prepare` для каж�
 ```ocaml
 module Adapter = Typed_sql_pgocaml_lwt.Make (Pgocaml)
 
-let result = Adapter.run ~conn statement input
+let run conn statement input = Adapter.run ~conn statement input
 ```
 
 `conn` сохраняет тип `Pgocaml.t` из приложения; преобразование типов не нужно.
@@ -726,20 +745,21 @@ let result = Adapter.run ~conn statement input
 Для часто вызываемого statement можно создать явный кэш на одном connection:
 
 ```ocaml
-let open Lwt.Syntax in
-let module Adapter = Typed_sql_pgocaml_lwt in
-let cache =
-  match Adapter.Prepared_cache.create ~capacity:32 ~conn () with
-  | Ok cache -> cache
-  | Error error -> failwith (Adapter.error_to_string error)
-in
-Lwt.finalize
-  (fun () -> Adapter.Prepared_cache.run cache statement input)
-  (fun () ->
-    let* closed = Adapter.Prepared_cache.close cache in
-    match closed with
-    | Ok () -> Lwt.return_unit
-    | Error error -> Lwt.fail_with (Adapter.error_to_string error))
+let run_cached conn statement input =
+  let open Lwt.Syntax in
+  let module Adapter = Typed_sql_pgocaml_lwt in
+  let cache =
+    match Adapter.Prepared_cache.create ~capacity:32 ~conn () with
+    | Ok cache -> cache
+    | Error error -> failwith (Adapter.error_to_string error)
+  in
+  Lwt.finalize
+    (fun () -> Adapter.Prepared_cache.run cache statement input)
+    (fun () ->
+      let* closed = Adapter.Prepared_cache.close cache in
+      match closed with
+      | Ok () -> Lwt.return_unit
+      | Error error -> Lwt.fail_with (Adapter.error_to_string error))
 ```
 
 Ключ кэша включает SQL и упорядоченные PostgreSQL-типы параметров. При

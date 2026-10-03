@@ -41,11 +41,11 @@ module Compiler = struct
     fun dialect statement ->
     match dialect with
     | Dialect.Portable ->
-      Dialect.Postgresql, Statement.sql_exn ~dialect:postgresql ~input:() statement
+      Dialect.Postgresql, Statement.sql_exn ~dialect:Postgresql ~input:() statement
     | Dialect.Concrete_postgresql ->
-      Dialect.Postgresql, Statement.sql_exn ~dialect:postgresql ~input:() statement
+      Dialect.Postgresql, Statement.sql_exn ~dialect:Postgresql ~input:() statement
     | Dialect.Concrete_sqlite ->
-      Dialect.Sqlite, Statement.sql_exn ~dialect:sqlite ~input:() statement
+      Dialect.Sqlite, Statement.sql_exn ~dialect:Sqlite ~input:() statement
   ;;
 
   let compile ~dialect query =
@@ -62,8 +62,8 @@ module Compiler = struct
     |> Result.map ~f:(fun statement ->
       let sql =
         match dialect with
-        | Dialect.Postgresql -> Statement.sql_exn ~dialect:postgresql ~input:() statement
-        | Dialect.Sqlite -> Statement.sql_exn ~dialect:sqlite ~input:() statement
+        | Dialect.Postgresql -> Statement.sql_exn ~dialect:Postgresql ~input:() statement
+        | Dialect.Sqlite -> Statement.sql_exn ~dialect:Sqlite ~input:() statement
       in
       ({ dialect; sql } : _ Compiled_query.t))
   ;;
@@ -82,8 +82,8 @@ module Compiler = struct
     |> Result.map ~f:(fun statement ->
       let sql =
         match dialect with
-        | Dialect.Postgresql -> Statement.sql_exn ~dialect:postgresql ~input:() statement
-        | Dialect.Sqlite -> Statement.sql_exn ~dialect:sqlite ~input:() statement
+        | Dialect.Postgresql -> Statement.sql_exn ~dialect:Postgresql ~input:() statement
+        | Dialect.Sqlite -> Statement.sql_exn ~dialect:Sqlite ~input:() statement
       in
       ({ dialect; sql } : Compiled_command.t))
   ;;

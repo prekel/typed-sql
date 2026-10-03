@@ -149,10 +149,20 @@ module Statement = struct
     | Typed_sql_private.Statement.Optional -> Optional
   ;;
 
+  let public_binding_error_message
+    :  Typed_sql_private.Statement.binding_error_message
+    -> Typed_sql.Statement.binding_error_message
+    = function
+    | Typed_sql_private.Statement.Unknown_parameter_slot ->
+      Typed_sql.Statement.Unknown_parameter_slot
+    | Typed_sql_private.Statement.Negative_pagination_value value ->
+      Typed_sql.Statement.Negative_pagination_value value
+  ;;
+
   let public_binding_error (error : Typed_sql_private.Statement.binding_error)
     : Typed_sql.Statement.binding_error
     =
-    { name = error.name; message = error.message }
+    { name = error.name; message = public_binding_error_message error.message }
   ;;
 
   let resolve

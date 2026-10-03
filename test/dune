@@ -17,6 +17,7 @@
  (libraries
   base
   compiler-libs.common
+  stdio
   typed-sql
   typed_sql_test_support
   yojson)

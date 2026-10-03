@@ -68,7 +68,7 @@ let statement_with_input_selected_postgresql_branch =
 ;;
 
 let%expect_test "chooses the PostgreSQL statement without input" =
-  Statement.sql_exn ~dialect:postgresql statement |> Stdlib.print_endline;
+  Statement.sql_exn ~dialect:Postgresql statement |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
@@ -80,7 +80,7 @@ let%expect_test "chooses the PostgreSQL statement without input" =
 ;;
 
 let%expect_test "chooses the SQLite statement without input" =
-  Statement.sql_exn ~dialect:sqlite statement |> Stdlib.print_endline;
+  Statement.sql_exn ~dialect:Sqlite statement |> Stdlib.print_endline;
   [%expect
     {|
     SELECT
@@ -93,12 +93,12 @@ let%expect_test "chooses the SQLite statement without input" =
 
 let%test "an unselected input branch does not require input" =
   Result.is_ok
-    (Statement.sql ~dialect:sqlite statement_with_input_selected_postgresql_branch)
+    (Statement.sql ~dialect:Sqlite statement_with_input_selected_postgresql_branch)
 ;;
 
 let%test "a selected input branch requires input" =
   match
-    Statement.sql ~dialect:postgresql statement_with_input_selected_postgresql_branch
+    Statement.sql ~dialect:Postgresql statement_with_input_selected_postgresql_branch
   with
   | Error Statement.Dynamic_input_required -> true
   | Ok _ | Error _ -> false
@@ -108,7 +108,7 @@ let%test_unit "PostgreSQL resolution binds only the selected statement" =
   postgresql_getter_calls := 0;
   sqlite_getter_calls := 0;
   ignore
-    (Statement.sql_exn ~dialect:postgresql ~input:{ id = 7L; name = "Ada" } statement);
+    (Statement.sql_exn ~dialect:Postgresql ~input:{ id = 7L; name = "Ada" } statement);
   assert (Int.(!postgresql_getter_calls = 1));
   assert (Int.(!sqlite_getter_calls = 0))
 ;;
@@ -116,7 +116,7 @@ let%test_unit "PostgreSQL resolution binds only the selected statement" =
 let%test_unit "SQLite resolution binds only the selected statement" =
   postgresql_getter_calls := 0;
   sqlite_getter_calls := 0;
-  ignore (Statement.sql_exn ~dialect:sqlite ~input:{ id = 7L; name = "Ada" } statement);
+  ignore (Statement.sql_exn ~dialect:Sqlite ~input:{ id = 7L; name = "Ada" } statement);
   assert (Int.(!postgresql_getter_calls = 0));
   assert (Int.(!sqlite_getter_calls = 1))
 ;;

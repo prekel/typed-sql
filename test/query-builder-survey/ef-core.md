@@ -144,7 +144,7 @@ let ef01 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:(20, 10) ef01);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ~input:(20, 10) ef01);;
 SELECT
   t0."PostId"
 FROM "Posts" AS t0
@@ -220,7 +220,7 @@ let ef02 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:(last_date, 55L, 10) ef02);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ~input:(last_date, 55L, 10) ef02);;
 SELECT
   t0."PostId",
   t0."Date"
@@ -279,7 +279,7 @@ let ef03 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef03);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef03);;
 SELECT
   t0."BlogId",
   t1."PostId"
@@ -329,7 +329,7 @@ let ef04 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef04);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef04);;
 SELECT
   t0."BlogId",
   t1."PostId"
@@ -378,7 +378,7 @@ let ef05 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef05);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef05);;
 SELECT
   t0."BlogId",
   t1."PostId"
@@ -427,7 +427,7 @@ let ef06 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef06);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef06);;
 SELECT
   t0."BlogId",
   t1."PostId"
@@ -479,7 +479,7 @@ let ef07 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef07);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef07);;
 SELECT
   t0."BlogId",
   ((t0."Url" || $1) || t1."Title")
@@ -524,7 +524,7 @@ let ef08 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef08);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef08);;
 SELECT
   t0."AuthorId",
   COUNT(*)
@@ -575,7 +575,7 @@ let ef09 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef09);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef09);;
 SELECT
   t0."AuthorId",
   COUNT(*)
@@ -631,7 +631,7 @@ let ef10 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef10);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef10);;
 SELECT
   t0."BlogId"
 FROM "Blogs" AS t0
@@ -688,7 +688,7 @@ let ef11 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef11);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef11);;
 SELECT
   t0."Price",
   t0."Id",
@@ -748,7 +748,7 @@ let ef12 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef12);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef12);;
 SELECT
   t0."BlogId",
   t1."PostId",
@@ -818,7 +818,7 @@ let ef13_posts =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef13_blogs);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef13_blogs);;
 SELECT
   t0."BlogId"
 FROM "Blogs" AS t0
@@ -827,7 +827,7 @@ ORDER BY
 ```
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef13_posts);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef13_posts);;
 SELECT
   t1."PostId",
   t1."BlogId",
@@ -910,7 +910,7 @@ let ef15 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef15);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef15);;
 DELETE FROM "Blogs"
 WHERE
   ("Rating" < $1)
@@ -953,7 +953,7 @@ let ef16 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef16);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef16);;
 SELECT
   t0."BlogId",
   t0."Url"
@@ -999,7 +999,7 @@ let ef17 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef17);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef17);;
 SELECT
   t0."BlogId",
   t0."Url"
@@ -1054,7 +1054,7 @@ let ef18 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef18);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef18);;
 SELECT
   (EXISTS (
     SELECT
@@ -1117,7 +1117,7 @@ let ef19 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef19);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef19);;
 SELECT
   (CASE
     WHEN (NOT EXISTS (
@@ -1170,7 +1170,7 @@ let ef20 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef20);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef20);;
 SELECT DISTINCT
   t0."AuthorId"
 FROM "Posts" AS t0
@@ -1210,7 +1210,7 @@ let ef21 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef21);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef21);;
 SELECT
   COUNT(*)
 FROM "Posts" AS t0
@@ -1267,7 +1267,7 @@ let ef22 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef22);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef22);;
 SELECT
   t0."PostId",
   t0."Title",
@@ -1327,7 +1327,7 @@ let ef23 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef23);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef23);;
 SELECT
   t0."PostId"
 FROM "Posts" AS t0
@@ -1372,7 +1372,7 @@ let ef24 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef24);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef24);;
 SELECT
   COALESCE(t0."NullableUrl", $1)
 FROM "Blogs" AS t0
@@ -1417,7 +1417,7 @@ let ef25 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef25);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef25);;
 SELECT
   (CASE
     WHEN (t0."Rating" >= $1) THEN $2
@@ -1467,7 +1467,7 @@ let ef26 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef26);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef26);;
 SELECT
   t0."BlogId",
   t0."Url"
@@ -1557,7 +1557,7 @@ let ef27 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef27);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef27);;
 SELECT
   t0."BlogId",
   t0."Url",
@@ -1645,7 +1645,7 @@ let ef28 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef28);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef28);;
 SELECT
   t0."BlogId",
   t1."PostId",
@@ -1703,7 +1703,7 @@ let ef29 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef29);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef29);;
 SELECT
   t0."BlogId",
   t0."Rating",
@@ -1754,7 +1754,7 @@ let ef30_client_projection rows =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef30_query);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef30_query);;
 SELECT
   t0."BlogId",
   t0."Url"
@@ -1822,7 +1822,7 @@ let ef32 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:[ 1L; 5L; 4L ] ef32);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ~input:[ 1L; 5L; 4L ] ef32);;
 SELECT
   t0."Id"
 FROM "Books" AS t0
@@ -1966,7 +1966,7 @@ let ef36 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef36);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef36);;
 SELECT *
 FROM (
   SELECT
@@ -2029,7 +2029,7 @@ let ef37 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef37);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef37);;
 UPDATE "Blogs" AS t0
 SET
   "Rating" = (t0."Rating" + $1)
@@ -2175,7 +2175,7 @@ let ef41 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef41);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef41);;
 SELECT
   t0."PostId",
   t0."BlogId",
@@ -2228,7 +2228,7 @@ let ef42 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef42);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef42);;
 SELECT
   t0."BlogId",
   (
@@ -2270,7 +2270,7 @@ let ef43 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef43);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef43);;
 SELECT DISTINCT
   t0."AuthorId"
 FROM "Posts" AS t0
@@ -2310,7 +2310,7 @@ let ef44 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef44);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef44);;
 SELECT
   t0."Id",
   t0."Price"
@@ -2354,7 +2354,7 @@ let ef45 = Statement.command ~dialect:Dialect.portable (Delete.(from Post.table 
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef45);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef45);;
 DELETE FROM "Posts"
 WHERE
   ("Rating" < $1)
@@ -2387,7 +2387,7 @@ let ef46 = Statement.query_many ~dialect:Dialect.portable (Query.(from Post.tabl
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef46);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef46);;
 SELECT
   t0."PostId",
   t0."AuthorId"
@@ -2427,7 +2427,7 @@ let ef47 = Statement.query_many ~dialect:Dialect.portable (Query.(from Blog.tabl
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef47);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef47);;
 SELECT
   t0."BlogId",
   COALESCE(t0."NullableUrl", $1)
@@ -2468,7 +2468,7 @@ let ef48 = Statement.query_many ~dialect:Dialect.portable (Cte.with_result ef48_
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef48);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef48);;
 WITH
   "c0" (
     "BlogId",
@@ -2519,7 +2519,7 @@ let ef49 = Statement.query_many ~dialect:Dialect.portable (Query.union_all ef49_
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef49);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef49);;
 SELECT *
 FROM (
   SELECT
@@ -2568,7 +2568,7 @@ let ef50 = Statement.query_many ~dialect:Dialect.portable (Query.(from Blog.tabl
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ef50);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ef50);;
 SELECT
   t0."BlogId",
   COUNT(t1."PostId")
