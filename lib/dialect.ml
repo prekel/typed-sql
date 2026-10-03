@@ -3,6 +3,7 @@ open! Base
 type t =
   | Postgresql
   | Sqlite
+[@@deriving sexp_of]
 
 type portable = []
 type postgresql = [ `Not_sqlite ]

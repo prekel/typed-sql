@@ -140,6 +140,29 @@ let%test_module "typed VALUES sources" =
       assert (Int.equal (String.count (Compiled_query.sql sqlite) ~f:(Char.equal '?')) 4)
     ;;
 
+    let%test "PostgreSQL refuses to lock a VALUES source" =
+      let values : (Values_source.row, Dialect.postgresql) Values.t =
+        Values.create
+          ~table:Values_source.table
+          ~columns:Values_source.columns
+          ~first:
+            (Values.Row.pair
+               (Expr.constant Db_type.int64 2L)
+               (Expr.constant Db_type.text "two"))
+          ~rest:[]
+      in
+      let query =
+        Query.(
+          from_values values
+          |> Postgresql.Query.for_update
+          |> select Values_source.columns)
+      in
+      match Compiler.compile ~dialect:Dialect.postgresql query with
+      | Error (Compile_error.Invalid_for_update reason) ->
+        String.equal reason "requires a base table source"
+      | Ok _ | Error _ -> false
+    ;;
+
     let%test_unit "typed VALUES sources support inner and left joins" =
       let inner =
         Query.(
@@ -1097,6 +1120,20 @@ let inserted_people =
       |> default Person.id_column
       |> set Person.name_column "Ada"
       |> returning Person.projection)
+;;
+
+let%test "PostgreSQL refuses to lock a CTE source" =
+  let query =
+    Cte.with_result inserted_people ~f:(fun people ->
+      Query.(
+        from_cte people
+        |> Postgresql.Query.for_update
+        |> select Selected_person.projection))
+  in
+  match Compiler.compile ~dialect:Dialect.postgresql query with
+  | Error (Compile_error.Invalid_for_update reason) ->
+    String.equal reason "requires a base table source"
+  | Ok _ | Error _ -> false
 ;;
 
 let%expect_test "PostgreSQL data-modifying CTEs can feed a SELECT" =

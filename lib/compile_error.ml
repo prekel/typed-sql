@@ -78,6 +78,7 @@ type t =
       { path : int list
       ; type_name : string
       }
+[@@deriving sexp_of]
 
 let to_string = function
   | Empty_projection -> "SELECT projection must contain at least one expression"

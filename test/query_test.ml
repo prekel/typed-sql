@@ -1049,6 +1049,17 @@ let%test_module "PostgreSQL FOR UPDATE" =
       Result.is_ok (Compiler.compile ~dialect:Dialect.postgresql query)
     ;;
 
+    let%test "accepts implicit locking of a cross join" =
+      let query =
+        Query.(
+          from Person.table
+          |> cross_join Department.table
+          |> Postgresql.Query.for_update
+          |> select (fun (person, _) -> Projection.expr (Person.id person)))
+      in
+      Result.is_ok (Compiler.compile ~dialect:Dialect.postgresql query)
+    ;;
+
     let%test "rejects locking a derived source" =
       let derived =
         Derived_table.create
@@ -1086,6 +1097,20 @@ let%test_module "PostgreSQL FOR UPDATE" =
           from Person.table
           |> Postgresql.Query.for_update
           |> select (fun person -> Projection.expr (Person.id person)))
+      in
+      let right =
+        Query.(
+          from Person.table
+          |> Postgresql.Query.for_update
+          |> select (fun person -> Projection.expr (Person.id person)))
+      in
+      invalid (Query.union left right)
+    ;;
+
+    let%test "rejects locking the right operand of a set operation" =
+      let left =
+        Query.(
+          from Person.table |> select (fun person -> Projection.expr (Person.id person)))
       in
       let right =
         Query.(

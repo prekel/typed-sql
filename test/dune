@@ -11,6 +11,7 @@
   relational_query_test
   aggregate_test
   decimal_test
+  error_sexp_test
   public_api_test
   statement_input_test
   upsert_test)

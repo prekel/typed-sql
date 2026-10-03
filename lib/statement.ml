@@ -4,6 +4,7 @@ type definition_error =
   { dialect : Dialect.t
   ; error : Compile_error.t
   }
+[@@deriving sexp_of]
 
 exception Definition_error of definition_error
 
@@ -88,6 +89,7 @@ type sql_error =
   | Dynamic_input_required
   | Invalid_parameter of binding_error
   | Compilation_error of definition_error
+[@@deriving sexp_of]
 
 exception Sql_error of sql_error
 

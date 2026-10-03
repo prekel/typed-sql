@@ -9,7 +9,7 @@ open! Base
 module Identifier : sig
   (** A validated, unquoted SQL identifier. Renderers are responsible for
       dialect-specific quoting. *)
-  type t
+  type t [@@deriving sexp_of]
 
   (** A reason why a string cannot be used as an identifier. *)
   type error =
@@ -18,6 +18,7 @@ module Identifier : sig
       (** The identifier contains a NUL byte, which SQL quoting cannot preserve
           safely. *)
     ]
+  [@@deriving sexp_of]
 
   (** Validate an unquoted identifier. Quotes and other ordinary characters
       are accepted and escaped later by the renderer. *)
@@ -1910,6 +1911,7 @@ module Dialect : sig
   type t =
     | Postgresql (** PostgreSQL quoting and [$n] placeholders. *)
     | Sqlite (** SQLite quoting and [?n] placeholders. *)
+  [@@deriving sexp_of]
 
   (** No excluded dialect. *)
   type portable = []
@@ -2313,6 +2315,7 @@ module Compile_error : sig
         }
     (** A collection contains a field which cannot be represented by the
         portable JSON transport. *)
+  [@@deriving sexp_of]
 
   (** Format a compilation error for a user. *)
   val pp : Formatter.t -> t -> unit
@@ -2333,6 +2336,12 @@ module Affected_rows : sig
   val pp : Formatter.t -> t -> unit
 end
 
+(** A concrete dialect selected for SQL rendering. The row bound allows a
+    portable statement to be rendered in either dialect. *)
+type 'supports sql_dialect =
+  | Postgresql : [> `Postgresql ] sql_dialect (** Select PostgreSQL SQL rendering. *)
+  | Sqlite : [> `Sqlite ] sql_dialect (** Select SQLite SQL rendering. *)
+
 (** A reusable query or command accepting one typed input. [with_parameters]
     compiles static statements at definition time; [Dynamic] builds and
     compiles from input on each execution. *)
@@ -2349,6 +2358,7 @@ module Statement : sig
     { dialect : Dialect.t (** Dialect whose compilation failed. *)
     ; error : Compile_error.t (** Structural compilation error. *)
     }
+  [@@deriving sexp_of]
 
   (** Raised when a static statement cannot be compiled. *)
   exception Definition_error of definition_error
@@ -2381,6 +2391,7 @@ module Statement : sig
     (** A runtime parameter failed validation before execution. *)
     | Compilation_error of definition_error
     (** Building a dynamic statement for the supplied input failed. *)
+  [@@deriving sexp_of]
 
   (** Raised by [sql_exn] for SQL rendering failures other than compilation. *)
   exception Sql_error of sql_error
@@ -2656,12 +2667,6 @@ module Statement : sig
     :  postgresql:('input, 'output, [ `Postgresql ]) t
     -> sqlite:('input, 'output, [ `Sqlite ]) t
     -> ('input, 'output, Dialect.both) t
-
-  (** A concrete dialect selected for SQL rendering. The row bound allows a
-      portable statement to be rendered in either dialect. *)
-  type 'supports sql_dialect =
-    | Postgresql : [> `Postgresql ] sql_dialect (** Select PostgreSQL SQL rendering. *)
-    | Sqlite : [> `Sqlite ] sql_dialect (** Select SQLite SQL rendering. *)
 
   (** Render a statement using a concrete dialect supported by its compiled
       plans. For a static statement, [input] may be omitted:

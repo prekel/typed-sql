@@ -391,6 +391,17 @@ let%test_module "DML validator diagnostics" =
       [%expect {| command target must be a base table |}]
     ;;
 
+    let%test "VALUES cannot be a command target" =
+      let source : A.source =
+        { source_id = 0
+        ; kind = A.Values { descriptor_source_id = 0; columns = []; rows = [] }
+        }
+      in
+      match Validator.command { (command A.Delete []) with source } with
+      | Error Compile_error.Invalid_command_target -> true
+      | Ok () | Error _ -> false
+    ;;
+
     let%expect_test "mixed INSERT row sources" =
       validate
         { (command A.Insert [ assignment ]) with insert_input = Some A.Mixed_sources };

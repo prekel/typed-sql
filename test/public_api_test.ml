@@ -395,16 +395,23 @@ let%expect_test "definition error shows its compilation failure" =
 ;;
 
 let%expect_test "SQL error names the missing input" =
-  Stdlib.print_endline
-    (Stdlib.Printexc.to_string (Statement.Sql_error Statement.Dynamic_input_required));
-  [%expect {|Statement.Sql_error (SQL shape requires input)|}]
+  let error = Statement.Dynamic_input_required in
+  assert (
+    String.equal
+      (Stdlib.Printexc.to_string (Statement.Sql_error error))
+      "Statement.Sql_error (SQL shape requires input)");
+  Stdio.print_s (Statement.sexp_of_sql_error error);
+  [%expect {| Dynamic_input_required |}]
 ;;
 
 let%expect_test "SQL error names an unsupported dialect" =
-  Stdlib.print_endline
-    (Stdlib.Printexc.to_string
-       (Statement.Sql_error (Statement.Unsupported_dialect Dialect.Sqlite)));
-  [%expect {|Statement.Sql_error (unsupported dialect: sqlite)|}]
+  let error = Statement.Unsupported_dialect Dialect.Sqlite in
+  assert (
+    String.equal
+      (Stdlib.Printexc.to_string (Statement.Sql_error error))
+      "Statement.Sql_error (unsupported dialect: sqlite)");
+  Stdio.print_s (Statement.sexp_of_sql_error error);
+  [%expect {| (Unsupported_dialect Sqlite) |}]
 ;;
 
 let%expect_test "SQL error names an invalid parameter" =
@@ -415,17 +422,22 @@ let%expect_test "SQL error names an invalid parameter" =
     Stdlib.Printexc.to_string (Statement.Sql_error (Statement.Invalid_parameter error))
   in
   assert (String.equal message "Statement.Sql_error (limit: must be non-negative, got -1)");
-  Stdio.print_s (Statement.sexp_of_binding_error error);
-  [%expect {| ((name (limit)) (message (Negative_pagination_value -1))) |}]
+  Stdio.print_s (Statement.sexp_of_sql_error (Statement.Invalid_parameter error));
+  [%expect
+    {| (Invalid_parameter ((name (limit)) (message (Negative_pagination_value -1)))) |}]
 ;;
 
 let%expect_test "SQL error includes compilation context" =
-  Stdlib.print_endline
-    (Stdlib.Printexc.to_string
-       (Statement.Sql_error
-          (Statement.Compilation_error
-             { dialect = Dialect.Sqlite; error = Compile_error.Negative_limit (-1) })));
-  [%expect {|Statement.Sql_error (sqlite): LIMIT must be non-negative, got -1|}]
+  let error =
+    Statement.Compilation_error
+      { dialect = Dialect.Sqlite; error = Compile_error.Negative_limit (-1) }
+  in
+  assert (
+    String.equal
+      (Stdlib.Printexc.to_string (Statement.Sql_error error))
+      "Statement.Sql_error (sqlite): LIMIT must be non-negative, got -1");
+  Stdio.print_s (Statement.sexp_of_sql_error error);
+  [%expect {| (Compilation_error ((dialect Sqlite) (error (Negative_limit -1)))) |}]
 ;;
 
 let%test_unit "identifier validation and descriptor accessors" =
@@ -445,6 +457,9 @@ let%test_unit "identifier validation and descriptor accessors" =
     |> Result.ok_or_failwith
   in
   assert (Identifier.equal identifier (Identifier.of_string_exn "quoted\"name"));
+  (match Identifier.sexp_of_t identifier with
+   | Sexp.Atom value -> assert (String.equal value "quoted\"name")
+   | Sexp.List _ -> failwith "identifier serialization changed");
   let descriptor = Table.v ~schema:identifier identifier in
   assert (Identifier.equal (Table.name descriptor) identifier);
   assert (Option.equal Identifier.equal (Table.schema descriptor) (Some identifier));
@@ -537,13 +552,19 @@ let%expect_test "identifier printer" =
 ;;
 
 let%expect_test "empty identifier diagnostic" =
-  Stdlib.print_endline (Identifier.error_to_string `Empty);
-  [%expect {| SQL identifier must not be empty |}]
+  assert (
+    String.equal (Identifier.error_to_string `Empty) "SQL identifier must not be empty");
+  Stdio.print_s (Identifier.sexp_of_error `Empty);
+  [%expect {| Empty |}]
 ;;
 
 let%expect_test "NUL identifier diagnostic" =
-  Stdlib.print_endline (Identifier.error_to_string `Contains_nul);
-  [%expect {| SQL identifier must not contain a NUL byte |}]
+  assert (
+    String.equal
+      (Identifier.error_to_string `Contains_nul)
+      "SQL identifier must not contain a NUL byte");
+  Stdio.print_s (Identifier.sexp_of_error `Contains_nul);
+  [%expect {| Contains_nul |}]
 ;;
 
 let%expect_test "known affected row count printer" =

@@ -1,11 +1,12 @@
 open! Base
 
-type t = string
+type t = string [@@deriving sexp_of]
 
 type error =
   [ `Empty
   | `Contains_nul
   ]
+[@@deriving sexp_of]
 
 let error_to_string = function
   | `Empty -> "SQL identifier must not be empty"
