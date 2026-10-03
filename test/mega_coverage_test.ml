@@ -28,6 +28,15 @@ module Person = struct
   let projection reference = Projection.pair (id reference) (name reference)
 end
 
+module Portable_person_ids = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "mega_portable_person_ids"
+  let id_column = Column.v_exn table "id" Db_type.int64
+  let id reference = Expr.column reference id_column
+  let projection reference = Projection.expr (id reference)
+end
+
 module Expired = struct
   type row
 
@@ -621,9 +630,8 @@ let recursive_events =
           Expr.Int.Infix.(depth +. Expr.constant Db_type.int 1))))
 ;;
 
-let cleanup_effect =
-  Postgresql.Cte.command Delete.(from Cleanup.table |> all_rows |> command)
-;;
+let cleanup_command = Delete.(from Cleanup.table |> all_rows |> command)
+let cleanup_effect = Postgresql.Cte.command cleanup_command
 
 let maintenance_effect =
   Postgresql.Cte.command
@@ -1095,38 +1103,45 @@ let mega_query
                              combined_query)
                       in
                       Cte.with_result combined_definition ~f:(fun combined ->
-                        let summary_query =
-                          Query.(
-                            from_cte combined
-                            |> left_join_cte audit ~on:(fun row audit ->
-                              Combined.person_id row =. Audit.person_id audit)
-                            |> where (fun (row, audit) ->
-                              Expr.is_not_null (Audit.nullable_id audit)
-                              &&. (Combined.score row >$ 0))
-                            |> group_by (fun (row, _) -> Combined.person_id row)
-                            |> having (fun _ -> Expr.count_all >$ 0L)
-                            |> having (fun _ -> Expr.count_all <$ 100L)
-                            |> order_by (fun (row, _) -> Combined.person_id row) `Desc
-                            |> offset 0
-                            |> Postgresql.Query.fetch_with_ties_param limit_parameter
-                            |> select (fun (row, _) ->
-                              Projection.map3
-                                ~f:(fun person_id event_count total_score ->
-                                  person_id, event_count, total_score)
-                                (Projection.expr (Combined.person_id row))
-                                (Projection.expr Expr.count_all)
-                                (Projection.expr (Expr.sum_int (Combined.score row)))))
-                        in
-                        let summary_definition =
-                          Cte.select
-                            ~materialization:`Materialized
-                            (Derived_table.create
-                               ~table:Summary.table
-                               ~columns:Summary.projection
-                               summary_query)
-                        in
-                        Cte.with_result summary_definition ~f:(fun summary ->
-                          Cte.with_result recursive_events ~f:(fun recursive_events ->
+                        Cte.with_result recursive_events ~f:(fun recursive_events ->
+                          let summary_query =
+                            Query.(
+                              from_cte combined
+                              |> left_join_cte audit ~on:(fun row audit ->
+                                Combined.person_id row =. Audit.person_id audit)
+                              |> left_join_cte_relation
+                                   recursive_events
+                                   ~on:(fun (row, _) ((_, person_id), _) ->
+                                     Combined.person_id row =. person_id)
+                              |> where (fun ((row, audit), ((_, person_id), _)) ->
+                                Expr.is_not_null (Audit.nullable_id audit)
+                                &&. Expr.is_not_null person_id
+                                &&. (Combined.score row >$ 0))
+                              |> group_by (fun ((row, _), _) -> Combined.person_id row)
+                              |> having (fun _ -> Expr.count_all >$ 0L)
+                              |> having (fun _ -> Expr.count_all <$ 100L)
+                              |> order_by
+                                   (fun ((row, _), _) -> Combined.person_id row)
+                                   `Desc
+                              |> offset 0
+                              |> Postgresql.Query.fetch_with_ties_param limit_parameter
+                              |> select (fun ((row, _), _) ->
+                                Projection.map3
+                                  ~f:(fun person_id event_count total_score ->
+                                    person_id, event_count, total_score)
+                                  (Projection.expr (Combined.person_id row))
+                                  (Projection.expr Expr.count_all)
+                                  (Projection.expr (Expr.sum_int (Combined.score row)))))
+                          in
+                          let summary_definition =
+                            Cte.select
+                              ~materialization:`Materialized
+                              (Derived_table.create
+                                 ~table:Summary.table
+                                 ~columns:Summary.projection
+                                 summary_query)
+                          in
+                          Cte.with_result summary_definition ~f:(fun summary ->
                             final_update
                               ~sequence
                               ~recursive_events
@@ -1182,10 +1197,36 @@ let sqlite_statement =
       params.non_negative_int ~name:"input_rows_offset" ~get:(fun (_, _, offset) ->
         offset)
     in
+    let id_query =
+      Query.union
+        Query.(
+          from Person.table
+          |> where (fun person -> Person.name person =. label_parameter)
+          |> select (fun person -> Projection.expr (Person.id person)))
+        Query.(
+          from Person.table
+          |> where (fun person -> Person.id person >$ 0L)
+          |> select (fun person -> Projection.expr (Person.id person)))
+    in
+    let id_relation =
+      Derived_table.create
+        ~table:Portable_person_ids.table
+        ~columns:Portable_person_ids.projection
+        id_query
+    in
     params.query_many
       Query.(
         from Person.table
-        |> where (fun person -> Person.name person =. label_parameter)
+        |> where (fun person ->
+          Person.name person
+          =. label_parameter
+          &&. Query.exists
+                Query.(
+                  from_derived id_relation
+                  |> where (fun id -> Portable_person_ids.id id =. Person.id person)))
+        |> group_by Person.id
+        |> group_by Person.name
+        |> having (fun _ -> Expr.count_all >$ 0L)
         |> offset_param offset_parameter
         |> limit_param limit_parameter
         |> select person_result_projection))
@@ -1196,6 +1237,8 @@ let statement =
 ;;
 
 let%expect_test "PostgreSQL mega query compiles nested DML and relational paths" =
+  let cleanup_statement = Statement.command ~dialect:Dialect.postgresql cleanup_command in
+  ignore (Statement.sql_exn ~dialect:Dialect.Postgresql cleanup_statement : string);
   statement
   |> Statement.sql_exn ~dialect:Dialect.Postgresql ~input:([ 1L ], 20, 1)
   |> Stdlib.print_endline;
@@ -1572,6 +1615,28 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
           "score" DESC
       ),
       "c11" (
+        "field_1",
+        "field_2",
+        "field_3",
+        "field_4"
+      ) AS (
+        SELECT
+          t0."id",
+          t0."person_id",
+          t0."label",
+          $29
+        FROM "mega_events" AS t0
+        UNION ALL
+        SELECT
+          t0."id",
+          t0."person_id",
+          t0."label",
+          (t1."field_4" + $30)
+        FROM "mega_events" AS t0
+        INNER JOIN "c11" AS t1
+          ON (t0."id" > t1."field_1")
+      ),
+      "c12" (
         "person_id",
         "event_count",
         "total_score"
@@ -1583,44 +1648,25 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
         FROM "c10" AS t0
         LEFT JOIN "c9" AS t1
           ON (t0."person_id" = t1."person_id")
+        LEFT JOIN "c11" AS t2
+          ON (t0."person_id" = t2."field_2")
         WHERE
           (
             (t1."id" IS NOT NULL)
-            AND (t0."score" > $29)
+            AND (t2."field_2" IS NOT NULL)
+            AND (t0."score" > $31)
           )
         GROUP BY
           t0."person_id"
         HAVING
           (
-            (COUNT(*) > $30)
-            AND (COUNT(*) < $31)
+            (COUNT(*) > $32)
+            AND (COUNT(*) < $33)
           )
         ORDER BY
           t0."person_id" DESC
         OFFSET 0
-        FETCH FIRST $32 ROWS WITH TIES
-      ),
-      "c12" (
-        "field_1",
-        "field_2",
-        "field_3",
-        "field_4"
-      ) AS (
-        SELECT
-          t0."id",
-          t0."person_id",
-          t0."label",
-          $33
-        FROM "mega_events" AS t0
-        UNION ALL
-        SELECT
-          t0."id",
-          t0."person_id",
-          t0."label",
-          (t1."field_4" + $34)
-        FROM "mega_events" AS t0
-        INNER JOIN "c12" AS t1
-          ON (t0."id" > t1."field_1")
+        FETCH FIRST $34 ROWS WITH TIES
       )
     UPDATE "public"."mega_people" AS t0
     SET
@@ -1716,7 +1762,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
           t5."score" AS "field_2"
         FROM "public"."mega_people" AS t5
       ) AS t3,
-      "c11" AS t4
+      "c12" AS t4
     WHERE
       (
         (t0."id" = t4."person_id")
@@ -1745,7 +1791,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
         AND ((EXISTS (
           SELECT
             1
-          FROM "c12" AS t5
+          FROM "c11" AS t5
           WHERE
             (t5."field_2" = t0."id")
         )) = $66)
@@ -2228,9 +2274,41 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
       )
     FROM "public"."mega_people" AS t0
     WHERE
-      (t0."name" = ?34)
-    LIMIT ?35
-    OFFSET ?36
+      (
+        (t0."name" = ?34)
+        AND (EXISTS (
+          SELECT
+            1
+          FROM (
+            SELECT *
+            FROM (
+              SELECT
+                t2."id" AS "id"
+              FROM "public"."mega_people" AS t2
+              WHERE
+                (t2."name" = ?34)
+            ) AS s0
+            UNION
+            SELECT *
+            FROM (
+              SELECT
+                t2."id" AS "id"
+              FROM "public"."mega_people" AS t2
+              WHERE
+                (t2."id" > ?35)
+            ) AS s0
+          ) AS t1
+          WHERE
+            (t1."id" = t0."id")
+        ))
+      )
+    GROUP BY
+      t0."id",
+      t0."name"
+    HAVING
+      (COUNT(*) > ?36)
+    LIMIT ?37
+    OFFSET ?38
     |}]
 ;;
 
