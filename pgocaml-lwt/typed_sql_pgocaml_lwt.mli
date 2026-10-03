@@ -52,7 +52,7 @@ val pp_error : Formatter.t -> error -> unit
     and compiled before database access. *)
 val run
   :  conn:'connection Pgocaml.t
-  -> ('input, 'output, [< `Postgresql ]) Typed_sql.Statement.t
+  -> ('input, 'output, [> `Postgresql ]) Typed_sql.Statement.t
   -> 'input
   -> ('output, error) Result.t Lwt.t
 
@@ -75,7 +75,7 @@ module Prepared_cache : sig
       a new one. *)
   val run
     :  'connection t
-    -> ('input, 'output, [< `Postgresql ]) Typed_sql.Statement.t
+    -> ('input, 'output, [> `Postgresql ]) Typed_sql.Statement.t
     -> 'input
     -> ('output, error) Result.t Lwt.t
 
@@ -128,7 +128,7 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
 
   val run
     :  conn:'connection Pgocaml.t
-    -> ('input, 'output, [< `Postgresql ]) Typed_sql.Statement.t
+    -> ('input, 'output, [> `Postgresql ]) Typed_sql.Statement.t
     -> 'input
     -> ('output, error) Result.t Lwt.t
 
@@ -143,7 +143,7 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
 
     val run
       :  'connection t
-      -> ('input, 'output, [< `Postgresql ]) Typed_sql.Statement.t
+      -> ('input, 'output, [> `Postgresql ]) Typed_sql.Statement.t
       -> 'input
       -> ('output, error) Result.t Lwt.t
 

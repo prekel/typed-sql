@@ -145,7 +145,7 @@ Builder поддерживает `set_opt` и `set_expr_opt`. UPSERT совме�
 multi-row `VALUES` и `RETURNING`; пустые или повторные update assignments и
 повторные target columns отклоняются compiler. SQLite не поддерживает
 `DEFAULT` внутри `VALUES` и `UPDATE SET DEFAULT`. Эти builders добавляют
-PostgreSQL requirement, поэтому SQLite witness и portable Caqti API отклоняют
+исключение SQLite, поэтому SQLite witness и portable Caqti API отклоняют
 такой statement при typechecking, не подменяя семантику.
 
 ### Requirements dialect

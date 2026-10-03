@@ -41,12 +41,14 @@ Discovery запускается отдельно, а сохранённый gen
 
 {1 Граница типов}
 
-[Expr] и [Projection] сохраняют OCaml-типы во время построения DSL. Второй
-phantom-параметр выражений, условий, projections и statements накапливает
-requirements dialect: пустой row variant означает portable SQL, а
-[`Postgresql] — требование PostgreSQL. Статические конструкторы [Statement]
-принимают typed [Dialect.witness]; [Dialect.portable] компилирует оба плана.
-Поэтому PostgreSQL-only statement нельзя создать с witness SQLite. Внутренний compiler
+[Expr] и [Projection] сохраняют OCaml-типы во время построения DSL. Phantom-параметр
+запроса накапливает исключённые диалекты: пустой тип означает отсутствие
+ограничений, а [`Not_sqlite] исключает SQLite. Свидетель [Dialect.supports]
+связывает эти ограничения с набором диалектов скомпилированного [Statement.t].
+[Dialect.portable] компилирует оба плана. Функции [Statement.sql] и
+[Statement.sql_exn] принимают верхнеуровневые селекторы [postgresql] и
+[sqlite], поэтому
+PostgreSQL-only statement нельзя отрендерить для SQLite. Внутренний compiler
 получает type-erased semantic nodes только после того, как публичные функции
 проверили совместимость выражений. Source identity остаётся в AST для проверки
 принадлежности колонок, а SQL aliases назначаются только renderer. Обычная
@@ -82,9 +84,9 @@ bind parameters; relation доступна в [FROM], [INNER JOIN] и [LEFT JOIN
 [Statement.Dynamic] сохраняет callback вместо готовых планов. При
 каждом resolution callback получает input, после чего AST проходит тот же
 normalization, validation, lowering и rendering для dialect соединения.
-Получившиеся значения остаются bind parameters. Typed [Dialect.witness]
+Получившиеся значения остаются bind parameters. Typed [Dialect.supports]
 ограничивает callback concrete диалектом или разрешает оба portable диалекта;
-несовместимый query или command не пройдёт проверку requirements в OCaml.
+несовместимый query или command не пройдёт проверку исключений в OCaml.
 Неподдерживаемый runtime dialect отклоняется до вызова callback.
 
 {1 API приложения, адаптеров и тестов}

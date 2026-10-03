@@ -26,6 +26,17 @@ let compile_command_exn dialect command =
   | Error _ -> failwith "command resolution failed"
 ;;
 
+let%test "backend rejects PostgreSQL for a SQLite-only statement" =
+  let statement =
+    Statement.query_one
+      ~dialect:Dialect.sqlite
+      (Query.select_one (Expr.constant Db_type.int 1))
+  in
+  match B.Statement.resolve ~dialect:Dialect.Postgresql () statement with
+  | Error B.Statement.Dialect_mismatch -> true
+  | Ok _ | Error _ -> false
+;;
+
 let%test_unit "query shape excludes values and generative source ids" =
   let table : unit Table.t = Table.v_exn "people" in
   let name = Column.v_exn table "name" Db_type.text in

@@ -58,8 +58,8 @@ let no_params_statement =
 
 let%test "a statement without runtime parameters has unit input" =
   String.equal
-    (Statement.sql_exn ~dialect:Dialect.Postgresql no_params_statement)
-    (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() no_params_statement)
+    (Statement.sql_exn ~dialect:postgresql no_params_statement)
+    (Statement.sql_exn ~dialect:postgresql ~input:() no_params_statement)
 ;;
 
 let applicative_pagination_statement =
@@ -77,10 +77,7 @@ let applicative_pagination_statement =
 ;;
 
 let%expect_test "applicative parameter declarations compile before the query" =
-  Statement.sql_exn
-    ~dialect:Dialect.Postgresql
-    ~input:(10, 20)
-    applicative_pagination_statement
+  Statement.sql_exn ~dialect:postgresql ~input:(10, 20) applicative_pagination_statement
   |> Stdlib.print_endline;
   [%expect
     {|
@@ -108,7 +105,7 @@ let let_plus_statement =
 
 let%test "Parameters.Let_syntax supports let+" =
   String.is_substring
-    (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:"Ada" let_plus_statement)
+    (Statement.sql_exn ~dialect:postgresql ~input:"Ada" let_plus_statement)
     ~substring:"= $1"
 ;;
 
@@ -125,7 +122,7 @@ let nested_let_plus_statement =
 
 let%test "Parameters.Let_syntax.Let_syntax supports let+" =
   String.is_substring
-    (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:"Ada" nested_let_plus_statement)
+    (Statement.sql_exn ~dialect:postgresql ~input:"Ada" nested_let_plus_statement)
     ~substring:"= $1"
 ;;
 
@@ -313,9 +310,7 @@ let ppx_record_input : Find_people.Input.t =
 ;;
 
 let%test_unit "tuple, manual record, and PPX record describe the same statement" =
-  let sql statement input =
-    Statement.sql_exn ~dialect:Dialect.Postgresql ~input statement
-  in
+  let sql statement input = Statement.sql_exn ~dialect:postgresql ~input statement in
   let tuple_sql = sql tuple_statement tuple_input in
   let record_sql = sql record_statement record_input in
   let ppx_record_sql = sql Find_people.statement ppx_record_input in
@@ -338,7 +333,7 @@ let fetch_with_ties_statement =
 ;;
 
 let%expect_test "FETCH parameters follow OFFSET then FETCH SQL order" =
-  Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(3, 5) fetch_with_ties_statement
+  Statement.sql_exn ~dialect:postgresql ~input:(3, 5) fetch_with_ties_statement
   |> Stdlib.print_endline;
   [%expect
     {|
@@ -385,7 +380,7 @@ let%test_module "choosing among ten static sort variants" =
     let ordered_statement expression direction =
       Statement.with_parameters
         ~dialect:Dialect.portable
-        (fun ~(params : (sort, Dialect.portable) Statement.parameters) ->
+        (fun ~(params : (sort, Dialect.portable, Dialect.both) Statement.parameters) ->
            Statement.Parameters.return
              (params.query_many
                 Query.(
@@ -419,7 +414,7 @@ let%test_module "choosing among ten static sort variants" =
     ;;
 
     let statement = choose_variants variants
-    let sql input = Statement.sql_exn ~dialect:Dialect.Postgresql ~input statement
+    let sql input = Statement.sql_exn ~dialect:postgresql ~input statement
 
     let%test "selects ascending id order" =
       String.is_substring (sql Id_asc) ~substring:"ORDER BY\n  t0.\"id\" ASC"
@@ -481,8 +476,7 @@ let%test_module "page and total statements share runtime filters" =
 
     let page_statement, total_statement =
       Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-        let open Statement.Parameters.Let_syntax in
-        let%map min_age =
+        let%map.Statement.Parameters min_age =
           params.column Person.age_column ~get:(fun input -> input.min_age)
         and city = params.column Person.city_column ~get:(fun input -> input.city)
         and maximum_rows =
@@ -513,7 +507,7 @@ let%test_module "page and total statements share runtime filters" =
     let sql dialect statement = Statement.sql_exn ~dialect ~input statement
 
     let%expect_test "PostgreSQL page statement applies shared filters and pagination" =
-      sql Dialect.Postgresql page_statement |> Stdlib.print_endline;
+      sql postgresql page_statement |> Stdlib.print_endline;
       [%expect
         {|
         SELECT
@@ -533,7 +527,7 @@ let%test_module "page and total statements share runtime filters" =
     ;;
 
     let%expect_test "PostgreSQL total statement counts the same filtered rows" =
-      sql Dialect.Postgresql total_statement |> Stdlib.print_endline;
+      sql postgresql total_statement |> Stdlib.print_endline;
       [%expect
         {|
         SELECT
@@ -548,7 +542,7 @@ let%test_module "page and total statements share runtime filters" =
     ;;
 
     let%expect_test "SQLite page statement applies shared filters and pagination" =
-      sql Dialect.Sqlite page_statement |> Stdlib.print_endline;
+      sql sqlite page_statement |> Stdlib.print_endline;
       [%expect
         {|
         SELECT
@@ -568,7 +562,7 @@ let%test_module "page and total statements share runtime filters" =
     ;;
 
     let%expect_test "SQLite total statement counts the same filtered rows" =
-      sql Dialect.Sqlite total_statement |> Stdlib.print_endline;
+      sql sqlite total_statement |> Stdlib.print_endline;
       [%expect
         {|
         SELECT
@@ -639,8 +633,7 @@ let%test_module "PostgreSQL pagination shares input and binds NULL" =
     let input : input = { inner = filters; limit = None; offset = 20 }
 
     let%expect_test "NULL limit leaves offset in the SQL" =
-      Statement.sql_exn ~dialect:Dialect.Postgresql ~input page_statement
-      |> Stdlib.print_endline;
+      Statement.sql_exn ~dialect:postgresql ~input page_statement |> Stdlib.print_endline;
       [%expect
         {|
         SELECT
@@ -660,16 +653,14 @@ let%test_module "PostgreSQL pagination shares input and binds NULL" =
     ;;
 
     let%test "Some and None limits share one SQL template" =
-      let sql input =
-        Statement.sql_exn ~dialect:Dialect.Postgresql ~input page_statement
-      in
+      let sql input = Statement.sql_exn ~dialect:postgresql ~input page_statement in
       String.equal (sql input) (sql { input with limit = Some 10 })
     ;;
 
     let%test "negative optional limit is rejected before execution" =
       match
         Statement.sql
-          ~dialect:Dialect.Postgresql
+          ~dialect:postgresql
           ~input:{ input with limit = Some (-1) }
           page_statement
       with
@@ -680,8 +671,7 @@ let%test_module "PostgreSQL pagination shares input and binds NULL" =
     ;;
 
     let%expect_test "total uses the same filter declarations directly" =
-      Statement.sql_exn ~dialect:Dialect.Postgresql ~input total_statement
-      |> Stdlib.print_endline;
+      Statement.sql_exn ~dialect:postgresql ~input total_statement |> Stdlib.print_endline;
       [%expect
         {|
         SELECT
@@ -709,7 +699,7 @@ let%test_module "PostgreSQL pagination shares input and binds NULL" =
     ;;
 
     let%expect_test "NULL offset remains a bound parameter" =
-      Statement.sql_exn ~dialect:Dialect.Postgresql ~input:None optional_offset_statement
+      Statement.sql_exn ~dialect:postgresql ~input:None optional_offset_statement
       |> Stdlib.print_endline;
       [%expect
         {|
@@ -726,10 +716,7 @@ let%test_module "PostgreSQL pagination shares input and binds NULL" =
 
     let%test "negative optional offset is rejected before execution" =
       match
-        Statement.sql
-          ~dialect:Dialect.Postgresql
-          ~input:(Some (-1))
-          optional_offset_statement
+        Statement.sql ~dialect:postgresql ~input:(Some (-1)) optional_offset_statement
       with
       | Error
           (Statement.Invalid_parameter
@@ -781,7 +768,7 @@ let%test_module "nested input fields bind directly through parameters" =
     ;;
 
     let%test "mapped descriptors keep one SQL shape" =
-      let sql input = Statement.sql_exn ~dialect:Dialect.Postgresql ~input statement in
+      let sql input = Statement.sql_exn ~dialect:postgresql ~input statement in
       String.equal
         (sql input)
         (sql
@@ -798,7 +785,7 @@ let%test_module "nested input fields bind directly through parameters" =
     let%test "mapped nullable limit still validates" =
       match
         Statement.sql
-          ~dialect:Dialect.Postgresql
+          ~dialect:postgresql
           ~input:{ inner = { input.inner with limit = Some (-1) } }
           statement
       with
@@ -809,7 +796,7 @@ let%test_module "nested input fields bind directly through parameters" =
     let%test "nested offset still validates" =
       match
         Statement.sql
-          ~dialect:Dialect.Postgresql
+          ~dialect:postgresql
           ~input:{ inner = { input.inner with offset = -1 } }
           statement
       with
@@ -836,7 +823,7 @@ let%test "a slot from another statement returns an explicit binding error" =
         (params.query_many
            Query.(from Person.table |> select (fun _ -> Projection.expr expression))))
   in
-  match Statement.sql ~dialect:Dialect.Postgresql ~input:7L second with
+  match Statement.sql ~dialect:postgresql ~input:7L second with
   | Error
       (Statement.Invalid_parameter { name = None; message = "unknown parameter slot" }) ->
     true
@@ -860,7 +847,7 @@ let%test_module "PostgreSQL array lookup uses one stable bind slot" =
     ;;
 
     let%expect_test "SQL contains one typed array parameter" =
-      Statement.sql_exn ~dialect:Dialect.Postgresql ~input:[ 1L; 2L ] statement
+      Statement.sql_exn ~dialect:postgresql ~input:[ 1L; 2L ] statement
       |> Stdlib.print_endline;
       [%expect
         {|
@@ -873,7 +860,7 @@ let%test_module "PostgreSQL array lookup uses one stable bind slot" =
     ;;
 
     let%test "SQL is unchanged for empty and longer lists" =
-      let sql input = Statement.sql_exn ~dialect:Dialect.Postgresql ~input statement in
+      let sql input = Statement.sql_exn ~dialect:postgresql ~input statement in
       String.equal (sql []) (sql [ 1L; 2L; 3L ])
     ;;
   end)
@@ -900,7 +887,7 @@ let%test_module "optional PostgreSQL array lookup keeps one bind slot" =
     ;;
 
     let%expect_test "SQL guards one typed array parameter" =
-      Statement.sql_exn ~dialect:Dialect.Postgresql ~input:{ ids = None } statement
+      Statement.sql_exn ~dialect:postgresql ~input:{ ids = None } statement
       |> Stdlib.print_endline;
       [%expect
         {|
@@ -916,7 +903,7 @@ let%test_module "optional PostgreSQL array lookup keeps one bind slot" =
     ;;
 
     let%test "SQL is unchanged for absent, empty, and nonempty lists" =
-      let sql input = Statement.sql_exn ~dialect:Dialect.Postgresql ~input statement in
+      let sql input = Statement.sql_exn ~dialect:postgresql ~input statement in
       String.equal (sql { ids = None }) (sql { ids = Some [] })
       && String.equal (sql { ids = None }) (sql { ids = Some [ 1L; 2L ] })
     ;;

@@ -48,10 +48,17 @@ let filtered_statement =
         |> select projection))
 ;;
 
+let%test "portable SQL accepts both selected dialects" =
+  Result.is_ok (Statement.sql ~dialect:postgresql filtered_statement)
+  && Result.is_ok (Statement.sql ~dialect:sqlite filtered_statement)
+;;
+
 let all_statement =
   Statement.with_parameters
     ~dialect:Dialect.portable
-    (fun ~(params : (statement_input, Dialect.portable) Statement.parameters) ->
+    (fun
+        ~(params : (statement_input, Dialect.portable, Dialect.both) Statement.parameters)
+       ->
        Statement.Parameters.return
          (params.query_many Query.(from items |> select projection)))
 ;;
@@ -101,46 +108,45 @@ let equal_dialect left right =
 let%test_unit "statements compile once and bind one typed input" =
   assert (Int.(!statement_builds = 1));
   let input = { minimum_id = 7; maximum_rows = 10; start_at = 0; filtered = true } in
-  let postgresql =
-    Statement.sql_exn ~dialect:Dialect.Postgresql ~input filtered_statement
-  in
-  let sqlite = Statement.sql_exn ~dialect:Dialect.Sqlite ~input filtered_statement in
+  let postgresql_sql = Statement.sql_exn ~dialect:postgresql ~input filtered_statement in
+  let sqlite_sql = Statement.sql_exn ~dialect:sqlite ~input filtered_statement in
   let postgresql_without_input =
-    Statement.sql_exn ~dialect:Dialect.Postgresql filtered_statement
+    Statement.sql_exn ~dialect:Typed_sql.postgresql filtered_statement
   in
   let sqlite_without_input =
-    Statement.sql_exn ~dialect:Dialect.Sqlite filtered_statement
+    Statement.sql_exn ~dialect:Typed_sql.sqlite filtered_statement
   in
-  assert (String.equal postgresql postgresql_without_input);
-  assert (String.equal sqlite sqlite_without_input);
+  assert (String.equal postgresql_sql postgresql_without_input);
+  assert (String.equal sqlite_sql sqlite_without_input);
   assert (
     Int.(
-      String.substr_index_all postgresql ~may_overlap:true ~pattern:"$1"
+      String.substr_index_all postgresql_sql ~may_overlap:true ~pattern:"$1"
       |> List.length
       = 2));
-  assert (Int.(String.count postgresql ~f:(Char.equal '$') = 4));
+  assert (Int.(String.count postgresql_sql ~f:(Char.equal '$') = 4));
   assert (
     Int.(
-      String.substr_index_all sqlite ~may_overlap:true ~pattern:"?1" |> List.length = 2));
-  assert (Int.(String.count sqlite ~f:(Char.equal '?') = 4));
-  ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input filtered_statement);
+      String.substr_index_all sqlite_sql ~may_overlap:true ~pattern:"?1"
+      |> List.length
+      = 2));
+  assert (Int.(String.count sqlite_sql ~f:(Char.equal '?') = 4));
+  ignore (Statement.sql_exn ~dialect:Typed_sql.postgresql ~input filtered_statement);
   assert (Int.(!statement_builds = 1))
 ;;
 
 let%test_unit "command statements bind runtime expressions" =
-  let postgresql =
-    Statement.sql_exn ~dialect:Dialect.Postgresql ~input:42 insert_statement
+  let postgresql_sql = Statement.sql_exn ~dialect:postgresql ~input:42 insert_statement in
+  let sqlite_sql = Statement.sql_exn ~dialect:sqlite ~input:42 insert_statement in
+  let sqlite_without_input =
+    Statement.sql_exn ~dialect:Typed_sql.sqlite insert_statement
   in
-  let sqlite = Statement.sql_exn ~dialect:Dialect.Sqlite ~input:42 insert_statement in
-  let sqlite_without_input = Statement.sql_exn ~dialect:Dialect.Sqlite insert_statement in
-  assert (String.is_substring postgresql ~substring:"$1");
-  assert (String.is_substring sqlite ~substring:"?1");
-  assert (String.equal sqlite sqlite_without_input)
+  assert (String.is_substring postgresql_sql ~substring:"$1");
+  assert (String.is_substring sqlite_sql ~substring:"?1");
+  assert (String.equal sqlite_sql sqlite_without_input)
 ;;
 
 let%expect_test "optional parameter predicate renders in PostgreSQL" =
-  Stdlib.print_endline
-    (Statement.sql_exn ~dialect:Dialect.Postgresql optional_filter_statement);
+  Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql optional_filter_statement);
   [%expect
     {|
     SELECT
@@ -155,8 +161,7 @@ let%expect_test "optional parameter predicate renders in PostgreSQL" =
 ;;
 
 let%expect_test "optional parameter predicate renders in SQLite" =
-  Stdlib.print_endline
-    (Statement.sql_exn ~dialect:Dialect.Sqlite optional_filter_statement);
+  Stdlib.print_endline (Statement.sql_exn ~dialect:sqlite optional_filter_statement);
   [%expect
     {|
     SELECT
@@ -178,7 +183,7 @@ let%test_unit "PostgreSQL null parameters have concrete SQL types" =
         ~dialect:Dialect.postgresql
         Query.(from items |> where (fun _ -> Expr.is_null nullable) |> select projection)
     in
-    let sql = Statement.sql_exn ~dialect:Dialect.Postgresql statement in
+    let sql = Statement.sql_exn ~dialect:postgresql statement in
     assert (String.is_substring sql ~substring:("CAST($1 AS " ^ sql_type ^ ")"))
   in
   check Db_type.bool "boolean";
@@ -209,16 +214,16 @@ let%test_unit "rendering static SQL without input does not evaluate getters" =
           |> where (fun row -> Expr.column row id =. runtime_id)
           |> select projection))
   in
-  let sql = Statement.sql_exn ~dialect:Dialect.Sqlite statement in
+  let sql = Statement.sql_exn ~dialect:sqlite statement in
   assert (String.is_substring sql ~substring:"?1");
   assert (Int.(!getter_calls = 0));
-  ignore (Statement.sql_exn ~dialect:Dialect.Sqlite ~input:7 statement);
+  ignore (Statement.sql_exn ~dialect:sqlite ~input:7 statement);
   assert (Int.(!getter_calls = 1))
 ;;
 
 let%test_unit "runtime pagination is validated before execution" =
   let input = { minimum_id = 7; maximum_rows = -1; start_at = 0; filtered = true } in
-  match Statement.sql ~dialect:Dialect.Sqlite ~input filtered_statement with
+  match Statement.sql ~dialect:sqlite ~input filtered_statement with
   | Error
       (Statement.Invalid_parameter
          { name = Some name; message = "must be non-negative, got -1" }) ->
@@ -229,10 +234,10 @@ let%test_unit "runtime pagination is validated before execution" =
 let%test_unit "choose selects only precompiled statement variants" =
   let input filtered = { minimum_id = 7; maximum_rows = 10; start_at = 0; filtered } in
   let filtered =
-    Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(input true) selected_statement
+    Statement.sql_exn ~dialect:postgresql ~input:(input true) selected_statement
   in
   let all =
-    Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(input false) selected_statement
+    Statement.sql_exn ~dialect:postgresql ~input:(input false) selected_statement
   in
   assert (String.is_substring filtered ~substring:"WHERE");
   assert (not (String.is_substring all ~substring:"WHERE"))
@@ -243,6 +248,11 @@ let%test "statement exception printer delegates unrelated exceptions" =
 ;;
 
 let statement_query = Query.(from items |> select projection)
+
+let%test "concrete SQL accepts a matching witness" =
+  let statement = Statement.query_many ~dialect:Dialect.postgresql statement_query in
+  Result.is_ok (Statement.sql ~dialect:postgresql statement)
+;;
 
 let%test_unit "dialect-specific statement constructors require cardinality proofs" =
   let one =
@@ -263,9 +273,9 @@ let%test_unit "dialect-specific statement constructors require cardinality proof
       ~dialect:Dialect.postgresql
       Query.(from items |> select_exactly_one (fun _ -> Projection.expr Expr.count_all))
   in
-  ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() one);
-  ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() optional);
-  ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() one_without_limit);
+  ignore (Statement.sql_exn ~dialect:postgresql ~input:() one);
+  ignore (Statement.sql_exn ~dialect:postgresql ~input:() optional);
+  ignore (Statement.sql_exn ~dialect:postgresql ~input:() one_without_limit);
   ignore
     (Statement.query_one
        ~dialect:Dialect.postgresql
@@ -328,8 +338,8 @@ let%test_unit "portable statement constructors consume cardinality proofs" =
       ~dialect:Dialect.portable
       Query.(from items |> limit_one |> select projection)
   in
-  ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() one);
-  ignore (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:() optional);
+  ignore (Statement.sql_exn ~dialect:postgresql ~input:() one);
+  ignore (Statement.sql_exn ~dialect:postgresql ~input:() optional);
   ignore
     (Statement.query_one
        ~dialect:Dialect.portable
@@ -340,35 +350,22 @@ let%test_unit "portable statement constructors consume cardinality proofs" =
        Query.(from items |> limit_one |> select projection))
 ;;
 
-let%test_unit "statement reports unsupported runtime dialects" =
+let%test_unit "PostgreSQL statements render with their selected dialect" =
   let query = Statement.query_many ~dialect:Dialect.postgresql statement_query in
-  (match Statement.sql ~dialect:Dialect.Sqlite ~input:() query with
-   | Error (Statement.Unsupported_dialect Dialect.Sqlite) -> ()
-   | Error _ | Ok _ -> failwith "PostgreSQL statement accepted SQLite");
-  (match Statement.sql ~dialect:Dialect.Sqlite query with
-   | Error (Statement.Unsupported_dialect Dialect.Sqlite) -> ()
-   | Error _ | Ok _ -> failwith "inputless PostgreSQL statement accepted SQLite");
-  (match Statement.sql_exn ~dialect:Dialect.Sqlite ~input:() query with
-   | exception Failure _ -> ()
-   | _ -> failwith "sql_exn accepted an unsupported dialect");
+  ignore (Statement.sql_exn ~dialect:postgresql ~input:() query);
   let command =
     Statement.command
       ~dialect:Dialect.postgresql
       Insert.(into items |> set id 1 |> command)
   in
-  (match Statement.sql ~dialect:Dialect.Sqlite ~input:() command with
-   | Error (Statement.Unsupported_dialect Dialect.Sqlite) -> ()
-   | Error _ | Ok _ -> failwith "PostgreSQL command accepted SQLite");
-  match Statement.sql ~dialect:Dialect.Sqlite command with
-  | Error (Statement.Unsupported_dialect Dialect.Sqlite) -> ()
-  | Error _ | Ok _ -> failwith "inputless PostgreSQL command accepted SQLite"
+  ignore (Statement.sql_exn ~dialect:postgresql command)
 ;;
 
-let%test "SQLite statement reports PostgreSQL as unsupported" =
+let%test "SQLite statement renders with its selected dialect" =
   let statement = Statement.query_many ~dialect:Dialect.sqlite statement_query in
-  match Statement.sql ~dialect:Dialect.Postgresql ~input:() statement with
-  | Error (Statement.Unsupported_dialect Dialect.Postgresql) -> true
-  | Error _ | Ok _ -> false
+  String.is_substring
+    (Statement.sql_exn ~dialect:sqlite ~input:() statement)
+    ~substring:"SELECT"
 ;;
 
 let%test_unit "statement exn constructors expose definition and binding failures" =
@@ -381,9 +378,10 @@ let%test_unit "statement exn constructors expose definition and binding failures
      -> ()
    | _ -> failwith "invalid statement definition did not raise");
   let input = { minimum_id = 7; maximum_rows = -1; start_at = 0; filtered = true } in
-  match Statement.sql_exn ~dialect:Dialect.Sqlite ~input filtered_statement with
-  | exception Failure message ->
-    assert (String.is_substring message ~substring:"maximum_rows")
+  match Statement.sql_exn ~dialect:sqlite ~input filtered_statement with
+  | exception
+      Statement.Sql_error (Statement.Invalid_parameter { name = Some "maximum_rows"; _ })
+    -> ()
   | _ -> failwith "invalid statement input did not raise"
 ;;
 
@@ -398,6 +396,37 @@ let%expect_test "definition error shows its compilation failure" =
      Stdlib.print_endline (Stdlib.Printexc.to_string error));
   [%expect
     {|Statement.Definition_error (postgresql): LIMIT must be non-negative, got -1|}]
+;;
+
+let%expect_test "SQL error names the missing input" =
+  Stdlib.print_endline
+    (Stdlib.Printexc.to_string (Statement.Sql_error Statement.Dynamic_input_required));
+  [%expect {|Statement.Sql_error (SQL shape requires input)|}]
+;;
+
+let%expect_test "SQL error names an unsupported dialect" =
+  Stdlib.print_endline
+    (Stdlib.Printexc.to_string
+       (Statement.Sql_error (Statement.Unsupported_dialect Dialect.Sqlite)));
+  [%expect {|Statement.Sql_error (unsupported dialect: sqlite)|}]
+;;
+
+let%expect_test "SQL error names an invalid parameter" =
+  Stdlib.print_endline
+    (Stdlib.Printexc.to_string
+       (Statement.Sql_error
+          (Statement.Invalid_parameter
+             { name = Some "limit"; message = "must be non-negative" })));
+  [%expect {|Statement.Sql_error (limit: must be non-negative)|}]
+;;
+
+let%expect_test "SQL error includes compilation context" =
+  Stdlib.print_endline
+    (Stdlib.Printexc.to_string
+       (Statement.Sql_error
+          (Statement.Compilation_error
+             { dialect = Dialect.Sqlite; error = Compile_error.Negative_limit (-1) })));
+  [%expect {|Statement.Sql_error (sqlite): LIMIT must be non-negative, got -1|}]
 ;;
 
 let%test_unit "identifier validation and descriptor accessors" =

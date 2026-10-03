@@ -100,7 +100,7 @@ let sk01 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sk01);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sk01);;
 SELECT
   t0."id",
   t0."title"
@@ -150,7 +150,7 @@ let sk02 =
 #### SQL typed-sql (PostgreSQL, фильтр есть)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(Some 2000L) sk02);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:(Some 2000L) sk02);;
 SELECT
   t0."id"
 FROM "book" AS t0
@@ -161,7 +161,7 @@ WHERE
 #### SQL typed-sql (PostgreSQL, фильтра нет)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:None sk02);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:None sk02);;
 SELECT
   t0."id"
 FROM "book" AS t0
@@ -208,7 +208,7 @@ let sk03 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sk03);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sk03);;
 SELECT
   t0."id"
 FROM "book" AS t0
@@ -267,7 +267,7 @@ let sk04 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sk04);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sk04);;
 SELECT
   t1."name",
   t0."title"
@@ -340,7 +340,7 @@ let sk05 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sk05);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sk05);;
 WITH
   "c0" (
     "author_id",
@@ -402,7 +402,7 @@ let sk06 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sk06);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sk06);;
 SELECT
   t0."id",
   t0."name"
@@ -468,7 +468,7 @@ let sk07 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sk07);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sk07);;
 SELECT
   t0."id",
   t0."name",
@@ -530,7 +530,7 @@ let sk08 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sk08);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sk08);;
 SELECT *
 FROM (
   SELECT
@@ -607,7 +607,7 @@ let sk09 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:1990L sk09);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:1990L sk09);;
 INSERT INTO "book_archive" (
   "id",
   "author_id",
@@ -670,7 +670,7 @@ let sk10 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sk10);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sk10);;
 UPDATE "book"
 SET
   "title" = $1

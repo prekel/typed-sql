@@ -36,6 +36,12 @@ module Insert = Typed_sql_private.Insert
 module Update = Typed_sql_private.Update
 module Delete = Typed_sql_private.Delete
 module Dialect = Typed_sql_private.Dialect
+
+type 'supports sql_dialect = 'supports Dialect.Selected.t
+
+let postgresql = Dialect.Selected.postgresql
+let sqlite = Dialect.Selected.sqlite
+
 module Statement = Typed_sql_private.Statement
 
 module Postgresql = struct

@@ -166,7 +166,7 @@ let jq01 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq01);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq01);;
 SELECT
   t0."first_name",
   t0."last_name",
@@ -230,7 +230,7 @@ let jq02 =
 #### SQL typed-sql (PostgreSQL, фильтр есть)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(Some 10) jq02);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:(Some 10) jq02);;
 SELECT
   t0."id"
 FROM "book" AS t0
@@ -241,7 +241,7 @@ WHERE
 #### SQL typed-sql (PostgreSQL, фильтр отсутствует)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:None jq02);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:None jq02);;
 SELECT
   t0."id"
 FROM "book" AS t0
@@ -250,7 +250,7 @@ FROM "book" AS t0
 #### SQL typed-sql (SQLite, фильтр есть)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Sqlite ~input:(Some 10) jq02);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:sqlite ~input:(Some 10) jq02);;
 SELECT
   t0."id"
 FROM "book" AS t0
@@ -261,7 +261,7 @@ WHERE
 #### SQL typed-sql (SQLite, фильтр отсутствует)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Sqlite ~input:None jq02);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:sqlite ~input:None jq02);;
 SELECT
   t0."id"
 FROM "book" AS t0
@@ -317,7 +317,7 @@ let jq03 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq03);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq03);;
 SELECT
   t0."id",
   t1."id",
@@ -382,7 +382,7 @@ let jq04 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq04);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq04);;
 SELECT
   t0."id",
   t0."last_name"
@@ -455,7 +455,7 @@ let jq05 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq05);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq05);;
 SELECT
   t0."id",
   (
@@ -528,7 +528,7 @@ let jq06 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq06);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq06);;
 SELECT
   t0."field_1",
   t0."field_2"
@@ -621,7 +621,7 @@ let jq07 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq07);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq07);;
 WITH
   "c0" (
     "author_id",
@@ -707,7 +707,7 @@ let jq08 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq08);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq08);;
 SELECT *
 FROM (
   SELECT
@@ -771,7 +771,7 @@ let jq09 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq09);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq09);;
 SELECT
   t0."author_id",
   COUNT(*)
@@ -822,7 +822,7 @@ let jq10 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq10);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq10);;
 SELECT
   COUNT(*)
 FROM "book" AS t0
@@ -888,7 +888,7 @@ let jq11 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq11);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq11);;
 SELECT
   t0."id",
   t0."author_id",
@@ -963,7 +963,7 @@ let jq12 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq12);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq12);;
 SELECT
   t0."id",
   CAST(
@@ -1050,7 +1050,7 @@ let jq13 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq13);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq13);;
 SELECT
   t0."id",
   CAST(
@@ -1122,7 +1122,7 @@ let jq14 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq14);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq14);;
 INSERT INTO "author" AS t0 (
   "id",
   "last_name"
@@ -1194,7 +1194,7 @@ let jq15 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq15);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq15);;
 UPDATE "book_archive" AS t0
 SET
   "title" = t1."title"
@@ -1255,7 +1255,7 @@ let jq16 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq16);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq16);;
 SELECT
   t0."id",
   t0."last_name"
@@ -1316,7 +1316,7 @@ let jq17 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq17);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq17);;
 SELECT
   t0."id",
   t1."cd"
@@ -1370,7 +1370,7 @@ let jq18 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq18);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq18);;
 SELECT
   t0."id",
   t1."title"
@@ -1445,7 +1445,7 @@ let jq19 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq19);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq19);;
 SELECT
   t0."id",
   t1."id"
@@ -1625,7 +1625,7 @@ let jq21 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq21);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq21);;
 WITH RECURSIVE
   "c0" (
     "field_1",
@@ -1701,7 +1701,7 @@ let jq22 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq22);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq22);;
 SELECT DISTINCT
   t0."author_id"
 FROM "book" AS t0
@@ -1758,7 +1758,7 @@ let jq23 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq23);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq23);;
 SELECT
   t0."language_id",
   t0."id"
@@ -1831,7 +1831,7 @@ let jq24 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq24);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq24);;
 SELECT
   t0."id",
   (CASE
@@ -1884,7 +1884,7 @@ let jq25 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq25);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq25);;
 SELECT
   t0."id",
   t0."archived_at"
@@ -1937,7 +1937,7 @@ let jq26 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq26);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq26);;
 SELECT
   t0."id",
   t0."published_in"
@@ -2001,7 +2001,7 @@ let jq27 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq27);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq27);;
 SELECT
   t0."id"
 FROM "author" AS t0
@@ -2058,7 +2058,7 @@ let jq28 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq28);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq28);;
 SELECT
   t0."published_in",
   t0."id"
@@ -2153,7 +2153,7 @@ let jq30 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq30);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq30);;
 SELECT
   t0."author_id",
   SUM((CASE
@@ -2255,7 +2255,7 @@ let jq32 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq32);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq32);;
 SELECT
   t0."author_id",
   t0."id"
@@ -2331,7 +2331,7 @@ let jq33 = Statement.query_many ~dialect:Dialect.portable (Query.intersect jq33_
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq33);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq33);;
 SELECT *
 FROM (
   SELECT
@@ -2402,7 +2402,7 @@ let jq34 = Statement.query_many ~dialect:Dialect.portable (Query.except jq34_lef
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq34);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq34);;
 SELECT *
 FROM (
   SELECT
@@ -2497,7 +2497,7 @@ let jq36 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:1900 jq36);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:1900 jq36);;
 INSERT INTO "book_archive" (
   "id",
   "title"
@@ -2550,7 +2550,7 @@ let jq37 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq37);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq37);;
 INSERT INTO "book" (
   "title",
   "author_id"
@@ -2603,7 +2603,7 @@ let jq38 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq38);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq38);;
 UPDATE "book" AS t0
 SET
   "published_in" = (t0."published_in" + $1)
@@ -2660,7 +2660,7 @@ let jq39 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq39);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq39);;
 DELETE FROM "book"
 WHERE
   (EXISTS (
@@ -2756,7 +2756,7 @@ let jq41 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq41);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq41);;
 SELECT
   t0."published_in",
   t0."id",
@@ -2829,7 +2829,7 @@ let jooq42 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:1950 jooq42);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:1950 jooq42);;
 SELECT
   t0."id",
   t0."title"
@@ -2903,7 +2903,7 @@ let jq44 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq44);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq44);;
 DELETE FROM "book_archive"
 WHERE
   ("archived_at" IS NULL)
@@ -2964,7 +2964,7 @@ let jq45 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:1900 jq45);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:1900 jq45);;
 INSERT INTO "book_archive" (
   "id",
   "title"
@@ -3011,7 +3011,7 @@ let jq46 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq46);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq46);;
 SELECT
   t0."id"
 FROM "book_archive" AS t0
@@ -3050,7 +3050,7 @@ let jq47 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq47);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq47);;
 SELECT
   COALESCE((
     SELECT
@@ -3103,7 +3103,7 @@ let jq48 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq48);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq48);;
 WITH
   "c0" (
     "id",
@@ -3158,7 +3158,7 @@ let jq49 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq49);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq49);;
 INSERT INTO "book" AS t0 (
   "id",
   "title",
@@ -3205,7 +3205,7 @@ let jq50 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq50);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq50);;
 SELECT
   t0."id",
   t0."title"
@@ -3247,7 +3247,7 @@ let jq51 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq51);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq51);;
 SELECT
   t0."id",
   COUNT(t1."id")
@@ -3285,7 +3285,7 @@ let jq52 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq52);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq52);;
 SELECT
   t0."id"
 FROM "book" AS t0
@@ -3328,7 +3328,7 @@ let jq53 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq53);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq53);;
 SELECT
   t0."id",
   COUNT(*)
@@ -3377,7 +3377,7 @@ let jq54 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq54);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq54);;
 SELECT
   t0."id",
   (CASE
@@ -3417,7 +3417,7 @@ let jq55 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq55);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq55);;
 UPDATE "book"
 SET
   "published_in" = $1
@@ -3456,7 +3456,7 @@ let jq56 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq56);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq56);;
 INSERT INTO "book" (
   "id",
   "title",
@@ -3492,7 +3492,7 @@ let jq57 = Statement.query_many ~dialect:Dialect.portable (Query.union_all jq57_
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq57);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq57);;
 SELECT *
 FROM (
   SELECT
@@ -3548,7 +3548,7 @@ let jq58 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq58);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq58);;
 SELECT
   t0."id",
   t0."author_id"
@@ -3609,7 +3609,7 @@ let jq59 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq59);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq59);;
 SELECT
   t0."id"
 FROM "author" AS t0
@@ -3673,7 +3673,7 @@ let jq60 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql jq60);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql jq60);;
 SELECT
   t0."id",
   COUNT(*)

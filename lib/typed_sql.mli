@@ -1666,11 +1666,11 @@ module Insert : sig
     -> ('row, 'requirements) t
 
   (** Assign SQL [DEFAULT] to a column without inventing an OCaml value. This
-      adds a PostgreSQL requirement because SQLite does not support [DEFAULT]
+      excludes SQLite because it does not support [DEFAULT]
       inside a [VALUES] row. *)
   val default
     :  ('row, 'base, 'value) Column.t
-    -> ('row, ([> `Postgresql ] as 'requirements)) t
+    -> ('row, ([> `Not_sqlite ] as 'requirements)) t
     -> ('row, 'requirements) t
 
   (** Build a multi-row INSERT. Each function receives an empty row builder.
@@ -1767,11 +1767,11 @@ module Update : sig
     -> ('row, 'scope, 'requirements) t
     -> ('row, 'scope, 'requirements) t
 
-  (** Assign SQL [DEFAULT] to a column. This adds a PostgreSQL requirement
+  (** Assign SQL [DEFAULT] to a column. This excludes SQLite
       because SQLite does not support [UPDATE SET DEFAULT]. *)
   val default
     :  ('row, 'base, 'value) Column.t
-    -> ('row, 'scope, ([> `Postgresql ] as 'requirements)) t
+    -> ('row, 'scope, ([> `Not_sqlite ] as 'requirements)) t
     -> ('row, 'scope, 'requirements) t
 
   (** Conditionally assign an OCaml constant captured in the current AST.
@@ -1901,38 +1901,55 @@ module Dialect : sig
     | Postgresql (** PostgreSQL quoting and [$n] placeholders. *)
     | Sqlite (** SQLite quoting and [?n] placeholders. *)
 
-  (** No dialect-specific requirement. *)
+  (** No excluded dialect. *)
   type portable = []
 
-  (** A statement requiring PostgreSQL semantics. *)
-  type postgresql = [ `Postgresql ]
+  (** PostgreSQL-only expressions exclude SQLite. *)
+  type postgresql = [ `Not_sqlite ]
 
-  (** A statement requiring SQLite semantics. *)
-  type sqlite = [ `Sqlite ]
+  (** SQLite-only expressions exclude PostgreSQL. *)
+  type sqlite = [ `Not_postgres ]
 
-  (** A typed choice of compilation dialect. Portable statements use both
-      supported dialects. *)
-  type 'requirements witness
+  (** A statement compiled for both dialects. *)
+  type both =
+    [ `Postgresql
+    | `Sqlite
+    ]
 
-  (** A witness that compiles for both supported dialects. *)
-  val portable : portable witness
+  (** Relate excluded dialects in a query to the dialects compiled for its
+      statement. *)
+  type (_, _) supports =
+    | Portable : (portable, both) supports
+    | Concrete_postgresql : (postgresql, [ `Postgresql ]) supports
+    | Concrete_sqlite : (sqlite, [ `Sqlite ]) supports
 
-  val postgresql : postgresql witness
-  val sqlite : sqlite witness
+  val portable : (portable, both) supports
+  val postgresql : (postgresql, [ `Postgresql ]) supports
+  val sqlite : (sqlite, [ `Sqlite ]) supports
 
   (** Return the stable lowercase dialect name used in diagnostics. *)
   val to_string : t -> string
 end
 
-(** PostgreSQL-specific builders. Using one adds a PostgreSQL requirement to
-    the resulting statement. *)
+(** A concrete dialect selected for SQL rendering. The row bound allows a
+    portable statement to be rendered in either dialect. *)
+type 'supports sql_dialect
+
+(** Select PostgreSQL SQL rendering. *)
+val postgresql : [> `Postgresql ] sql_dialect
+
+(** Select SQLite SQL rendering. *)
+val sqlite : [> `Sqlite ] sql_dialect
+
+(** PostgreSQL-specific builders. Using one excludes SQLite from the resulting
+    statement. *)
 module Postgresql : sig
   (** Concatenate text values with PostgreSQL [string_agg]. The aggregate
       returns [None] for an empty group or when every input is [NULL]. Values
       are concatenated in database order unless [order_by] is supplied. *)
   val string_agg
     :  ?order_by:'r Aggregate_order.t list
-    -> delimiter:(string, ([> `Postgresql ] as 'r)) Expr.t
+    -> delimiter:(string, ([> `Not_sqlite ] as 'r)) Expr.t
     -> (string, 'r) Expr.t
     -> (string option, 'r) Expr.t
 
@@ -1940,7 +1957,7 @@ module Postgresql : sig
       values are ignored by the aggregate. *)
   val string_agg_nullable
     :  ?order_by:'r Aggregate_order.t list
-    -> delimiter:(string, ([> `Postgresql ] as 'r)) Expr.t
+    -> delimiter:(string, ([> `Not_sqlite ] as 'r)) Expr.t
     -> (string option, 'r) Expr.t
     -> (string option, 'r) Expr.t
 
@@ -1950,87 +1967,87 @@ module Postgresql : sig
   module Numeric : sig
     (** Sum [bigint] values without [int64] overflow in the result. *)
     val sum_int64
-      :  (int64, ([> `Postgresql ] as 'r)) Expr.t
+      :  (int64, ([> `Not_sqlite ] as 'r)) Expr.t
       -> (Decimal.t option, 'r) Expr.t
 
     (** As [sum_int64], accepting nullable input. *)
     val sum_int64_nullable
-      :  (int64 option, ([> `Postgresql ] as 'r)) Expr.t
+      :  (int64 option, ([> `Not_sqlite ] as 'r)) Expr.t
       -> (Decimal.t option, 'r) Expr.t
 
     (** Sum exact [numeric] values. *)
     val sum_numeric
-      :  (Decimal.t, ([> `Postgresql ] as 'r)) Expr.t
+      :  (Decimal.t, ([> `Not_sqlite ] as 'r)) Expr.t
       -> (Decimal.t option, 'r) Expr.t
 
     (** As [sum_numeric], accepting nullable input. *)
     val sum_numeric_nullable
-      :  (Decimal.t option, ([> `Postgresql ] as 'r)) Expr.t
+      :  (Decimal.t option, ([> `Not_sqlite ] as 'r)) Expr.t
       -> (Decimal.t option, 'r) Expr.t
 
     (** Minimum non-null [numeric] value. *)
     val min_numeric
-      :  (Decimal.t, ([> `Postgresql ] as 'r)) Expr.t
+      :  (Decimal.t, ([> `Not_sqlite ] as 'r)) Expr.t
       -> (Decimal.t option, 'r) Expr.t
 
     (** Maximum non-null [numeric] value. *)
     val max_numeric
-      :  (Decimal.t, ([> `Postgresql ] as 'r)) Expr.t
+      :  (Decimal.t, ([> `Not_sqlite ] as 'r)) Expr.t
       -> (Decimal.t option, 'r) Expr.t
 
     (** As [min_numeric], accepting nullable input. *)
     val min_numeric_nullable
-      :  (Decimal.t option, ([> `Postgresql ] as 'r)) Expr.t
+      :  (Decimal.t option, ([> `Not_sqlite ] as 'r)) Expr.t
       -> (Decimal.t option, 'r) Expr.t
 
     (** As [max_numeric], accepting nullable input. *)
     val max_numeric_nullable
-      :  (Decimal.t option, ([> `Postgresql ] as 'r)) Expr.t
+      :  (Decimal.t option, ([> `Not_sqlite ] as 'r)) Expr.t
       -> (Decimal.t option, 'r) Expr.t
   end
 
   (** [Numeric] aggregates packaged for [Query.aggregate_one]. These retain
-      the PostgreSQL requirement and can be combined with
+      the SQLite exclusion and can be combined with
       [Aggregate_projection.Let_syntax]. *)
   module Numeric_projection : sig
     (** Sum [bigint] values into an exact [numeric] result. *)
     val sum_int64
-      :  (int64, ([> `Postgresql ] as 'r)) Expr.t
+      :  (int64, ([> `Not_sqlite ] as 'r)) Expr.t
       -> (Decimal.t option, 'r) Aggregate_projection.t
 
     (** As [sum_int64], accepting nullable input. *)
     val sum_int64_nullable
-      :  (int64 option, ([> `Postgresql ] as 'r)) Expr.t
+      :  (int64 option, ([> `Not_sqlite ] as 'r)) Expr.t
       -> (Decimal.t option, 'r) Aggregate_projection.t
 
     (** Sum exact [numeric] values. *)
     val sum_numeric
-      :  (Decimal.t, ([> `Postgresql ] as 'r)) Expr.t
+      :  (Decimal.t, ([> `Not_sqlite ] as 'r)) Expr.t
       -> (Decimal.t option, 'r) Aggregate_projection.t
 
     (** As [sum_numeric], accepting nullable input. *)
     val sum_numeric_nullable
-      :  (Decimal.t option, ([> `Postgresql ] as 'r)) Expr.t
+      :  (Decimal.t option, ([> `Not_sqlite ] as 'r)) Expr.t
       -> (Decimal.t option, 'r) Aggregate_projection.t
 
     (** Minimum non-null [numeric] value. *)
     val min_numeric
-      :  (Decimal.t, ([> `Postgresql ] as 'r)) Expr.t
+      :  (Decimal.t, ([> `Not_sqlite ] as 'r)) Expr.t
       -> (Decimal.t option, 'r) Aggregate_projection.t
 
     (** Maximum non-null [numeric] value. *)
     val max_numeric
-      :  (Decimal.t, ([> `Postgresql ] as 'r)) Expr.t
+      :  (Decimal.t, ([> `Not_sqlite ] as 'r)) Expr.t
       -> (Decimal.t option, 'r) Aggregate_projection.t
 
     (** As [min_numeric], accepting nullable input. *)
     val min_numeric_nullable
-      :  (Decimal.t option, ([> `Postgresql ] as 'r)) Expr.t
+      :  (Decimal.t option, ([> `Not_sqlite ] as 'r)) Expr.t
       -> (Decimal.t option, 'r) Aggregate_projection.t
 
     (** As [max_numeric], accepting nullable input. *)
     val max_numeric_nullable
-      :  (Decimal.t option, ([> `Postgresql ] as 'r)) Expr.t
+      :  (Decimal.t option, ([> `Not_sqlite ] as 'r)) Expr.t
       -> (Decimal.t option, 'r) Aggregate_projection.t
   end
 
@@ -2052,7 +2069,7 @@ module Postgresql : sig
     val for_update
       :  ?of_:('ctx -> target list)
       -> ?skip_locked:bool
-      -> ('ctx, 'grouping, 'cardinality, ([> `Postgresql ] as 'requirements)) Query.t
+      -> ('ctx, 'grouping, 'cardinality, ([> `Not_sqlite ] as 'requirements)) Query.t
       -> ('ctx, 'grouping, 'cardinality, 'requirements) Query.t
 
     (** Add [HAVING] before [GROUP BY]. PostgreSQL treats the input as one
@@ -2065,7 +2082,7 @@ module Postgresql : sig
       -> ( 'ctx
            , Query.ungrouped
            , 'cardinality
-           , ([> `Postgresql ] as 'requirements) )
+           , ([> `Not_sqlite ] as 'requirements) )
            Query.t
       -> ('ctx, Query.ungrouped, 'cardinality, 'requirements) Query.t
 
@@ -2076,14 +2093,14 @@ module Postgresql : sig
         count, this resets cardinality to [Cardinality.many]. *)
     val fetch_with_ties
       :  int
-      -> ('ctx, 'grouping, 'cardinality, ([> `Postgresql ] as 'requirements)) Query.t
+      -> ('ctx, 'grouping, 'cardinality, ([> `Not_sqlite ] as 'requirements)) Query.t
       -> ('ctx, 'grouping, Cardinality.many, 'requirements) Query.t
 
     (** As [fetch_with_ties], using a statement parameter validated as
         non-negative before execution. *)
     val fetch_with_ties_param
       :  'requirements Pagination_parameter.t
-      -> ('ctx, 'grouping, 'cardinality, ([> `Postgresql ] as 'requirements)) Query.t
+      -> ('ctx, 'grouping, 'cardinality, ([> `Not_sqlite ] as 'requirements)) Query.t
       -> ('ctx, 'grouping, Cardinality.many, 'requirements) Query.t
 
     (** Set [LIMIT] from a nullable runtime parameter. PostgreSQL treats [NULL]
@@ -2091,14 +2108,14 @@ module Postgresql : sig
         proof to [Cardinality.many]. *)
     val limit_param_opt
       :  'requirements Pagination_parameter.optional
-      -> ('ctx, 'grouping, 'cardinality, ([> `Postgresql ] as 'requirements)) Query.t
+      -> ('ctx, 'grouping, 'cardinality, ([> `Not_sqlite ] as 'requirements)) Query.t
       -> ('ctx, 'grouping, Cardinality.many, 'requirements) Query.t
 
     (** Set [OFFSET] from a nullable runtime parameter. PostgreSQL treats [NULL]
         as zero skipped rows. An existing cardinality bound is preserved. *)
     val offset_param_opt
       :  'requirements Pagination_parameter.optional
-      -> ('ctx, 'grouping, 'cardinality, ([> `Postgresql ] as 'requirements)) Query.t
+      -> ('ctx, 'grouping, 'cardinality, ([> `Not_sqlite ] as 'requirements)) Query.t
       -> ('ctx, 'grouping, 'cardinality, 'requirements) Query.t
 
     (** PostgreSQL's duplicate-preserving [INTERSECT ALL]. It resets result
@@ -2109,7 +2126,7 @@ module Postgresql : sig
       -> ( 'result
            , Result_query.select
            , 'left_cardinality
-           , ([> `Postgresql ] as 'requirements) )
+           , ([> `Not_sqlite ] as 'requirements) )
            Result_query.t
       -> ('result, Result_query.select, 'right_cardinality, 'requirements) Result_query.t
       -> ('result, Result_query.select, Cardinality.many, 'requirements) Result_query.t
@@ -2122,7 +2139,7 @@ module Postgresql : sig
       -> ( 'result
            , Result_query.select
            , 'left_cardinality
-           , ([> `Postgresql ] as 'requirements) )
+           , ([> `Not_sqlite ] as 'requirements) )
            Result_query.t
       -> ('result, Result_query.select, 'right_cardinality, 'requirements) Result_query.t
       -> ('result, Result_query.select, Cardinality.many, 'requirements) Result_query.t
@@ -2137,13 +2154,13 @@ module Postgresql : sig
       :  table:'row Table.t
       -> columns:
            ('row Table_ref.t
-            -> ('columns, ([> `Postgresql ] as 'requirements)) Projection.t)
+            -> ('columns, ([> `Not_sqlite ] as 'requirements)) Projection.t)
       -> ('result, Result_query.returning, 'cardinality, 'requirements) Result_query.t
       -> ('row Cte.t, 'requirements) Cte.definition
 
     (** Define a data-modifying CTE used only for its effect. *)
     val command
-      :  ([> `Postgresql ] as 'requirements) Command.t
+      :  ([> `Not_sqlite ] as 'requirements) Command.t
       -> (unit, 'requirements) Cte.definition
   end
 
@@ -2151,13 +2168,13 @@ module Postgresql : sig
     (** Compare a scalar with an array using PostgreSQL [= ANY]. An empty array
         matches no rows; [NULL] elements retain SQL three-valued semantics. *)
     val equals_any
-      :  ('a, ([> `Postgresql ] as 'requirements)) Expr.t
+      :  ('a, ([> `Not_sqlite ] as 'requirements)) Expr.t
       -> ('a Pg_array.t, 'requirements) Expr.t
       -> 'requirements Condition.t
 
     (** As [equals_any], with a one-dimensional list array descriptor. *)
     val equals_any_list
-      :  ('a, ([> `Postgresql ] as 'requirements)) Expr.t
+      :  ('a, ([> `Not_sqlite ] as 'requirements)) Expr.t
       -> ('a list, 'requirements) Expr.t
       -> 'requirements Condition.t
   end
@@ -2320,12 +2337,12 @@ end
     compiles static statements at definition time; [Dynamic] builds and
     compiles from input on each execution. *)
 module Statement : sig
-  (** A reusable statement from ['input] to ['output]. ['requirements]
-      constrains the dialects that may compile or execute it. Query output
+  (** A reusable statement from ['input] to ['output]. ['supports] records the
+      dialects for which plans can be compiled. Query output
       shape includes the chosen execution cardinality; command output is
       [Affected_rows.t]. *)
-  type ('input, 'output, +'requirements) t =
-    ('input, 'output, 'requirements) Typed_sql_private.Statement.t
+  type ('input, 'output, 'supports) t =
+    ('input, 'output, 'supports) Typed_sql_private.Statement.t
 
   (** A static statement definition that failed compilation for one dialect. *)
   type definition_error =
@@ -2354,6 +2371,9 @@ module Statement : sig
     (** A runtime parameter failed validation before execution. *)
     | Compilation_error of definition_error
     (** Building a dynamic statement for the supplied input failed. *)
+
+  (** Raised by [sql_exn] for SQL rendering failures other than compilation. *)
+  exception Sql_error of sql_error
 
   (** Opaque applicative value returned by a parameter declaration. Its SQL
       value becomes available only inside a mapping operation. *)
@@ -2414,7 +2434,7 @@ module Statement : sig
   (** Parameter declarations and statement builders for one input type. The
       declarations share bind slots; combine declaration results
       applicatively before using their values in SQL. *)
-  type ('input, 'requirements) parameters = private
+  type ('input, 'requirements, 'supports) parameters = private
     { expr :
         'value.
         ?name:string
@@ -2463,35 +2483,35 @@ module Statement : sig
     ; query_many :
         'row 'kind 'cardinality.
         ('row, 'kind, 'cardinality, 'requirements) Result_query.t
-        -> ('input, 'row list, 'requirements) t
+        -> ('input, 'row list, 'supports) t
       (** Compile a query with the parameters declared so far. Its runtime
           input type is ['input]. Raises [Definition_error] if compilation
           fails for any dialect selected by the witness. *)
     ; query_one :
         'row 'kind 'cardinality.
         ('row, 'kind, ([> `Exactly_one ] as 'cardinality), 'requirements) Result_query.t
-        -> ('input, 'row, 'requirements) t
+        -> ('input, 'row, 'supports) t
       (** Compile a query with a static exactly-one proof. Raises
           [Definition_error] if compilation fails for any selected dialect. *)
     ; query_optional :
         'row 'kind 'cardinality.
         ('row, 'kind, ([> `At_most_one ] as 'cardinality), 'requirements) Result_query.t
-        -> ('input, 'row option, 'requirements) t
+        -> ('input, 'row option, 'supports) t
       (** Compile a query with a static at-most-one proof. Raises
           [Definition_error] if compilation fails for any selected dialect. *)
     ; expect_one :
         'row 'kind 'cardinality.
         ('row, 'kind, 'cardinality, 'requirements) Result_query.t
-        -> ('input, 'row, 'requirements) t
+        -> ('input, 'row, 'supports) t
       (** Compile a query with an execution-time exactly-one check. Raises
           [Definition_error] if compilation fails for any selected dialect. *)
     ; expect_optional :
         'row 'kind 'cardinality.
         ('row, 'kind, 'cardinality, 'requirements) Result_query.t
-        -> ('input, 'row option, 'requirements) t
+        -> ('input, 'row option, 'supports) t
       (** Compile a query with an execution-time at-most-one check. Raises
           [Definition_error] if compilation fails for any selected dialect. *)
-    ; command : 'requirements Command.t -> ('input, Affected_rows.t, 'requirements) t
+    ; command : 'requirements Command.t -> ('input, Affected_rows.t, 'supports) t
       (** Compile a command. Raises [Definition_error] if compilation fails for
           any selected dialect. *)
     }
@@ -2502,52 +2522,52 @@ module Statement : sig
       statements; each compilation captures the declarations made so far. Use
       [Dialect.portable] to compile for PostgreSQL and SQLite. *)
   val with_parameters
-    :  dialect:'requirements Dialect.witness
-    -> (params:('input, 'requirements) parameters
+    :  dialect:('requirements, 'supports) Dialect.supports
+    -> (params:('input, 'requirements, 'supports) parameters
         -> ('input, 'requirements, 'a) Parameters.t)
     -> 'a
 
   (** Compile a query without runtime parameters. The statement accepts [unit]
       as input. Compilation failures raise [Definition_error]. *)
   val query_many
-    :  dialect:'requirements Dialect.witness
+    :  dialect:('requirements, 'supports) Dialect.supports
     -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t
-    -> (unit, 'row list, 'requirements) t
+    -> (unit, 'row list, 'supports) t
 
   (** Compile a query with a static exactly-one proof and no runtime
       parameters. The statement accepts [unit] as input. *)
   val query_one
-    :  dialect:'requirements Dialect.witness
+    :  dialect:('requirements, 'supports) Dialect.supports
     -> ('row, 'kind, ([> `Exactly_one ] as 'cardinality), 'requirements) Result_query.t
-    -> (unit, 'row, 'requirements) t
+    -> (unit, 'row, 'supports) t
 
   (** Compile a query with a static at-most-one proof and no runtime
       parameters. The statement accepts [unit] as input. *)
   val query_optional
-    :  dialect:'requirements Dialect.witness
+    :  dialect:('requirements, 'supports) Dialect.supports
     -> ('row, 'kind, ([> `At_most_one ] as 'cardinality), 'requirements) Result_query.t
-    -> (unit, 'row option, 'requirements) t
+    -> (unit, 'row option, 'supports) t
 
   (** Compile a query without runtime parameters and require exactly one row at
       execution time. The statement accepts [unit] as input. *)
   val expect_one
-    :  dialect:'requirements Dialect.witness
+    :  dialect:('requirements, 'supports) Dialect.supports
     -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t
-    -> (unit, 'row, 'requirements) t
+    -> (unit, 'row, 'supports) t
 
   (** Compile a query without runtime parameters and require at most one row at
       execution time. The statement accepts [unit] as input. *)
   val expect_optional
-    :  dialect:'requirements Dialect.witness
+    :  dialect:('requirements, 'supports) Dialect.supports
     -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t
-    -> (unit, 'row option, 'requirements) t
+    -> (unit, 'row option, 'supports) t
 
   (** Compile a command without runtime parameters. The statement accepts
       [unit] as input. *)
   val command
-    :  dialect:'requirements Dialect.witness
+    :  dialect:('requirements, 'supports) Dialect.supports
     -> 'requirements Command.t
-    -> (unit, Affected_rows.t, 'requirements) t
+    -> (unit, Affected_rows.t, 'supports) t
 
   (** Statements whose SQL shape depends on the runtime input. The witness
       restricts compilation to one concrete dialect or to both portable
@@ -2562,51 +2582,51 @@ module Statement : sig
   module Dynamic : sig
     (** Build a query from each runtime input and return every row. *)
     val query_many
-      :  dialect:'requirements Dialect.witness
+      :  dialect:('requirements, 'supports) Dialect.supports
       -> ('input -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t)
-      -> ('input, 'row list, 'requirements) t
+      -> ('input, 'row list, 'supports) t
 
     (** Build a query with a static exactly-one proof from each runtime input. *)
     val query_one
-      :  dialect:'requirements Dialect.witness
+      :  dialect:('requirements, 'supports) Dialect.supports
       -> ('input
           -> ( 'row
                , 'kind
                , ([> `Exactly_one ] as 'cardinality)
                , 'requirements )
                Result_query.t)
-      -> ('input, 'row, 'requirements) t
+      -> ('input, 'row, 'supports) t
 
     (** Build a query with a static at-most-one proof from each runtime input. *)
     val query_optional
-      :  dialect:'requirements Dialect.witness
+      :  dialect:('requirements, 'supports) Dialect.supports
       -> ('input
           -> ( 'row
                , 'kind
                , ([> `At_most_one ] as 'cardinality)
                , 'requirements )
                Result_query.t)
-      -> ('input, 'row option, 'requirements) t
+      -> ('input, 'row option, 'supports) t
 
     (** Build a query from each runtime input and require exactly one row at
         execution time. *)
     val expect_one
-      :  dialect:'requirements Dialect.witness
+      :  dialect:('requirements, 'supports) Dialect.supports
       -> ('input -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t)
-      -> ('input, 'row, 'requirements) t
+      -> ('input, 'row, 'supports) t
 
     (** Build a query from each runtime input and require at most one row at
         execution time. *)
     val expect_optional
-      :  dialect:'requirements Dialect.witness
+      :  dialect:('requirements, 'supports) Dialect.supports
       -> ('input -> ('row, 'kind, 'cardinality, 'requirements) Result_query.t)
-      -> ('input, 'row option, 'requirements) t
+      -> ('input, 'row option, 'supports) t
 
     (** Build a command from each runtime input. *)
     val command
-      :  dialect:'requirements Dialect.witness
+      :  dialect:('requirements, 'supports) Dialect.supports
       -> ('input -> 'requirements Command.t)
-      -> ('input, Affected_rows.t, 'requirements) t
+      -> ('input, Affected_rows.t, 'supports) t
   end
 
   (** Select between two statement branches for the current
@@ -2615,36 +2635,36 @@ module Statement : sig
       supported. *)
   val choose
     :  when_:('input -> bool)
-    -> if_true:('input, 'output, 'requirements) t
-    -> if_false:('input, 'output, 'requirements) t
-    -> ('input, 'output, 'requirements) t
+    -> if_true:('input, 'output, 'supports) t
+    -> if_false:('input, 'output, 'supports) t
+    -> ('input, 'output, 'supports) t
 
   (** Select the PostgreSQL or SQLite statement from the dialect used to
       resolve it. Both branches must have the same input and output types; the
       result supports both dialects. *)
   val choose_dialect
-    :  postgresql:('input, 'output, Dialect.postgresql) t
-    -> sqlite:('input, 'output, Dialect.sqlite) t
-    -> ('input, 'output, Dialect.portable) t
+    :  postgresql:('input, 'output, [ `Postgresql ]) t
+    -> sqlite:('input, 'output, [ `Sqlite ]) t
+    -> ('input, 'output, Dialect.both) t
 
-  (** Render the selected plan. For a static statement, [input] may be omitted:
+  (** Render a statement using a concrete dialect supported by its compiled
+      plans. For a static statement, [input] may be omitted:
       the SQL template is read from the precompiled dialect plan without
       evaluating parameter getters. Dynamic statements and [choose] require
       [input] because it determines the SQL shape. [choose_dialect] selects by
       dialect and requires [input] only if its selected branch needs it. When
       supplied, [input] is also used to validate static parameter bindings. *)
   val sql
-    :  dialect:Dialect.t
+    :  dialect:'supports sql_dialect
     -> ?input:'input
-    -> ('input, 'output, 'requirements) t
+    -> ('input, 'output, 'supports) t
     -> (string, sql_error) Result.t
 
-  (** Render as [sql], raising when required input is omitted, a supplied input
-      fails parameter validation, or the statement does not support the
-      selected dialect. Dynamic compilation failures raise [Definition_error]. *)
+  (** Render for a supported concrete dialect, raising [Sql_error] for input
+      and parameter errors. Dynamic compilation failures raise [Definition_error]. *)
   val sql_exn
-    :  dialect:Dialect.t
+    :  dialect:'supports sql_dialect
     -> ?input:'input
-    -> ('input, 'output, 'requirements) t
+    -> ('input, 'output, 'supports) t
     -> string
 end

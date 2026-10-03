@@ -1202,6 +1202,46 @@ let run conn =
           { expected = Dialect.Postgresql; connection = Dialect.Sqlite }) -> ()
    | Error error -> failwith (Typed_sql_caqti_lwt.error_to_string error)
    | Ok _ -> failwith "a PostgreSQL-specific query ran on SQLite");
+  let postgresql_command =
+    Statement.command
+      ~dialect:Dialect.postgresql
+      Delete.(
+        from Person.table |> where (fun person -> Person.id person =$ -1L) |> command)
+  in
+  let* command_mismatch = Typed_sql_caqti_lwt.run ~conn postgresql_command () in
+  (match command_mismatch with
+   | Error
+       (Typed_sql_caqti_lwt.Dialect_mismatch
+          { expected = Dialect.Postgresql; connection = Dialect.Sqlite }) -> ()
+   | Error error -> failwith (Typed_sql_caqti_lwt.error_to_string error)
+   | Ok _ -> failwith "a PostgreSQL compiled command ran on SQLite");
+  let callback_calls = ref 0 in
+  let dynamic_query =
+    Statement.Dynamic.query_many ~dialect:Dialect.postgresql (fun () ->
+      Int.incr callback_calls;
+      Query.(from Person.table |> select Person.projection))
+  in
+  let* dynamic_query_mismatch = Typed_sql_caqti_lwt.run ~conn dynamic_query () in
+  (match dynamic_query_mismatch with
+   | Error
+       (Typed_sql_caqti_lwt.Dialect_mismatch
+          { expected = Dialect.Postgresql; connection = Dialect.Sqlite }) -> ()
+   | Error error -> failwith (Typed_sql_caqti_lwt.error_to_string error)
+   | Ok _ -> failwith "a PostgreSQL dynamic query ran on SQLite");
+  let dynamic_command =
+    Statement.Dynamic.command ~dialect:Dialect.postgresql (fun () ->
+      Int.incr callback_calls;
+      Delete.(
+        from Person.table |> where (fun person -> Person.id person =$ -1L) |> command))
+  in
+  let* dynamic_command_mismatch = Typed_sql_caqti_lwt.run ~conn dynamic_command () in
+  (match dynamic_command_mismatch with
+   | Error
+       (Typed_sql_caqti_lwt.Dialect_mismatch
+          { expected = Dialect.Postgresql; connection = Dialect.Sqlite }) -> ()
+   | Error error -> failwith (Typed_sql_caqti_lwt.error_to_string error)
+   | Ok _ -> failwith "a PostgreSQL dynamic command ran on SQLite");
+  assert (Int.(!callback_calls = 0));
   let no_op_delete =
     Delete.(from Person.table |> where (fun person -> Person.id person =$ -1L) |> command)
   in

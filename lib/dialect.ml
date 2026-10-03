@@ -5,16 +5,36 @@ type t =
   | Sqlite
 
 type portable = []
-type postgresql = [ `Postgresql ]
-type sqlite = [ `Sqlite ]
+type postgresql = [ `Not_sqlite ]
+type sqlite = [ `Not_postgres ]
 
-type 'requirements witness =
-  | Portable : portable witness
-  | Concrete : t -> 'requirements witness
+type both =
+  [ `Postgresql
+  | `Sqlite
+  ]
+
+type ('excluded, 'supports) supports =
+  | Portable : (portable, both) supports
+  | Concrete_postgresql : (postgresql, [ `Postgresql ]) supports
+  | Concrete_sqlite : (sqlite, [ `Sqlite ]) supports
 
 let portable = Portable
-let postgresql : postgresql witness = Concrete Postgresql
-let sqlite : sqlite witness = Concrete Sqlite
+let postgresql = Concrete_postgresql
+let sqlite = Concrete_sqlite
+
+module Selected = struct
+  type _ t =
+    | Postgresql : [> `Postgresql ] t
+    | Sqlite : [> `Sqlite ] t
+
+  let postgresql = Postgresql
+  let sqlite = Sqlite
+end
+
+let selected_dialect : type supports. supports Selected.t -> t = function
+  | Selected.Postgresql -> Postgresql
+  | Selected.Sqlite -> Sqlite
+;;
 
 let to_string = function
   | Postgresql -> "postgresql"

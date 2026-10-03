@@ -134,7 +134,7 @@ let kysely01 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:18 kysely01);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:18 kysely01);;
 SELECT
   t0."id",
   t0."first_name"
@@ -182,7 +182,7 @@ let kysely02 =
 #### SQL typed-sql (PostgreSQL, фильтр есть)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(Some 18) kysely02);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:(Some 18) kysely02);;
 SELECT
   t0."id"
 FROM "person" AS t0
@@ -193,7 +193,7 @@ WHERE
 #### SQL typed-sql (PostgreSQL, фильтр отсутствует)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:None kysely02);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:None kysely02);;
 SELECT
   t0."id"
 FROM "person" AS t0
@@ -247,7 +247,7 @@ let kysely03 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(18, 65, "Smith") kysely03);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:(18, 65, "Smith") kysely03);;
 SELECT
   t0."id"
 FROM "person" AS t0
@@ -301,7 +301,7 @@ let kysely04 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely04);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely04);;
 SELECT
   t0."id",
   t1."name"
@@ -350,7 +350,7 @@ let kysely05 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely05);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely05);;
 SELECT
   t0."id",
   t1."name"
@@ -410,7 +410,7 @@ let kysely06 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely06);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely06);;
 SELECT
   t0."owner_id",
   COUNT(t0."id")
@@ -476,7 +476,7 @@ let kysely07 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely07);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely07);;
 SELECT
   t0."id",
   COALESCE((
@@ -536,7 +536,7 @@ let kysely08 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely08);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely08);;
 SELECT
   t0."id"
 FROM "person" AS t0
@@ -611,7 +611,7 @@ let kysely09 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely09);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely09);;
 SELECT
   t0."owner_id",
   t0."pet_count"
@@ -683,7 +683,7 @@ let kysely10 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely10);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely10);;
 WITH
   "c0" (
     "id",
@@ -740,7 +740,7 @@ let kysely11 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely11);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely11);;
 SELECT *
 FROM (
   SELECT
@@ -811,7 +811,7 @@ let kysely12 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely12);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely12);;
 SELECT
   t0."id",
   t0."owner_id",
@@ -869,7 +869,7 @@ let kysely13 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely13);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely13);;
 INSERT INTO "person" (
   "first_name",
   "last_name",
@@ -930,7 +930,7 @@ let kysely14 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely14);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely14);;
 UPDATE "person" AS t0
 SET
   "age" = (t1."age" + $1)
@@ -981,7 +981,7 @@ let kysely15 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely15);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely15);;
 DELETE FROM "pet"
 WHERE
   ("id" = $1)
@@ -1030,7 +1030,7 @@ let kysely16 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely16);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely16);;
 SELECT DISTINCT
   t0."species"
 FROM "pet" AS t0
@@ -1088,7 +1088,7 @@ let kysely17 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely17);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely17);;
 SELECT
   t0."owner_id",
   t0."id",
@@ -1165,7 +1165,7 @@ let kysely18 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely18);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely18);;
 SELECT
   t0."id",
   (CASE
@@ -1211,7 +1211,7 @@ let kysely19 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely19);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely19);;
 SELECT
   t0."id",
   t0."first_name"
@@ -1261,7 +1261,7 @@ let kysely20 =
 #### SQL typed-sql (PostgreSQL, non-empty list)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:[ 1L; 2L ] kysely20);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:[ 1L; 2L ] kysely20);;
 SELECT
   t0."id"
 FROM "person" AS t0
@@ -1275,7 +1275,7 @@ WHERE
 #### SQL typed-sql (PostgreSQL, empty list)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:[] kysely20);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:[] kysely20);;
 SELECT
   t0."id"
 FROM "person" AS t0
@@ -1343,7 +1343,7 @@ let kysely21 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:("Smith", 10L, 20) kysely21);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:("Smith", 10L, 20) kysely21);;
 SELECT
   t0."id",
   t0."last_name"
@@ -1431,7 +1431,7 @@ let kysely22 =
 #### SQL typed-sql (PostgreSQL, age включён)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:true kysely22);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:true kysely22);;
 SELECT
   t0."id",
   t0."age"
@@ -1441,7 +1441,7 @@ FROM "person" AS t0
 #### SQL typed-sql (PostgreSQL, age отсутствует)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:false kysely22);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:false kysely22);;
 SELECT
   t0."id",
   $1
@@ -1497,7 +1497,7 @@ let kysely23 =
 #### SQL typed-sql (PostgreSQL, сортировка по age)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:`Age kysely23);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:`Age kysely23);;
 SELECT
   t0."id",
   t0."age"
@@ -1509,7 +1509,7 @@ ORDER BY
 #### SQL typed-sql (PostgreSQL, сортировка по id)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:`Id kysely23);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:`Id kysely23);;
 SELECT
   t0."id",
   t0."age"
@@ -1562,7 +1562,7 @@ let kysely24 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely24);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely24);;
 SELECT
   t0."id",
   t1."name"
@@ -1632,7 +1632,7 @@ let kysely25 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely25);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely25);;
 SELECT *
 FROM (
   SELECT
@@ -1721,7 +1721,7 @@ let kysely26 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely26);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely26);;
 SELECT
   t0."id",
   (
@@ -1785,7 +1785,7 @@ let kysely27 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely27);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely27);;
 SELECT
   t0."id"
 FROM "person" AS t0
@@ -1849,7 +1849,7 @@ let kysely28 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely28);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely28);;
 SELECT
   COUNT((CASE
     WHEN (t0."species" = $1) THEN t0."id"
@@ -1911,7 +1911,7 @@ let kysely29 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely29);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely29);;
 SELECT
   t0."age",
   t1."species",
@@ -1961,7 +1961,7 @@ let kysely30 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely30);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely30);;
 SELECT
   COUNT(*)
 FROM "pet" AS t0
@@ -2028,7 +2028,7 @@ let kysely31 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely31);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely31);;
 SELECT
   t0."owner_id",
   t0."id",
@@ -2152,7 +2152,7 @@ let kysely33 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:1L kysely33);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:1L kysely33);;
 WITH RECURSIVE
   "c0" (
     "id",
@@ -2235,7 +2235,7 @@ let kysely34 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely34);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely34);;
 WITH
   "c0" (
     "id",
@@ -2311,7 +2311,7 @@ let kysely35 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely35);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely35);;
 WITH
   "c0" (
     "id",
@@ -2364,7 +2364,7 @@ let kysely36 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely36);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely36);;
 SELECT *
 FROM (
   SELECT
@@ -2414,7 +2414,7 @@ let kysely37 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely37);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely37);;
 SELECT *
 FROM (
   SELECT
@@ -2464,7 +2464,7 @@ let kysely38 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely38);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely38);;
 SELECT *
 FROM (
   SELECT
@@ -2538,7 +2538,7 @@ let kysely39 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely39);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely39);;
 SELECT
   t0."id",
   t0."first_name"
@@ -2600,7 +2600,7 @@ let kysely40 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely40);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely40);;
 SELECT
   t0."id"
 FROM "person" AS t0
@@ -2716,7 +2716,7 @@ let kysely42 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely42);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely42);;
 SELECT
   t0."id",
   CAST(
@@ -2784,7 +2784,7 @@ let kysely43 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:[ 1L, "Milo", "cat"; 2L, "Rex", "dog" ] kysely43);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:[ 1L, "Milo", "cat"; 2L, "Rex", "dog" ] kysely43);;
 INSERT INTO "pet" (
   "name",
   "species",
@@ -2855,7 +2855,7 @@ let kysely44 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:18 kysely44);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:18 kysely44);;
 INSERT INTO "person" (
   "id",
   "first_name",
@@ -2917,7 +2917,7 @@ let kysely45 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely45);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely45);;
 INSERT INTO "pet" (
   "name",
   "species",
@@ -2990,7 +2990,7 @@ let kysely46 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely46);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely46);;
 INSERT INTO "pet" AS t0 (
   "name",
   "species",
@@ -3062,7 +3062,7 @@ let kysely47 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:1L kysely47);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:1L kysely47);;
 SELECT
   t0."id",
   t0."name"
@@ -3124,7 +3124,7 @@ let kysely48 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely48);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely48);;
 UPDATE "person" AS t0
 SET
   "first_name" = t1."name"
@@ -3186,7 +3186,7 @@ let kysely49 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql kysely49);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql kysely49);;
 DELETE FROM "pet"
 WHERE
   (EXISTS (

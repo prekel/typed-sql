@@ -71,7 +71,7 @@ let%test_module "INSERT from SELECT" =
 
     let%expect_test "PostgreSQL INSERT SELECT with a parameter" =
       Stdlib.print_endline
-        (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:1900L filtered_statement);
+        (Statement.sql_exn ~dialect:postgresql ~input:1900L filtered_statement);
       [%expect
         {|
         INSERT INTO "book_archive" (
@@ -89,7 +89,7 @@ let%test_module "INSERT from SELECT" =
 
     let%expect_test "SQLite INSERT SELECT with a parameter" =
       Stdlib.print_endline
-        (Statement.sql_exn ~dialect:Dialect.Sqlite ~input:1900L filtered_statement);
+        (Statement.sql_exn ~dialect:sqlite ~input:1900L filtered_statement);
       [%expect
         {|
         INSERT INTO "book_archive" (
@@ -106,8 +106,7 @@ let%test_module "INSERT from SELECT" =
     ;;
 
     let%expect_test "SQLite disambiguates SELECT and ON CONFLICT" =
-      Stdlib.print_endline
-        (Statement.sql_exn ~dialect:Dialect.Sqlite on_conflict_statement);
+      Stdlib.print_endline (Statement.sql_exn ~dialect:sqlite on_conflict_statement);
       [%expect
         {|
         INSERT INTO "book_archive" (
@@ -251,8 +250,7 @@ let%test_module "INSERT from SELECT" =
     ;;
 
     let%expect_test "PostgreSQL INSERT from a source-free SELECT" =
-      Stdlib.print_endline
-        (Statement.sql_exn ~dialect:Dialect.Postgresql singleton_statement);
+      Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql singleton_statement);
       [%expect
         {|
         INSERT INTO "book_archive" (
@@ -265,7 +263,7 @@ let%test_module "INSERT from SELECT" =
     ;;
 
     let%expect_test "SQLite INSERT from a source-free SELECT with ON CONFLICT" =
-      Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Sqlite singleton_statement);
+      Stdlib.print_endline (Statement.sql_exn ~dialect:sqlite singleton_statement);
       [%expect
         {|
         INSERT INTO "book_archive" (
@@ -287,7 +285,7 @@ let%test_module "INSERT from SELECT" =
             |> from_select columns source
             |> returning (fun row -> Projection.expr (Archive.id row)))
       in
-      Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql statement);
+      Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql statement);
       [%expect
         {|
         INSERT INTO "book_archive" (
@@ -325,7 +323,7 @@ let%test_module "INSERT from SELECT" =
             |> on_conflict_do_nothing
             |> command)
       in
-      Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Sqlite statement);
+      Stdlib.print_endline (Statement.sql_exn ~dialect:sqlite statement);
       [%expect
         {|
         INSERT INTO "book_archive" (

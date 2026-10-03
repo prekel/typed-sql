@@ -105,8 +105,8 @@ callback определяет форму SQL. То же ограничение �
 когда число возможных форм не ограничено или их явное перечисление через
 [Statement.choose] непрактично.
 
-[Dynamic] сохраняет статическую проверку dialect requirements: callback обязан
-вернуть query или command, совместимый с переданным [~dialect].
+[Dynamic] сохраняет статическую проверку исключённых диалектов: callback обязан
+вернуть query или command, совместимый со свидетелем сборки [~dialect].
 [Dialect.portable] разрешает PostgreSQL и SQLite; concrete witness ограничивает
-statement одним dialect. Неподдерживаемый runtime dialect отклоняется до вызова
-callback.
+statement одним dialect. [Statement.sql] и [Statement.sql_exn] не принимают
+селектор неподдерживаемого диалекта уже при проверке типов.

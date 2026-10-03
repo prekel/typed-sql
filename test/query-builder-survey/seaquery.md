@@ -107,7 +107,7 @@ let seaquery01 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery01);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql seaquery01);;
 SELECT
   t0."id",
   t0."name"
@@ -160,7 +160,7 @@ let seaquery02 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery02);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql seaquery02);;
 SELECT
   t0."id",
   t0."name"
@@ -218,7 +218,7 @@ let seaquery03 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery03);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql seaquery03);;
 SELECT
   t0."id",
   t0."name"
@@ -276,7 +276,7 @@ let seaquery04 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery04);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql seaquery04);;
 SELECT
   t0."id",
   t1."title"
@@ -333,7 +333,7 @@ let seaquery05 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery05);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql seaquery05);;
 SELECT
   t0."id",
   t1."title"
@@ -401,7 +401,7 @@ let seaquery06 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery06);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql seaquery06);;
 SELECT
   t0."id",
   COUNT(t1."id")
@@ -481,7 +481,7 @@ let seaquery07 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery07);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql seaquery07);;
 SELECT
   t0."id",
   t0."name"
@@ -572,7 +572,7 @@ let seaquery08 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery08);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql seaquery08);;
 SELECT
   t0."id",
   t1."field_2"
@@ -642,7 +642,7 @@ let seaquery09 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery09);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql seaquery09);;
 SELECT *
 FROM (
   SELECT
@@ -727,7 +727,7 @@ let seaquery10 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery10);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql seaquery10);;
 SELECT
   t0."id",
   t0."user_id",
@@ -794,7 +794,7 @@ let seaquery11 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery11);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql seaquery11);;
 SELECT
   t0."id",
   t0."name"
@@ -869,7 +869,7 @@ let seaquery12 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery12);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql seaquery12);;
 SELECT
   t0."user_id",
   t0."id",
@@ -937,7 +937,7 @@ let seaquery13 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery13);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql seaquery13);;
 SELECT
   t0."id"
 FROM "users" AS t0
@@ -1004,7 +1004,7 @@ let seaquery14 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery14);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql seaquery14);;
 INSERT INTO "posts" AS t0 (
   "id",
   "user_id",
@@ -1065,7 +1065,7 @@ let seaquery15 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery15);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql seaquery15);;
 UPDATE "posts"
 SET
   "title" = $1
@@ -1120,7 +1120,7 @@ let seaquery16 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery16);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql seaquery16);;
 SELECT
   t0."id",
   COUNT(t1."id")
@@ -1166,7 +1166,7 @@ let seaquery17 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery17);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql seaquery17);;
 WITH
   "c0" (
     "id",
@@ -1223,7 +1223,7 @@ let seaquery18 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery18);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql seaquery18);;
 INSERT INTO "posts" AS t0 (
   "id",
   "user_id",
@@ -1273,7 +1273,7 @@ let seaquery19 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery19);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql seaquery19);;
 UPDATE "posts" AS t0
 SET
   "title" = t1."name"
@@ -1311,7 +1311,7 @@ let seaquery20 = Statement.query_many ~dialect:Dialect.portable (Query.except se
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql seaquery20);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql seaquery20);;
 SELECT *
 FROM (
   SELECT

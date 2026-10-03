@@ -120,7 +120,7 @@ let beam01 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam01);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql beam01);;
 SELECT
   t0."FirstName",
   t0."LastName"
@@ -173,7 +173,7 @@ let beam02 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam02);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql beam02);;
 SELECT
   t0."CustomerId",
   t0."FirstName"
@@ -229,7 +229,7 @@ let beam03 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam03);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql beam03);;
 SELECT
   t0."AlbumId",
   t0."Title"
@@ -280,7 +280,7 @@ let beam04 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam04);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql beam04);;
 SELECT
   t0."InvoiceId",
   t1."InvoiceLineId"
@@ -329,7 +329,7 @@ let beam05 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam05);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql beam05);;
 SELECT
   t0."CustomerId",
   t1."InvoiceId"
@@ -380,7 +380,7 @@ let beam06 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam06);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql beam06);;
 SELECT
   t0."CustomerId",
   COUNT(*)
@@ -442,7 +442,7 @@ let beam07 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam07);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql beam07);;
 SELECT
   t0."CustomerId",
   t0."LastName"
@@ -518,7 +518,7 @@ let beam08 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam08);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql beam08);;
 SELECT
   t0."CustomerId",
   t1."field_2"
@@ -593,7 +593,7 @@ let be09 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql be09);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql be09);;
 SELECT
   t0."InvoiceId",
   (COALESCE((
@@ -668,7 +668,7 @@ let beam10 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam10);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql beam10);;
 SELECT *
 FROM (
   SELECT *
@@ -742,7 +742,7 @@ let beam11 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam11);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql beam11);;
 SELECT DISTINCT
   t0."Country"
 FROM "Customer" AS t0
@@ -806,7 +806,7 @@ let beam12 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam12);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql beam12);;
 SELECT
   t0."CustomerId",
   t0."FirstName"
@@ -872,7 +872,7 @@ let beam13 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam13);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql beam13);;
 SELECT
   t0."Country",
   COUNT(DISTINCT t0."CustomerId")
@@ -948,7 +948,7 @@ let beam14 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam14);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql beam14);;
 WITH
   "c0" (
     "CustomerId",
@@ -1023,7 +1023,7 @@ let beam15 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam15);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql beam15);;
 SELECT
   t0."CustomerId",
   COALESCE(SUM(t0."Total"), $1)
@@ -1079,7 +1079,7 @@ let beam16 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam16);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql beam16);;
 SELECT
   t0."CustomerId",
   COUNT(t1."InvoiceId")
@@ -1126,7 +1126,7 @@ let beam17 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam17);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql beam17);;
 SELECT
   t0."CustomerId",
   (
@@ -1168,7 +1168,7 @@ let beam18 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam18);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql beam18);;
 SELECT
   t0."CustomerId",
   t0."FirstName",
@@ -1213,7 +1213,7 @@ let beam19 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam19);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql beam19);;
 SELECT
   t0."Country",
   COUNT(*)
@@ -1256,7 +1256,7 @@ let beam20 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql beam20);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql beam20);;
 UPDATE "Invoice"
 SET
   "Total" = $1

@@ -78,7 +78,11 @@ builder в готовый `Result_query.t`.
 `Statement.sql` возвращает канонический SQL без input: он читает заранее
 скомпилированный template и не запускает parameter getters. Если передать
 `~input`, getters и проверки параметров выполняются так же, как перед запуском
-через adapter. Значения в SQL не интерполируются:
+через adapter.
+
+`Statement.sql` и `Statement.sql_exn` принимают `postgresql`
+или `sqlite`; неподдерживаемый диалект отклоняется при
+проверке типов. Значения в SQL не интерполируются:
 
 Операторы с `$`, `Expr.constant`, `Insert.set` и `Update.set` захватывают
 константы времени создания statement. Меняющиеся между вызовами значения
@@ -118,7 +122,7 @@ portable dialect и адаптер выбирает нужный заранее 
 ```ocaml
 let sql =
   Statement.sql
-    ~dialect:Dialect.Postgresql
+    ~dialect:postgresql
     find_people
 ```
 

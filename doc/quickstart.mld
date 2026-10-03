@@ -227,9 +227,14 @@ Callback конструктора вызывается при инициализ
 {[
 let sql =
   Statement.sql
-    ~dialect:Dialect.Postgresql
+    ~dialect:postgresql
     Find_by_name.statement
 ]}
+
+[Statement.sql] и [Statement.sql_exn] принимают
+[postgresql] или [sqlite]. Тип statement
+разрешает только диалекты, для которых он был скомпилирован. Portable statement
+принимает оба селектора.
 
 Для статического statement input при просмотре SQL не нужен: возвращается
 заранее скомпилированный template с placeholders. Переданный [~input] также

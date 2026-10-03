@@ -104,7 +104,7 @@ let diesel01 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:"Sean" diesel01);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:"Sean" diesel01);;
 SELECT
   t0."id",
   t0."name"
@@ -157,7 +157,7 @@ let diesel02 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(1, "A%") diesel02);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:(1, "A%") diesel02);;
 SELECT
   t0."id",
   t0."name"
@@ -216,7 +216,7 @@ let diesel03 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(10, 20) diesel03);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:(10, 20) diesel03);;
 SELECT
   t0."id",
   t0."name"
@@ -265,7 +265,7 @@ let diesel04 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel04);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql diesel04);;
 SELECT
   t0."id",
   t1."title"
@@ -314,7 +314,7 @@ let diesel05 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel05);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql diesel05);;
 SELECT
   t0."id",
   t1."id"
@@ -371,7 +371,7 @@ let diesel06 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:1L diesel06);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:1L diesel06);;
 SELECT
   t0."id",
   COUNT(t1."id")
@@ -439,7 +439,7 @@ let diesel07 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:"Rust%" diesel07);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:"Rust%" diesel07);;
 SELECT
   t0."id",
   t0."name"
@@ -513,7 +513,7 @@ let diesel08 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:"Rust%" diesel08);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:"Rust%" diesel08);;
 SELECT
   t0."id",
   t0."name"
@@ -589,7 +589,7 @@ let diesel09 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(7, "Rust%") diesel09);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:(7, "Rust%") diesel09);;
 SELECT *
 FROM (
   SELECT
@@ -667,7 +667,7 @@ let diesel10 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel10);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql diesel10);;
 SELECT
   t0."id",
   t0."user_id",
@@ -725,7 +725,7 @@ let diesel11 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel11);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql diesel11);;
 SELECT DISTINCT
   t0."user_id"
 FROM "posts" AS t0
@@ -784,7 +784,7 @@ let diesel12 =
 #### SQL typed-sql (PostgreSQL, оба фильтра)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(Some "Draft%", Some 10) diesel12);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:(Some "Draft%", Some 10) diesel12);;
 SELECT
   t0."id",
   t0."title"
@@ -801,7 +801,7 @@ ORDER BY
 #### SQL typed-sql (PostgreSQL, фильтров нет)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(None, None) diesel12);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:(None, None) diesel12);;
 SELECT
   t0."id",
   t0."title"
@@ -866,7 +866,7 @@ let diesel13 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel13);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql diesel13);;
 INSERT INTO "posts" AS t0 (
   "id",
   "user_id",
@@ -927,7 +927,7 @@ let diesel14 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel14);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql diesel14);;
 UPDATE "posts"
 SET
   "title" = $1
@@ -981,7 +981,7 @@ let diesel15 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel15);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql diesel15);;
 DELETE FROM "posts"
 WHERE
   ("title" LIKE $1)
@@ -1036,7 +1036,7 @@ let diesel16 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel16);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql diesel16);;
 SELECT
   t0."id",
   COUNT(t1."id")
@@ -1083,7 +1083,7 @@ let diesel17 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel17);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql diesel17);;
 SELECT
   t0."id",
   t0."user_id",
@@ -1131,7 +1131,7 @@ let diesel18 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel18);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql diesel18);;
 SELECT
   t0."id",
   t0."name"
@@ -1173,7 +1173,7 @@ let diesel19 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel19);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql diesel19);;
 DELETE FROM "posts"
 WHERE
   ("title" LIKE $1)
@@ -1205,7 +1205,7 @@ let diesel20 = Statement.query_many ~dialect:Dialect.portable (Query.intersect d
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql diesel20);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql diesel20);;
 SELECT *
 FROM (
   SELECT

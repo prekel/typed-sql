@@ -13,7 +13,7 @@ let postgresql = Statement.query_many ~dialect:Dialect.postgresql query
 let sqlite =
   Statement.with_parameters
     ~dialect:Dialect.sqlite
-    (fun ~(params : (int, Dialect.sqlite) Statement.parameters) ->
+    (fun ~(params : (int, Dialect.sqlite, [ `Sqlite ]) Statement.parameters) ->
        Statement.Parameters.return (params.query_many query))
 ;;
 

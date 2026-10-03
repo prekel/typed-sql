@@ -99,7 +99,7 @@ let sqlalchemy01 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:"sandy" sqlalchemy01);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:"sandy" sqlalchemy01);;
 SELECT
   t0."id",
   t0."name"
@@ -160,7 +160,7 @@ let sqlalchemy02 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:("sandy", "spongebob", 1L) sqlalchemy02);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:("sandy", "spongebob", 1L) sqlalchemy02);;
 SELECT
   t0."id"
 FROM "user_account" AS t0
@@ -230,7 +230,7 @@ let sqlalchemy03 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:(10, 20) sqlalchemy03);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:(10, 20) sqlalchemy03);;
 SELECT
   t0."id",
   t0."name"
@@ -282,7 +282,7 @@ let sqlalchemy04 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy04);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy04);;
 SELECT
   t0."name",
   t1."email_address"
@@ -331,7 +331,7 @@ let sqlalchemy05 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy05);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy05);;
 SELECT
   t0."name",
   t1."email_address"
@@ -383,7 +383,7 @@ let sqlalchemy06 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy06);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy06);;
 SELECT
   t0."user_id",
   COUNT(*)
@@ -442,7 +442,7 @@ let sqlalchemy07 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy07);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy07);;
 SELECT
   t0."id",
   (
@@ -500,7 +500,7 @@ let sqlalchemy08 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy08);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy08);;
 SELECT
   t0."id",
   t0."name"
@@ -568,7 +568,7 @@ let sqlalchemy09 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy09);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy09);;
 SELECT
   t0."field_1",
   t0."field_2"
@@ -640,7 +640,7 @@ let sqlalchemy10 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy10);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy10);;
 WITH
   "c0" (
     "id",
@@ -694,7 +694,7 @@ let sqlalchemy11 = Statement.query_many ~dialect:Dialect.portable (Query.union s
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy11);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy11);;
 SELECT *
 FROM (
   SELECT
@@ -783,7 +783,7 @@ let sqlalchemy13 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy13);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy13);;
 INSERT INTO "user_account" (
   "name"
 )
@@ -847,7 +847,7 @@ let sqlalchemy14 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy14);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy14);;
 UPDATE "user_account" AS t0
 SET
   "fullname" = (
@@ -900,7 +900,7 @@ let sqlalchemy15 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy15);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy15);;
 DELETE FROM "address"
 WHERE
   ("user_id" = $1)
@@ -937,7 +937,7 @@ let sqlalchemy16 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy16);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy16);;
 SELECT DISTINCT
   t0."user_id"
 FROM "address" AS t0
@@ -975,7 +975,7 @@ let sqlalchemy17 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy17);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy17);;
 SELECT
   t0."id"
 FROM "user_account" AS t0
@@ -1016,7 +1016,7 @@ let sqlalchemy18 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy18);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy18);;
 SELECT
   t0."id"
 FROM "user_account" AS t0
@@ -1054,7 +1054,7 @@ let sqlalchemy19 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy19);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy19);;
 SELECT
   t0."id"
 FROM "address" AS t0
@@ -1096,7 +1096,7 @@ let sqlalchemy20 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy20);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy20);;
 SELECT
   t0."id",
   (CASE
@@ -1143,7 +1143,7 @@ let sqlalchemy21 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy21);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy21);;
 SELECT
   t0."id",
   t0."email_address"
@@ -1192,7 +1192,7 @@ let sqlalchemy22 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy22);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy22);;
 SELECT
   t0."name",
   t1."name"
@@ -1235,7 +1235,7 @@ let sqlalchemy23 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy23);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy23);;
 SELECT
   t0."id",
   t1."id"
@@ -1284,7 +1284,7 @@ let sqlalchemy24 = Statement.query_many ~dialect:Dialect.portable (Query.union_a
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy24);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy24);;
 SELECT *
 FROM (
   SELECT
@@ -1363,7 +1363,7 @@ let sqlalchemy25 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy25);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy25);;
 SELECT
   t0."id",
   (
@@ -1412,7 +1412,7 @@ let sqlalchemy26 = Statement.query_many ~dialect:Dialect.portable (Query.union_a
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy26);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy26);;
 SELECT *
 FROM (
   SELECT
@@ -1467,7 +1467,7 @@ let sqlalchemy27 = Statement.query_many ~dialect:Dialect.portable (Query.interse
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy27);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy27);;
 SELECT *
 FROM (
   SELECT
@@ -1520,7 +1520,7 @@ let sqlalchemy28 = Statement.query_many ~dialect:Dialect.portable (Query.except 
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy28);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy28);;
 SELECT *
 FROM (
   SELECT
@@ -1628,7 +1628,7 @@ let sqlalchemy30 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy30);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy30);;
 WITH RECURSIVE
   "c0" (
     "field_1"
@@ -1685,7 +1685,7 @@ let sqlalchemy31 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy31);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy31);;
 INSERT INTO "user_account" (
   "name",
   "fullname"
@@ -1744,7 +1744,7 @@ let sqlalchemy32 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:("sandy@example.com", "sandy") sqlalchemy32);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:("sandy@example.com", "sandy") sqlalchemy32);;
 INSERT INTO "address" (
   "user_id",
   "email_address"
@@ -1799,7 +1799,7 @@ let sqlalchemy33 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy33);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy33);;
 UPDATE "user_account" AS t0
 SET
   "fullname" = t1."email_address"
@@ -1852,7 +1852,7 @@ let sqlalchemy34 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy34);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy34);;
 DELETE FROM "address"
 WHERE
   (EXISTS (
@@ -1908,7 +1908,7 @@ let sqlalchemy35 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy35);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy35);;
 INSERT INTO "user_account" AS t0 (
   "name",
   "fullname"
@@ -1964,7 +1964,7 @@ let sqlalchemy36 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy36);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy36);;
 SELECT
   t0."id",
   t0."name"
@@ -2032,7 +2032,7 @@ let sqlalchemy37 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy37);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy37);;
 SELECT
   t0."id",
   COUNT(t1."id")
@@ -2111,7 +2111,7 @@ let sqlalchemy38 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy38);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy38);;
 SELECT
   t1."name",
   t0."email_address"
@@ -2183,7 +2183,7 @@ let sqlalchemy39 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql ~input:10 sqlalchemy39);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql ~input:10 sqlalchemy39);;
 SELECT
   t0."id",
   t0."name"
@@ -2278,7 +2278,7 @@ let sqlalchemy41 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy41);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy41);;
 SELECT
   t0."id",
   t0."name"
@@ -2338,7 +2338,7 @@ let sqlalchemy42 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy42);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy42);;
 SELECT
   t0."id"
 FROM "user_account" AS t0
@@ -2406,7 +2406,7 @@ let sqlalchemy43 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy43);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy43);;
 SELECT
   t0."id",
   COALESCE((
@@ -2453,7 +2453,7 @@ let sqlalchemy44 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy44);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy44);;
 SELECT
   t0."id",
   COUNT(t1."id")
@@ -2498,7 +2498,7 @@ let sqlalchemy45 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy45);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy45);;
 SELECT
   t0."name",
   t0."id"
@@ -2548,7 +2548,7 @@ let sqlalchemy46 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy46);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy46);;
 UPDATE "user_account" AS t0
 SET
   "fullname" = t1."email_address"
@@ -2595,7 +2595,7 @@ let sqlalchemy47 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy47);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy47);;
 INSERT INTO "user_account" AS t0 (
   "name",
   "fullname"
@@ -2639,7 +2639,7 @@ let sqlalchemy48 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy48);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy48);;
 DELETE FROM "address"
 WHERE
   (
@@ -2676,7 +2676,7 @@ let sqlalchemy49 = Statement.query_many ~dialect:Dialect.portable (Query.except 
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy49);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy49);;
 SELECT *
 FROM (
   SELECT *
@@ -2741,7 +2741,7 @@ let sqlalchemy50 =
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Dialect.Postgresql sqlalchemy50);;
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:postgresql sqlalchemy50);;
 SELECT
   t0."id",
   COUNT(t1."id")
