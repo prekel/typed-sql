@@ -267,11 +267,15 @@ let%test_module "SELECT validator diagnostics" =
     ;;
 
     let first : A.join =
-      { kind = A.Inner; source = source 1; on = A.Compare (A.Eq, column 0, column 1) }
+      { source = source 1
+      ; operation = A.Predicate (A.Inner, A.Compare (A.Eq, column 0, column 1))
+      }
     ;;
 
     let second : A.join =
-      { kind = A.Left; source = source 2; on = A.Compare (A.Eq, column 1, column 2) }
+      { source = source 2
+      ; operation = A.Predicate (A.Left, A.Compare (A.Eq, column 1, column 2))
+      }
     ;;
 
     let%test_unit "valid multi-join scope" =
@@ -283,7 +287,12 @@ let%test_module "SELECT validator diagnostics" =
 
     let%expect_test "invalid JOIN scope" =
       validate
-        { select with joins = [ { first with on = A.Is_not_null (column 2) }; second ] };
+        { select with
+          joins =
+            [ { first with operation = A.Predicate (A.Inner, A.Is_not_null (column 2)) }
+            ; second
+            ]
+        };
       [%expect {| expression references source #2, but the visible sources are 0, 1 |}]
     ;;
   end)
@@ -592,7 +601,7 @@ let%test_module "recursive CTE self-reference validation" =
           A.Simple
             { select with
               source = direct_self
-            ; joins = [ { kind = A.Inner; source; on = A.True } ]
+            ; joins = [ { source; operation = A.Predicate (A.Inner, A.True) } ]
             ; projection = [ column direct_self.source_id ]
             }
       }
@@ -1085,7 +1094,7 @@ let%test_module "lowering capability traversal" =
 
     let complete_select =
       { select with
-        joins = [ { A.kind = A.Inner; source = source 1; on = condition } ]
+        joins = [ { A.source = source 1; operation = A.Predicate (A.Inner, condition) } ]
       ; projection = [ expression ]
       ; where_ = Some condition
       ; group_by = [ expression ]
@@ -1242,7 +1251,11 @@ let%test_module "lowering capability traversal" =
       Lower.select_has_unsupported_having
         ~dialect:Dialect.Sqlite
         { select with
-          joins = [ { A.kind = A.Inner; source = source 1; on = A.Exists nested_select } ]
+          joins =
+            [ { A.source = source 1
+              ; operation = A.Predicate (A.Inner, A.Exists nested_select)
+              }
+            ]
         ; projection = []
         }
     ;;

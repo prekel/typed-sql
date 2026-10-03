@@ -622,23 +622,22 @@ and render_source ?(lateral = false) ~aliases (source : Ast.source) state =
     , state )
 
 and render_join ?(lateral = false) ~aliases (join : Ast.join) state =
-  let kind =
-    match join.Ast.kind with
-    | Ast.Inner -> text "INNER JOIN "
-    | Ast.Left -> text "LEFT JOIN "
+  let kind, condition =
+    match join.Ast.operation with
+    | Ast.Cross -> text "CROSS JOIN ", None
+    | Ast.Predicate (Ast.Inner, on) -> text "INNER JOIN ", Some on
+    | Ast.Predicate (Ast.Left, on) -> text "LEFT JOIN ", Some on
   in
   let alias = alias_for aliases join.source.source_id in
   let source, state = render_source ~lateral ~aliases join.source state in
-  let on, state = render_condition ~aliases join.on state in
-  ( concat
-      [ break " "
-      ; kind
-      ; source
-      ; text " AS "
-      ; text alias
-      ; nest (concat [ break " "; text "ON "; on ])
-      ]
-  , state )
+  let on, state =
+    match condition with
+    | None -> Template.Empty, state
+    | Some condition ->
+      let on, state = render_condition ~aliases condition state in
+      nest (concat [ break " "; text "ON "; on ]), state
+  in
+  concat [ break " "; kind; source; text " AS "; text alias; on ], state
 
 and render_joins ?(lateral = false) ~aliases joins state =
   match joins with

@@ -162,12 +162,19 @@ let from_cte_relation cte =
   }
 ;;
 
+let cross_join table query =
+  let reference = Table_ref.create table in
+  let join = { Ast.source = source_of_reference reference; operation = Ast.Cross } in
+  { context = query.context, reference
+  ; ast = { query.ast with joins = query.ast.joins @ [ join ] }
+  }
+;;
+
 let inner_join table ~on query =
   let reference = Table_ref.create table in
   let join =
-    { Ast.kind = Ast.Inner
-    ; source = source_of_reference reference
-    ; on = on query.context reference |> Condition.node
+    { Ast.source = source_of_reference reference
+    ; operation = Ast.Predicate (Ast.Inner, on query.context reference |> Condition.node)
     }
   in
   { context = query.context, reference
@@ -178,9 +185,8 @@ let inner_join table ~on query =
 let left_join table ~on query =
   let reference = Table_ref.create table in
   let join =
-    { Ast.kind = Ast.Left
-    ; source = source_of_reference reference
-    ; on = on query.context reference |> Condition.node
+    { Ast.source = source_of_reference reference
+    ; operation = Ast.Predicate (Ast.Left, on query.context reference |> Condition.node)
     }
   in
   { context = query.context, Nullable_table_ref.of_table_ref reference
@@ -191,9 +197,8 @@ let left_join table ~on query =
 let join_source kind ~table ~source ~on query =
   let reference = Table_ref.create table in
   let join =
-    { Ast.kind
-    ; source = source reference
-    ; on = on query.context reference |> Condition.node
+    { Ast.source = source reference
+    ; operation = Ast.Predicate (kind, on query.context reference |> Condition.node)
     }
   in
   reference, { query with ast = { query.ast with joins = query.ast.joins @ [ join ] } }
@@ -227,12 +232,11 @@ let join_relation kind relation ~on query =
   let reference = Derived_table.inferred_reference relation in
   let fields = Derived_table.inferred_fields relation reference in
   let join =
-    { Ast.kind
-    ; source =
+    { Ast.source =
         { Ast.source_id = Table_ref.source_id reference
         ; kind = Ast.Derived (Derived_table.inferred_relation relation)
         }
-    ; on = on query.context fields |> Condition.node
+    ; operation = Ast.Predicate (kind, on query.context fields |> Condition.node)
     }
   in
   reference, { query with ast = { query.ast with joins = query.ast.joins @ [ join ] } }
@@ -304,9 +308,8 @@ let join_cte_relation kind cte ~on query =
   let reference = Cte.inferred_reference cte in
   let fields = Cte.inferred_fields cte reference in
   let join =
-    { Ast.kind
-    ; source = source_of_inferred_cte reference cte
-    ; on = on query.context fields |> Condition.node
+    { Ast.source = source_of_inferred_cte reference cte
+    ; operation = Ast.Predicate (kind, on query.context fields |> Condition.node)
     }
   in
   ( reference
@@ -572,6 +575,7 @@ module Aggregate = struct
   let from_values = from_values
   let from_cte = from_cte
   let from_cte_relation = from_cte_relation
+  let cross_join = cross_join
   let inner_join = inner_join
   let left_join = left_join
   let inner_join_derived = inner_join_derived

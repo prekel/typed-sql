@@ -151,6 +151,30 @@ module Number = struct
   let value reference = Expr.column reference value_column
 end
 
+module Cross_left = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "cross_join_left"
+  let value_column = Column.v_exn table "value" Db_type.int
+  let value reference = Expr.column reference value_column
+end
+
+module Cross_right = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "cross_join_right"
+  let value_column = Column.v_exn table "value" Db_type.int
+  let value reference = Expr.column reference value_column
+end
+
+module Cross_empty = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "cross_join_empty"
+  let value_column = Column.v_exn table "value" Db_type.int
+  let value reference = Expr.column reference value_column
+end
+
 module Directory = struct
   type row
 
@@ -560,6 +584,63 @@ let run conn =
       ()
     |> caqti_or_fail
   in
+  let* () =
+    Connection.exec (direct "CREATE TABLE cross_join_left (value INTEGER NOT NULL)") ()
+    |> caqti_or_fail
+  in
+  let* () =
+    Connection.exec (direct "CREATE TABLE cross_join_right (value INTEGER NOT NULL)") ()
+    |> caqti_or_fail
+  in
+  let* () =
+    Connection.exec (direct "CREATE TABLE cross_join_empty (value INTEGER NOT NULL)") ()
+    |> caqti_or_fail
+  in
+  let* () =
+    Connection.exec (direct "INSERT INTO cross_join_left (value) VALUES (1), (2)") ()
+    |> caqti_or_fail
+  in
+  let* () =
+    Connection.exec
+      (direct "INSERT INTO cross_join_right (value) VALUES (10), (20), (30)")
+      ()
+    |> caqti_or_fail
+  in
+  let cross_product =
+    Query.(
+      from Cross_left.table
+      |> cross_join Cross_right.table
+      |> order_by (fun (left, _right) -> Cross_left.value left) `Asc
+      |> order_by (fun (_left, right) -> Cross_right.value right) `Asc
+      |> select (fun (left, right) ->
+        Projection.pair (Cross_left.value left) (Cross_right.value right)))
+  in
+  let* cross_product =
+    Typed_sql_caqti_lwt.fetch ~conn cross_product >>= adapter_or_fail
+  in
+  let equal_cross_pair (left_value, right_value) (expected_left, expected_right) =
+    Int.equal left_value expected_left && Int.equal right_value expected_right
+  in
+  if
+    not
+      (List.equal
+         equal_cross_pair
+         cross_product
+         [ 1, 10; 1, 20; 1, 30; 2, 10; 2, 20; 2, 30 ])
+  then
+    failwith "CROSS JOIN did not return the Cartesian product";
+  let empty_cross_product =
+    Query.(
+      from Cross_empty.table
+      |> cross_join Cross_right.table
+      |> select (fun (left, right) ->
+        Projection.pair (Cross_empty.value left) (Cross_right.value right)))
+  in
+  let* empty_rows =
+    Typed_sql_caqti_lwt.fetch ~conn empty_cross_product >>= adapter_or_fail
+  in
+  if not (List.is_empty empty_rows) then
+    failwith "CROSS JOIN with an empty source returned rows";
   let optional_id_statement =
     Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
       Statement.Parameters.map

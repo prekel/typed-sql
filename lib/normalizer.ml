@@ -157,9 +157,11 @@ and normalize_select (select : Ast.select) =
         { order with Ast.expr = normalize_expr order.expr })
   ; joins =
       List.map select.joins ~f:(fun (join : Ast.join) ->
-        { join with
-          Ast.source = normalize_source join.source
-        ; on = normalize_condition join.on
+        { Ast.source = normalize_source join.source
+        ; operation =
+            (match join.operation with
+             | Ast.Cross -> Ast.Cross
+             | Ast.Predicate (kind, on) -> Ast.Predicate (kind, normalize_condition on))
         })
   }
 

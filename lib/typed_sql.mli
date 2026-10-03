@@ -1068,6 +1068,9 @@ module Query : sig
     (** Start with a CTE visible in the current lexical scope. *)
     val from_cte : 'row Cte.t -> ('row Table_ref.t, 'r) t
 
+    (** Append a cross join to a table. *)
+    val cross_join : 'row Table.t -> ('ctx, 'r) t -> ('ctx * 'row Table_ref.t, 'r) t
+
     (** Add an inner join to a table; [on] sees both the old and new sources. *)
     val inner_join
       :  'row Table.t
@@ -1315,6 +1318,13 @@ module Query : sig
     :  ('a, 'requirements) Expr.t
     -> ('a, 'requirements) Scalar_query.t
     -> 'requirements Condition.t
+
+  (** Append a [CROSS JOIN] to a table. The new source is a regular reference;
+      the current cardinality bound is preserved. *)
+  val cross_join
+    :  'row Table.t
+    -> ('ctx, 'grouping, 'cardinality, 'requirements) t
+    -> ('ctx * 'row Table_ref.t, 'grouping, 'cardinality, 'requirements) t
 
   (** Append an [INNER JOIN]. The [on] callback sees the existing context and a
       regular reference to the newly joined table. Any existing cardinality

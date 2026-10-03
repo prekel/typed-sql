@@ -344,7 +344,6 @@ LEFT JOIN "Posts" AS t1
 - Реализуемость: ✓
 - Семантика: ✓
 - Без доработок typed-sql: ✓
-- Замечание: `INNER JOIN ... ON TRUE` вместо `CROSS JOIN`; строки совпадают.
 - Источник: [SelectMany without outer reference](https://learn.microsoft.com/en-us/ef/core/querying/complex-query-operators#collection-selector-doesnt-reference-outer).
 - Проверяет: декартово произведение двух источников.
 
@@ -363,14 +362,14 @@ var query =
 
 #### OCaml (typed-sql)
 
-В текущем DSL нет отдельного cross_join. Условие TRUE даёт то же декартово множество строк, но компилятор выводит INNER JOIN ... ON TRUE.
+`cross_join` добавляет второй табличный источник без условия соединения.
 
 ```ocaml
 let ef05 =
   Statement.query_many ~dialect:Dialect.portable (
     Query.(
       from Blog.table
-      |> inner_join Post.table ~on:(fun _blog _post -> Condition.true_)
+      |> cross_join Post.table
       |> select (fun (blog, post) ->
         Projection.pair (Blog.id blog) (Post.id post))))
 ```
@@ -383,8 +382,7 @@ SELECT
   t0."BlogId",
   t1."PostId"
 FROM "Blogs" AS t0
-INNER JOIN "Posts" AS t1
-  ON TRUE
+CROSS JOIN "Posts" AS t1
 ```
 
 ### EF-06. Коррелированный selector как JOIN

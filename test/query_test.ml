@@ -1139,6 +1139,55 @@ let left_join_query =
         (Projection.expr (Department.nullable_name department))))
 ;;
 
+let cross_join_query =
+  Query.(
+    from Person.table
+    |> cross_join Department.table
+    |> select (fun (person, department) ->
+      Projection.pair (Person.id person) (Department.name department)))
+;;
+
+let%expect_test "cross join renders without ON in PostgreSQL" =
+  cross_join_query
+  |> compile_exn Dialect.Postgresql
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      t0."id",
+      t1."name"
+    FROM "public"."people" AS t0
+    CROSS JOIN "public"."departments" AS t1
+    |}]
+;;
+
+let%expect_test "cross join renders without ON in SQLite" =
+  cross_join_query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> Stdlib.print_endline;
+  [%expect
+    {|
+    SELECT
+      t0."id",
+      t1."name"
+    FROM "public"."people" AS t0
+    CROSS JOIN "public"."departments" AS t1
+    |}]
+;;
+
+let%test "aggregate builder accepts cross join" =
+  let query =
+    Query.Aggregate.(from Person.table |> cross_join Department.table)
+    |> Query.aggregate_one (fun _ -> Aggregate_projection.count_all)
+  in
+  query
+  |> compile_exn Dialect.Sqlite
+  |> Compiled_query.sql
+  |> String.is_substring ~substring:"CROSS JOIN"
+;;
+
 let%expect_test "inner joins use deterministic aliases" =
   inner_join_query
   |> compile_exn Dialect.Postgresql

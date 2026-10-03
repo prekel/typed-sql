@@ -119,9 +119,11 @@ and select ~dialect (select : Ast.select) =
   ; projection = List.map select.projection ~f:(expression ~dialect)
   ; joins =
       List.map select.joins ~f:(fun (join : Ast.join) ->
-        { join with
-          Ast.source = source ~dialect join.source
-        ; on = condition ~dialect join.on
+        { Ast.source = source ~dialect join.source
+        ; operation =
+            (match join.operation with
+             | Ast.Cross -> Ast.Cross
+             | Ast.Predicate (kind, on) -> Ast.Predicate (kind, condition ~dialect on))
         })
   ; where_ = Option.map select.where_ ~f:(condition ~dialect)
   ; group_by = List.map select.group_by ~f:(expression ~dialect)
@@ -298,7 +300,9 @@ and select_has_unsupported_having ~dialect (select : Ast.select) =
   this_select
   || List.exists select.projection ~f:(expression_has_unsupported_having ~dialect)
   || List.exists select.joins ~f:(fun join ->
-    condition_has_unsupported_having ~dialect join.on)
+    match join.Ast.operation with
+    | Ast.Cross -> false
+    | Ast.Predicate (_, on) -> condition_has_unsupported_having ~dialect on)
   || Option.value_map
        select.where_
        ~default:false
@@ -445,7 +449,9 @@ and sqlite_unsupported_select (select : Ast.select) =
     ; List.find_map select.joins ~f:(fun join ->
         first_unsupported
           [ sqlite_unsupported_source join.Ast.source
-          ; sqlite_unsupported_condition join.Ast.on
+          ; (match join.Ast.operation with
+             | Ast.Cross -> None
+             | Ast.Predicate (_, on) -> sqlite_unsupported_condition on)
           ])
     ; List.find_map select.projection ~f:sqlite_unsupported_expression
     ; Option.bind select.where_ ~f:sqlite_unsupported_condition

@@ -147,10 +147,13 @@ and join_kind =
   | Inner
   | Left
 
+and join_operation =
+  | Cross
+  | Predicate of join_kind * condition
+
 and join =
-  { kind : join_kind
-  ; source : source
-  ; on : condition
+  { source : source
+  ; operation : join_operation
   }
 
 and locking =

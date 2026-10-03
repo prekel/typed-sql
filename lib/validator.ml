@@ -131,7 +131,11 @@ let validate_joins ~validate_subquery ~outer_visible source_id (joins : Ast.join
     | (join : Ast.join) :: rest ->
       let visible = visible @ [ join.Ast.source.source_id ] in
       let open Result.Let_syntax in
-      let%bind () = validate_condition ~validate_subquery ~visible join.on in
+      let%bind () =
+        match join.operation with
+        | Ast.Cross -> Ok ()
+        | Ast.Predicate (_, on) -> validate_condition ~validate_subquery ~visible on
+      in
       loop visible rest
   in
   loop (outer_visible @ [ source_id ]) joins
@@ -389,9 +393,9 @@ let validate_locking (select : Ast.select) ~aggregate_query =
         (select.source, false)
         :: List.map select.joins ~f:(fun join ->
           ( join.Ast.source
-          , match join.kind with
-            | Ast.Inner -> false
-            | Ast.Left -> true ))
+          , match join.operation with
+            | Ast.Cross | Ast.Predicate (Ast.Inner, _) -> false
+            | Ast.Predicate (Ast.Left, _) -> true ))
       in
       let%bind targets =
         match locking.of_sources with
@@ -477,7 +481,9 @@ let validate_select_with
     let%bind () =
       List.fold select.joins ~init:(Ok ()) ~f:(fun result join ->
         let%bind () = result in
-        ensure_no_aggregate "JOIN ON" join.Ast.on)
+        match join.Ast.operation with
+        | Ast.Cross -> Ok ()
+        | Ast.Predicate (_, on) -> ensure_no_aggregate "JOIN ON" on)
     in
     let%bind () = validate_expressions ~validate_subquery ~visible select.projection in
     let%bind () =
