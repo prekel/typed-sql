@@ -897,7 +897,7 @@ module Result_query : sig
   (** Marker for a completed SELECT. *)
   type select
 
-  (** Marker for a completed INSERT, UPDATE, or DELETE with [RETURNING]. *)
+  (** Marker for a completed INSERT, UPDATE, DELETE, or MERGE with [RETURNING]. *)
   type returning
 
   (** A deferred statement that returns decoded rows. ['cardinality] records a
@@ -908,7 +908,7 @@ end
 
 (** Finished statements that return only an affected-row result. *)
 module Command : sig
-  (** A deferred INSERT, UPDATE, or DELETE statement without returned rows. *)
+  (** A deferred INSERT, UPDATE, DELETE, or MERGE statement without returned rows. *)
   type +'requirements t
 end
 
@@ -1090,15 +1090,17 @@ module Cte : sig
           -> ('fields, 'nullable_fields, 'requirements) Derived_table.inferred)
     -> (('fields, 'nullable_fields, 'requirements) inferred, 'requirements) definition
 
-  (** Attach a CTE to a SELECT or a DML statement with [RETURNING]. The
-      callback receives the CTE handle in lexical scope. The result cardinality
-      proof is preserved. *)
+  (** Attach a CTE to a SELECT or a DML statement with [RETURNING], including
+      MERGE on PostgreSQL 17 or later. The callback receives the CTE handle in
+      lexical scope. The result cardinality proof is preserved. An outer WITH
+      for MERGE cannot be recursive; put recursion inside its derived source. *)
   val with_result
     :  ('handle, 'requirements) definition
     -> f:('handle -> ('result, 'kind, 'cardinality, 'requirements) Result_query.t)
     -> ('result, 'kind, 'cardinality, 'requirements) Result_query.t
 
-  (** Attach a CTE to an INSERT, UPDATE, or DELETE command. *)
+  (** Attach a CTE to an INSERT, UPDATE, DELETE, or MERGE command. MERGE
+      requires PostgreSQL 17 or later; its outer WITH cannot be recursive. *)
   val with_command
     :  ('handle, 'requirements) definition
     -> f:('handle -> 'requirements Command.t)
@@ -1993,6 +1995,189 @@ module Delete : sig
     -> ('result, Result_query.returning, Cardinality.many, 'requirements) Result_query.t
 end
 
+(** Immutable MERGE builders for PostgreSQL 17 or later. A MERGE compiles to
+    one atomic statement; its concurrent behavior remains PostgreSQL's MERGE
+    behavior. The compiler checks source scope, target assignments, and branch
+    reachability. SQLite is excluded by the requirement established by [into]. *)
+module Merge : sig
+  (** Marker for a builder awaiting its sole USING source. *)
+  type without_source
+
+  (** Marker for a builder awaiting its ON condition. *)
+  type without_on
+
+  (** Marker for a builder whose USING source and ON condition are established. *)
+  type ready
+
+  (** ['source_ctx] retains the source reference or inferred field structure
+      for [returning]. Only [ready] builders can accept branches or finish. *)
+  type ('row, 'source_ctx, 'stage, +'requirements) t
+
+  (** Typed assignments for one UPDATE or INSERT branch. Compilation checks
+      that descriptors belong to the target, columns are distinct, and at
+      least one assignment exists. *)
+  module Assignments : sig
+    type ('row, +'requirements) t
+
+    (** Start an assignment list. *)
+    val empty : ('row, 'requirements) t
+
+    (** Append an OCaml value captured as a bind parameter. *)
+    val set
+      :  ('row, 'base, 'value) Column.t
+      -> 'value
+      -> ('row, 'requirements) t
+      -> ('row, 'requirements) t
+
+    (** Append an expression with the target column's value type and
+        nullability. UPDATE sees target and source; INSERT sees only source,
+        including references inside scalar subqueries. *)
+    val set_expr
+      :  ('row, 'base, 'value) Column.t
+      -> ('value, 'requirements) Expr.t
+      -> ('row, 'requirements) t
+      -> ('row, 'requirements) t
+
+    (** Assign SQL DEFAULT without constructing an OCaml value. *)
+    val default
+      :  ('row, 'base, 'value) Column.t
+      -> ('row, 'requirements) t
+      -> ('row, 'requirements) t
+  end
+
+  (** Start with a base-table target. USING and ON must be established before
+      finalization; an empty branch list is a compilation error. *)
+  val into : 'row Table.t -> ('row, unit, without_source, [> `Not_sqlite ]) t
+
+  (** Establish the sole source table. The callback receives the target,
+      source, and builder awaiting ON, and returns a ready builder. *)
+  val using
+    :  'source Table.t
+    -> f:
+         ('row Table_ref.t
+          -> 'source Table_ref.t
+          -> ('row, 'source Table_ref.t, without_on, 'requirements) t
+          -> ('row, 'source Table_ref.t, ready, 'requirements) t)
+    -> ('row, unit, without_source, 'requirements) t
+    -> ('row, 'source Table_ref.t, ready, 'requirements) t
+
+  (** Establish a descriptor-based derived source independent of the target.
+      Its SELECT may contain its own CTEs, including recursive CTEs. *)
+  val using_derived
+    :  ('source, 'requirements) Derived_table.t
+    -> f:
+         ('row Table_ref.t
+          -> 'source Table_ref.t
+          -> ('row, 'source Table_ref.t, without_on, 'requirements) t
+          -> ('row, 'source Table_ref.t, ready, 'requirements) t)
+    -> ('row, unit, without_source, 'requirements) t
+    -> ('row, 'source Table_ref.t, ready, 'requirements) t
+
+  (** Establish a source built by [Query.select_relation], exposing its
+      inferred field structure to the callback. *)
+  val using_relation
+    :  ('fields, 'nullable_fields, 'requirements) Derived_table.inferred
+    -> f:
+         ('row Table_ref.t
+          -> 'fields
+          -> ('row, 'fields, without_on, 'requirements) t
+          -> ('row, 'fields, ready, 'requirements) t)
+    -> ('row, unit, without_source, 'requirements) t
+    -> ('row, 'fields, ready, 'requirements) t
+
+  (** Establish typed VALUES as the source; cells remain bind parameters. *)
+  val using_values
+    :  ('source, 'requirements) Values.t
+    -> f:
+         ('row Table_ref.t
+          -> 'source Table_ref.t
+          -> ('row, 'source Table_ref.t, without_on, 'requirements) t
+          -> ('row, 'source Table_ref.t, ready, 'requirements) t)
+    -> ('row, unit, without_source, 'requirements) t
+    -> ('row, 'source Table_ref.t, ready, 'requirements) t
+
+  (** Establish a CTE source in the lexical scope of [Cte.with_command] or
+      [Cte.with_result]. This references its definition without attaching it. *)
+  val using_cte
+    :  'source Cte.t
+    -> f:
+         ('row Table_ref.t
+          -> 'source Table_ref.t
+          -> ('row, 'source Table_ref.t, without_on, 'requirements) t
+          -> ('row, 'source Table_ref.t, ready, 'requirements) t)
+    -> ('row, unit, without_source, 'requirements) t
+    -> ('row, 'source Table_ref.t, ready, 'requirements) t
+
+  (** Establish a CTE source with inferred fields. The WITH attached directly
+      to MERGE cannot be recursive; an enclosing SELECT may supply a recursive
+      handle to a MERGE CTE body. *)
+  val using_cte_relation
+    :  ('fields, 'nullable_fields, 'requirements) Cte.inferred
+    -> f:
+         ('row Table_ref.t
+          -> 'fields
+          -> ('row, 'fields, without_on, 'requirements) t
+          -> ('row, 'fields, ready, 'requirements) t)
+    -> ('row, unit, without_source, 'requirements) t
+    -> ('row, 'fields, ready, 'requirements) t
+
+  (** Set the match condition. It sees target and source and may be supplied
+      exactly once. FALSE and NULL both mean that the source row is unmatched. *)
+  val on
+    :  'requirements Condition.t
+    -> ('row, 'source_ctx, without_on, 'requirements) t
+    -> ('row, 'source_ctx, ready, 'requirements) t
+
+  (** Append a matched UPDATE. Branches are considered in the order added and
+      only the first applicable branch runs. The condition sees both sources.
+      A branch without [condition] must be the last of its matched kind. *)
+  val when_matched_update
+    :  ?condition:'requirements Condition.t
+    -> ('row, 'requirements) Assignments.t
+    -> ('row, 'source_ctx, ready, 'requirements) t
+    -> ('row, 'source_ctx, ready, 'requirements) t
+
+  (** Append a matched DELETE with an optional condition on target and source. *)
+  val when_matched_delete
+    :  ?condition:'requirements Condition.t
+    -> ('row, 'source_ctx, ready, 'requirements) t
+    -> ('row, 'source_ctx, ready, 'requirements) t
+
+  (** Append a matched action which changes no row. *)
+  val when_matched_do_nothing
+    :  ?condition:'requirements Condition.t
+    -> ('row, 'source_ctx, ready, 'requirements) t
+    -> ('row, 'source_ctx, ready, 'requirements) t
+
+  (** Append an unmatched INSERT. Its condition and values see only source;
+      target references, including inside subqueries, are compilation errors.
+      A branch without [condition] must be the last of its unmatched kind. *)
+  val when_not_matched_insert
+    :  ?condition:'requirements Condition.t
+    -> ('row, 'requirements) Assignments.t
+    -> ('row, 'source_ctx, ready, 'requirements) t
+    -> ('row, 'source_ctx, ready, 'requirements) t
+
+  (** Append an unmatched action which changes no row. Its condition sees
+      only source. *)
+  val when_not_matched_do_nothing
+    :  ?condition:'requirements Condition.t
+    -> ('row, 'source_ctx, ready, 'requirements) t
+    -> ('row, 'source_ctx, ready, 'requirements) t
+
+  (** Finish one atomic MERGE without returned rows. *)
+  val command : ('row, 'source_ctx, ready, 'requirements) t -> 'requirements Command.t
+
+  (** Finish with a typed RETURNING projection of target and source. Only
+      changed rows produce results; DO NOTHING produces no RETURNING row.
+      Cardinality remains [Cardinality.many]. A completed MERGE can also be
+      the body of [Postgresql.Cte.returning]. *)
+  val returning
+    :  ('row Table_ref.t -> 'source_ctx -> ('result, 'requirements) Projection.t)
+    -> ('row, 'source_ctx, ready, 'requirements) t
+    -> ('result, Result_query.returning, Cardinality.many, 'requirements) Result_query.t
+end
+
 (** Supported SQL dialects. *)
 module Dialect : sig
   (** SQL rendering rules selected during pure compilation. *)
@@ -2357,7 +2542,9 @@ module Postgresql : sig
     (** Define a data-modifying CTE with [RETURNING]. The CTE relation is
         described by [table] and [columns], and may be used by the enclosing
         PostgreSQL statement. The input result's cardinality is irrelevant to
-        the CTE relation and is not exposed by [Cte.t]. *)
+        the CTE relation and is not exposed by [Cte.t]. MERGE bodies require
+        PostgreSQL 17 or later. Data-modifying CTEs must appear in the
+        outermost statement WITH. *)
     val returning
       :  table:'row Table.t
       -> columns:
@@ -2366,7 +2553,9 @@ module Postgresql : sig
       -> ('result, Result_query.returning, 'cardinality, 'requirements) Result_query.t
       -> ('row Cte.t, 'requirements) Cte.definition
 
-    (** Define a data-modifying CTE used only for its effect. *)
+    (** Define a data-modifying CTE used only for its effect. MERGE bodies
+        require PostgreSQL 17 or later. Data-modifying CTEs must appear in the
+        outermost statement WITH. *)
     val command
       :  ([> `Not_sqlite ] as 'requirements) Command.t
       -> (unit, 'requirements) Cte.definition
@@ -2416,6 +2605,18 @@ module Compile_error : sig
     (** A malformed command targets a derived, VALUES, or CTE source. *)
     | Empty_assignments of [ `Insert | `Update ]
     (** INSERT or UPDATE was finalized without assigning a column. *)
+    | Empty_merge_branches (** MERGE was finalized without any WHEN branch. *)
+    | Empty_merge_assignments of
+        { branch : int (** One-based index of the empty branch. *)
+        ; action : [ `Insert | `Update ]
+        } (** A MERGE INSERT or UPDATE branch has no assignments. *)
+    | Unreachable_merge_branch of
+        { branch : int (** One-based index of the unreachable branch. *)
+        ; kind : [ `Matched | `Not_matched ]
+        } (** A branch follows an unconditional branch of the same kind. *)
+    | Invalid_merge of string (** A MERGE violates a structural invariant. *)
+    | Invalid_cte_placement
+    (** A data-modifying CTE appears outside the outermost statement WITH. *)
     | Empty_insert_row of int
     (** A one-based row in a multi-row INSERT has no assignments. *)
     | Duplicate_assignment of Identifier.t
@@ -2451,8 +2652,8 @@ module Compile_error : sig
         { expected : int (** The source identity of the command target. *)
         ; actual : int (** The source identity stored in the malformed assignment. *)
         }
-    (** A malformed internal assignment targets a different table occurrence.
-          Public builders preserve this invariant by construction. *)
+    (** An assignment column belongs to a table occurrence other than the
+        command target. *)
     | Unsupported_operation of
         { operation : string (** Stable operation name used in diagnostics. *)
         ; dialect : Dialect.t (** Dialect selected for compilation. *)

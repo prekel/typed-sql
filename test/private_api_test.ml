@@ -79,7 +79,7 @@ let command kind assignments : A.command =
     match kind with
     | A.Insert -> [], Some (A.Rows [ assignments ])
     | A.Update -> assignments, None
-    | A.Delete -> [], None
+    | A.Delete | A.Merge _ -> [], None
   in
   { ctes = []
   ; kind

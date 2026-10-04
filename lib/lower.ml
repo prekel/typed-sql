@@ -217,8 +217,16 @@ and insert_input ~dialect = function
   | Ast.Mixed_sources -> Ast.Mixed_sources
 
 and lower_command ~dialect (command : Ast.command) =
-  { command with
-    Ast.ctes = List.map command.ctes ~f:(cte ~dialect)
+  { Ast.ctes = List.map command.ctes ~f:(cte ~dialect)
+  ; kind =
+      (match command.kind with
+       | Ast.Merge merge ->
+         Ast.Merge
+           { using = source ~dialect merge.using
+           ; on = condition ~dialect merge.on
+           ; branches = List.map merge.branches ~f:(merge_branch ~dialect)
+           }
+       | (Ast.Insert | Ast.Update | Ast.Delete) as kind -> kind)
   ; source = source ~dialect command.source
   ; from = List.map command.from ~f:(source ~dialect)
   ; assignments = List.map command.assignments ~f:(assignment ~dialect)
@@ -226,6 +234,26 @@ and lower_command ~dialect (command : Ast.command) =
   ; conflict = Option.map command.conflict ~f:(conflict ~dialect)
   ; where_ = Option.map command.where_ ~f:(condition ~dialect)
   }
+
+and merge_branch ~dialect = function
+  | Ast.Matched branch ->
+    let action =
+      match branch.action with
+      | Ast.Merge_update assignments ->
+        Ast.Merge_update (List.map assignments ~f:(assignment ~dialect))
+      | (Ast.Merge_delete | Ast.Merge_matched_do_nothing) as action -> action
+    in
+    Ast.Matched
+      { condition = Option.map branch.condition ~f:(condition ~dialect); action }
+  | Ast.Not_matched branch ->
+    let action =
+      match branch.action with
+      | Ast.Merge_insert assignments ->
+        Ast.Merge_insert (List.map assignments ~f:(assignment ~dialect))
+      | Ast.Merge_not_matched_do_nothing as action -> action
+    in
+    Ast.Not_matched
+      { condition = Option.map branch.condition ~f:(condition ~dialect); action }
 
 and lower_returning ~dialect (returning : Ast.returning) =
   { Ast.command = lower_command ~dialect returning.Ast.command
@@ -535,20 +563,23 @@ and sqlite_unsupported_conflict = function
       ]
 
 and sqlite_unsupported_command (command : Ast.command) =
-  first_unsupported
-    [ List.find_map command.Ast.ctes ~f:sqlite_unsupported_cte
-    ; sqlite_unsupported_source command.source
-    ; List.find_map command.from ~f:sqlite_unsupported_source
-    ; List.find_map command.assignments ~f:sqlite_unsupported_assignment
-    ; Option.bind command.insert_input ~f:(function
-        | Ast.Rows rows ->
-          List.find_map rows ~f:(fun row ->
-            List.find_map row ~f:sqlite_unsupported_assignment)
-        | Ast.Select_rows selected -> sqlite_unsupported_query selected.query
-        | Ast.Mixed_sources -> None)
-    ; Option.bind command.conflict ~f:sqlite_unsupported_conflict
-    ; Option.bind command.where_ ~f:sqlite_unsupported_condition
-    ]
+  match command.kind with
+  | Ast.Merge _ -> Some "MERGE"
+  | Ast.Insert | Ast.Update | Ast.Delete ->
+    first_unsupported
+      [ List.find_map command.Ast.ctes ~f:sqlite_unsupported_cte
+      ; sqlite_unsupported_source command.source
+      ; List.find_map command.from ~f:sqlite_unsupported_source
+      ; List.find_map command.assignments ~f:sqlite_unsupported_assignment
+      ; Option.bind command.insert_input ~f:(function
+          | Ast.Rows rows ->
+            List.find_map rows ~f:(fun row ->
+              List.find_map row ~f:sqlite_unsupported_assignment)
+          | Ast.Select_rows selected -> sqlite_unsupported_query selected.query
+          | Ast.Mixed_sources -> None)
+      ; Option.bind command.conflict ~f:sqlite_unsupported_conflict
+      ; Option.bind command.where_ ~f:sqlite_unsupported_condition
+      ]
 
 and sqlite_unsupported_returning returning =
   first_unsupported

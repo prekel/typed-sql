@@ -15,6 +15,17 @@
   (pps ppx_let)))
 
 (executable
+ (name merge_test)
+ (modules merge_test)
+ (libraries
+  base
+  lwt.unix
+  pgocaml
+  typed-sql
+  typed-sql-pgocaml-lwt
+  typed_sql_merge_integration))
+
+(executable
  (name prepare_bench)
  (modules prepare_bench)
  (libraries base lwt.unix pgocaml typed-sql typed-sql-pgocaml-lwt))

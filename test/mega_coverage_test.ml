@@ -689,8 +689,27 @@ let recursive_events =
           Expr.Int.Infix.(depth +. Expr.constant Db_type.int 1))))
 ;;
 
-let cleanup_command = Delete.(from Cleanup.table |> all_rows |> command)
-let cleanup_effect = Postgresql.Cte.command cleanup_command
+let cleanup_id_column = Column.v_exn Cleanup.table "id" Db_type.int64
+
+let cleanup_effect =
+  Postgresql.Cte.command
+    Merge.(
+      into Cleanup.table
+      |> using Expired.table ~f:(fun target source merge ->
+        merge
+        |> on (Expr.column target cleanup_id_column =. Expired.id source)
+        |> when_matched_update
+             ~condition:(Expired.id source <. Expr.column target cleanup_id_column)
+             Assignments.(empty |> set_expr cleanup_id_column (Expired.id source))
+        |> when_matched_delete
+             ~condition:(Expired.id source >. Expr.column target cleanup_id_column)
+        |> when_matched_do_nothing
+        |> when_not_matched_insert
+             ~condition:(Expired.id source >. Expired.id source)
+             Assignments.(empty |> set_expr cleanup_id_column (Expired.id source))
+        |> when_not_matched_do_nothing)
+      |> command)
+;;
 
 let maintenance_effect =
   Postgresql.Cte.command
@@ -1309,7 +1328,21 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
     {|
     WITH RECURSIVE
       "c0" AS (
-        DELETE FROM "mega_cleanup"
+        MERGE INTO "mega_cleanup" AS t0
+        USING "mega_expired" AS t1
+        ON (t0."id" = t1."id")
+        WHEN MATCHED AND (t1."id" < t0."id") THEN
+          UPDATE SET
+            "id" = t1."id"
+        WHEN MATCHED AND (t1."id" > t0."id") THEN
+          DELETE
+        WHEN MATCHED THEN
+          DO NOTHING
+        WHEN NOT MATCHED AND (t1."id" > t1."id") THEN
+          INSERT ("id")
+          VALUES (t1."id")
+        WHEN NOT MATCHED THEN
+          DO NOTHING
       ),
       "c1" AS (
         UPDATE "mega_maintenance"

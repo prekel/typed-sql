@@ -248,6 +248,32 @@ and command_kind =
   | Insert
   | Update
   | Delete
+  | Merge of merge
+
+and merge =
+  { using : source
+  ; on : condition
+  ; branches : merge_branch list
+  }
+
+and merge_branch =
+  | Matched of
+      { condition : condition option
+      ; action : merge_matched_action
+      }
+  | Not_matched of
+      { condition : condition option
+      ; action : merge_not_matched_action
+      }
+
+and merge_matched_action =
+  | Merge_update of assignment list
+  | Merge_delete
+  | Merge_matched_do_nothing
+
+and merge_not_matched_action =
+  | Merge_insert of assignment list
+  | Merge_not_matched_do_nothing
 
 and conflict_target_column =
   { target_source_id : int

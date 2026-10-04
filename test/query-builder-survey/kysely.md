@@ -3383,11 +3383,11 @@ RETURNING
 ```
 ### KY-50. MERGE из таблицы импорта
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✓)
-- Семантика: ✗ (добавлено в роадмап ✓)
-- Без доработок typed-sql: ✗
-- Ограничение: В публичном API пока нет `MERGE`; разбиение на команды не сохраняло бы атомарность исходного оператора.
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Ограничение: typed-sql MERGE требует PostgreSQL 17+; SQLite не поддерживается.
 - Источник: [mergeInto](https://kysely-org.github.io/kysely-apidoc/classes/QueryCreator.html#mergeInto), [MergeQueryBuilder](https://kysely-org.github.io/kysely-apidoc/classes/MergeQueryBuilder.html).
 - Проверяет: ветви WHEN MATCHED UPDATE и WHEN NOT MATCHED INSERT. Для PostgreSQL требуется версия 15 или новее.
 
@@ -3426,4 +3426,34 @@ await db.mergeInto('person')
     age: ref('person_import.age'),
   }))
   .execute()
+```
+
+#### OCaml (typed-sql)
+
+Обе ветви выполняются одним statement. Назначения INSERT читают только источник.
+
+```ocaml
+# let kysely50 =
+  Statement.command
+    ~dialect:Dialect.postgresql
+    Merge.(
+      into Person.table
+      |> using Person_import.table ~f:(fun target source merge ->
+        merge
+        |> on (Person.id target =. Person_import.id source)
+        |> when_matched_update
+             Assignments.(
+               empty
+               |> set_expr Person.first_name_column (Person_import.first_name source)
+               |> set_expr Person.last_name_column (Person_import.last_name source)
+               |> set_expr Person.age_column (Person_import.age source))
+        |> when_not_matched_insert
+             Assignments.(
+               empty
+               |> set_expr Person.id_column (Person_import.id source)
+               |> set_expr Person.first_name_column (Person_import.first_name source)
+               |> set_expr Person.last_name_column (Person_import.last_name source)
+               |> set_expr Person.age_column (Person_import.age source)))
+      |> command)
+val kysely50 : (unit, Affected_rows.t, [ `Postgresql ]) Statement.t = <abstr>
 ```

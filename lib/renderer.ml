@@ -1177,6 +1177,7 @@ and render_insert_rows ~aliases ~columns rows state =
 
 and aliases_for_command (command : Ast.command) =
   match command.kind, command.from with
+  | Ast.Merge merge, _ -> [ command.source.source_id, "t0"; merge.using.source_id, "t1" ]
   | Ast.Insert, _ ->
     let target = command.source.source_id, "" in
     (match command.conflict with
@@ -1275,6 +1276,24 @@ and render_command_ast (command : Ast.command) state =
   let render_body state =
     let aliases = aliases_for_command command in
     match command.kind with
+    | Ast.Merge merge ->
+      let source, state = render_from_sources ~aliases [ merge.using ] state in
+      let on, state = render_condition ~aliases merge.on state in
+      let branches, state = render_merge_branches ~aliases merge.branches state in
+      ( concat
+          [ text "MERGE INTO "
+          ; render_target_source command.source
+          ; text " AS "
+          ; text (alias_for aliases command.source.source_id)
+          ; break " "
+          ; text "USING "
+          ; source
+          ; break " "
+          ; text "ON "
+          ; nest on
+          ; branches
+          ]
+      , state )
     | Ast.Insert ->
       let columns, input, state =
         match command.insert_input with
@@ -1366,10 +1385,68 @@ and render_command_ast (command : Ast.command) state =
   in
   render_with command.ctes ~render_body state
 
+and render_merge_branch ~aliases branch state =
+  let kind, condition, render_action =
+    match branch with
+    | Ast.Matched { condition; action } ->
+      ( "WHEN MATCHED"
+      , condition
+      , fun state ->
+          (match action with
+           | Ast.Merge_update assignments ->
+             let assignments, state = render_assignments ~aliases assignments state in
+             concat [ text "UPDATE SET"; nest (concat [ break " "; assignments ]) ], state
+           | Ast.Merge_delete -> text "DELETE", state
+           | Ast.Merge_matched_do_nothing -> text "DO NOTHING", state) )
+    | Ast.Not_matched { condition; action } ->
+      ( "WHEN NOT MATCHED"
+      , condition
+      , fun state ->
+          (match action with
+           | Ast.Merge_not_matched_do_nothing -> text "DO NOTHING", state
+           | Ast.Merge_insert assignments ->
+             let columns =
+               List.map assignments ~f:(fun assignment -> assignment.Ast.column)
+             in
+             let rendered_columns =
+               List.map columns ~f:quote_identifier
+               |> separate ~by:(concat [ text ","; break " " ])
+             in
+             let values, state = render_insert_row ~aliases ~columns assignments state in
+             ( concat
+                 [ text "INSERT ("
+                 ; nest rendered_columns
+                 ; text ")"
+                 ; break " "
+                 ; text "VALUES "
+                 ; values
+                 ]
+             , state )) )
+  in
+  let condition, state =
+    match condition with
+    | None -> Template.Empty, state
+    | Some condition ->
+      let condition, state = render_condition ~aliases condition state in
+      concat [ text " AND "; condition ], state
+  in
+  let action, state = render_action state in
+  ( concat [ text kind; condition; text " THEN"; nest (concat [ break " "; action ]) ]
+  , state )
+
+and render_merge_branches ~aliases branches state =
+  match branches with
+  | [] -> Template.Empty, state
+  | branch :: rest ->
+    let branch, state = render_merge_branch ~aliases branch state in
+    let rest, state = render_merge_branches ~aliases rest state in
+    concat [ break " "; branch; rest ], state
+
 and render_returning (returning : Ast.returning) state =
   let parts, state = render_command_ast returning.command state in
   let aliases =
     match state.dialect, returning.command.kind with
+    | _, Ast.Merge _ -> aliases_for_command returning.command
     | Dialect.Postgresql, Ast.Update -> aliases_for_command returning.command
     | Dialect.Postgresql, (Ast.Insert | Ast.Delete)
     | Dialect.Sqlite, (Ast.Insert | Ast.Update | Ast.Delete) ->

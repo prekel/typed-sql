@@ -228,15 +228,44 @@ and normalize_returning (returning : Ast.returning) =
   }
 
 and normalize_command (command : Ast.command) =
-  { command with
-    Ast.ctes = List.map command.ctes ~f:normalize_cte
+  { Ast.ctes = List.map command.ctes ~f:normalize_cte
+  ; kind =
+      (match command.kind with
+       | Ast.Merge merge ->
+         Ast.Merge
+           { using = normalize_source merge.using
+           ; on = normalize_condition merge.on
+           ; branches = List.map merge.branches ~f:normalize_merge_branch
+           }
+       | (Ast.Insert | Ast.Update | Ast.Delete) as kind -> kind)
   ; source = normalize_source command.source
   ; from = List.map command.from ~f:normalize_source
   ; assignments = List.map command.assignments ~f:normalize_assignment
   ; insert_input = Option.map command.insert_input ~f:normalize_insert_input
   ; conflict = Option.map command.conflict ~f:normalize_conflict
-  ; where_ = optional_condition command.where_
+  ; where_ =
+      (match command.kind with
+       | Ast.Merge _ -> Option.map command.where_ ~f:normalize_condition
+       | Ast.Insert | Ast.Update | Ast.Delete -> optional_condition command.where_)
   }
+
+and normalize_merge_branch = function
+  | Ast.Matched { condition; action } ->
+    let action =
+      match action with
+      | Ast.Merge_update assignments ->
+        Ast.Merge_update (List.map assignments ~f:normalize_assignment)
+      | (Ast.Merge_delete | Ast.Merge_matched_do_nothing) as action -> action
+    in
+    Ast.Matched { condition = Option.map condition ~f:normalize_condition; action }
+  | Ast.Not_matched { condition; action } ->
+    let action =
+      match action with
+      | Ast.Merge_insert assignments ->
+        Ast.Merge_insert (List.map assignments ~f:normalize_assignment)
+      | Ast.Merge_not_matched_do_nothing as action -> action
+    in
+    Ast.Not_matched { condition = Option.map condition ~f:normalize_condition; action }
 
 and normalize_insert_input = function
   | Ast.Rows rows -> Ast.Rows (List.map rows ~f:(List.map ~f:normalize_assignment))

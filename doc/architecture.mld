@@ -81,6 +81,29 @@ bind parameters; relation доступна в [FROM], [INNER JOIN] и [LEFT JOIN
 Варианты VALUES и SELECT взаимоисключаются. При SQLite UPSERT renderer добавляет
 [WHERE TRUE] к SELECT без фильтра для однозначного разбора [ON CONFLICT].
 
+[Merge] поддерживает PostgreSQL 17+ и хранит один source, [ON] и упорядоченные
+ветви [WHEN MATCHED] / [WHEN NOT MATCHED]. Builder требует [USING] и [ON] до
+финализации; compiler проверяет непустые назначения, уникальность колонок и
+достижимость ветвей. Условия и UPDATE видят target и source, а INSERT и
+NOT MATCHED conditions — только source. Явное [AND TRUE] сохраняется при
+нормализации, поскольку отсутствие условия закрывает дальнейшие ветви того же
+вида. [Merge.command] возвращает affected rows, [Merge.returning] — typed query
+с cardinality [many], включая source fields и значения target после INSERT /
+UPDATE либо до DELETE. [DO NOTHING] не создаёт возвращаемую строку.
+
+[Merge.using_cte] и [Merge.using_cte_relation] используют существующие handles;
+[Postgresql.Cte.returning] и [Postgresql.Cte.command] допускают MERGE как тело CTE.
+Определения сохраняют lexical scope и общий генератор SQL-имён. Data-modifying
+WITH допустим только у корневого statement; вложенный SELECT WITH может содержать
+только читающие определения. Recursive WITH непосредственно у MERGE отклоняется,
+но recursive SELECT внутри [USING] и рекурсивный источник из внешнего SELECT WITH
+допускаются. Compiler не перемещает определения между уровнями. Изменяющие CTE
+читают общий snapshot и обмениваются данными через RETURNING, поэтому порядок
+определений не задаёт последовательного наблюдения изменений таблиц. Все действия
+MERGE и его CTE выполняются одним атомарным statement через обычный адаптер;
+constraint или cardinality error не оставляет частичных изменений. Версия сервера
+не входит в dialect witness и остаётся документированным требованием приложения.
+
 [Statement.Dynamic] сохраняет callback вместо готовых планов. При
 каждом resolution callback получает input, после чего AST проходит тот же
 normalization, validation, lowering и rendering для dialect соединения.

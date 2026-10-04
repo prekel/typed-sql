@@ -35,6 +35,7 @@ module Cte = Typed_sql_private.Cte
 module Insert = Typed_sql_private.Insert
 module Update = Typed_sql_private.Update
 module Delete = Typed_sql_private.Delete
+module Merge = Typed_sql_private.Merge
 module Dialect = Typed_sql_private.Dialect
 
 type 'supports sql_dialect = 'supports Dialect.Selected.t =

@@ -21,6 +21,7 @@ execution adapter.
   subqueries;
 - multi-row [INSERT], conflict ignore, scoped [UPDATE]/[DELETE], [UPDATE FROM]
   и [RETURNING];
+- PostgreSQL 17+ [MERGE] с условными ветвями, CTE-источниками и [RETURNING];
 - PostgreSQL и SQLite compiler;
 - Lwt execution через [typed-sql-caqti-lwt] и PostgreSQL execution через
   [typed-sql-pgocaml-lwt].

@@ -15,6 +15,17 @@ type t =
   | Invalid_for_update of string
   | Invalid_command_target
   | Empty_assignments of [ `Insert | `Update ]
+  | Empty_merge_branches
+  | Empty_merge_assignments of
+      { branch : int
+      ; action : [ `Insert | `Update ]
+      }
+  | Unreachable_merge_branch of
+      { branch : int
+      ; kind : [ `Matched | `Not_matched ]
+      }
+  | Invalid_merge of string
+  | Invalid_cte_placement
   | Empty_insert_row of int
   | Duplicate_assignment of Identifier.t
   | Mismatched_insert_columns of
@@ -98,6 +109,32 @@ let to_string = function
   | Fetch_with_ties_requires_order_by -> "FETCH FIRST WITH TIES requires ORDER BY"
   | Invalid_for_update reason -> "FOR UPDATE " ^ reason
   | Invalid_command_target -> "command target must be a base table"
+  | Empty_merge_branches -> "MERGE must contain at least one WHEN branch"
+  | Empty_merge_assignments { branch; action } ->
+    let action =
+      match action with
+      | `Insert -> "INSERT"
+      | `Update -> "UPDATE"
+    in
+    "MERGE branch "
+    ^ Int.to_string branch
+    ^ " "
+    ^ action
+    ^ " must assign at least one column"
+  | Unreachable_merge_branch { branch; kind } ->
+    let kind =
+      match kind with
+      | `Matched -> "MATCHED"
+      | `Not_matched -> "NOT MATCHED"
+    in
+    "MERGE branch "
+    ^ Int.to_string branch
+    ^ " WHEN "
+    ^ kind
+    ^ " is unreachable after an unconditional branch of the same kind"
+  | Invalid_merge reason -> "invalid MERGE: " ^ reason
+  | Invalid_cte_placement ->
+    "data-modifying CTE must be attached to the top-level statement"
   | Empty_assignments `Insert -> "INSERT must assign at least one column"
   | Empty_assignments `Update -> "UPDATE must assign at least one column"
   | Empty_insert_row row -> "INSERT row " ^ Int.to_string row ^ " has no assignments"

@@ -680,8 +680,281 @@ let validate_conflict ~validate_subquery ~source_id = function
            ensure_no_aggregate "ON CONFLICT DO UPDATE WHERE" condition))
 ;;
 
+(* An aggregate in a nested SELECT whose arguments refer only to MERGE rows
+   belongs to the MERGE scope in PostgreSQL. Local SELECT aggregates remain
+   legal. FROM relations and CTE bodies are checked separately with no outer
+   scope, so they cannot carry a correlated MERGE aggregate. *)
+let rec merge_expression_has_outer_aggregate ~visible ~inside_subquery = function
+  | Ast.Param _ | Ast.Column _ | Ast.Current_timestamp -> false
+  | Ast.Aggregate aggregate ->
+    let sources = Aggregate_scope.aggregate_sources aggregate in
+    (inside_subquery
+     && (not (List.is_empty sources))
+     && List.for_all sources ~f:(fun source -> List.mem visible source ~equal:Int.equal))
+    || merge_aggregate_arguments_have_outer_aggregate ~visible ~inside_subquery aggregate
+  | Ast.Arithmetic (_, left, right) | Ast.Concat (left, right) | Ast.Coalesce (left, right)
+    ->
+    merge_expression_has_outer_aggregate ~visible ~inside_subquery left
+    || merge_expression_has_outer_aggregate ~visible ~inside_subquery right
+  | Ast.Cast (_, _, expression) | Ast.String_function (_, expression) ->
+    merge_expression_has_outer_aggregate ~visible ~inside_subquery expression
+  | Ast.Case (branches, else_) ->
+    merge_expression_has_outer_aggregate ~visible ~inside_subquery else_
+    || List.exists branches ~f:(fun (condition, expression) ->
+      merge_condition_has_outer_aggregate ~visible ~inside_subquery condition
+      || merge_expression_has_outer_aggregate ~visible ~inside_subquery expression)
+  | Ast.Scalar_subquery select | Ast.Exists_expr select ->
+    merge_select_has_outer_aggregate ~visible select
+  | Ast.Multiset_subquery multiset ->
+    merge_query_has_outer_aggregate ~visible multiset.query
+
+and merge_aggregate_arguments_have_outer_aggregate ~visible ~inside_subquery = function
+  | Ast.Count_all -> false
+  | Ast.Count expression
+  | Ast.Count_distinct expression
+  | Ast.Sum_int expression
+  | Ast.Sum_float expression
+  | Ast.Sum_int64 expression
+  | Ast.Sum_numeric expression
+  | Ast.Avg_float expression
+  | Ast.Avg_numeric expression
+  | Ast.Min expression
+  | Ast.Max expression ->
+    merge_expression_has_outer_aggregate ~visible ~inside_subquery expression
+  | Ast.String_agg { value; delimiter; order_by } ->
+    merge_expression_has_outer_aggregate ~visible ~inside_subquery value
+    || merge_expression_has_outer_aggregate ~visible ~inside_subquery delimiter
+    || List.exists order_by ~f:(fun order ->
+      merge_expression_has_outer_aggregate ~visible ~inside_subquery order.Ast.expr)
+  | Ast.Multiset_agg multiset ->
+    List.exists
+      multiset.fields
+      ~f:(merge_expression_has_outer_aggregate ~visible ~inside_subquery)
+    || List.exists multiset.order_by ~f:(fun order ->
+      merge_expression_has_outer_aggregate ~visible ~inside_subquery order.Ast.expr)
+    || Option.value_map
+         multiset.filter
+         ~default:false
+         ~f:(merge_condition_has_outer_aggregate ~visible ~inside_subquery)
+
+and merge_condition_has_outer_aggregate ~visible ~inside_subquery = function
+  | Ast.True | Ast.False -> false
+  | Ast.Compare (_, left, right) | Ast.Equals_any (left, right) ->
+    merge_expression_has_outer_aggregate ~visible ~inside_subquery left
+    || merge_expression_has_outer_aggregate ~visible ~inside_subquery right
+  | Ast.Is_null expression | Ast.Is_not_null expression ->
+    merge_expression_has_outer_aggregate ~visible ~inside_subquery expression
+  | Ast.In (expression, values) | Ast.Not_in (expression, values) ->
+    merge_expression_has_outer_aggregate ~visible ~inside_subquery expression
+    || List.exists
+         values
+         ~f:(merge_expression_has_outer_aggregate ~visible ~inside_subquery)
+  | Ast.Between (expression, lower, upper) ->
+    merge_expression_has_outer_aggregate ~visible ~inside_subquery expression
+    || merge_expression_has_outer_aggregate ~visible ~inside_subquery lower
+    || merge_expression_has_outer_aggregate ~visible ~inside_subquery upper
+  | Ast.Exists select | Ast.Not_exists select ->
+    merge_select_has_outer_aggregate ~visible select
+  | Ast.In_subquery (expression, select) | Ast.Not_in_subquery (expression, select) ->
+    merge_expression_has_outer_aggregate ~visible ~inside_subquery expression
+    || merge_select_has_outer_aggregate ~visible select
+  | Ast.And conditions | Ast.Or conditions ->
+    List.exists
+      conditions
+      ~f:(merge_condition_has_outer_aggregate ~visible ~inside_subquery)
+  | Ast.Not condition ->
+    merge_condition_has_outer_aggregate ~visible ~inside_subquery condition
+
+and merge_select_has_outer_aggregate ~visible select =
+  List.exists select.joins ~f:(fun join ->
+    match join.operation with
+    | Ast.Cross -> false
+    | Ast.Predicate (_, condition) ->
+      merge_condition_has_outer_aggregate ~visible ~inside_subquery:true condition)
+  || List.exists
+       select.projection
+       ~f:(merge_expression_has_outer_aggregate ~visible ~inside_subquery:true)
+  || Option.value_map
+       select.where_
+       ~default:false
+       ~f:(merge_condition_has_outer_aggregate ~visible ~inside_subquery:true)
+  || List.exists
+       select.group_by
+       ~f:(merge_expression_has_outer_aggregate ~visible ~inside_subquery:true)
+  || Option.value_map
+       select.having
+       ~default:false
+       ~f:(merge_condition_has_outer_aggregate ~visible ~inside_subquery:true)
+  || List.exists select.order_by ~f:(fun order ->
+    merge_expression_has_outer_aggregate ~visible ~inside_subquery:true order.Ast.expr)
+
+and merge_query_has_outer_aggregate ~visible = function
+  | Ast.Simple select -> merge_select_has_outer_aggregate ~visible select
+  | Ast.Source_free source_free ->
+    merge_expression_has_outer_aggregate
+      ~visible
+      ~inside_subquery:true
+      source_free.expression
+  | Ast.Compound compound ->
+    merge_query_has_outer_aggregate ~visible compound.left
+    || merge_query_has_outer_aggregate ~visible compound.right
+
+and merge_assignment_has_outer_aggregate ~visible assignment =
+  match assignment.Ast.value with
+  | Ast.Default -> false
+  | Ast.Expression expression ->
+    merge_expression_has_outer_aggregate ~visible ~inside_subquery:false expression
+;;
+
+let validate_merge_assignments
+      ~validate_subquery
+      ~source_id
+      ~visible
+      ~branch
+      ~action
+      assignments
+  =
+  let open Result.Let_syntax in
+  let%bind () =
+    if List.is_empty assignments then
+      Error (Compile_error.Empty_merge_assignments { branch; action })
+    else (
+      match
+        duplicate_assignment assignments
+      with
+      | Some column -> Error (Compile_error.Duplicate_assignment column)
+      | None -> Ok ())
+  in
+  let%bind () = validate_assignments ~validate_subquery ~source_id ~visible assignments in
+  List.fold assignments ~init:(Ok ()) ~f:(fun result assignment ->
+    let%bind () = result in
+    match assignment.Ast.value with
+    | Ast.Default -> Ok ()
+    | Ast.Expression expression ->
+      if (analyze_expression ~groups:[] ~inside_aggregate:false expression).has_aggregate
+      then
+        Error (Compile_error.Aggregate_not_allowed "MERGE assignment")
+      else
+        Ok ())
+;;
+
+let validate_merge ~validate_subquery ~source_id (merge : Ast.merge) =
+  let open Result.Let_syntax in
+  let visible = [ source_id; merge.using.source_id ] in
+  let%bind () = validate_condition ~validate_subquery ~visible merge.on in
+  let%bind () = ensure_no_aggregate "MERGE ON" merge.on in
+  let%bind () =
+    if merge_condition_has_outer_aggregate ~visible ~inside_subquery:false merge.on then
+      Error (Compile_error.Aggregate_not_allowed "MERGE ON")
+    else
+      Ok ()
+  in
+  let%bind () =
+    match merge.using.kind with
+    | Ast.Values values -> validate_values ~validate_subquery values
+    | Ast.Table _ | Ast.Derived _ | Ast.Cte _ -> Ok ()
+  in
+  let validate_condition ~visible = function
+    | None -> Ok ()
+    | Some condition ->
+      let%bind () = validate_condition ~validate_subquery ~visible condition in
+      ensure_no_aggregate "MERGE WHEN" condition
+  in
+  let rec branches index matched_terminal not_matched_terminal = function
+    | [] -> Ok ()
+    | Ast.Matched branch :: rest ->
+      let%bind () =
+        if matched_terminal then
+          Error
+            (Compile_error.Unreachable_merge_branch { branch = index; kind = `Matched })
+        else
+          Ok ()
+      in
+      let%bind () = validate_condition ~visible branch.condition in
+      let%bind () =
+        if
+          Option.value_map
+            branch.condition
+            ~default:false
+            ~f:(merge_condition_has_outer_aggregate ~visible ~inside_subquery:false)
+        then
+          Error (Compile_error.Aggregate_not_allowed "MERGE WHEN")
+        else
+          Ok ()
+      in
+      let%bind () =
+        match branch.action with
+        | Ast.Merge_update assignments ->
+          let%bind () =
+            validate_merge_assignments
+              ~validate_subquery
+              ~source_id
+              ~visible
+              ~branch:index
+              ~action:`Update
+              assignments
+          in
+          if List.exists assignments ~f:(merge_assignment_has_outer_aggregate ~visible)
+          then
+            Error (Compile_error.Aggregate_not_allowed "MERGE UPDATE")
+          else
+            Ok ()
+        | Ast.Merge_delete | Ast.Merge_matched_do_nothing -> Ok ()
+      in
+      branches (index + 1) (Option.is_none branch.condition) not_matched_terminal rest
+    | Ast.Not_matched branch :: rest ->
+      let%bind () =
+        if not_matched_terminal then
+          Error
+            (Compile_error.Unreachable_merge_branch
+               { branch = index; kind = `Not_matched })
+        else
+          Ok ()
+      in
+      let visible = [ merge.using.source_id ] in
+      let%bind () = validate_condition ~visible branch.condition in
+      let%bind () =
+        if
+          Option.value_map
+            branch.condition
+            ~default:false
+            ~f:(merge_condition_has_outer_aggregate ~visible ~inside_subquery:false)
+        then
+          Error (Compile_error.Aggregate_not_allowed "MERGE WHEN")
+        else
+          Ok ()
+      in
+      let%bind () =
+        match branch.action with
+        | Ast.Merge_insert assignments ->
+          let%bind () =
+            validate_merge_assignments
+              ~validate_subquery
+              ~source_id
+              ~visible
+              ~branch:index
+              ~action:`Insert
+              assignments
+          in
+          if List.exists assignments ~f:(merge_assignment_has_outer_aggregate ~visible)
+          then
+            Error (Compile_error.Aggregate_not_allowed "MERGE INSERT")
+          else
+            Ok ()
+        | Ast.Merge_not_matched_do_nothing -> Ok ()
+      in
+      branches (index + 1) matched_terminal (Option.is_none branch.condition) rest
+  in
+  if List.is_empty merge.branches then
+    Error Compile_error.Empty_merge_branches
+  else
+    branches 1 false false merge.branches
+;;
+
 let validate_command_with ~validate_subquery (command : Ast.command) =
   match command.Ast.kind with
+  | Ast.Merge merge ->
+    validate_merge ~validate_subquery ~source_id:command.source.source_id merge
   | Ast.Insert ->
     let open Result.Let_syntax in
     let source_id = command.source.source_id in
@@ -815,6 +1088,7 @@ let rec select_query_output_field_names = function
 ;;
 
 let rec validate_select_query_full
+          ?(top_level = false)
           ?(outer_visible = [])
           ?(allow_empty = false)
           ~forbidden_ctes
@@ -822,6 +1096,7 @@ let rec validate_select_query_full
   = function
   | Ast.Simple select ->
     validate_select_full
+      ~top_level
       ~outer_visible
       ~allow_empty
       ~forbidden_ctes
@@ -830,7 +1105,7 @@ let rec validate_select_query_full
   | Ast.Source_free source_free ->
     let open Result.Let_syntax in
     let%bind available_ctes =
-      validate_ctes_full ~forbidden_ctes ~available_ctes source_free.ctes
+      validate_ctes_full ~top_level ~forbidden_ctes ~available_ctes source_free.ctes
     in
     let validate_subquery ~outer_visible ~allow_empty query =
       validate_select_query_full
@@ -863,7 +1138,7 @@ let rec validate_select_query_full
         Ok ()
     in
     let%bind available_ctes =
-      validate_ctes_full ~forbidden_ctes ~available_ctes compound.ctes
+      validate_ctes_full ~top_level ~forbidden_ctes ~available_ctes compound.ctes
     in
     let%bind () =
       validate_type_vectors
@@ -902,6 +1177,7 @@ let rec validate_select_query_full
       compound.right
 
 and validate_select_full
+      ~top_level
       ~outer_visible
       ~allow_empty
       ~forbidden_ctes
@@ -910,7 +1186,7 @@ and validate_select_full
   =
   let open Result.Let_syntax in
   let%bind available_ctes =
-    validate_ctes_full ~forbidden_ctes ~available_ctes select.Ast.ctes
+    validate_ctes_full ~top_level ~forbidden_ctes ~available_ctes select.Ast.ctes
   in
   let%bind () = validate_source_full ~forbidden_ctes ~available_ctes select.source in
   let%bind () =
@@ -947,10 +1223,19 @@ and validate_relation_full ~forbidden_ctes ~available_ctes relation =
   let%bind () = validate_relation_schema relation in
   validate_select_query_full ~forbidden_ctes ~available_ctes relation.query
 
-and validate_ctes_full ~forbidden_ctes ~available_ctes ctes =
+and validate_ctes_full ?(top_level = false) ~forbidden_ctes ~available_ctes ctes =
   List.fold ctes ~init:(Ok available_ctes) ~f:(fun result cte ->
     let open Result.Let_syntax in
     let%bind available_ctes = result in
+    let%bind () =
+      match cte.Ast.body with
+      | (Ast.Returning_body _ | Ast.Command_body _) when not top_level ->
+        Error Compile_error.Invalid_cte_placement
+      | Ast.Select_body _
+      | Ast.Recursive_body _
+      | Ast.Returning_body _
+      | Ast.Command_body _ -> Ok ()
+    in
     let%map () = validate_cte_full ~forbidden_ctes ~available_ctes cte in
     available_ctes @ [ cte.Ast.cte_id ])
 
@@ -1030,12 +1315,20 @@ and validate_recursive_step ~forbidden_ctes ~available_ctes ~cte_id step =
       in
       validate_select_with ~validate_subquery ~outer_visible:[] ~allow_empty:false select)
 
-and validate_returning_full ~forbidden_ctes ~available_ctes returning =
+and validate_returning_full ?(top_level = false) ~forbidden_ctes ~available_ctes returning
+  =
   let open Result.Let_syntax in
   let%bind () =
-    validate_command_full ~forbidden_ctes ~available_ctes returning.Ast.command
+    validate_command_full ~top_level ~forbidden_ctes ~available_ctes returning.Ast.command
   in
-  let visible = [ returning.command.source.source_id ] in
+  let available_ctes =
+    available_ctes @ List.map returning.command.ctes ~f:(fun cte -> cte.Ast.cte_id)
+  in
+  let visible =
+    match returning.command.kind with
+    | Ast.Merge merge -> [ returning.command.source.source_id; merge.using.source_id ]
+    | Ast.Insert | Ast.Update | Ast.Delete -> [ returning.command.source.source_id ]
+  in
   let validate_subquery ~outer_visible ~allow_empty query =
     validate_select_query_full
       ~forbidden_ctes
@@ -1044,9 +1337,20 @@ and validate_returning_full ~forbidden_ctes ~available_ctes returning =
       ~allow_empty
       query
   in
-  validate_expressions ~validate_subquery ~visible returning.projection
+  let%bind () = validate_expressions ~validate_subquery ~visible returning.projection in
+  match returning.command.kind with
+  | Ast.Insert | Ast.Update | Ast.Delete -> Ok ()
+  | Ast.Merge _ ->
+    if
+      List.exists returning.projection ~f:(fun expression ->
+        (analyze_expression ~groups:[] ~inside_aggregate:false expression).has_aggregate
+        || merge_expression_has_outer_aggregate ~visible ~inside_subquery:false expression)
+    then
+      Error (Compile_error.Aggregate_not_allowed "MERGE RETURNING")
+    else
+      Ok ()
 
-and validate_command_full ~forbidden_ctes ~available_ctes command =
+and validate_command_full ?(top_level = false) ~forbidden_ctes ~available_ctes command =
   let open Result.Let_syntax in
   let%bind () =
     match command.Ast.source.kind with
@@ -1054,8 +1358,40 @@ and validate_command_full ~forbidden_ctes ~available_ctes command =
     | Ast.Derived _ | Ast.Values _ | Ast.Cte _ ->
       Error Compile_error.Invalid_command_target
   in
+  let%bind () =
+    match command.kind with
+    | Ast.Insert | Ast.Update | Ast.Delete -> Ok ()
+    | Ast.Merge merge ->
+      if
+        not
+          (List.is_empty command.assignments
+           && List.is_empty command.from
+           && Option.is_none command.insert_input
+           && Option.is_none command.conflict
+           && Option.is_none command.where_)
+      then
+        Error (Compile_error.Invalid_merge "unrelated command fields must be empty")
+      else if Int.equal command.source.source_id merge.using.source_id then
+        Error
+          (Compile_error.Invalid_merge "target and source must have distinct identities")
+      else if
+        List.exists command.ctes ~f:(fun cte ->
+          match cte.Ast.body with
+          | Ast.Recursive_body _ -> true
+          | Ast.Select_body _ | Ast.Returning_body _ | Ast.Command_body _ -> false)
+      then
+        Error
+          (Compile_error.Invalid_merge "WITH RECURSIVE is not supported directly by MERGE")
+      else
+        Ok ()
+  in
   let%bind available_ctes =
-    validate_ctes_full ~forbidden_ctes ~available_ctes command.Ast.ctes
+    validate_ctes_full ~top_level ~forbidden_ctes ~available_ctes command.Ast.ctes
+  in
+  let%bind () =
+    match command.kind with
+    | Ast.Merge merge -> validate_source_full ~forbidden_ctes ~available_ctes merge.using
+    | Ast.Insert | Ast.Update | Ast.Delete -> Ok ()
   in
   let%bind () = validate_source_full ~forbidden_ctes ~available_ctes command.source in
   let%bind () =
@@ -1076,11 +1412,15 @@ and validate_command_full ~forbidden_ctes ~available_ctes command =
 
 let result_query = function
   | Ast.Select query ->
-    validate_select_query_full ~forbidden_ctes:[] ~available_ctes:[] query
+    validate_select_query_full ~top_level:true ~forbidden_ctes:[] ~available_ctes:[] query
   | Ast.Returning returning ->
     let open Result.Let_syntax in
     let%bind () =
-      validate_returning_full ~forbidden_ctes:[] ~available_ctes:[] returning
+      validate_returning_full
+        ~top_level:true
+        ~forbidden_ctes:[]
+        ~available_ctes:[]
+        returning
     in
     if List.is_empty returning.projection then
       Error Compile_error.Empty_projection
@@ -1088,4 +1428,6 @@ let result_query = function
       Ok ()
 ;;
 
-let command command = validate_command_full ~forbidden_ctes:[] ~available_ctes:[] command
+let command command =
+  validate_command_full ~top_level:true ~forbidden_ctes:[] ~available_ctes:[] command
+;;

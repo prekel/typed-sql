@@ -76,6 +76,13 @@ module Statement = struct
     | P.Invalid_for_update reason -> Invalid_for_update reason
     | P.Invalid_command_target -> Invalid_command_target
     | P.Empty_assignments kind -> Empty_assignments kind
+    | P.Empty_merge_branches -> Empty_merge_branches
+    | P.Empty_merge_assignments { branch; action } ->
+      Empty_merge_assignments { branch; action }
+    | P.Unreachable_merge_branch { branch; kind } ->
+      Unreachable_merge_branch { branch; kind }
+    | P.Invalid_merge reason -> Invalid_merge reason
+    | P.Invalid_cte_placement -> Invalid_cte_placement
     | P.Empty_insert_row row -> Empty_insert_row row
     | P.Duplicate_assignment column -> Duplicate_assignment (public_identifier column)
     | P.Mismatched_insert_columns { row; expected; actual } ->

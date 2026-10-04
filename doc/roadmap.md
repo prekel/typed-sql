@@ -690,10 +690,12 @@ reconnect и eviction. Решение по core API и рассмотренны�
   [SK-09](../test/query-builder-survey/sqlkata.md#sk-09-insert-в-архив-из-select)). Реализованы
   проверки колонок и типов, RETURNING, compound SELECT и интеграционные тесты
   на SQLite и PostgreSQL.
-- [ ] Добавить dialect-aware `MERGE` с проверяемыми `WHEN MATCHED` и
+- [x] Добавить dialect-aware `MERGE` с проверяемыми `WHEN MATCHED` и
   `WHEN NOT MATCHED` ветвями, сохраняя атомарность statement
   ([JQ-40](../test/query-builder-survey/jooq.md#jq-40-merge-с-update-и-insert),
-  [KY-50](../test/query-builder-survey/kysely.md#ky-50-merge-из-таблицы-импорта)).
+  [KY-50](../test/query-builder-survey/kysely.md#ky-50-merge-из-таблицы-импорта)). Реализованы
+  PostgreSQL 17+ MERGE, условные UPDATE/INSERT/DELETE/DO NOTHING, CTE в обоих
+  направлениях, RETURNING и проверки атомарности через оба PostgreSQL адаптера.
 - [x] Добавить dialect-aware `FOR UPDATE` и `SKIP LOCKED`; определить допустимый
   порядок вместе с `ORDER BY`/`LIMIT` и проверить конкурентное выполнение в
   транзакциях ([EQ-19](../test/query-builder-survey/esqueleto.md#eq-19-захват-первых-незаблокированных-строк),

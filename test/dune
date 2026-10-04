@@ -5,6 +5,7 @@
   dialect_choice_test
   dynamic_statement_test
   insert_select_test
+  merge_test
   operation_module_test
   postgresql_types_test
   query_test
@@ -20,6 +21,7 @@
  (libraries
   base
   compiler-libs.common
+  qcheck
   typed-sql
   typed_sql_test_support
   yojson)
@@ -63,7 +65,7 @@
 
 (library
  (name typed_sql_private_expect_tests)
- (modules private_api_test)
+ (modules private_api_test merge_private_test)
  (libraries base typed_sql_private)
  (inline_tests)
  (preprocess

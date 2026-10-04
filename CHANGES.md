@@ -1,5 +1,31 @@
 # История изменений
 
+## 0.4.4 — 4 октября 2026
+
+### Добавлено
+
+- Типизированный `Merge` для PostgreSQL 17+: обязательные `USING` и `ON`,
+  упорядоченные условные ветви `WHEN MATCHED` с UPDATE, DELETE или DO NOTHING
+  и `WHEN NOT MATCHED` с INSERT или DO NOTHING. Compiler проверяет область
+  видимости, типы и уникальность назначений, пустые и недостижимые ветви,
+  а также агрегаты, скрытые в коррелированных подзапросах.
+- Источники MERGE из таблиц, derived relations, VALUES и CTE, включая relations
+  с выведенными полями. `Merge.returning` возвращает типизированные поля target
+  и source; `Merge.command` сообщает число изменённых строк.
+- CTE в обоих направлениях: CTE служит источником MERGE, а MERGE с RETURNING
+  или без него может быть телом изменяющего CTE. Все действия выполняются одним
+  атомарным statement через Caqti или PG’OCaml.
+- Regression, compile-fail, SQL snapshots и PostgreSQL integration tests,
+  включая откат при constraint violation и повторном изменении одной target row.
+
+### Изменено
+
+- Размещение изменяющих CTE проверяется compiler: они допустимы только у
+  корневого statement. `WITH RECURSIVE` непосредственно у MERGE отклоняется;
+  рекурсивный SELECT внутри USING и источник из внешнего рекурсивного CTE
+  поддерживаются.
+- Survey-примеры JQ-40 и KY-50 используют реализованный `Merge` API.
+
 ## 0.4.3 — 4 октября 2026
 
 ### Добавлено

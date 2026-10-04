@@ -1,0 +1,4 @@
+(library
+ (name typed_sql_merge_integration)
+ (modules typed_sql_merge_integration)
+ (libraries base lwt typed-sql))

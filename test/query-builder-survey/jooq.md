@@ -2777,13 +2777,13 @@ WHERE
 
 ### JQ-40. MERGE с UPDATE и INSERT
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✓)
-- Семантика: —
-- Без доработок typed-sql: ✗
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
 - Источник: [MERGE statement](https://www.jooq.org/doc/3.21/manual/sql-building/sql-statements/merge-statement/).
 - Проверяет: обновление совпавшей архивной строки и вставку строки, которой ещё нет в целевой таблице.
-- Ограничение: Публичный API поддерживает `ON CONFLICT`, но не стандартизованный `MERGE` с ветвями matched/not matched.
+- Ограничение: typed-sql MERGE требует PostgreSQL 17+; SQLite не поддерживается.
 
 ```sql
 MERGE INTO BOOK_ARCHIVE
@@ -2806,6 +2806,30 @@ create.mergeInto(BOOK_ARCHIVE)
 ```
 
 Фикстура должна содержать как совпадающий ID, который обновится, так и ID, который будет вставлен.
+
+#### OCaml (typed-sql)
+
+Обе ветви выполняются одним statement. Назначения INSERT читают только источник.
+
+```ocaml
+# let jq40 =
+  Statement.command
+    ~dialect:Dialect.postgresql
+    Merge.(
+      into Book_archive.table
+      |> using Book.table ~f:(fun target source merge ->
+        merge
+        |> on (Book_archive.id target =. Book.id source)
+        |> when_matched_update
+             Assignments.(empty |> set_expr Book_archive.title_column (Book.title source))
+        |> when_not_matched_insert
+             Assignments.(
+               empty
+               |> set_expr Book_archive.id_column (Book.id source)
+               |> set_expr Book_archive.title_column (Book.title source)))
+      |> command)
+val jq40 : (unit, Affected_rows.t, [ `Postgresql ]) Statement.t = <abstr>
+```
 
 ## Дополнительные SELECT-сценарии
 
