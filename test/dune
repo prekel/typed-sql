@@ -10,21 +10,30 @@
   query_test
   relational_query_test
   aggregate_test
+  numeric_expression_test
   decimal_test
   error_sexp_test
   public_api_test
+  statement_inspection_test
   statement_input_test
   upsert_test)
  (libraries
   base
   compiler-libs.common
-  stdio
   typed-sql
   typed_sql_test_support
   yojson)
  (inline_tests)
  (preprocess
   (pps ppx_expect ppx_fields_conv ppx_let)))
+
+(library
+ (name typed_sql_statement_inspection_codec_tests)
+ (modules statement_inspection_codec_test)
+ (libraries base typed-sql)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect ppx_let)))
 
 (library
  (name typed_sql_mega_coverage_tests)

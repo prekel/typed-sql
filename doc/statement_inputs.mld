@@ -66,6 +66,37 @@ Getter сохраняется в скомпилированном statement и �
 вызова. Повторное использование одного expression повторяет один и тот же bind
 slot. Форма SQL и число slots остаются статическими.
 
+{1 Диагностика SQL-параметров}
+
+[Statement.inspect] возвращает SQL и отдельный список параметров в порядке
+placeholders. Без [~input] статический statement показывает позиции, имена и
+типы; с [~input] — также закодированные значения. Для [params.column] имя по
+умолчанию берётся из колонки, а [~name] переопределяет его. PostgreSQL
+показывает тип SQL, SQLite при наличии значения — его storage class.
+
+Результат также содержит выбранный диалект, [shape] скомпилированного плана и
+[output]. Для query [output] перечисляет SQL-колонки, их типы и ожидаемую
+кардинальность; имя есть только у прямой ссылки на колонку. Для command
+[output] указывает, что результат — число затронутых строк. Поле [tree] показывает структуру
+[Choose]/[Choose_dialect], отмечает выбранный путь и различает статические и
+динамические ветви. Невыбранные callbacks не запускаются.
+
+{[
+let sql, inspection =
+  Statement.inspect_exn ~dialect:Postgresql ~input find_people
+in
+Stdlib.print_endline sql;
+List.iter inspection.parameters ~f:(fun parameter ->
+  Statement.sexp_of_parameter parameter
+  |> Sexp.to_string_hum
+  |> Stdlib.print_endline)
+]}
+
+Значения остаются вне SQL и не являются SQL-литералами: текст диагностики
+нельзя подставлять вместо placeholders. [None] в поле [value] означает, что
+input не передан; [Some Null] — привязанный SQL [NULL]. Ошибка mapped codec
+возвращается как [Statement.Codec_error] с позицией и именем параметра.
+
 {1 Вложенный input и необязательная пагинация PostgreSQL}
 
 [Statement.with_parameters] собирает несколько statements с общими параметрами

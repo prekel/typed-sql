@@ -119,6 +119,37 @@ let parameter_type_name = function
   | Ast.Slot { db_type = Db_type.Pack db_type; _ } -> postgresql_type_name db_type
 ;;
 
+let rec expression_has_subquery = function
+  | Ast.Scalar_subquery _ | Ast.Multiset_subquery _ | Ast.Exists_expr _ -> true
+  (* Command validation rejects aggregates in SET and WHERE before rendering. *)
+  | Ast.Column _ | Ast.Param _ | Ast.Current_timestamp | Ast.Aggregate _ -> false
+  | Ast.Cast (_, _, expression) | Ast.String_function (_, expression) ->
+    expression_has_subquery expression
+  | Ast.Arithmetic (_, a, b) | Ast.Concat (a, b) | Ast.Coalesce (a, b) ->
+    expression_has_subquery a || expression_has_subquery b
+  | Ast.Case (branches, else_) ->
+    expression_has_subquery else_
+    || List.exists branches ~f:(fun (condition, expression) ->
+      condition_has_subquery condition || expression_has_subquery expression)
+
+and condition_has_subquery = function
+  | Ast.Exists _ | Ast.Not_exists _ | Ast.In_subquery _ | Ast.Not_in_subquery _ -> true
+  | Ast.True | Ast.False -> false
+  | Ast.Compare (_, a, b) | Ast.Equals_any (a, b) ->
+    expression_has_subquery a || expression_has_subquery b
+  | Ast.Is_null expression | Ast.Is_not_null expression ->
+    expression_has_subquery expression
+  | Ast.In (expression, values) | Ast.Not_in (expression, values) ->
+    expression_has_subquery expression || List.exists values ~f:expression_has_subquery
+  | Ast.Between (expression, lower, upper) ->
+    expression_has_subquery expression
+    || expression_has_subquery lower
+    || expression_has_subquery upper
+  | Ast.And conditions | Ast.Or conditions ->
+    List.exists conditions ~f:condition_has_subquery
+  | Ast.Not condition -> condition_has_subquery condition
+;;
+
 let rec render_expr ~aliases expression state =
   match expression with
   | Ast.Column { source_id; name; _ } ->
@@ -178,6 +209,24 @@ let rec render_expr ~aliases expression state =
         ; text "END)"
         ]
     , state )
+  | Ast.Cast (_, target, expression) ->
+    let expression, state = render_expr ~aliases expression state in
+    let target =
+      match state.dialect, target with
+      | Dialect.Postgresql, Ast.Int -> "integer"
+      | Dialect.Postgresql, Ast.Int64 -> "bigint"
+      | Dialect.Postgresql, Ast.Float -> "double precision"
+      | Dialect.Postgresql, Ast.Numeric -> "numeric"
+      | Dialect.Sqlite, (Ast.Int | Ast.Int64) -> "INTEGER"
+      | Dialect.Sqlite, Ast.Float -> "REAL"
+      | Dialect.Sqlite, Ast.Numeric ->
+        invalid_arg
+          "Renderer invariant: SQLite numeric cast must be rejected before rendering"
+    in
+    concat [ text "CAST("; expression; text " AS "; text target; text ")" ], state
+  | Ast.Aggregate (Ast.Avg_float expression | Ast.Avg_numeric expression) ->
+    let expression, state = render_expr ~aliases expression state in
+    concat [ text "AVG("; expression; text ")" ], state
   | Ast.Aggregate Ast.Count_all -> text "COUNT(*)", state
   | Ast.Aggregate (Ast.Count expression) ->
     let expression, state = render_expr ~aliases expression state in
@@ -1138,7 +1187,21 @@ and aliases_for_command (command : Ast.command) =
     let sources = command.source :: command.from in
     List.mapi sources ~f:(fun index source ->
       source.Ast.source_id, Stdlib.Format.asprintf "t%d" index)
-  | _ -> [ command.source.source_id, "" ]
+  | Ast.Update, [] ->
+    let has_subquery =
+      List.exists command.assignments ~f:(fun assignment ->
+        match assignment.Ast.value with
+        | Ast.Default -> false
+        | Ast.Expression expression -> expression_has_subquery expression)
+      || Option.exists command.where_ ~f:condition_has_subquery
+    in
+    [ ( command.source.source_id
+      , if has_subquery then
+          "t0"
+        else
+          "" )
+    ]
+  | Ast.Delete, _ -> [ command.source.source_id, "" ]
 
 and render_conflict_target target =
   List.map target ~f:(fun target -> quote_identifier target.Ast.target_column)

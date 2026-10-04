@@ -2,6 +2,19 @@
 
 # Сценарии запросов из SeaQuery
 
+## Уведомление о лицензии
+
+The MIT License (MIT)
+
+Copyright (c) 2020 Tsang Hao Fung
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
 **Желаемый таргет: 20 сценариев — 5 обычных и 15 сложных.** Каталог включает пять обычных и пятнадцать сложных сценариев.
 
 Источники — [раздел Query Select](https://docs.rs/sea-query/latest/sea_query/query/struct.SelectStatement.html) документации SeaQuery и [руководство SeaORM](https://www.sea-ql.org/sea-orm-tutorial/ch01-08-sql-with-sea-query.html) (доступ 28.09.2026). Примеры сокращены и адаптированы под схему `users(id, name, country)` и `posts(id, user_id, title)`. SQL приведён в форме PostgreSQL; `build(PostgresQueryBuilder)` также возвращает значения отдельно от SQL.
@@ -95,13 +108,15 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 #### OCaml (typed-sql)
 
 ```ocaml
-let seaquery01 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let seaquery01 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Users.table
       |> where (fun user -> Users.country user =$ "US")
-      |> select (fun user ->
-        Projection.pair (Users.id user) (Users.name user))))
+      |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))
+val seaquery01 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -146,15 +161,15 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 #### OCaml (typed-sql)
 
 ```ocaml
-let seaquery02 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let seaquery02 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Users.table
-      |> where (fun user ->
-        (Users.country user =$ "US") &&.
-        (Users.name user =~$ "A%"))
-      |> select (fun user ->
-        Projection.pair (Users.id user) (Users.name user))))
+      |> where (fun user -> Users.country user =$ "US" &&. (Users.name user =~$ "A%"))
+      |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))
+val seaquery02 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -204,15 +219,17 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 #### OCaml (typed-sql)
 
 ```ocaml
-let seaquery03 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let seaquery03 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Users.table
       |> order_by Users.id `Asc
       |> limit 10
       |> offset 20
-      |> select (fun user ->
-        Projection.pair (Users.id user) (Users.name user))))
+      |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))
+val seaquery03 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -263,14 +280,15 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 #### OCaml (typed-sql)
 
 ```ocaml
-let seaquery04 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let seaquery04 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Users.table
-      |> inner_join Posts.table ~on:(fun user post ->
-        Users.id user =. Posts.user_id post)
-      |> select (fun (user, post) ->
-        Projection.pair (Users.id user) (Posts.title post))))
+      |> inner_join Posts.table ~on:(fun user post -> Users.id user =. Posts.user_id post)
+      |> select (fun (user, post) -> Projection.pair (Users.id user) (Posts.title post)))
+val seaquery04 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -320,14 +338,16 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 Посты справа nullable из-за `LEFT JOIN`, поэтому проекция использует nullable-аксессор.
 
 ```ocaml
-let seaquery05 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let seaquery05 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Users.table
-      |> left_join Posts.table ~on:(fun user post ->
-        Users.id user =. Posts.user_id post)
+      |> left_join Posts.table ~on:(fun user post -> Users.id user =. Posts.user_id post)
       |> select (fun (user, post) ->
-        Projection.pair (Users.id user) (Posts.nullable_title post))))
+        Projection.pair (Users.id user) (Posts.nullable_title post)))
+val seaquery05 :
+  (unit, (int64 * string option) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -383,19 +403,20 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 #### OCaml (typed-sql)
 
 ```ocaml
-let seaquery06 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let seaquery06 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Users.table
-      |> inner_join Posts.table ~on:(fun user post ->
-        Users.id user =. Posts.user_id post)
+      |> inner_join Posts.table ~on:(fun user post -> Users.id user =. Posts.user_id post)
       |> where (fun (user, _post) -> Users.country user =$ "US")
       |> group_by (fun (user, _post) -> Users.id user)
-      |> having (fun (_user, post) ->
-        Expr.count (Posts.id post) >=$ 2L)
+      |> having (fun (_user, post) -> Expr.count (Posts.id post) >=$ 2L)
       |> order_by (fun (user, _post) -> Users.id user) `Asc
       |> select (fun (user, post) ->
-        Projection.pair (Users.id user) (Expr.count (Posts.id post)))))
+        Projection.pair (Users.id user) (Expr.count (Posts.id post))))
+val seaquery06 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -463,8 +484,9 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 Внутренний запрос захватывает ссылку на `user` из внешнего SELECT.
 
 ```ocaml
-let seaquery07 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let seaquery07 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Users.table
       |> where (fun user ->
@@ -472,10 +494,10 @@ let seaquery07 =
           Query.(
             from Posts.table
             |> where (fun post ->
-              (Posts.user_id post =. Users.id user)
-              &&. (Posts.title post =~$ "SQL%"))))
-      |> select (fun user ->
-        Projection.pair (Users.id user) (Users.name user))))
+              Posts.user_id post =. Users.id user &&. (Posts.title post =~$ "SQL%"))))
+      |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))
+val seaquery07 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -554,19 +576,23 @@ let seaquery08_counts =
     from Posts.table
     |> group_by (fun post -> Posts.user_id post)
     |> select_relation (fun post ->
-      Derived_table.Fields.pair
-        (Posts.user_id post)
-        Expr.count_all))
+      Derived_table.Fields.pair (Posts.user_id post) Expr.count_all))
+;;
+```
 
-let seaquery08 =
-  Statement.query_many ~dialect:Dialect.portable (
+```ocaml
+# let seaquery08 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Users.table
       |> inner_join_relation seaquery08_counts ~on:(fun user (post_user_id, _count) ->
         Users.id user =. post_user_id)
       |> where (fun (_user, (_post_user_id, post_count)) -> post_count >=$ 2L)
       |> select (fun (user, (_post_user_id, post_count)) ->
-        Projection.pair (Users.id user) post_count)))
+        Projection.pair (Users.id user) post_count))
+val seaquery08 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -627,16 +653,18 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 #### OCaml (typed-sql)
 
 ```ocaml
-let seaquery09 =
-  Statement.query_many ~dialect:Dialect.portable (
-    let by_country country =
-      Query.(
-        from Users.table
-        |> where (fun user -> Users.country user =$ country)
-        |> select (fun user ->
-          Projection.pair (Users.id user) (Users.name user)))
-    in
-    Query.union_all (by_country "US") (by_country "CA"))
+# let seaquery09 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (let by_country country =
+       Query.(
+         from Users.table
+         |> where (fun user -> Users.country user =$ country)
+         |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))
+     in
+     Query.union_all (by_country "US") (by_country "CA"))
+val seaquery09 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -703,8 +731,9 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 #### OCaml (typed-sql, коррелированный счётчик)
 
 ```ocaml
-let seaquery10 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let seaquery10 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Posts.table
       |> order_by Posts.user_id `Asc
@@ -717,11 +746,14 @@ let seaquery10 =
           (Projection.expr
              (Expr.coalesce
                 (Expr.scalar_subquery
-                   (Query.(
+                   Query.(
                      from Posts.table
-                     |> where (fun same_user -> Posts.user_id same_user =. Posts.user_id post)
-                     |> select_scalar (fun _ -> Expr.count_all))))
-                ~default:(Expr.constant Db_type.int64 0L))))))
+                     |> where (fun same_user ->
+                       Posts.user_id same_user =. Posts.user_id post)
+                     |> select_scalar (fun _ -> Expr.count_all)))
+                ~default:(Expr.constant Db_type.int64 0L)))))
+val seaquery10 :
+  (unit, (int64 * int64 * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -780,15 +812,17 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 #### OCaml (typed-sql)
 
 ```ocaml
-let seaquery11 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let seaquery11 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Users.table
       |> where (fun user ->
         not_exists
-          (from Posts.table
-           |> where (fun post -> Posts.user_id post =. Users.id user)))
-      |> select (fun user -> Projection.pair (Users.id user) (Users.name user))))
+          (from Posts.table |> where (fun post -> Posts.user_id post =. Users.id user)))
+      |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))
+val seaquery11 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -847,15 +881,17 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 `DISTINCT ON` заменён на anti-`EXISTS`; при уникальном `posts.id` выбирается пост пользователя с наибольшим ID.
 
 ```ocaml
-let seaquery12 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let seaquery12 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Posts.table
       |> where (fun post ->
         not_exists
           (from Posts.table
            |> where (fun newer ->
-             (Posts.user_id newer =. Posts.user_id post)
+             Posts.user_id newer
+             =. Posts.user_id post
              &&. (Posts.id newer >. Posts.id post))))
       |> order_by Posts.user_id `Asc
       |> order_by Posts.id `Desc
@@ -863,7 +899,9 @@ let seaquery12 =
         Projection.map2
           ~f:(fun user_id (id, title) -> user_id, id, title)
           (Projection.expr (Posts.user_id post))
-          (Projection.pair (Posts.id post) (Posts.title post)))))
+          (Projection.pair (Posts.id post) (Posts.title post))))
+val seaquery12 :
+  (unit, (int64 * int64 * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -924,14 +962,17 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 #### OCaml (typed-sql)
 
 ```ocaml
-let seaquery13 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let seaquery13 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Users.table
       |> where (fun user ->
-        (Users.country user =$ "USA") &&.
-        ((Users.name user =~$ "A%") ||. (Users.name user =~$ "B%")))
-      |> select (fun user -> Projection.expr (Users.id user))))
+        Users.country user
+        =$ "USA"
+        &&. (Users.name user =~$ "A%" ||. (Users.name user =~$ "B%")))
+      |> select (fun user -> Projection.expr (Users.id user)))
+val seaquery13 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -982,23 +1023,26 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 #### OCaml (typed-sql)
 
 ```ocaml
-let seaquery14 =
+# let seaquery14 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ id = params.expr Db_type.int64 ~get:(fun (id, _, _) -> id)
     and+ user_id = params.expr Db_type.int64 ~get:(fun (_, user_id, _) -> user_id)
     and+ title = params.expr Db_type.text ~get:(fun (_, _, title) -> title) in
-    params.command (
-    Insert.(
-      into Posts.table
-      |> set_expr Posts.id_column id
-      |> set_expr Posts.user_id_column user_id
-      |> set_expr Posts.title_column title
-      |> on_conflict (Conflict_target.column Posts.id_column)
-      |> do_update (fun ~existing:_ ~excluded ->
-        Conflict_update.empty
-        |> Conflict_update.set_expr Posts.title_column (Posts.title excluded))
-      |> command)))
+    params.command
+      Insert.(
+        into Posts.table
+        |> set_expr Posts.id_column id
+        |> set_expr Posts.user_id_column user_id
+        |> set_expr Posts.title_column title
+        |> on_conflict (Conflict_target.column Posts.id_column)
+        |> do_update (fun ~existing:_ ~excluded ->
+          Conflict_update.empty
+          |> Conflict_update.set_expr Posts.title_column (Posts.title excluded))
+        |> command))
+val seaquery14 :
+  (int64 * int64 * string, Affected_rows.t, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1049,17 +1093,19 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 #### OCaml (typed-sql)
 
 ```ocaml
-let seaquery15 =
+# let seaquery15 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ title = params.expr Db_type.text ~get:(fun (title, _) -> title)
     and+ user_id = params.expr Db_type.int64 ~get:(fun (_, user_id) -> user_id) in
-    params.query_many (
-    Update.(
-      table Posts.table
-      |> set_expr Posts.title_column title
-      |> where (fun post -> Posts.user_id post =. user_id)
-      |> returning (fun post -> Projection.expr (Posts.id post)))))
+    params.query_many
+      Update.(
+        table Posts.table
+        |> set_expr Posts.title_column title
+        |> where (fun post -> Posts.user_id post =. user_id)
+        |> returning (fun post -> Projection.expr (Posts.id post))))
+val seaquery15 : (string * int64, int64 list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1074,22 +1120,8 @@ WHERE
 RETURNING
   "id"
 ```
-
-
-## Уведомление о лицензии
-
-The MIT License (MIT)
-
-Copyright (c) 2020 Tsang Hao Fung
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-
 ### SQ-16. Подсчёт совпавших публикаций по пользователю
+
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
@@ -1108,13 +1140,18 @@ GROUP BY users.id
 #### OCaml (typed-sql)
 
 ```ocaml
-let seaquery16 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let seaquery16 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Users.table
-      |> left_join Posts.table ~on:(fun user post -> (Users.id user =. Posts.user_id post) &&. (Posts.title post =~$ "%guide%"))
+      |> left_join Posts.table ~on:(fun user post ->
+        Users.id user =. Posts.user_id post &&. (Posts.title post =~$ "%guide%"))
       |> group_by (fun (user, _post) -> Users.id user)
-      |> select (fun (user, post) -> Projection.pair (Users.id user) (Expr.count (Posts.nullable_id post)))))
+      |> select (fun (user, post) ->
+        Projection.pair (Users.id user) (Expr.count (Posts.nullable_id post))))
+val seaquery16 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1155,12 +1192,26 @@ let seaquery17_relation =
   Derived_table.create
     ~table:Users.table
     ~columns:(fun user -> Projection.pair (Users.id user) (Users.name user))
-    Query.(from Users.table |> where (fun user -> Users.id user >$ 10L) |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))
+    Query.(
+      from Users.table
+      |> where (fun user -> Users.id user >$ 10L)
+      |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))
+;;
+
 let seaquery17_cte = Cte.select seaquery17_relation
-let seaquery17 =
-  Statement.query_many ~dialect:Dialect.portable (
-    Cte.with_result seaquery17_cte ~f:(fun selected ->
-      Query.(from_cte selected |> order_by Users.id `Asc |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))))
+```
+
+```ocaml
+# let seaquery17 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Cte.with_result seaquery17_cte ~f:(fun selected ->
+       Query.(
+         from_cte selected
+         |> order_by Users.id `Asc
+         |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))))
+val seaquery17 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1205,8 +1256,9 @@ WHERE posts.title IS DISTINCT FROM EXCLUDED.title
 #### OCaml (typed-sql)
 
 ```ocaml
-let seaquery18 =
-  Statement.command ~dialect:Dialect.portable (
+# let seaquery18 =
+  Statement.command
+    ~dialect:Dialect.portable
     Insert.(
       into Posts.table
       |> set Posts.id_column 8L
@@ -1216,8 +1268,10 @@ let seaquery18 =
       |> do_update (fun ~existing ~excluded ->
         Conflict_update.empty
         |> Conflict_update.set_expr Posts.title_column (Posts.title excluded)
-        |> Conflict_update.where (Expr.is_distinct_from (Posts.title existing) (Posts.title excluded)))
-      |> command))
+        |> Conflict_update.where
+             (Expr.is_distinct_from (Posts.title existing) (Posts.title excluded)))
+      |> command)
+val seaquery18 : (unit, Affected_rows.t, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1259,15 +1313,17 @@ RETURNING posts.id
 #### OCaml (typed-sql)
 
 ```ocaml
-let seaquery19 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let seaquery19 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Update.(
       table Posts.table
       |> from Users.table ~f:(fun post user update ->
         update
         |> set_expr Posts.title_column (Users.name user)
-        |> where (fun _ -> (Posts.user_id post =. Users.id user) &&. (Users.id user =$ 2L)))
-      |> returning (fun post -> Projection.expr (Posts.id post))))
+        |> where (fun _ -> Posts.user_id post =. Users.id user &&. (Users.id user =$ 2L)))
+      |> returning (fun post -> Projection.expr (Posts.id post)))
+val seaquery19 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1303,9 +1359,21 @@ SELECT id FROM users EXCEPT SELECT user_id FROM posts
 #### OCaml (typed-sql)
 
 ```ocaml
-let seaquery20_users = Query.(from Users.table |> select (fun user -> Projection.expr (Users.id user)))
-let seaquery20_posts = Query.(from Posts.table |> select (fun post -> Projection.expr (Posts.user_id post)))
-let seaquery20 = Statement.query_many ~dialect:Dialect.portable (Query.except seaquery20_users seaquery20_posts)
+let seaquery20_users =
+  Query.(from Users.table |> select (fun user -> Projection.expr (Users.id user)))
+;;
+
+let seaquery20_posts =
+  Query.(from Posts.table |> select (fun post -> Projection.expr (Posts.user_id post)))
+;;
+```
+
+```ocaml
+# let seaquery20 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Query.except seaquery20_users seaquery20_posts)
+val seaquery20 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)

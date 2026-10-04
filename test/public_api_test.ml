@@ -3,6 +3,8 @@ open Typed_sql
 open Statement_compile
 open Infix
 
+let print_s sexp = Stdlib.print_endline (Sexp.to_string_hum sexp)
+
 let ok_exn result =
   Result.map_error result ~f:Compile_error.to_string |> Result.ok_or_failwith
 ;;
@@ -400,7 +402,7 @@ let%expect_test "SQL error names the missing input" =
     String.equal
       (Stdlib.Printexc.to_string (Statement.Sql_error error))
       "Statement.Sql_error (SQL shape requires input)");
-  Stdio.print_s (Statement.sexp_of_sql_error error);
+  print_s (Statement.sexp_of_sql_error error);
   [%expect {| Dynamic_input_required |}]
 ;;
 
@@ -410,7 +412,7 @@ let%expect_test "SQL error names an unsupported dialect" =
     String.equal
       (Stdlib.Printexc.to_string (Statement.Sql_error error))
       "Statement.Sql_error (unsupported dialect: sqlite)");
-  Stdio.print_s (Statement.sexp_of_sql_error error);
+  print_s (Statement.sexp_of_sql_error error);
   [%expect {| (Unsupported_dialect Sqlite) |}]
 ;;
 
@@ -422,7 +424,7 @@ let%expect_test "SQL error names an invalid parameter" =
     Stdlib.Printexc.to_string (Statement.Sql_error (Statement.Invalid_parameter error))
   in
   assert (String.equal message "Statement.Sql_error (limit: must be non-negative, got -1)");
-  Stdio.print_s (Statement.sexp_of_sql_error (Statement.Invalid_parameter error));
+  print_s (Statement.sexp_of_sql_error (Statement.Invalid_parameter error));
   [%expect
     {| (Invalid_parameter ((name (limit)) (message (Negative_pagination_value -1)))) |}]
 ;;
@@ -436,7 +438,7 @@ let%expect_test "SQL error includes compilation context" =
     String.equal
       (Stdlib.Printexc.to_string (Statement.Sql_error error))
       "Statement.Sql_error (sqlite): LIMIT must be non-negative, got -1");
-  Stdio.print_s (Statement.sexp_of_sql_error error);
+  print_s (Statement.sexp_of_sql_error error);
   [%expect {| (Compilation_error ((dialect Sqlite) (error (Negative_limit -1)))) |}]
 ;;
 
@@ -554,7 +556,7 @@ let%expect_test "identifier printer" =
 let%expect_test "empty identifier diagnostic" =
   assert (
     String.equal (Identifier.error_to_string `Empty) "SQL identifier must not be empty");
-  Stdio.print_s (Identifier.sexp_of_error `Empty);
+  print_s (Identifier.sexp_of_error `Empty);
   [%expect {| Empty |}]
 ;;
 
@@ -563,7 +565,7 @@ let%expect_test "NUL identifier diagnostic" =
     String.equal
       (Identifier.error_to_string `Contains_nul)
       "SQL identifier must not contain a NUL byte");
-  Stdio.print_s (Identifier.sexp_of_error `Contains_nul);
+  print_s (Identifier.sexp_of_error `Contains_nul);
   [%expect {| Contains_nul |}]
 ;;
 

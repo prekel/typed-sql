@@ -12,7 +12,7 @@ let rec validate_expr ~validate_subquery ~visible = function
     let open Result.Let_syntax in
     let%bind () = validate_expr ~validate_subquery ~visible left in
     validate_expr ~validate_subquery ~visible right
-  | Ast.String_function (_, expression) ->
+  | Ast.Cast (_, _, expression) | Ast.String_function (_, expression) ->
     validate_expr ~validate_subquery ~visible expression
   | Ast.Case (branches, else_) ->
     let open Result.Let_syntax in
@@ -31,6 +31,8 @@ let rec validate_expr ~validate_subquery ~visible = function
       | Ast.Sum_float expression
       | Ast.Sum_int64 expression
       | Ast.Sum_numeric expression
+      | Ast.Avg_float expression
+      | Ast.Avg_numeric expression
       | Ast.Min expression
       | Ast.Max expression ) -> validate_expr ~validate_subquery ~visible expression
   | Ast.Aggregate (Ast.String_agg { value; delimiter; order_by }) ->
@@ -164,6 +166,15 @@ let same_string_function left right =
   | _ -> false
 ;;
 
+let same_numeric_type left right =
+  match left, right with
+  | Ast.Int, Ast.Int
+  | Ast.Int64, Ast.Int64
+  | Ast.Float, Ast.Float
+  | Ast.Numeric, Ast.Numeric -> true
+  | _ -> false
+;;
+
 let rec same_group_expression left right =
   if same_column left right then
     true
@@ -180,6 +191,8 @@ let rec same_group_expression left right =
       , Ast.String_function (right_function, right) ) ->
       same_string_function left_function right_function
       && same_group_expression left right
+    | Ast.Cast (sa, ta, a), Ast.Cast (sb, tb, b) ->
+      same_numeric_type sa sb && same_numeric_type ta tb && same_group_expression a b
     | Ast.Concat (left_a, left_b), Ast.Concat (right_a, right_b) ->
       same_group_expression left_a right_a && same_group_expression left_b right_b
     | Ast.Coalesce (left_a, left_b), Ast.Coalesce (right_a, right_b) ->
@@ -223,7 +236,7 @@ let rec analyze_expression ~groups ~inside_aggregate expression =
       combine
         (analyze_expression ~groups ~inside_aggregate left)
         (analyze_expression ~groups ~inside_aggregate right)
-    | Ast.String_function (_, expression) ->
+    | Ast.Cast (_, _, expression) | Ast.String_function (_, expression) ->
       analyze_expression ~groups ~inside_aggregate expression
     | Ast.Case (branches, else_) ->
       let branches =
@@ -242,6 +255,8 @@ let rec analyze_expression ~groups ~inside_aggregate expression =
         | Ast.Sum_float expression
         | Ast.Sum_int64 expression
         | Ast.Sum_numeric expression
+        | Ast.Avg_float expression
+        | Ast.Avg_numeric expression
         | Ast.Min expression
         | Ast.Max expression ) ->
       let nested = analyze_expression ~groups ~inside_aggregate:true expression in

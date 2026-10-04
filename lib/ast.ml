@@ -12,6 +12,12 @@ type string_function =
   | Length
   | Sqlite_length
 
+type numeric_type =
+  | Int
+  | Int64
+  | Float
+  | Numeric
+
 type aggregate =
   | Count_all
   | Count of expr
@@ -20,6 +26,8 @@ type aggregate =
   | Sum_float of expr
   | Sum_int64 of expr
   | Sum_numeric of expr
+  | Avg_float of expr
+  | Avg_numeric of expr
   | Min of expr
   | Max of expr
   | String_agg of
@@ -38,6 +46,7 @@ and expr =
   | Param of parameter
   | Arithmetic of arithmetic * expr * expr
   | String_function of string_function * expr
+  | Cast of numeric_type * numeric_type * expr
   | Concat of expr * expr
   | Coalesce of expr * expr
   | Case of (condition * expr) list * expr

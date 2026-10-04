@@ -55,3 +55,27 @@ let min_numeric_nullable expression =
 let max_numeric_nullable expression =
   Projection.expr (Expr.max_numeric_nullable expression)
 ;;
+
+let avg_int expression = Projection.expr (Expr.avg_int expression)
+let avg_int_nullable expression = Projection.expr (Expr.avg_int_nullable expression)
+let avg_int64 expression = Projection.expr (Expr.avg_int64 expression)
+let avg_int64_nullable expression = Projection.expr (Expr.avg_int64_nullable expression)
+let avg_float expression = Projection.expr (Expr.avg_float expression)
+let avg_float_nullable expression = Projection.expr (Expr.avg_float_nullable expression)
+let avg_int_numeric expression = Projection.expr (Expr.avg_int_numeric expression)
+
+let avg_int_numeric_nullable expression =
+  Projection.expr (Expr.avg_int_numeric_nullable expression)
+;;
+
+let avg_int64_numeric expression = Projection.expr (Expr.avg_int64_numeric expression)
+
+let avg_int64_numeric_nullable expression =
+  Projection.expr (Expr.avg_int64_numeric_nullable expression)
+;;
+
+let avg_numeric expression = Projection.expr (Expr.avg_numeric expression)
+
+let avg_numeric_nullable expression =
+  Projection.expr (Expr.avg_numeric_nullable expression)
+;;

@@ -286,7 +286,7 @@ PG'OCaml adapter также проходит отдельный PostgreSQL integ
 
 ### 1. Проверить текущий API внешним RealWorld-приложением
 
-- [ ] Реализовать в отдельном репозитории официальный RealWorld/OpenAPI 3.1:
+- [x] Реализовать в отдельном репозитории официальный RealWorld/OpenAPI 3.1:
   users/auth, profiles/follows, articles, comments, favorites и tags. Приложение
   должно зависеть только от публичных API `Typed_sql`, execution adapter и
   `../typed-endpoint`; ручной SQL и `typed-sql.private`/`typed-sql.backend` в
@@ -700,7 +700,7 @@ reconnect и eviction. Решение по core API и рассмотренны�
   [JQ-42](../test/query-builder-survey/jooq.md#jq-42-конкурентный-выбор-строк-с-skip-locked),
   [SA-39](../test/query-builder-survey/sqlalchemy.md#sa-39-страница-строк-с-for-update-skip-locked),
   [KY-47](../test/query-builder-survey/kysely.md#ky-47-for-update-skip-locked)).
-- [ ] Расширить aggregate expressions для correlated `UPDATE SET`: добавить
+- [x] Расширить aggregate expressions для correlated `UPDATE SET`: добавить
   `AVG` и явное преобразование результата, а также сохранить поведение пустой
   связанной коллекции при записи в колонку `NOT NULL`
   ([EF-14](../test/query-builder-survey/ef-core.md#ef-14-executeupdate-с-коррелированным-агрегатом)).
@@ -709,9 +709,9 @@ reconnect и eviction. Решение по core API и рассмотренны�
 - [ ] Добавить `LIKE ... ESCAPE` с параметризованным escape character и одинаково
   явными правилами для поддерживаемых dialects
   ([EF-40](../test/query-builder-survey/ef-core.md#ef-40-like-с-экранированным-процентом)).
-- [ ] Сверить [SA-40](../test/query-builder-survey/sqlalchemy.md#sa-40-update-returning-как-источник-cte)
-  с уже доступным `Postgresql.Cte.returning`: привести в карточке проверяемый
-  typed-sql пример и обновить ее оценку, не добавляя дубликат API.
+- [x] Сверить [SA-40](../test/query-builder-survey/sqlalchemy.md#sa-40-update-returning-как-источник-cte)
+  с уже доступным `Postgresql.Cte.returning`: карточка содержит проверяемый
+  typed-sql пример и актуальную оценку без дубликата API.
 
 ## Definition of done текущего релизного среза
 

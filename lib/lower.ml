@@ -33,6 +33,8 @@ let rec expression ~dialect = function
     Ast.Arithmetic (operator, expression ~dialect left, expression ~dialect right)
   | Ast.String_function (function_, value) ->
     Ast.String_function (string_function ~dialect function_, expression ~dialect value)
+  | Ast.Cast (source, target, value) ->
+    Ast.Cast (source, target, expression ~dialect value)
   | Ast.Concat (left, right) ->
     Ast.Concat (expression ~dialect left, expression ~dialect right)
   | Ast.Coalesce (left, right) ->
@@ -55,6 +57,10 @@ let rec expression ~dialect = function
     Ast.Aggregate (Ast.Sum_int64 (expression ~dialect value))
   | Ast.Aggregate (Ast.Sum_numeric value) ->
     Ast.Aggregate (Ast.Sum_numeric (expression ~dialect value))
+  | Ast.Aggregate (Ast.Avg_float value) ->
+    Ast.Aggregate (Ast.Avg_float (expression ~dialect value))
+  | Ast.Aggregate (Ast.Avg_numeric value) ->
+    Ast.Aggregate (Ast.Avg_numeric (expression ~dialect value))
   | Ast.Aggregate (Ast.Min value) -> Ast.Aggregate (Ast.Min (expression ~dialect value))
   | Ast.Aggregate (Ast.Max value) -> Ast.Aggregate (Ast.Max (expression ~dialect value))
   | Ast.Aggregate (Ast.String_agg string_agg) ->
@@ -234,6 +240,7 @@ let rec expression_has_unsupported_having ~dialect = function
     ->
     expression_has_unsupported_having ~dialect left
     || expression_has_unsupported_having ~dialect right
+  | Ast.Cast (_, _, value)
   | Ast.String_function (_, value)
   | Ast.Aggregate
       ( Ast.Count value
@@ -242,6 +249,8 @@ let rec expression_has_unsupported_having ~dialect = function
       | Ast.Sum_float value
       | Ast.Sum_int64 value
       | Ast.Sum_numeric value
+      | Ast.Avg_float value
+      | Ast.Avg_numeric value
       | Ast.Min value
       | Ast.Max value ) -> expression_has_unsupported_having ~dialect value
   | Ast.Aggregate (Ast.String_agg { value; delimiter; order_by }) ->
@@ -380,6 +389,7 @@ and command_has_unsupported_having ~dialect command =
 let first_unsupported values = List.find_map values ~f:Fn.id
 
 let rec sqlite_unsupported_expression = function
+  | Ast.Cast (Ast.Numeric, _, _) | Ast.Cast (_, Ast.Numeric, _) -> Some "numeric cast"
   | Ast.Column { db_type = Db_type.Pack db_type; _ } ->
     Db_type.sqlite_unsupported_type db_type
   | Ast.Param (Ast.Value (Db_type.Value (db_type, _))) ->
@@ -391,15 +401,18 @@ let rec sqlite_unsupported_expression = function
     ->
     first_unsupported
       [ sqlite_unsupported_expression left; sqlite_unsupported_expression right ]
+  | Ast.Cast (_, _, expression)
   | Ast.String_function (_, expression)
   | Ast.Aggregate
       ( Ast.Count expression
       | Ast.Count_distinct expression
       | Ast.Sum_int expression
       | Ast.Sum_float expression
+      | Ast.Avg_float expression
       | Ast.Min expression
       | Ast.Max expression ) -> sqlite_unsupported_expression expression
-  | Ast.Aggregate (Ast.Sum_int64 _ | Ast.Sum_numeric _) -> Some "numeric aggregate"
+  | Ast.Aggregate (Ast.Sum_int64 _ | Ast.Sum_numeric _ | Ast.Avg_numeric _) ->
+    Some "numeric aggregate"
   | Ast.Aggregate (Ast.String_agg _) -> Some "PostgreSQL string_agg aggregate"
   | Ast.Aggregate (Ast.Multiset_agg multiset) ->
     first_unsupported

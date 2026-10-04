@@ -53,6 +53,40 @@ module Postgresql = struct
   let string_agg_nullable = Typed_sql_private.Postgresql.string_agg_nullable
 
   module Numeric = struct
+    let avg_int = Typed_sql_private.Expr.avg_int_numeric
+    let avg_int_nullable = Typed_sql_private.Expr.avg_int_numeric_nullable
+    let avg_int64 = Typed_sql_private.Expr.avg_int64_numeric
+    let avg_int64_nullable = Typed_sql_private.Expr.avg_int64_numeric_nullable
+    let avg_numeric = Typed_sql_private.Expr.avg_numeric
+    let avg_numeric_nullable = Typed_sql_private.Expr.avg_numeric_nullable
+    let cast_int_to_numeric = Typed_sql_private.Expr.cast_int_to_numeric
+    let cast_int_to_numeric_nullable = Typed_sql_private.Expr.cast_int_to_numeric_nullable
+    let cast_int64_to_numeric = Typed_sql_private.Expr.cast_int64_to_numeric
+
+    let cast_int64_to_numeric_nullable =
+      Typed_sql_private.Expr.cast_int64_to_numeric_nullable
+    ;;
+
+    let cast_float_to_numeric = Typed_sql_private.Expr.cast_float_to_numeric
+
+    let cast_float_to_numeric_nullable =
+      Typed_sql_private.Expr.cast_float_to_numeric_nullable
+    ;;
+
+    let cast_numeric_to_int = Typed_sql_private.Expr.cast_numeric_to_int
+    let cast_numeric_to_int_nullable = Typed_sql_private.Expr.cast_numeric_to_int_nullable
+    let cast_numeric_to_int64 = Typed_sql_private.Expr.cast_numeric_to_int64
+
+    let cast_numeric_to_int64_nullable =
+      Typed_sql_private.Expr.cast_numeric_to_int64_nullable
+    ;;
+
+    let cast_numeric_to_float = Typed_sql_private.Expr.cast_numeric_to_float
+
+    let cast_numeric_to_float_nullable =
+      Typed_sql_private.Expr.cast_numeric_to_float_nullable
+    ;;
+
     let sum_int64 = Typed_sql_private.Expr.sum_int64
     let sum_int64_nullable = Typed_sql_private.Expr.sum_int64_nullable
     let sum_numeric = Typed_sql_private.Expr.sum_numeric
@@ -64,6 +98,16 @@ module Postgresql = struct
   end
 
   module Numeric_projection = struct
+    let avg_int = Typed_sql_private.Aggregate_projection.avg_int_numeric
+    let avg_int_nullable = Typed_sql_private.Aggregate_projection.avg_int_numeric_nullable
+    let avg_int64 = Typed_sql_private.Aggregate_projection.avg_int64_numeric
+
+    let avg_int64_nullable =
+      Typed_sql_private.Aggregate_projection.avg_int64_numeric_nullable
+    ;;
+
+    let avg_numeric = Typed_sql_private.Aggregate_projection.avg_numeric
+    let avg_numeric_nullable = Typed_sql_private.Aggregate_projection.avg_numeric_nullable
     let sum_int64 = Typed_sql_private.Aggregate_projection.sum_int64
     let sum_int64_nullable = Typed_sql_private.Aggregate_projection.sum_int64_nullable
     let sum_numeric = Typed_sql_private.Aggregate_projection.sum_numeric

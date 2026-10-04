@@ -302,3 +302,20 @@ let%test_unit "UPSERT shape excludes values and bind slots follow SQL order" =
     in
     assert (String.equal backend_sql (B.Compiled_query.sql first)))
 ;;
+
+let%test_unit "CAST shapes exclude values and source ids but retain target types" =
+  let table : unit Table.t = Table.v_exn "cast_shapes" in
+  let id = Column.v_exn table "id" Db_type.int in
+  let make cast value =
+    Query.(
+      from table
+      |> select (fun row ->
+        Projection.expr
+          (cast Expr.Int.Infix.(Expr.column row id +. Expr.constant Db_type.int value))))
+    |> compile_exn Dialect.Postgresql
+    |> B.Compiled_query.shape
+  in
+  let first = make Expr.cast_int_to_float 1 in
+  assert (B.Shape.equal first (make Expr.cast_int_to_float 9));
+  assert (not (B.Shape.equal first (make Expr.cast_int_to_int64 1)))
+;;

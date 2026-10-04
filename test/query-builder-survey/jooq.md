@@ -96,7 +96,6 @@ module Directory = struct
   let parent_id row = Expr.column row parent_id_column
   let label row = Expr.column row label_column
 end
-
 ```
 
 ## SELECT и фильтрация
@@ -142,8 +141,9 @@ create.select(AUTHOR.FIRST_NAME, AUTHOR.LAST_NAME, count())
 `Query.group_by` вызывается по одному разу для каждого ключа. `COUNT(*)` в `HAVING` и проекции относится к группе. Год и порог числа книг остаются bind-значениями.
 
 ```ocaml
-let jq01 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq01 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Author.table
       |> inner_join Book.table ~on:(fun author book ->
@@ -160,7 +160,9 @@ let jq01 =
           ~f:(fun first last count -> first, last, count)
           (Projection.expr (Author.first_name author))
           (Projection.expr (Author.last_name author))
-          (Projection.expr Expr.count_all))))
+          (Projection.expr Expr.count_all)))
+val jq01 : (unit, (string * string * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -219,18 +221,20 @@ create.select(BOOK.ID)
 `where_opt` добавляет условие только при `Some`. Поэтому здесь используется `Statement.Dynamic`: форма SQL зависит от входа. Для двух заранее известных вариантов можно также создать два статических statements.
 
 ```ocaml
-let jq02 =
+# let jq02 =
   Statement.Dynamic.query_many ~dialect:Dialect.portable (fun book_id ->
     Query.(
       from Book.table
       |> where_opt book_id ~f:(fun book id -> Book.id book =$ id)
       |> select (fun book -> Projection.expr (Book.id book))))
+val jq02 : (int option, int list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL, фильтр есть)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ~input:(Some 10) jq02);;
+# let () =
+  Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ~input:(Some 10) jq02);;
 SELECT
   t0."id"
 FROM "book" AS t0
@@ -298,8 +302,9 @@ create.select(AUTHOR.ID, BOOK.ID, BOOK.TITLE)
 После `left_join` дескриптор `Book` становится nullable. Поля книги выбираются через `Expr.nullable_column`; для автора без книг они декодируются как `None`.
 
 ```ocaml
-let jq03 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq03 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Author.table
       |> left_join Book.table ~on:(fun author book ->
@@ -311,7 +316,10 @@ let jq03 =
           ~f:(fun author_id book_id title -> author_id, book_id, title)
           (Projection.expr (Author.id author))
           (Projection.expr (Book.nullable_id book))
-          (Projection.expr (Book.nullable_title book)))))
+          (Projection.expr (Book.nullable_title book))))
+val jq03 :
+  (unit, (int * int option * string option) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -366,17 +374,18 @@ create.select(AUTHOR.ID, AUTHOR.LAST_NAME)
 Внутренний запрос захватывает `author` из внешнего callback. `Query.exists` получает незавершённый SELECT и сам формирует `SELECT 1`.
 
 ```ocaml
-let jq04 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq04 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Author.table
       |> where (fun author ->
         Query.exists
           Query.(
-            from Book.table
-            |> where (fun book -> Book.author_id book =. Author.id author)))
+            from Book.table |> where (fun book -> Book.author_id book =. Author.id author)))
       |> select (fun author ->
-        Projection.pair (Author.id author) (Author.last_name author))))
+        Projection.pair (Author.id author) (Author.last_name author)))
+val jq04 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -434,8 +443,9 @@ create.select(
 `Expr.scalar_subquery` возвращает `int64 option`: тип учитывает возможность отсутствия строки у произвольного scalar SELECT. У `COUNT(*)` без группировки строка есть даже при нуле книг; decoder здесь преобразует `None` в `0L`.
 
 ```ocaml
-let jq05 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq05 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Author.table
       |> order_by Author.id `Asc
@@ -449,7 +459,8 @@ let jq05 =
         Projection.map2
           ~f:(fun author_id count -> author_id, Option.value count ~default:0L)
           (Projection.expr (Author.id author))
-          (Projection.expr (Expr.scalar_subquery count)))))
+          (Projection.expr (Expr.scalar_subquery count))))
+val jq05 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -511,18 +522,21 @@ let jq06_relation =
     from Book.table
     |> group_by Book.author_id
     |> select_relation (fun book ->
-      Derived_table.Fields.pair
-        (Book.author_id book)
-        Expr.count_all))
+      Derived_table.Fields.pair (Book.author_id book) Expr.count_all))
+;;
+```
 
-let jq06 =
-  Statement.query_many ~dialect:Dialect.portable (
+```ocaml
+# let jq06 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from_relation jq06_relation
       |> order_by (fun (_author_id, books) -> books) `Desc
       |> select (fun fields ->
         let author_id, books = fields in
-        Projection.pair author_id books)))
+        Projection.pair author_id books))
+val jq06 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -599,23 +613,29 @@ end
 let jq07_relation =
   Derived_table.create
     ~table:Book_count.table
-    ~columns:(fun row -> Projection.pair (Book_count.author_id row) (Book_count.books row))
+    ~columns:(fun row ->
+      Projection.pair (Book_count.author_id row) (Book_count.books row))
     Query.(
       from Book.table
       |> group_by Book.author_id
       |> select (fun book -> Projection.pair (Book.author_id book) Expr.count_all))
+;;
 
 let jq07_cte = Cte.select jq07_relation
+```
 
-let jq07 =
-  Statement.query_many ~dialect:Dialect.portable (
-    Cte.with_result jq07_cte ~f:(fun book_counts ->
-      Query.(
-        from_cte book_counts
-        |> where (fun counts -> Book_count.books counts >$ 1L)
-        |> order_by Book_count.author_id `Asc
-        |> select (fun counts ->
-          Projection.pair (Book_count.author_id counts) (Book_count.books counts)))))
+```ocaml
+# let jq07 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Cte.with_result jq07_cte ~f:(fun book_counts ->
+       Query.(
+         from_cte book_counts
+         |> where (fun counts -> Book_count.books counts >$ 1L)
+         |> order_by Book_count.author_id `Asc
+         |> select (fun counts ->
+           Projection.pair (Book_count.author_id counts) (Book_count.books counts)))))
+val jq07 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -680,24 +700,23 @@ select(BOOK.ID)
 Обе ветви проецируют один и тот же тип. `Query.union` удаляет дубликаты.
 
 ```ocaml
-let jq08 =
-  Statement.query_many ~dialect:Dialect.portable (
-    let by_year =
-      Query.(
-        from Book.table
-        |> where (fun book -> Book.published_in book <=$ 1950)
-        |> select (fun book -> Projection.expr (Book.id book)))
-    in
-    let by_title =
-      Query.(
-        from Book.table
-        |> where (fun book -> Book.title book =~$ "A%")
-        |> select (fun book -> Projection.expr (Book.id book)))
-    in
-    Query.union
-      ~order_by:[ (Column.name Book.id_column, `Asc) ]
-      by_year
-      by_title)
+# let jq08 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (let by_year =
+       Query.(
+         from Book.table
+         |> where (fun book -> Book.published_in book <=$ 1950)
+         |> select (fun book -> Projection.expr (Book.id book)))
+     in
+     let by_title =
+       Query.(
+         from Book.table
+         |> where (fun book -> Book.title book =~$ "A%")
+         |> select (fun book -> Projection.expr (Book.id book)))
+     in
+     Query.union ~order_by:[ Column.name Book.id_column, `Asc ] by_year by_title)
+val jq08 : (unit, int list, Dialect.both) Statement.t = <abstr>
 ```
 
 Обе ветви используют те же фильтры, что и исходный сценарий. Финальный порядок
@@ -758,14 +777,15 @@ create.select(BOOK.AUTHOR_ID, count())
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq09 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq09 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Book.table
       |> group_by Book.author_id
       |> having (fun _ -> Expr.count_all >=$ 2L)
-      |> select (fun book ->
-        Projection.pair (Book.author_id book) Expr.count_all)))
+      |> select (fun book -> Projection.pair (Book.author_id book) Expr.count_all))
+val jq09 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -811,12 +831,14 @@ create.select(count())
 `HAVING` без `GROUP BY` соответствует PostgreSQL-специфичному расширению typed-sql. Здесь используется `query_many`, потому что `HAVING` может убрать агрегатную строку.
 
 ```ocaml
-let jq10 =
-  Statement.query_many ~dialect:Dialect.postgresql (
+# let jq10 =
+  Statement.query_many
+    ~dialect:Dialect.postgresql
     Query.(
       from Book.table
       |> Postgresql.Query.having (fun _ -> Expr.count_all >=$ 4L)
-      |> select (fun _ -> Projection.expr Expr.count_all)))
+      |> select (fun _ -> Projection.expr Expr.count_all))
+val jq10 : (unit, int64 list, [ `Postgresql ]) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -865,8 +887,9 @@ create.select(
 #### OCaml (typed-sql, коррелированный счётчик)
 
 ```ocaml
-let jq11 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq11 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Book.table
       |> order_by Book.id `Asc
@@ -878,11 +901,14 @@ let jq11 =
           (Projection.expr
              (Expr.coalesce
                 (Expr.scalar_subquery
-                   (Query.(
+                   Query.(
                      from Book.table
-                     |> where (fun same_author -> Book.author_id same_author =. Book.author_id book)
-                     |> select_scalar (fun _ -> Expr.count_all))))
-                ~default:(Expr.constant Db_type.int64 0L))))))
+                     |> where (fun same_author ->
+                       Book.author_id same_author =. Book.author_id book)
+                     |> select_scalar (fun _ -> Expr.count_all)))
+                ~default:(Expr.constant Db_type.int64 0L)))))
+val jq11 : (unit, (int * int * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -943,8 +969,9 @@ create.select(
 `Query.multiset` создаёт вложенный результат-список; пустой подзапрос декодируется как пустой список.
 
 ```ocaml
-let jq12 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq12 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Author.table
       |> order_by Author.id `Asc
@@ -956,8 +983,9 @@ let jq12 =
              Query.(
                from Book.table
                |> where (fun book -> Book.author_id book =. Author.id author)
-               |> select (fun book ->
-                 Projection.pair (Book.id book) (Book.title book)))))))
+               |> select (fun book -> Projection.pair (Book.id book) (Book.title book))))))
+val jq12 : (unit, (int * (int * string) list) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1030,8 +1058,9 @@ create.select(
 Для воспроизводимости typed-sql упорядочивает элементы по book id; исходный запрос порядок не задаёт. Как в исходном INNER JOIN, авторы без книг не дают группу.
 
 ```ocaml
-let jq13 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq13 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Author.table
       |> inner_join Book.table ~on:(fun author book ->
@@ -1044,7 +1073,9 @@ let jq13 =
           (Projection.expr (Author.id author))
           (Projection.multiset_agg
              ~order_by:[ Aggregate_order.asc (Book.id book) ]
-             (Projection.pair (Book.id book) (Book.title book))))))
+             (Projection.pair (Book.id book) (Book.title book)))))
+val jq13 : (unit, (int * (int * string) list) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1105,18 +1136,19 @@ create.insertInto(AUTHOR, AUTHOR.ID, AUTHOR.LAST_NAME)
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq14 =
-  Statement.command ~dialect:Dialect.portable (
-    let target = Insert.Conflict_target.column Author.id_column in
-    Insert.(
-      into Author.table
-      |> set Author.id_column 3
-      |> set Author.last_name_column "Koontz"
-      |> on_conflict target
-      |> do_update (fun ~existing:_ ~excluded:_ ->
-        Conflict_update.empty
-        |> Conflict_update.set Author.last_name_column "Koontz")
-      |> command))
+# let jq14 =
+  Statement.command
+    ~dialect:Dialect.portable
+    (let target = Insert.Conflict_target.column Author.id_column in
+     Insert.(
+       into Author.table
+       |> set Author.id_column 3
+       |> set Author.last_name_column "Koontz"
+       |> on_conflict target
+       |> do_update (fun ~existing:_ ~excluded:_ ->
+         Conflict_update.empty |> Conflict_update.set Author.last_name_column "Koontz")
+       |> command))
+val jq14 : (unit, Affected_rows.t, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1179,16 +1211,20 @@ module Book_archive = struct
   let title row = Expr.column row title_column
   let archived_at row = Expr.column row archived_at_column
 end
+```
 
-let jq15 =
-  Statement.command ~dialect:Dialect.portable (
+```ocaml
+# let jq15 =
+  Statement.command
+    ~dialect:Dialect.portable
     Update.(
       table Book_archive.table
       |> from Book.table ~f:(fun target source update ->
         update
         |> set_expr Book_archive.title_column (Book.title source)
         |> where (fun _ -> Expr.column target Book_archive.id_column =. Book.id source))
-      |> command))
+      |> command)
+val jq15 : (unit, Affected_rows.t, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1239,17 +1275,19 @@ create.select(AUTHOR.ID, AUTHOR.LAST_NAME)
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq16 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq16 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Author.table
       |> where (fun author ->
         not_exists
-          (Query.(
-            from Book.table
-            |> where (fun book -> Book.author_id book =. Author.id author))))
+          Query.(
+            from Book.table |> where (fun book -> Book.author_id book =. Author.id author)))
       |> order_by Author.id `Asc
-      |> select (fun author -> Projection.pair (Author.id author) (Author.last_name author))))
+      |> select (fun author ->
+        Projection.pair (Author.id author) (Author.last_name author)))
+val jq16 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1302,15 +1340,17 @@ create.select(AUTHOR.ID, LANGUAGE.CD)
 Декартово произведение задаётся `INNER JOIN ON TRUE`; SQL форма отличается от `CROSS JOIN`, результат совпадает.
 
 ```ocaml
-let jq17 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq17 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Author.table
       |> inner_join Language.table ~on:(fun _ _ -> Condition.true_)
       |> order_by (fun (author, _language) -> Author.id author) `Asc
       |> order_by (fun (_author, language) -> Language.cd language) `Asc
       |> select (fun (author, language) ->
-        Projection.pair (Author.id author) (Language.cd language))))
+        Projection.pair (Author.id author) (Language.cd language)))
+val jq17 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1358,13 +1398,16 @@ create.select(BOOK.ID, BOOK.TITLE, BOOK_ARCHIVE.ARCHIVED_AT)
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq18 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq18 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Author.table
-      |> inner_join Book.table ~on:(fun author book -> Author.id author =. Book.author_id book)
+      |> inner_join Book.table ~on:(fun author book ->
+        Author.id author =. Book.author_id book)
       |> select (fun (author, book) ->
-        Projection.pair (Author.id author) (Book.title book))))
+        Projection.pair (Author.id author) (Book.title book)))
+val jq18 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1425,21 +1468,24 @@ CROSS JOIN LATERAL возвращает только авторов, для ко
 #### OCaml (typed-sql, коррелированный scalar subquery)
 
 ```ocaml
-let jq19 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq19 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Author.table
-      |> inner_join Book.table ~on:(fun author book -> Author.id author =. Book.author_id book)
+      |> inner_join Book.table ~on:(fun author book ->
+        Author.id author =. Book.author_id book)
       |> where (fun (author, book) ->
-        Expr.to_nullable (Book.id book) =.
-        Expr.scalar_subquery
-          (Query.(
-            from Book.table
-            |> where (fun candidate -> Book.author_id candidate =. Author.id author)
-            |> order_by Book.id `Desc
-            |> limit_one
-            |> select_scalar Book.id)))
-      |> select (fun (author, book) -> Projection.pair (Author.id author) (Book.id book))))
+        Expr.to_nullable (Book.id book)
+        =. Expr.scalar_subquery
+             Query.(
+               from Book.table
+               |> where (fun candidate -> Book.author_id candidate =. Author.id author)
+               |> order_by Book.id `Desc
+               |> limit_one
+               |> select_scalar Book.id))
+      |> select (fun (author, book) -> Projection.pair (Author.id author) (Book.id book)))
+val jq19 : (unit, (int * int) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1579,11 +1625,13 @@ let jq21_fields ~directory_id ~parent_id ~label ~depth =
     (Derived_table.Fields.both
        (Derived_table.Fields.expr label)
        (Derived_table.Fields.expr depth))
+;;
 
 let jq21_projection ((id, parent_id), (label, depth)) =
   Projection.both
     (Projection.both (Projection.expr id) (Projection.expr parent_id))
     (Projection.both (Projection.expr label) (Projection.expr depth))
+;;
 
 let jq21_anchor =
   Query.(
@@ -1595,8 +1643,11 @@ let jq21_anchor =
         ~parent_id:(Directory.parent_id directory)
         ~label:(Directory.label directory)
         ~depth:(Expr.constant Db_type.int 0)))
+;;
+```
 
-let jq21 =
+```ocaml
+# let jq21 =
   let definition =
     Cte.recursive_relation
       ~union:`Union_all
@@ -1613,13 +1664,17 @@ let jq21 =
               ~label:(Directory.label directory)
               ~depth:Expr.Int.Infix.(depth +. Expr.constant Db_type.int 1))))
   in
-  Statement.query_many ~dialect:Dialect.portable (
-    Cte.with_result definition ~f:(fun directory_cte ->
-      Query.(
-        from_cte_relation directory_cte
-        |> order_by (fun ((_, _), (_, depth)) -> depth) `Asc
-        |> order_by (fun ((id, _), _) -> id) `Asc
-        |> select jq21_projection)))
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Cte.with_result definition ~f:(fun directory_cte ->
+       Query.(
+         from_cte_relation directory_cte
+         |> order_by (fun ((_, _), (_, depth)) -> depth) `Asc
+         |> order_by (fun ((id, _), _) -> id) `Asc
+         |> select jq21_projection)))
+val jq21 :
+  (unit, ((int * int option) * (string * int)) list, Dialect.both)
+  Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1690,12 +1745,14 @@ create.select(BOOK.AUTHOR_ID)
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq22 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq22 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Book.table
       |> distinct
-      |> select (fun book -> Projection.expr (Book.author_id book))))
+      |> select (fun book -> Projection.expr (Book.author_id book)))
+val jq22 : (unit, int list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1738,21 +1795,26 @@ DISTINCT ON является расширением PostgreSQL; для друг�
 Для каждого языка оставляется книга, перед которой нет книги с меньшим годом, а при равенстве — с меньшим ID.
 
 ```ocaml
-let jq23 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq23 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Book.table
       |> where (fun book ->
         not_exists
-          (Query.(
+          Query.(
             from Book.table
             |> where (fun earlier ->
-              (Book.language_id earlier =. Book.language_id book)
-              &&. ((Book.published_in earlier <. Book.published_in book)
-                   ||. ((Book.published_in earlier =. Book.published_in book)
-                        &&. (Book.id earlier <. Book.id book)))))))
+              Book.language_id earlier
+              =. Book.language_id book
+              &&. (Book.published_in earlier
+                   <. Book.published_in book
+                   ||. (Book.published_in earlier
+                        =. Book.published_in book
+                        &&. (Book.id earlier <. Book.id book))))))
       |> order_by Book.language_id `Asc
-      |> select (fun book -> Projection.pair (Book.language_id book) (Book.id book))))
+      |> select (fun book -> Projection.pair (Book.language_id book) (Book.id book)))
+val jq23 : (unit, (int * int) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1815,17 +1877,18 @@ create.select(
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq24 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq24 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Book.table
       |> select (fun book ->
         Projection.pair
           (Book.id book)
           (Expr.case
-             [ Book.published_in book <$ 1950,
-               Expr.constant Db_type.text "classic" ]
-             ~else_:(Expr.constant Db_type.text "modern")))))
+             [ Book.published_in book <$ 1950, Expr.constant Db_type.text "classic" ]
+             ~else_:(Expr.constant Db_type.text "modern"))))
+val jq24 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1868,17 +1931,24 @@ create.select(BOOK_ARCHIVE.ID, BOOK_ARCHIVE.ARCHIVED_AT)
 #### OCaml (typed-sql, CASE-сортировка)
 
 ```ocaml
-let jq25 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq25 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Book_archive.table
-      |> order_by (fun archive ->
-        Expr.case
-          [ Expr.is_null (Book_archive.archived_at archive),
-            Expr.constant Db_type.int 1 ]
-          ~else_:(Expr.constant Db_type.int 0)) `Asc
+      |> order_by
+           (fun archive ->
+              Expr.case
+                [ ( Expr.is_null (Book_archive.archived_at archive)
+                  , Expr.constant Db_type.int 1 )
+                ]
+                ~else_:(Expr.constant Db_type.int 0))
+           `Asc
       |> order_by Book_archive.archived_at `Asc
-      |> select (fun archive -> Projection.pair (Book_archive.id archive) (Book_archive.archived_at archive))))
+      |> select (fun archive ->
+        Projection.pair (Book_archive.id archive) (Book_archive.archived_at archive)))
+val jq25 : (unit, (int * Ptime.t option) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1923,15 +1993,15 @@ create.select(BOOK.ID, BOOK.PUBLISHED_IN)
 ```
 
 ```ocaml
-let jq26 =
-  Statement.query_many ~dialect:Dialect.postgresql (
+# let jq26 =
+  Statement.query_many
+    ~dialect:Dialect.postgresql
     Query.(
       from Book.table
       |> order_by Book.published_in `Asc
       |> Postgresql.Query.fetch_with_ties 2
-      |> select (fun book ->
-        Projection.pair (Book.id book) (Book.published_in book))))
-;;
+      |> select (fun book -> Projection.pair (Book.id book) (Book.published_in book)))
+val jq26 : (unit, (int * int) list, [ `Postgresql ]) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1983,8 +2053,9 @@ create.select(BOOK.ID, BOOK.TITLE)
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq27 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq27 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Author.table
       |> where (fun author ->
@@ -1995,7 +2066,8 @@ let jq27 =
             |> select_scalar Book.author_id)
         in
         in_subquery (Author.id author) prolific_authors)
-      |> select (fun author -> Projection.expr (Author.id author))))
+      |> select (fun author -> Projection.expr (Author.id author)))
+val jq27 : (unit, int list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2045,14 +2117,17 @@ create.select(BOOK.ID, BOOK.PUBLISHED_IN)
 #### OCaml (typed-sql, лексикографическая форма)
 
 ```ocaml
-let jq28 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq28 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Book.table
       |> where (fun book ->
-        (Book.published_in book >$ 1950)
-        ||. ((Book.published_in book =$ 1950) &&. (Book.id book >$ 100)))
-      |> select (fun book -> Projection.pair (Book.published_in book) (Book.id book))))
+        Book.published_in book
+        >$ 1950
+        ||. (Book.published_in book =$ 1950 &&. (Book.id book >$ 100)))
+      |> select (fun book -> Projection.pair (Book.published_in book) (Book.id book)))
+val jq28 : (unit, (int * int) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2135,8 +2210,9 @@ create.select(
 #### OCaml (typed-sql, CASE внутри агрегата)
 
 ```ocaml
-let jq30 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq30 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Book.table
       |> group_by Book.author_id
@@ -2145,9 +2221,10 @@ let jq30 =
           (Book.author_id book)
           (Expr.sum_int
              (Expr.case
-                [ Book.published_in book >$ 2000,
-                  Expr.constant Db_type.int 1 ]
-                ~else_:(Expr.constant Db_type.int 0))))))
+                [ Book.published_in book >$ 2000, Expr.constant Db_type.int 1 ]
+                ~else_:(Expr.constant Db_type.int 0)))))
+val jq30 : (unit, (int * int64 option) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2236,20 +2313,25 @@ QUALIFY доступен не во всех СУБД; jOOQ поддержива�
 #### OCaml (typed-sql, NOT EXISTS emulation)
 
 ```ocaml
-let jq32 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq32 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Book.table
       |> where (fun book ->
         not_exists
-          (Query.(
+          Query.(
             from Book.table
             |> where (fun newer ->
-              (Book.author_id newer =. Book.author_id book)
-              &&. ((Book.published_in newer >. Book.published_in book)
-                   ||. ((Book.published_in newer =. Book.published_in book)
-                        &&. (Book.id newer >. Book.id book)))))))
-      |> select (fun book -> Projection.pair (Book.author_id book) (Book.id book))))
+              Book.author_id newer
+              =. Book.author_id book
+              &&. (Book.published_in newer
+                   >. Book.published_in book
+                   ||. (Book.published_in newer
+                        =. Book.published_in book
+                        &&. (Book.id newer >. Book.id book))))))
+      |> select (fun book -> Projection.pair (Book.author_id book) (Book.id book)))
+val jq32 : (unit, (int * int) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2318,14 +2400,20 @@ let jq33_left =
     from Book.table
     |> where (fun book -> Book.published_in book <$ 1950)
     |> select (fun book -> Projection.expr (Book.author_id book)))
+;;
 
 let jq33_right =
   Query.(
     from Book.table
     |> where (fun book -> Book.published_in book >$ 2000)
     |> select (fun book -> Projection.expr (Book.author_id book)))
+;;
+```
 
-let jq33 = Statement.query_many ~dialect:Dialect.portable (Query.intersect jq33_left jq33_right)
+```ocaml
+# let jq33 =
+  Statement.query_many ~dialect:Dialect.portable (Query.intersect jq33_left jq33_right)
+val jq33 : (unit, int list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2386,17 +2474,21 @@ select(BOOK.ID)
 
 ```ocaml
 let jq34_left =
-  Query.(
-    from Author.table
-    |> select (fun author -> Projection.expr (Author.id author)))
+  Query.(from Author.table |> select (fun author -> Projection.expr (Author.id author)))
+;;
 
 let jq34_right =
   Query.(
     from Book.table
     |> where (fun book -> Book.published_in book >$ 2000)
     |> select (fun book -> Projection.expr (Book.author_id book)))
+;;
+```
 
-let jq34 = Statement.query_many ~dialect:Dialect.portable (Query.except jq34_left jq34_right)
+```ocaml
+# let jq34 =
+  Statement.query_many ~dialect:Dialect.portable (Query.except jq34_left jq34_right)
+val jq34 : (unit, int list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2479,19 +2571,23 @@ create.insertInto(BOOK_ARCHIVE, BOOK_ARCHIVE.ID, BOOK_ARCHIVE.TITLE)
 ```ocaml
 let jq36_columns =
   Insert.Columns.(column Book_archive.id_column |> add Book_archive.title_column)
+;;
+```
 
-let jq36 =
+```ocaml
+# let jq36 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ cutoff = params.expr Db_type.int ~get:Fn.id in
-    params.command (
-    let source =
-      Query.(
-        from Book.table
-        |> where (fun book -> Book.published_in book <. cutoff)
-        |> select (fun book -> Projection.pair (Book.id book) (Book.title book)))
-    in
-    Insert.(into Book_archive.table |> from_select jq36_columns source |> command)))
+    params.command
+      (let source =
+         Query.(
+           from Book.table
+           |> where (fun book -> Book.published_in book <. cutoff)
+           |> select (fun book -> Projection.pair (Book.id book) (Book.title book)))
+       in
+       Insert.(into Book_archive.table |> from_select jq36_columns source |> command)))
+val jq36 : (int, Affected_rows.t, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2538,13 +2634,15 @@ Record1<Integer> inserted =
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq37 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq37 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Insert.(
       into Book.table
       |> set Book.title_column "New title"
       |> set Book.author_id_column 1
-      |> returning (fun book -> Projection.pair (Book.id book) (Book.title book))))
+      |> returning (fun book -> Projection.pair (Book.id book) (Book.title book)))
+val jq37 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2587,17 +2685,20 @@ create.update(BOOK)
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq38 =
-  Statement.command ~dialect:Dialect.portable (
+# let jq38 =
+  Statement.command
+    ~dialect:Dialect.portable
     Update.(
       table Book.table
       |> from Book.table ~f:(fun target source update ->
         update
-        |> set_expr Book.published_in_column
-          Expr.Int.Infix.(Book.published_in target +. Expr.constant Db_type.int 1)
+        |> set_expr
+             Book.published_in_column
+             Expr.Int.Infix.(Book.published_in target +. Expr.constant Db_type.int 1)
         |> where (fun _ -> Book.id target =. Book.id source))
       |> where (fun book -> Book.published_in book <$ 1950)
-      |> command))
+      |> command)
+val jq38 : (unit, Affected_rows.t, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2645,16 +2746,18 @@ create.deleteFrom(BOOK_ARCHIVE)
 #### OCaml (typed-sql, WHERE EXISTS эквивалент)
 
 ```ocaml
-let jq39 =
-  Statement.command ~dialect:Dialect.portable (
+# let jq39 =
+  Statement.command
+    ~dialect:Dialect.portable
     Delete.(
       from Book.table
       |> where (fun book ->
         Query.exists
-          (Query.(
+          Query.(
             from Author.table
-            |> where (fun author -> Author.id author =. Book.author_id book))))
-      |> command))
+            |> where (fun author -> Author.id author =. Book.author_id book)))
+      |> command)
+val jq39 : (unit, Affected_rows.t, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2735,13 +2838,15 @@ create.select(BOOK.ID, BOOK.TITLE, BOOK.PUBLISHED_IN)
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq41 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq41 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Book.table
       |> where (fun book ->
-        (Book.published_in book >$ 2000)
-        ||. ((Book.published_in book =$ 2000) &&. (Book.id book >$ 100)))
+        Book.published_in book
+        >$ 2000
+        ||. (Book.published_in book =$ 2000 &&. (Book.id book >$ 100)))
       |> order_by Book.published_in `Asc
       |> order_by Book.id `Asc
       |> limit 20
@@ -2750,7 +2855,9 @@ let jq41 =
           ~f:(fun year id title -> year, id, title)
           (Projection.expr (Book.published_in book))
           (Projection.expr (Book.id book))
-          (Projection.expr (Book.title book)))))
+          (Projection.expr (Book.title book))))
+val jq41 : (unit, (int * int * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2810,20 +2917,20 @@ create.select(BOOK.ID, BOOK.TITLE)
 Два одновременных читателя запускают statement на разных соединениях внутри транзакций.
 
 ```ocaml
-let jooq42 =
+# let jooq42 =
   Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
     let open Statement.Parameters.Let_syntax in
-    let+ cutoff =
-      params.column Book.published_in_column ~get:Fn.id
-    in
-    params.query_many (
-    Query.(
-      from Book.table
-      |> where (fun book -> Book.published_in book <. cutoff)
-      |> order_by Book.id `Asc
-      |> limit 5
-      |> Postgresql.Query.for_update ~skip_locked:true
-      |> select (fun book -> Projection.pair (Book.id book) (Book.title book)))))
+    let+ cutoff = params.column Book.published_in_column ~get:Fn.id in
+    params.query_many
+      Query.(
+        from Book.table
+        |> where (fun book -> Book.published_in book <. cutoff)
+        |> order_by Book.id `Asc
+        |> limit 5
+        |> Postgresql.Query.for_update ~skip_locked:true
+        |> select (fun book -> Projection.pair (Book.id book) (Book.title book))))
+val jooq42 : (int, (int * string) list, [ `Postgresql ]) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2892,12 +2999,15 @@ create.deleteFrom(BOOK_ARCHIVE)
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq44 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq44 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Delete.(
       from Book_archive.table
       |> where (fun archive -> Expr.is_null (Book_archive.archived_at archive))
-      |> returning (fun archive -> Projection.pair (Book_archive.id archive) (Book_archive.title archive))))
+      |> returning (fun archive ->
+        Projection.pair (Book_archive.id archive) (Book_archive.title archive)))
+val jq44 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2942,23 +3052,24 @@ create.insertInto(BOOK_ARCHIVE, BOOK_ARCHIVE.ID, BOOK_ARCHIVE.TITLE)
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq45 =
+# let jq45 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ cutoff = params.expr Db_type.int ~get:Fn.id in
-    params.command (
-    let source =
-      Query.(
-        from Book.table
-        |> where (fun book -> Book.published_in book <. cutoff)
-        |> select (fun book -> Projection.pair (Book.id book) (Book.title book)))
-    in
-    Insert.(
-      into Book_archive.table
-      |> from_select jq36_columns source
-      |> on_conflict (Conflict_target.column Book_archive.id_column)
-      |> do_nothing
-      |> command)))
+    params.command
+      (let source =
+         Query.(
+           from Book.table
+           |> where (fun book -> Book.published_in book <. cutoff)
+           |> select (fun book -> Projection.pair (Book.id book) (Book.title book)))
+       in
+       Insert.(
+         into Book_archive.table
+         |> from_select jq36_columns source
+         |> on_conflict (Conflict_target.column Book_archive.id_column)
+         |> do_nothing
+         |> command)))
+val jq45 : (int, Affected_rows.t, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -3000,12 +3111,14 @@ WHERE BOOK_ARCHIVE.ARCHIVED_AT IS NULL
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq46 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq46 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Book_archive.table
       |> where (fun archive -> Expr.is_null (Book_archive.archived_at archive))
-      |> select (fun archive -> Projection.expr (Book_archive.id archive))))
+      |> select (fun archive -> Projection.expr (Book_archive.id archive)))
+val jq46 : (unit, int list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -3035,16 +3148,18 @@ SELECT COALESCE((SELECT COUNT(*) FROM BOOK WHERE AUTHOR_ID = 1), 0)
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq47 =
-  Statement.query_one ~dialect:Dialect.portable (
-    Query.select_one
-      (Expr.coalesce
-         (Expr.scalar_subquery
-            (Query.(
-              from Book.table
-              |> where (fun book -> Book.author_id book =$ 1)
-              |> select_scalar (fun _ -> Expr.count_all))))
-         ~default:(Expr.constant Db_type.int64 0L)))
+# let jq47 =
+  Statement.query_one
+    ~dialect:Dialect.portable
+    (Query.select_one
+       (Expr.coalesce
+          (Expr.scalar_subquery
+             Query.(
+               from Book.table
+               |> where (fun book -> Book.author_id book =$ 1)
+               |> select_scalar (fun _ -> Expr.count_all)))
+          ~default:(Expr.constant Db_type.int64 0L)))
+val jq47 : (unit, int64, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -3087,17 +3202,24 @@ let jq48_relation =
     Query.(
       from Author.table
       |> where (fun author -> Author.id author >$ 10)
-      |> select (fun author -> Projection.pair (Author.id author) (Author.last_name author)))
+      |> select (fun author ->
+        Projection.pair (Author.id author) (Author.last_name author)))
+;;
 
 let jq48_cte = Cte.select jq48_relation
+```
 
-let jq48 =
-  Statement.query_many ~dialect:Dialect.portable (
-    Cte.with_result jq48_cte ~f:(fun selected ->
-      Query.(
-        from_cte selected
-        |> order_by Author.id `Asc
-        |> select (fun author -> Projection.pair (Author.id author) (Author.last_name author)))))
+```ocaml
+# let jq48 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Cte.with_result jq48_cte ~f:(fun selected ->
+       Query.(
+         from_cte selected
+         |> order_by Author.id `Asc
+         |> select (fun author ->
+           Projection.pair (Author.id author) (Author.last_name author)))))
+val jq48 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -3142,8 +3264,9 @@ RETURNING ID, TITLE
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq49 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq49 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Insert.(
       into Book.table
       |> set Book.id_column 9
@@ -3151,8 +3274,12 @@ let jq49 =
       |> set Book.author_id_column 1
       |> on_conflict (Conflict_target.column Book.id_column)
       |> do_update (fun ~existing:_ ~excluded ->
-        Conflict_update.set_expr Book.title_column (Book.title excluded) Conflict_update.empty)
-      |> returning (fun book -> Projection.pair (Book.id book) (Book.title book))))
+        Conflict_update.set_expr
+          Book.title_column
+          (Book.title excluded)
+          Conflict_update.empty)
+      |> returning (fun book -> Projection.pair (Book.id book) (Book.title book)))
+val jq49 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -3193,13 +3320,15 @@ SELECT ID, TITLE FROM BOOK WHERE PUBLISHED_IN >= 2000 ORDER BY ID
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq50 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq50 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Book.table
       |> where_opt (Some 2000) ~f:(fun book year -> Book.published_in book >=$ year)
       |> order_by Book.id `Asc
-      |> select (fun book -> Projection.pair (Book.id book) (Book.title book))))
+      |> select (fun book -> Projection.pair (Book.id book) (Book.title book)))
+val jq50 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -3234,14 +3363,17 @@ GROUP BY AUTHOR.ID
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq51 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq51 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Author.table
-      |> left_join Book.table ~on:(fun author book -> Author.id author =. Book.author_id book)
+      |> left_join Book.table ~on:(fun author book ->
+        Author.id author =. Book.author_id book)
       |> group_by (fun (author, _book) -> Author.id author)
       |> select (fun (author, book) ->
-        Projection.pair (Author.id author) (Expr.count (Book.nullable_id book)))))
+        Projection.pair (Author.id author) (Expr.count (Book.nullable_id book))))
+val jq51 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -3274,12 +3406,14 @@ SELECT ID FROM BOOK WHERE ID NOT IN (1, 2, 3)
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq52 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq52 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Book.table
       |> where (fun book -> Expr.not_in (Book.id book) [ 1; 2; 3 ])
-      |> select (fun book -> Projection.expr (Book.id book))))
+      |> select (fun book -> Projection.expr (Book.id book)))
+val jq52 : (unit, int list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -3314,15 +3448,18 @@ GROUP BY AUTHOR.ID HAVING COUNT(*) >= 2 ORDER BY AUTHOR.ID
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq53 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq53 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Author.table
-      |> inner_join Book.table ~on:(fun author book -> Author.id author =. Book.author_id book)
+      |> inner_join Book.table ~on:(fun author book ->
+        Author.id author =. Book.author_id book)
       |> group_by (fun (author, _book) -> Author.id author)
       |> having (fun _ -> Expr.count_all >=$ 2L)
       |> order_by (fun (author, _book) -> Author.id author) `Asc
-      |> select (fun (author, _book) -> Projection.pair (Author.id author) Expr.count_all)))
+      |> select (fun (author, _book) -> Projection.pair (Author.id author) Expr.count_all))
+val jq53 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -3360,8 +3497,9 @@ FROM BOOK WHERE AUTHOR_ID = 1
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq54 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq54 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Book.table
       |> where (fun book -> Book.author_id book =$ 1)
@@ -3369,9 +3507,9 @@ let jq54 =
         Projection.pair
           (Book.id book)
           (Expr.case
-             [ Book.published_in book >=$ 2000,
-               Expr.constant Db_type.text "recent" ]
-             ~else_:(Expr.constant Db_type.text "older")))))
+             [ Book.published_in book >=$ 2000, Expr.constant Db_type.text "recent" ]
+             ~else_:(Expr.constant Db_type.text "older"))))
+val jq54 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -3405,13 +3543,15 @@ UPDATE BOOK SET PUBLISHED_IN = 2020 WHERE PUBLISHED_IN < 1900 RETURNING ID, PUBL
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq55 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq55 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Update.(
       table Book.table
       |> set Book.published_in_column 2020
       |> where (fun book -> Book.published_in book <$ 1900)
-      |> returning (fun book -> Projection.pair (Book.id book) (Book.published_in book))))
+      |> returning (fun book -> Projection.pair (Book.id book) (Book.published_in book)))
+val jq55 : (unit, (int * int) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -3444,13 +3584,24 @@ INSERT INTO BOOK (ID, TITLE, AUTHOR_ID) VALUES (101, 'A', 1), (102, 'B', 1)
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq56 =
-  Statement.command ~dialect:Dialect.portable (
-    Insert.rows Book.table
-      [ (fun row -> row |> Insert.set Book.id_column 101 |> Insert.set Book.title_column "A" |> Insert.set Book.author_id_column 1)
-      ; (fun row -> row |> Insert.set Book.id_column 102 |> Insert.set Book.title_column "B" |> Insert.set Book.author_id_column 1)
-      ]
-    |> Insert.command)
+# let jq56 =
+  Statement.command
+    ~dialect:Dialect.portable
+    (Insert.rows
+       Book.table
+       [ (fun row ->
+           row
+           |> Insert.set Book.id_column 101
+           |> Insert.set Book.title_column "A"
+           |> Insert.set Book.author_id_column 1)
+       ; (fun row ->
+           row
+           |> Insert.set Book.id_column 102
+           |> Insert.set Book.title_column "B"
+           |> Insert.set Book.author_id_column 1)
+       ]
+     |> Insert.command)
+val jq56 : (unit, Affected_rows.t, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -3484,9 +3635,25 @@ UNION ALL SELECT AUTHOR_ID FROM BOOK WHERE PUBLISHED_IN > 2000
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq57_old = Query.(from Book.table |> where (fun book -> Book.published_in book <$ 1950) |> select (fun book -> Projection.expr (Book.author_id book)))
-let jq57_new = Query.(from Book.table |> where (fun book -> Book.published_in book >$ 2000) |> select (fun book -> Projection.expr (Book.author_id book)))
-let jq57 = Statement.query_many ~dialect:Dialect.portable (Query.union_all jq57_old jq57_new)
+let jq57_old =
+  Query.(
+    from Book.table
+    |> where (fun book -> Book.published_in book <$ 1950)
+    |> select (fun book -> Projection.expr (Book.author_id book)))
+;;
+
+let jq57_new =
+  Query.(
+    from Book.table
+    |> where (fun book -> Book.published_in book >$ 2000)
+    |> select (fun book -> Projection.expr (Book.author_id book)))
+;;
+```
+
+```ocaml
+# let jq57 =
+  Statement.query_many ~dialect:Dialect.portable (Query.union_all jq57_old jq57_new)
+val jq57 : (unit, int list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -3529,20 +3696,23 @@ WHERE ID < (SELECT MAX(ID) FROM BOOK AS B2 WHERE B2.AUTHOR_ID = BOOK.AUTHOR_ID)
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq58 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq58 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Book.table
       |> where (fun book ->
-        Book.id book <.
-        Expr.coalesce
-          (Expr.scalar_subquery_nullable
-             (Query.(
-               from Book.table
-               |> where (fun other -> Book.author_id other =. Book.author_id book)
-               |> select_scalar (fun other -> Expr.max Db_type.Orderable.int (Book.id other)))))
-          ~default:(Expr.constant Db_type.int Int.max_value))
-      |> select (fun book -> Projection.pair (Book.id book) (Book.author_id book))))
+        Book.id book
+        <. Expr.coalesce
+             (Expr.scalar_subquery_nullable
+                Query.(
+                  from Book.table
+                  |> where (fun other -> Book.author_id other =. Book.author_id book)
+                  |> select_scalar (fun other ->
+                    Expr.max Db_type.Orderable.int (Book.id other))))
+             ~default:(Expr.constant Db_type.int Int.max_value))
+      |> select (fun book -> Projection.pair (Book.id book) (Book.author_id book)))
+val jq58 : (unit, (int * int) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -3581,29 +3751,33 @@ AND NOT EXISTS (SELECT 1 FROM BOOK WHERE AUTHOR_ID = AUTHOR.ID AND PUBLISHED_IN 
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq59 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq59 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Author.table
       |> where (fun author ->
         let has_old_book =
           Query.exists
-            (Query.(
+            Query.(
               from Book.table
               |> where (fun book ->
-                (Book.author_id book =. Author.id author)
-                &&. (Book.published_in book <$ 1950))))
+                Book.author_id book
+                =. Author.id author
+                &&. (Book.published_in book <$ 1950)))
         in
         let lacks_recent_book =
           Query.not_exists
-            (Query.(
+            Query.(
               from Book.table
               |> where (fun book ->
-                (Book.author_id book =. Author.id author)
-                &&. (Book.published_in book >$ 2000))))
+                Book.author_id book
+                =. Author.id author
+                &&. (Book.published_in book >$ 2000)))
         in
         has_old_book &&. lacks_recent_book)
-      |> select (fun author -> Projection.expr (Author.id author))))
+      |> select (fun author -> Projection.expr (Author.id author)))
+val jq59 : (unit, int list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -3656,18 +3830,21 @@ ORDER BY AUTHOR.ID LIMIT 10 OFFSET 5
 #### OCaml (typed-sql)
 
 ```ocaml
-let jq60 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let jq60 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Author.table
-      |> inner_join Book.table ~on:(fun author book -> Author.id author =. Book.author_id book)
+      |> inner_join Book.table ~on:(fun author book ->
+        Author.id author =. Book.author_id book)
       |> where (fun (_author, book) -> Book.published_in book >=$ 1950)
       |> group_by (fun (author, _book) -> Author.id author)
       |> having (fun _ -> Expr.count_all >$ 1L)
       |> order_by (fun (author, _book) -> Author.id author) `Asc
       |> limit 10
       |> offset 5
-      |> select (fun (author, _book) -> Projection.pair (Author.id author) Expr.count_all)))
+      |> select (fun (author, _book) -> Projection.pair (Author.id author) Expr.count_all))
+val jq60 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)

@@ -2,11 +2,34 @@
 
 # Сценарии запросов из SQLAlchemy
 
+## Уведомление о лицензии источника
+
+Copyright 2005-2026 SQLAlchemy authors and contributors <see AUTHORS file>.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
 50 сценариев по [SQLAlchemy 2.0 Unified Tutorial](https://docs.sqlalchemy.org/en/20/tutorial/) и документации SQLAlchemy Core (доступ 28.09.2026). Использован SQLAlchemy Core. Примеры сокращены и адаптированы; SQL показывает ожидаемую структуру запроса, а не точный вывод компилятора. Имена bind-параметров могут отличаться у разных диалектов.
 
 **Желаемый таргет: 50–70 сценариев.**
 
-Источник примеров: SQLAlchemy authors and contributors, © 2005–2026, [лицензия MIT](https://github.com/sqlalchemy/sqlalchemy/blob/main/LICENSE). Уведомление о лицензии приведено в конце файла. Схема tutorial: `user_account(id, name, fullname)` и `address(id, user_id, email_address)`. Для проверки пустых результатов нужна учётная запись без адресов.
+Источник примеров: SQLAlchemy authors and contributors, © 2005–2026, [лицензия MIT](https://github.com/sqlalchemy/sqlalchemy/blob/main/LICENSE). Уведомление о лицензии приведено в начале файла. Схема tutorial: `user_account(id, name, fullname)` и `address(id, user_id, email_address)`. Для проверки пустых результатов нужна учётная запись без адресов.
 
 Для сценариев с OCaml-примером ✓ приведены typed-sql реализации и SQL компилятора. В блоках «SQL typed-sql» первая строка запускает компилятор, остальные строки — его вывод. Запустить проверку можно командой `opam exec -- dune runtest test/query-builder-survey`.
 
@@ -84,22 +107,25 @@ stmt = select(user_table.c.id, user_table.c.name).where(
 Bind-значение сравнивается с выражением колонки; проекция декодируется в пару.
 
 ```ocaml
-let sqlalchemy01 =
+# let sqlalchemy01 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ name = params.expr Db_type.text ~get:Fn.id in
-    params.query_many (
-    Query.(
-      from User_account.table
-      |> where (fun user -> User_account.name user =. name)
-      |> select (fun user ->
-        Projection.pair (User_account.id user) (User_account.name user)))))
+    params.query_many
+      Query.(
+        from User_account.table
+        |> where (fun user -> User_account.name user =. name)
+        |> select (fun user ->
+          Projection.pair (User_account.id user) (User_account.name user))))
+val sqlalchemy01 : (string, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ~input:"sandy" sqlalchemy01);;
+# let () =
+  Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ~input:"sandy" sqlalchemy01);;
 SELECT
   t0."id",
   t0."name"
@@ -137,30 +163,31 @@ stmt = select(user_table.c.id).where(
 OR-группа явно вложена в AND-группу.
 
 ```ocaml
-let sqlalchemy02 =
+# let sqlalchemy02 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
-    let+ name1 =
-      params.expr Db_type.text ~get:(fun (name1, _, _) -> name1)
-    and+ name2 =
-      params.expr Db_type.text ~get:(fun (_, name2, _) -> name2)
-    and+ min_id =
-      params.expr Db_type.int64 ~get:(fun (_, _, min_id) -> min_id)
-    in
-    params.query_many (
-    Query.(
-      from User_account.table
-      |> where (fun user ->
-        ((User_account.name user =. name1)
-         ||. (User_account.name user =. name2))
-        &&. (User_account.id user >. min_id))
-      |> select (fun user -> Projection.expr (User_account.id user)))))
+    let+ name1 = params.expr Db_type.text ~get:(fun (name1, _, _) -> name1)
+    and+ name2 = params.expr Db_type.text ~get:(fun (_, name2, _) -> name2)
+    and+ min_id = params.expr Db_type.int64 ~get:(fun (_, _, min_id) -> min_id) in
+    params.query_many
+      Query.(
+        from User_account.table
+        |> where (fun user ->
+          User_account.name user
+          =. name1
+          ||. (User_account.name user =. name2)
+          &&. (User_account.id user >. min_id))
+        |> select (fun user -> Projection.expr (User_account.id user))))
+val sqlalchemy02 :
+  (string * string * int64, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ~input:("sandy", "spongebob", 1L) sqlalchemy02);;
+# let () =
+  Stdlib.print_endline
+    (Statement.sql_exn ~dialect:Postgresql ~input:("sandy", "spongebob", 1L) sqlalchemy02);;
 SELECT
   t0."id"
 FROM "user_account" AS t0
@@ -205,32 +232,33 @@ stmt = (
 Порядок по уникальному id задаёт стабильную страницу.
 
 ```ocaml
-let sqlalchemy03 =
+# let sqlalchemy03 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ page_size =
-      params.non_negative_int
-        ~name:"page_size"
-        ~get:(fun (page_size, _) -> page_size)
+      params.non_negative_int ~name:"page_size" ~get:(fun (page_size, _) -> page_size)
     and+ page_offset =
-      params.non_negative_int
-        ~name:"page_offset"
-        ~get:(fun (_, page_offset) -> page_offset)
+      params.non_negative_int ~name:"page_offset" ~get:(fun (_, page_offset) ->
+        page_offset)
     in
-    params.query_many (
-    Query.(
-      from User_account.table
-      |> order_by User_account.id `Asc
-      |> Query.limit_param page_size
-      |> Query.offset_param page_offset
-      |> select (fun user ->
-        Projection.pair (User_account.id user) (User_account.name user)))))
+    params.query_many
+      Query.(
+        from User_account.table
+        |> order_by User_account.id `Asc
+        |> Query.limit_param page_size
+        |> Query.offset_param page_offset
+        |> select (fun user ->
+          Projection.pair (User_account.id user) (User_account.name user))))
+val sqlalchemy03 :
+  (int * int, (int64 * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ~input:(10, 20) sqlalchemy03);;
+# let () =
+  Stdlib.print_endline
+    (Statement.sql_exn ~dialect:Postgresql ~input:(10, 20) sqlalchemy03);;
 SELECT
   t0."id",
   t0."name"
@@ -269,14 +297,17 @@ stmt = (
 Foreign key связь задаётся явно через callback JOIN.
 
 ```ocaml
-let sqlalchemy04 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let sqlalchemy04 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from User_account.table
       |> inner_join Address.table ~on:(fun user address ->
         User_account.id user =. Address.user_id address)
       |> select (fun (user, address) ->
-        Projection.pair (User_account.name user) (Address.email address))))
+        Projection.pair (User_account.name user) (Address.email address)))
+val sqlalchemy04 : (unit, (string * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -318,14 +349,17 @@ stmt = (
 Nullable-колонка адреса в результате имеет тип string option.
 
 ```ocaml
-let sqlalchemy05 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let sqlalchemy05 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from User_account.table
       |> left_join Address.table ~on:(fun user address ->
         User_account.id user =. Address.user_id address)
       |> select (fun (user, address) ->
-        Projection.pair (User_account.name user) (Address.nullable_email address))))
+        Projection.pair (User_account.name user) (Address.nullable_email address)))
+val sqlalchemy05 :
+  (unit, (string * string option) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -370,14 +404,17 @@ stmt = (
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy06 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let sqlalchemy06 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Address.table
       |> group_by Address.user_id
       |> having (fun _ -> Expr.count_all >=$ 2L)
       |> order_by Address.user_id `Asc
-      |> select (fun address -> Projection.pair (Address.user_id address) Expr.count_all)))
+      |> select (fun address -> Projection.pair (Address.user_id address) Expr.count_all))
+val sqlalchemy06 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -425,18 +462,21 @@ stmt = select(user_table.c.id, address_count.label("address_count"))
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy07 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let sqlalchemy07 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from User_account.table
       |> select (fun user ->
         Projection.pair
           (User_account.id user)
           (Expr.scalar_subquery
-             (Query.(
+             Query.(
                from Address.table
                |> where (fun address -> Address.user_id address =. User_account.id user)
-               |> select_scalar (fun _ -> Expr.count_all)))))))
+               |> select_scalar (fun _ -> Expr.count_all)))))
+val sqlalchemy07 :
+  (unit, (int64 * int64 option) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -485,16 +525,20 @@ stmt = select(user_table.c.id).where(has_address)
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy08 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let sqlalchemy08 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from User_account.table
       |> where (fun user ->
         exists
-          (Query.(
+          Query.(
             from Address.table
-            |> where (fun address -> Address.user_id address =. User_account.id user))))
-      |> select (fun user -> Projection.pair (User_account.id user) (User_account.name user))))
+            |> where (fun address -> Address.user_id address =. User_account.id user)))
+      |> select (fun user ->
+        Projection.pair (User_account.id user) (User_account.name user)))
+val sqlalchemy08 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -556,13 +600,19 @@ let sqlalchemy09_counts =
     |> group_by Address.user_id
     |> select_relation (fun address ->
       Derived_table.Fields.pair (Address.user_id address) Expr.count_all))
+;;
+```
 
-let sqlalchemy09 =
-  Statement.query_many ~dialect:Dialect.portable (
+```ocaml
+# let sqlalchemy09 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from_relation sqlalchemy09_counts
       |> order_by fst `Asc
-      |> select (fun (user_id, count) -> Projection.pair user_id count)))
+      |> select (fun (user_id, count) -> Projection.pair user_id count))
+val sqlalchemy09 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -624,17 +674,25 @@ let sqlalchemy10_relation =
     Query.(
       from User_account.table
       |> where (fun user -> User_account.id user >$ 10L)
-      |> select (fun user -> Projection.pair (User_account.id user) (User_account.name user)))
+      |> select (fun user ->
+        Projection.pair (User_account.id user) (User_account.name user)))
+;;
 
 let sqlalchemy10_cte = Cte.select sqlalchemy10_relation
+```
 
-let sqlalchemy10 =
-  Statement.query_many ~dialect:Dialect.portable (
-    Cte.with_result sqlalchemy10_cte ~f:(fun selected ->
-      Query.(
-        from_cte selected
-        |> order_by User_account.id `Asc
-        |> select (fun user -> Projection.pair (User_account.id user) (User_account.name user)))))
+```ocaml
+# let sqlalchemy10 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Cte.with_result sqlalchemy10_cte ~f:(fun selected ->
+       Query.(
+         from_cte selected
+         |> order_by User_account.id `Asc
+         |> select (fun user ->
+           Projection.pair (User_account.id user) (User_account.name user)))))
+val sqlalchemy10 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -686,9 +744,27 @@ stmt = union(
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy11_left = Query.(from User_account.table |> where (fun user -> User_account.name user =$ "sandy") |> select (fun user -> Projection.expr (User_account.id user)))
-let sqlalchemy11_right = Query.(from User_account.table |> where (fun user -> User_account.name user =$ "spongebob") |> select (fun user -> Projection.expr (User_account.id user)))
-let sqlalchemy11 = Statement.query_many ~dialect:Dialect.portable (Query.union sqlalchemy11_left sqlalchemy11_right)
+let sqlalchemy11_left =
+  Query.(
+    from User_account.table
+    |> where (fun user -> User_account.name user =$ "sandy")
+    |> select (fun user -> Projection.expr (User_account.id user)))
+;;
+
+let sqlalchemy11_right =
+  Query.(
+    from User_account.table
+    |> where (fun user -> User_account.name user =$ "spongebob")
+    |> select (fun user -> Projection.expr (User_account.id user)))
+;;
+```
+
+```ocaml
+# let sqlalchemy11 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Query.union sqlalchemy11_left sqlalchemy11_right)
+val sqlalchemy11 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -772,12 +848,14 @@ stmt = (
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy13 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let sqlalchemy13 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Insert.(
       into User_account.table
       |> set User_account.name_column "sandy"
-      |> returning (fun user -> Projection.expr (User_account.id user))))
+      |> returning (fun user -> Projection.expr (User_account.id user)))
+val sqlalchemy13 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -825,23 +903,29 @@ stmt = update(user_table).values(fullname=first_email)
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy14 =
-  Statement.command ~dialect:Dialect.portable (
+# let sqlalchemy14 =
+  Statement.command
+    ~dialect:Dialect.portable
     Update.(
       table User_account.table
       |> from User_account.table ~f:(fun target source update ->
         update
-        |> set_expr User_account.fullname_column
-          (Expr.scalar_subquery_nullable
-             (Query.(
-               from Address.table
-               |> where (fun address -> Address.user_id address =. User_account.id target)
-               |> order_by Address.id `Asc
-               |> limit_one
-               |> select_scalar (fun address -> Expr.to_nullable (Address.email address)))))
+        |> set_expr
+             User_account.fullname_column
+             (Expr.scalar_subquery_nullable
+                Query.(
+                  from Address.table
+                  |> where (fun address ->
+                    Address.user_id address =. User_account.id target)
+                  |> order_by Address.id `Asc
+                  |> limit_one
+                  |> select_scalar (fun address ->
+                    Expr.to_nullable (Address.email address))))
         |> where (fun _ -> User_account.id target =. User_account.id source))
       |> all_rows
-      |> command))
+      |> command)
+val sqlalchemy14 : (unit, Affected_rows.t, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -889,12 +973,14 @@ stmt = (
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy15 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let sqlalchemy15 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Delete.(
       from Address.table
       |> where (fun address -> Address.user_id address =$ 1L)
-      |> returning (fun address -> Projection.expr (Address.id address))))
+      |> returning (fun address -> Projection.expr (Address.id address)))
+val sqlalchemy15 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -929,9 +1015,14 @@ stmt = select(address_table.c.user_id).distinct()
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy16 =
-  Statement.query_many ~dialect:Dialect.portable (
-    Query.(from Address.table |> distinct |> select (fun address -> Projection.expr (Address.user_id address))))
+# let sqlalchemy16 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    Query.(
+      from Address.table
+      |> distinct
+      |> select (fun address -> Projection.expr (Address.user_id address)))
+val sqlalchemy16 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -967,9 +1058,14 @@ stmt = select(user_table.c.id).where(
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy17 =
-  Statement.query_many ~dialect:Dialect.portable (
-    Query.(from User_account.table |> where (fun user -> Expr.in_ (User_account.name user) [ "sandy"; "spongebob" ]) |> select (fun user -> Projection.expr (User_account.id user))))
+# let sqlalchemy17 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    Query.(
+      from User_account.table
+      |> where (fun user -> Expr.in_ (User_account.name user) [ "sandy"; "spongebob" ])
+      |> select (fun user -> Projection.expr (User_account.id user)))
+val sqlalchemy17 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1008,9 +1104,14 @@ stmt = select(user_table.c.id).where(user_table.c.name.like(name_pattern))
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy18 =
-  Statement.query_many ~dialect:Dialect.portable (
-    Query.(from User_account.table |> where (fun user -> User_account.name user =~$ "%sandy%") |> select (fun user -> Projection.expr (User_account.id user))))
+# let sqlalchemy18 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    Query.(
+      from User_account.table
+      |> where (fun user -> User_account.name user =~$ "%sandy%")
+      |> select (fun user -> Projection.expr (User_account.id user)))
+val sqlalchemy18 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1046,9 +1147,14 @@ stmt = select(address_table.c.id).where(address_table.c.email_address.is_(None))
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy19 =
-  Statement.query_many ~dialect:Dialect.portable (
-    Query.(from Address.table |> where (fun address -> Expr.is_null (Expr.to_nullable (Address.email address))) |> select (fun address -> Projection.expr (Address.id address))))
+# let sqlalchemy19 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    Query.(
+      from Address.table
+      |> where (fun address -> Expr.is_null (Expr.to_nullable (Address.email address)))
+      |> select (fun address -> Projection.expr (Address.id address)))
+val sqlalchemy19 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1088,9 +1194,19 @@ stmt = select(user_table.c.id, category)
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy20 =
-  Statement.query_many ~dialect:Dialect.portable (
-    Query.(from User_account.table |> select (fun user -> Projection.pair (User_account.id user) (Expr.case [ User_account.name user =$ "sandy", Expr.constant Db_type.text "matched" ] ~else_:(Expr.constant Db_type.text "other")))))
+# let sqlalchemy20 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    Query.(
+      from User_account.table
+      |> select (fun user ->
+        Projection.pair
+          (User_account.id user)
+          (Expr.case
+             [ User_account.name user =$ "sandy", Expr.constant Db_type.text "matched" ]
+             ~else_:(Expr.constant Db_type.text "other"))))
+val sqlalchemy20 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1131,13 +1247,24 @@ stmt = select(address_table.c.id, address_table.c.email_address).order_by(
 #### OCaml (typed-sql, CASE-сортировка)
 
 ```ocaml
-let sqlalchemy21 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let sqlalchemy21 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Address.table
-      |> order_by (fun address -> Expr.case [ Expr.is_null (Expr.to_nullable (Address.email address)), Expr.constant Db_type.int 1 ] ~else_:(Expr.constant Db_type.int 0)) `Asc
+      |> order_by
+           (fun address ->
+              Expr.case
+                [ ( Expr.is_null (Expr.to_nullable (Address.email address))
+                  , Expr.constant Db_type.int 1 )
+                ]
+                ~else_:(Expr.constant Db_type.int 0))
+           `Asc
       |> order_by (fun address -> Expr.to_nullable (Address.email address)) `Asc
-      |> select (fun address -> Projection.pair (Address.id address) (Expr.to_nullable (Address.email address)))))
+      |> select (fun address ->
+        Projection.pair (Address.id address) (Expr.to_nullable (Address.email address))))
+val sqlalchemy21 :
+  (unit, (int64 * string option) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1184,9 +1311,17 @@ stmt = select(user_table.c.name, related_user.c.name).join_from(
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy22 =
-  Statement.query_many ~dialect:Dialect.portable (
-    Query.(from User_account.table |> inner_join User_account.table ~on:(fun user related -> User_account.id user <. User_account.id related) |> select (fun (user, related) -> Projection.pair (User_account.name user) (User_account.name related))))
+# let sqlalchemy22 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    Query.(
+      from User_account.table
+      |> inner_join User_account.table ~on:(fun user related ->
+        User_account.id user <. User_account.id related)
+      |> select (fun (user, related) ->
+        Projection.pair (User_account.name user) (User_account.name related)))
+val sqlalchemy22 : (unit, (string * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1227,9 +1362,16 @@ stmt = select(user_table.c.id, address_table.c.id).select_from(
 Декартово произведение задано как `INNER JOIN ON TRUE`, с тем же набором пар строк.
 
 ```ocaml
-let sqlalchemy23 =
-  Statement.query_many ~dialect:Dialect.portable (
-    Query.(from User_account.table |> inner_join Address.table ~on:(fun _ _ -> Condition.true_) |> select (fun (user, address) -> Projection.pair (User_account.id user) (Address.id address))))
+# let sqlalchemy23 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    Query.(
+      from User_account.table
+      |> inner_join Address.table ~on:(fun _ _ -> Condition.true_)
+      |> select (fun (user, address) ->
+        Projection.pair (User_account.id user) (Address.id address)))
+val sqlalchemy23 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1273,12 +1415,36 @@ stmt = select(user_table.c.id, address_table.c.id).join_from(
 
 ```ocaml
 let sqlalchemy24_left =
-  Query.(from User_account.table |> left_join Address.table ~on:(fun user address -> User_account.id user =. Address.user_id address) |> select (fun (user, address) -> Projection.pair (Expr.to_nullable (User_account.id user)) (Address.nullable_id address)))
+  Query.(
+    from User_account.table
+    |> left_join Address.table ~on:(fun user address ->
+      User_account.id user =. Address.user_id address)
+    |> select (fun (user, address) ->
+      Projection.pair
+        (Expr.to_nullable (User_account.id user))
+        (Address.nullable_id address)))
+;;
 
 let sqlalchemy24_right =
-  Query.(from Address.table |> left_join User_account.table ~on:(fun address user -> User_account.id user =. Address.user_id address) |> select (fun (address, user) -> Projection.pair (User_account.nullable_id user) (Expr.to_nullable (Address.id address))))
+  Query.(
+    from Address.table
+    |> left_join User_account.table ~on:(fun address user ->
+      User_account.id user =. Address.user_id address)
+    |> select (fun (address, user) ->
+      Projection.pair
+        (User_account.nullable_id user)
+        (Expr.to_nullable (Address.id address))))
+;;
+```
 
-let sqlalchemy24 = Statement.query_many ~dialect:Dialect.portable (Query.union_all sqlalchemy24_left sqlalchemy24_right)
+```ocaml
+# let sqlalchemy24 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Query.union_all sqlalchemy24_left sqlalchemy24_right)
+val sqlalchemy24 :
+  (unit, (int64 option * int64 option) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1344,20 +1510,23 @@ stmt = select(user_table.c.id, latest_address.c.email_address).select_from(
 #### OCaml (typed-sql, scalar subquery)
 
 ```ocaml
-let sqlalchemy25 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let sqlalchemy25 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from User_account.table
       |> select (fun user ->
         Projection.pair
           (User_account.id user)
           (Expr.scalar_subquery_nullable
-             (Query.(
+             Query.(
                from Address.table
                |> where (fun address -> Address.user_id address =. User_account.id user)
                |> order_by Address.id `Desc
                |> limit_one
-               |> select_scalar (fun address -> Expr.to_nullable (Address.email address))))))))
+               |> select_scalar (fun address -> Expr.to_nullable (Address.email address))))))
+val sqlalchemy25 :
+  (unit, (int64 * string option) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1404,9 +1573,27 @@ stmt = union_all(
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy26_left = Query.(from User_account.table |> where (fun user -> User_account.name user =$ "sandy") |> select (fun user -> Projection.expr (User_account.id user)))
-let sqlalchemy26_right = Query.(from User_account.table |> where (fun user -> User_account.name user =$ "spongebob") |> select (fun user -> Projection.expr (User_account.id user)))
-let sqlalchemy26 = Statement.query_many ~dialect:Dialect.portable (Query.union_all sqlalchemy26_left sqlalchemy26_right)
+let sqlalchemy26_left =
+  Query.(
+    from User_account.table
+    |> where (fun user -> User_account.name user =$ "sandy")
+    |> select (fun user -> Projection.expr (User_account.id user)))
+;;
+
+let sqlalchemy26_right =
+  Query.(
+    from User_account.table
+    |> where (fun user -> User_account.name user =$ "spongebob")
+    |> select (fun user -> Projection.expr (User_account.id user)))
+;;
+```
+
+```ocaml
+# let sqlalchemy26 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Query.union_all sqlalchemy26_left sqlalchemy26_right)
+val sqlalchemy26 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1459,9 +1646,27 @@ stmt = intersect(
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy27_left = Query.(from Address.table |> where (fun address -> Address.email address =~$ "%@example.com") |> select (fun address -> Projection.expr (Address.user_id address)))
-let sqlalchemy27_right = Query.(from Address.table |> where (fun address -> Address.id address >$ 10L) |> select (fun address -> Projection.expr (Address.user_id address)))
-let sqlalchemy27 = Statement.query_many ~dialect:Dialect.portable (Query.intersect sqlalchemy27_left sqlalchemy27_right)
+let sqlalchemy27_left =
+  Query.(
+    from Address.table
+    |> where (fun address -> Address.email address =~$ "%@example.com")
+    |> select (fun address -> Projection.expr (Address.user_id address)))
+;;
+
+let sqlalchemy27_right =
+  Query.(
+    from Address.table
+    |> where (fun address -> Address.id address >$ 10L)
+    |> select (fun address -> Projection.expr (Address.user_id address)))
+;;
+```
+
+```ocaml
+# let sqlalchemy27 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Query.intersect sqlalchemy27_left sqlalchemy27_right)
+val sqlalchemy27 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1512,9 +1717,24 @@ stmt = except_(
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy28_users = Query.(from User_account.table |> select (fun user -> Projection.expr (User_account.id user)))
-let sqlalchemy28_addresses = Query.(from Address.table |> select (fun address -> Projection.expr (Address.user_id address)))
-let sqlalchemy28 = Statement.query_many ~dialect:Dialect.portable (Query.except sqlalchemy28_users sqlalchemy28_addresses)
+let sqlalchemy28_users =
+  Query.(
+    from User_account.table |> select (fun user -> Projection.expr (User_account.id user)))
+;;
+
+let sqlalchemy28_addresses =
+  Query.(
+    from Address.table
+    |> select (fun address -> Projection.expr (Address.user_id address)))
+;;
+```
+
+```ocaml
+# let sqlalchemy28 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Query.except sqlalchemy28_users sqlalchemy28_addresses)
+val sqlalchemy28 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1604,10 +1824,11 @@ stmt = select(nums.c.n)
 #### OCaml (typed-sql, рекурсивный CTE)
 
 ```ocaml
-let sqlalchemy30_anchor =
-  Query.select_one_relation (Expr.constant Db_type.int64 1L)
+let sqlalchemy30_anchor = Query.select_one_relation (Expr.constant Db_type.int64 1L)
+```
 
-let sqlalchemy30 =
+```ocaml
+# let sqlalchemy30 =
   let definition =
     Cte.recursive_relation
       ~union:`Union_all
@@ -1620,9 +1841,11 @@ let sqlalchemy30 =
             Derived_table.Fields.expr
               Expr.Int64.Infix.(number +. Expr.constant Db_type.int64 1L))))
   in
-  Statement.query_many ~dialect:Dialect.portable (
-    Cte.with_result definition ~f:(fun numbers ->
-      Query.(from_cte_relation numbers |> select Projection.expr)))
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Cte.with_result definition ~f:(fun numbers ->
+       Query.(from_cte_relation numbers |> select Projection.expr)))
+val sqlalchemy30 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1673,13 +1896,23 @@ stmt = insert(user_table).values(
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy31 =
-  Statement.command ~dialect:Dialect.portable (
-    Insert.rows User_account.table
-      [ (fun row -> row |> Insert.set User_account.name_column "sandy" |> Insert.set User_account.fullname_column (Some "Sandy Cheeks"))
-      ; (fun row -> row |> Insert.set User_account.name_column "spongebob" |> Insert.set User_account.fullname_column (Some "SpongeBob SquarePants"))
-      ]
-    |> Insert.command)
+# let sqlalchemy31 =
+  Statement.command
+    ~dialect:Dialect.portable
+    (Insert.rows
+       User_account.table
+       [ (fun row ->
+           row
+           |> Insert.set User_account.name_column "sandy"
+           |> Insert.set User_account.fullname_column (Some "Sandy Cheeks"))
+       ; (fun row ->
+           row
+           |> Insert.set User_account.name_column "spongebob"
+           |> Insert.set User_account.fullname_column (Some "SpongeBob SquarePants"))
+       ]
+     |> Insert.command)
+val sqlalchemy31 : (unit, Affected_rows.t, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1725,26 +1958,36 @@ stmt = insert(address_table).from_select(
 ```ocaml
 let sqlalchemy32_columns =
   Insert.Columns.(column Address.user_id_column |> add Address.email_column)
+;;
+```
 
-let sqlalchemy32 =
+```ocaml
+# let sqlalchemy32 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ email = params.expr Db_type.text ~get:(fun (email, _) -> email)
     and+ name = params.expr Db_type.text ~get:(fun (_, name) -> name) in
-    params.command (
-    let source =
-      Query.(
-        from User_account.table
-        |> where (fun user -> User_account.name user =. name)
-        |> select (fun user -> Projection.pair (User_account.id user) email))
-    in
-    Insert.(into Address.table |> from_select sqlalchemy32_columns source |> command)))
+    params.command
+      (let source =
+         Query.(
+           from User_account.table
+           |> where (fun user -> User_account.name user =. name)
+           |> select (fun user -> Projection.pair (User_account.id user) email))
+       in
+       Insert.(into Address.table |> from_select sqlalchemy32_columns source |> command)))
+val sqlalchemy32 :
+  (string * string, Affected_rows.t, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ~input:("sandy@example.com", "sandy") sqlalchemy32);;
+# let () =
+  Stdlib.print_endline
+    (Statement.sql_exn
+       ~dialect:Postgresql
+       ~input:("sandy@example.com", "sandy")
+       sqlalchemy32);;
 INSERT INTO "address" (
   "user_id",
   "email_address"
@@ -1785,15 +2028,20 @@ stmt = (
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy33 =
-  Statement.command ~dialect:Dialect.portable (
+# let sqlalchemy33 =
+  Statement.command
+    ~dialect:Dialect.portable
     Update.(
       table User_account.table
       |> from Address.table ~f:(fun user address update ->
         update
-        |> set_expr User_account.fullname_column (Expr.to_nullable (Address.email address))
+        |> set_expr
+             User_account.fullname_column
+             (Expr.to_nullable (Address.email address))
         |> where (fun _ -> User_account.id user =. Address.user_id address))
-      |> command))
+      |> command)
+val sqlalchemy33 : (unit, Affected_rows.t, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1835,18 +2083,22 @@ stmt = delete(address_table).where(
 #### OCaml (typed-sql, EXISTS-equivalent)
 
 ```ocaml
-let sqlalchemy34 =
-  Statement.command ~dialect:Dialect.portable (
+# let sqlalchemy34 =
+  Statement.command
+    ~dialect:Dialect.portable
     Delete.(
       from Address.table
       |> where (fun address ->
         Query.exists
-          (Query.(
+          Query.(
             from User_account.table
             |> where (fun user ->
-              (User_account.id user =. Address.user_id address)
-              &&. (User_account.name user =$ "sandy")))))
-      |> command))
+              User_account.id user
+              =. Address.user_id address
+              &&. (User_account.name user =$ "sandy"))))
+      |> command)
+val sqlalchemy34 : (unit, Affected_rows.t, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1893,16 +2145,22 @@ stmt = insert_stmt.on_conflict_do_update(
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy35 =
-  Statement.command ~dialect:Dialect.portable (
+# let sqlalchemy35 =
+  Statement.command
+    ~dialect:Dialect.portable
     Insert.(
       into User_account.table
       |> set User_account.name_column "sandy"
       |> set User_account.fullname_column (Some "Sandy Cheeks")
       |> on_conflict (Conflict_target.column User_account.name_column)
       |> do_update (fun ~existing:_ ~excluded ->
-        Conflict_update.set_expr User_account.fullname_column (User_account.fullname excluded) Conflict_update.empty)
-      |> command))
+        Conflict_update.set_expr
+          User_account.fullname_column
+          (User_account.fullname excluded)
+          Conflict_update.empty)
+      |> command)
+val sqlalchemy35 : (unit, Affected_rows.t, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1953,12 +2211,20 @@ stmt = select(user_table.c.id, user_table.c.name).where(~addresses)
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy36 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let sqlalchemy36 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from User_account.table
-      |> where (fun user -> not_exists (Query.(from Address.table |> where (fun address -> Address.user_id address =. User_account.id user))))
-      |> select (fun user -> Projection.pair (User_account.id user) (User_account.name user))))
+      |> where (fun user ->
+        not_exists
+          Query.(
+            from Address.table
+            |> where (fun address -> Address.user_id address =. User_account.id user)))
+      |> select (fun user ->
+        Projection.pair (User_account.id user) (User_account.name user)))
+val sqlalchemy36 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2017,16 +2283,20 @@ stmt = (
 Условие домена перенесено в `ON`, после чего COUNT по nullable ID возвращает ноль и для пользователя без совпавших адресов.
 
 ```ocaml
-let sqlalchemy37 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let sqlalchemy37 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from User_account.table
       |> left_join Address.table ~on:(fun user address ->
-        (User_account.id user =. Address.user_id address)
+        User_account.id user
+        =. Address.user_id address
         &&. (Address.email address =~$ "%@example.com"))
       |> group_by (fun (user, _address) -> User_account.id user)
       |> select (fun (user, address) ->
-        Projection.pair (User_account.id user) (Expr.count (Address.nullable_id address)))))
+        Projection.pair (User_account.id user) (Expr.count (Address.nullable_id address))))
+val sqlalchemy37 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2093,19 +2363,25 @@ stmt = (
 Уникальный монотонный `address.id` задаёт тот же последний адрес пользователя без оконной функции.
 
 ```ocaml
-let sqlalchemy38 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let sqlalchemy38 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Address.table
       |> where (fun address ->
         not_exists
-          (Query.(
+          Query.(
             from Address.table
             |> where (fun newer ->
-              (Address.user_id newer =. Address.user_id address)
-              &&. (Address.id newer >. Address.id address)))))
-      |> inner_join User_account.table ~on:(fun address user -> Address.user_id address =. User_account.id user)
-      |> select (fun (address, user) -> Projection.pair (User_account.name user) (Address.email address))))
+              Address.user_id newer
+              =. Address.user_id address
+              &&. (Address.id newer >. Address.id address))))
+      |> inner_join User_account.table ~on:(fun address user ->
+        Address.user_id address =. User_account.id user)
+      |> select (fun (address, user) ->
+        Projection.pair (User_account.name user) (Address.email address)))
+val sqlalchemy38 : (unit, (string * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2162,28 +2438,29 @@ stmt = (
 `OF` выбирает источник по query-local ссылке; compiler подставляет его SQL alias.
 
 ```ocaml
-let sqlalchemy39 =
+# let sqlalchemy39 =
   Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
     let open Statement.Parameters.Let_syntax in
-    let+ page_size =
-      params.non_negative_int ~name:"page_size" ~get:Fn.id
-    in
-    params.query_many (
-    Query.(
-      from User_account.table
-      |> order_by User_account.id `Asc
-      |> limit_param page_size
-      |> Postgresql.Query.for_update
-           ~of_:(fun user -> [ Postgresql.Query.target user ])
-           ~skip_locked:true
-      |> select (fun user ->
-        Projection.pair (User_account.id user) (User_account.name user)))))
+    let+ page_size = params.non_negative_int ~name:"page_size" ~get:Fn.id in
+    params.query_many
+      Query.(
+        from User_account.table
+        |> order_by User_account.id `Asc
+        |> limit_param page_size
+        |> Postgresql.Query.for_update
+             ~of_:(fun user -> [ Postgresql.Query.target user ])
+             ~skip_locked:true
+        |> select (fun user ->
+          Projection.pair (User_account.id user) (User_account.name user))))
+val sqlalchemy39 : (int, (int64 * string) list, [ `Postgresql ]) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ~input:10 sqlalchemy39);;
+# let () =
+  Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ~input:10 sqlalchemy39);;
 SELECT
   t0."id",
   t0."name"
@@ -2196,13 +2473,13 @@ FOR UPDATE OF t0 SKIP LOCKED
 
 ### SA-40. UPDATE RETURNING как источник CTE
 
-- OCaml-пример: ✗
-- Реализуемость: ✗ (добавлено в роадмап ✓)
-- Семантика: —
-- Без доработок typed-sql: ✗
+- OCaml-пример: ✓
+- Реализуемость: ✓
+- Семантика: ✓
+- Без доработок typed-sql: ✓
+- Замечание: `Postgresql.Cte.returning` связывает `UPDATE ... RETURNING` с типизированным источником внешнего `SELECT`; SQLite не поддерживает data-modifying CTE.
 - Источник: [CTE with DML](https://docs.sqlalchemy.org/en/20/core/selectable.html#sqlalchemy.sql.expression.HasCTE.cte).
 - Проверяет: выполнение UPDATE ровно один раз и чтение его `RETURNING`-строк через внешний SELECT; требуется PostgreSQL.
-- Ограничение: CTE builder принимает SELECT relation; DML `RETURNING` пока нельзя объявить как CTE definition.
 
 ```sql
 WITH updated AS (
@@ -2225,30 +2502,61 @@ updated = (
 stmt = select(updated.c.id, updated.c.fullname)
 ```
 
-## Уведомление о лицензии источника
+#### OCaml (typed-sql)
 
-Copyright 2005-2026 SQLAlchemy authors and contributors <see AUTHORS file>.
+```ocaml
+# let sqlalchemy40 =
+  Statement.query_many
+    ~dialect:Dialect.postgresql
+    (let updated =
+       Update.(
+         table User_account.table
+         |> set User_account.fullname_column (Some "Sandra")
+         |> where (fun user ->
+           User_account.name user =. Expr.constant Db_type.text "sandy")
+         |> returning (fun user ->
+           Projection.pair (User_account.id user) (User_account.fullname user)))
+     in
+     Cte.with_result
+       (Postgresql.Cte.returning
+          ~table:User_account.table
+          ~columns:(fun user ->
+            Projection.pair (User_account.id user) (User_account.fullname user))
+          updated)
+       ~f:(fun updated ->
+         Query.(
+           from_cte updated
+           |> select (fun user ->
+             Projection.pair (User_account.id user) (User_account.fullname user)))))
+val sqlalchemy40 :
+  (unit, (int64 * string option) list, [ `Postgresql ]) Statement.t = <abstr>
+```
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
-of the Software, and to permit persons to whom the Software is furnished to do
-so, subject to the following conditions:
+#### SQL typed-sql (PostgreSQL)
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-
+```ocaml
+# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql sqlalchemy40);;
+WITH
+  "c0" (
+    "id",
+    "fullname"
+  ) AS (
+    UPDATE "user_account"
+    SET
+      "fullname" = $1
+    WHERE
+      ("name" = $2)
+    RETURNING
+      "id",
+      "fullname"
+  )
+SELECT
+  t0."id",
+  t0."fullname"
+FROM "c0" AS t0
+```
 ### SA-41. Необязательный фильтр по имени и минимальному ID
+
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
@@ -2265,14 +2573,19 @@ WHERE name = :name AND id >= :minimum_id ORDER BY id
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy41 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let sqlalchemy41 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from User_account.table
       |> where_opt (Some "sandy") ~f:(fun user name -> User_account.name user =$ name)
-      |> where_opt (Some 1L) ~f:(fun user minimum_id -> User_account.id user >=$ minimum_id)
+      |> where_opt (Some 1L) ~f:(fun user minimum_id ->
+        User_account.id user >=$ minimum_id)
       |> order_by User_account.id `Asc
-      |> select (fun user -> Projection.pair (User_account.id user) (User_account.name user))))
+      |> select (fun user ->
+        Projection.pair (User_account.id user) (User_account.name user)))
+val sqlalchemy41 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2310,29 +2623,33 @@ WHERE EXISTS (SELECT 1 FROM address WHERE user_id = user_account.id AND email_ad
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy42 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let sqlalchemy42 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from User_account.table
       |> where (fun user ->
         let has_allowed_domain =
           Query.exists
-            (Query.(
+            Query.(
               from Address.table
               |> where (fun address ->
-                (Address.user_id address =. User_account.id user)
-                &&. (Address.email address =~$ "%@example.com"))))
+                Address.user_id address
+                =. User_account.id user
+                &&. (Address.email address =~$ "%@example.com")))
         in
         let lacks_blocked_domain =
           Query.not_exists
-            (Query.(
+            Query.(
               from Address.table
               |> where (fun address ->
-                (Address.user_id address =. User_account.id user)
-                &&. (Address.email address =~$ "%@blocked.test"))))
+                Address.user_id address
+                =. User_account.id user
+                &&. (Address.email address =~$ "%@blocked.test")))
         in
         has_allowed_domain &&. lacks_blocked_domain)
-      |> select (fun user -> Projection.expr (User_account.id user))))
+      |> select (fun user -> Projection.expr (User_account.id user)))
+val sqlalchemy42 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2385,8 +2702,9 @@ FROM user_account
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy43 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let sqlalchemy43 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from User_account.table
       |> select (fun user ->
@@ -2394,13 +2712,17 @@ let sqlalchemy43 =
           (User_account.id user)
           (Expr.coalesce
              (Expr.scalar_subquery_nullable
-                (Query.(
+                Query.(
                   from Address.table
-                  |> where (fun address -> Address.user_id address =. User_account.id user)
+                  |> where (fun address ->
+                    Address.user_id address =. User_account.id user)
                   |> order_by Address.id `Asc
                   |> limit_one
-                  |> select_scalar (fun address -> Expr.to_nullable (Address.email address)))))
-             ~default:(Expr.constant Db_type.text "(none)")))))
+                  |> select_scalar (fun address ->
+                    Expr.to_nullable (Address.email address))))
+             ~default:(Expr.constant Db_type.text "(none)"))))
+val sqlalchemy43 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2440,14 +2762,19 @@ GROUP BY user_account.id HAVING COUNT(address.id) >= 2
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy44 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let sqlalchemy44 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from User_account.table
-      |> left_join Address.table ~on:(fun user address -> User_account.id user =. Address.user_id address)
+      |> left_join Address.table ~on:(fun user address ->
+        User_account.id user =. Address.user_id address)
       |> group_by (fun (user, _address) -> User_account.id user)
       |> having (fun (user, address) -> Expr.count (Address.nullable_id address) >=$ 2L)
-      |> select (fun (user, address) -> Projection.pair (User_account.id user) (Expr.count (Address.nullable_id address)))))
+      |> select (fun (user, address) ->
+        Projection.pair (User_account.id user) (Expr.count (Address.nullable_id address))))
+val sqlalchemy44 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2484,15 +2811,22 @@ ORDER BY name, id LIMIT :page_size
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy45 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let sqlalchemy45 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from User_account.table
-      |> where (fun user -> (User_account.name user >$ "sandy") ||. ((User_account.name user =$ "sandy") &&. (User_account.id user >$ 10L)))
+      |> where (fun user ->
+        User_account.name user
+        >$ "sandy"
+        ||. (User_account.name user =$ "sandy" &&. (User_account.id user >$ 10L)))
       |> order_by User_account.name `Asc
       |> order_by User_account.id `Asc
       |> limit 20
-      |> select (fun user -> Projection.pair (User_account.name user) (User_account.id user))))
+      |> select (fun user ->
+        Projection.pair (User_account.name user) (User_account.id user)))
+val sqlalchemy45 : (unit, (string * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2534,15 +2868,21 @@ FROM address WHERE user_account.id = address.user_id AND address.id = :address_i
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy46 =
-  Statement.command ~dialect:Dialect.portable (
+# let sqlalchemy46 =
+  Statement.command
+    ~dialect:Dialect.portable
     Update.(
       table User_account.table
       |> from Address.table ~f:(fun user address update ->
         update
-        |> set_expr User_account.fullname_column (Expr.to_nullable (Address.email address))
-        |> where (fun _ -> (User_account.id user =. Address.user_id address) &&. (Address.id address =$ 1L)))
-      |> command))
+        |> set_expr
+             User_account.fullname_column
+             (Expr.to_nullable (Address.email address))
+        |> where (fun _ ->
+          User_account.id user =. Address.user_id address &&. (Address.id address =$ 1L)))
+      |> command)
+val sqlalchemy46 : (unit, Affected_rows.t, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2578,8 +2918,9 @@ WHERE user_account.fullname IS DISTINCT FROM EXCLUDED.fullname
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy47 =
-  Statement.command ~dialect:Dialect.portable (
+# let sqlalchemy47 =
+  Statement.command
+    ~dialect:Dialect.portable
     Insert.(
       into User_account.table
       |> set User_account.name_column "sandy"
@@ -2587,9 +2928,16 @@ let sqlalchemy47 =
       |> on_conflict (Conflict_target.column User_account.name_column)
       |> do_update (fun ~existing ~excluded ->
         Conflict_update.empty
-        |> Conflict_update.set_expr User_account.fullname_column (User_account.fullname excluded)
-        |> Conflict_update.where (Expr.is_distinct_from (User_account.fullname existing) (User_account.fullname excluded)))
-      |> command))
+        |> Conflict_update.set_expr
+             User_account.fullname_column
+             (User_account.fullname excluded)
+        |> Conflict_update.where
+             (Expr.is_distinct_from
+                (User_account.fullname existing)
+                (User_account.fullname excluded)))
+      |> command)
+val sqlalchemy47 : (unit, Affected_rows.t, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2628,12 +2976,15 @@ DELETE FROM address WHERE user_id = :user_id AND email_address LIKE :pattern RET
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy48 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let sqlalchemy48 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Delete.(
       from Address.table
-      |> where (fun address -> (Address.user_id address =$ 1L) &&. (Address.email address =~$ "%@example.com"))
-      |> returning (fun address -> Projection.expr (Address.id address))))
+      |> where (fun address ->
+        Address.user_id address =$ 1L &&. (Address.email address =~$ "%@example.com"))
+      |> returning (fun address -> Projection.expr (Address.id address)))
+val sqlalchemy48 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2667,10 +3018,33 @@ EXCEPT SELECT user_id FROM address WHERE email_address LIKE '%@blocked.test'
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy49_users = Query.(from User_account.table |> select (fun user -> Projection.expr (User_account.id user)))
-let sqlalchemy49_address_users = Query.(from Address.table |> select (fun address -> Projection.expr (Address.user_id address)))
-let sqlalchemy49_blocked = Query.(from Address.table |> where (fun address -> Address.email address =~$ "%@blocked.test") |> select (fun address -> Projection.expr (Address.user_id address)))
-let sqlalchemy49 = Statement.query_many ~dialect:Dialect.portable (Query.except (Query.intersect sqlalchemy49_users sqlalchemy49_address_users) sqlalchemy49_blocked)
+let sqlalchemy49_users =
+  Query.(
+    from User_account.table |> select (fun user -> Projection.expr (User_account.id user)))
+;;
+
+let sqlalchemy49_address_users =
+  Query.(
+    from Address.table
+    |> select (fun address -> Projection.expr (Address.user_id address)))
+;;
+
+let sqlalchemy49_blocked =
+  Query.(
+    from Address.table
+    |> where (fun address -> Address.email address =~$ "%@blocked.test")
+    |> select (fun address -> Projection.expr (Address.user_id address)))
+;;
+```
+
+```ocaml
+# let sqlalchemy49 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Query.except
+       (Query.intersect sqlalchemy49_users sqlalchemy49_address_users)
+       sqlalchemy49_blocked)
+val sqlalchemy49 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2724,18 +3098,23 @@ ORDER BY COUNT(address.id) DESC, user_account.id LIMIT 10
 #### OCaml (typed-sql)
 
 ```ocaml
-let sqlalchemy50 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let sqlalchemy50 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from User_account.table
-      |> inner_join Address.table ~on:(fun user address -> User_account.id user =. Address.user_id address)
+      |> inner_join Address.table ~on:(fun user address ->
+        User_account.id user =. Address.user_id address)
       |> where (fun (_user, address) -> Address.email address =~$ "%@example.com")
       |> group_by (fun (user, _address) -> User_account.id user)
       |> having (fun (_user, address) -> Expr.count (Address.id address) >$ 1L)
       |> order_by (fun (_user, address) -> Expr.count (Address.id address)) `Desc
       |> order_by (fun (user, _address) -> User_account.id user) `Asc
       |> limit 10
-      |> select (fun (user, address) -> Projection.pair (User_account.id user) (Expr.count (Address.id address)))))
+      |> select (fun (user, address) ->
+        Projection.pair (User_account.id user) (Expr.count (Address.id address))))
+val sqlalchemy50 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)

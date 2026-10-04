@@ -21,6 +21,7 @@ if [ "$mode" = mega ]; then
 else
   targets="
 test/.typed_sql_expect_tests.inline-tests/inline-test-runner.exe
+test/.typed_sql_statement_inspection_codec_tests.inline-tests/inline-test-runner.exe
 test/schema/.typed_sql_schema_expect_tests.inline-tests/inline-test-runner.exe
 test/property_test.exe
 caqti-lwt/test/sqlite_test.exe
@@ -50,6 +51,8 @@ else
     cd test
     ../_build/default/test/.typed_sql_expect_tests.inline-tests/inline-test-runner.exe \
       inline-test-runner typed_sql_expect_tests -strict -source-tree-root ..
+    ../_build/default/test/.typed_sql_statement_inspection_codec_tests.inline-tests/inline-test-runner.exe \
+      inline-test-runner typed_sql_statement_inspection_codec_tests -strict -source-tree-root ..
   )
   (
     cd test/schema

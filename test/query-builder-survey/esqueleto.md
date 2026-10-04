@@ -2,11 +2,24 @@
 
 # Сценарии запросов из Esqueleto
 
+## Уведомление о лицензии
+
+Copyright (c) 2012–2016 Felipe Almeida Lessa
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
 **Желаемый таргет: 20 сценариев — 5 обычных и 15 сложных.** Сейчас заведены все 20 сценариев.
 
 Источник — [документация `Database.Esqueleto.Experimental`](https://hackage-content.haskell.org/package/esqueleto-3.6.0.0/docs/Database-Esqueleto-Experimental.html), версия Esqueleto 3.6.0.0. Примеры сокращены и адаптированы. Схема следует документации: `Person(name, age)` и `BlogPost(title, authorId)`; `age` nullable. SQL показывает существенную форму запросов.
 
-Пакет Esqueleto распространяется по [BSD-3-Clause](https://hackage-content.haskell.org/package/esqueleto-3.6.0.0). В конце файла приведено уведомление об авторских правах и лицензии. Это независимая подборка; указание источника не означает одобрения со стороны авторов Esqueleto.
+Пакет Esqueleto распространяется по [BSD-3-Clause](https://hackage-content.haskell.org/package/esqueleto-3.6.0.0). В начале файла приведено уведомление об авторских правах и лицензии. Это независимая подборка; указание источника не означает одобрения со стороны авторов Esqueleto.
 
 Для EQ-01–EQ-20 приведены реализации через публичный API typed-sql. OCaml-блоки с реализациями typed-sql исполняются через MDX.
 
@@ -86,13 +99,16 @@ select $ do
 #### OCaml (typed-sql)
 
 ```ocaml
-let esqueleto01 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let esqueleto01 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Eq_person.table
       |> where (fun person -> Eq_person.name person =$ "John")
       |> select (fun person ->
-        Projection.pair (Eq_person.id person) (Eq_person.name person))))
+        Projection.pair (Eq_person.id person) (Eq_person.name person)))
+val esqueleto01 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 
@@ -136,15 +152,19 @@ select $ do
 #### OCaml (typed-sql)
 
 ```ocaml
-let esqueleto02 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let esqueleto02 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Eq_person.table
       |> where (fun person ->
-        (Eq_person.age person >=. Expr.constant (Db_type.option Db_type.int) (Some 18)) &&.
-        ((Eq_person.name person =$ "John") ||. (Eq_person.name person =$ "Jane")))
+        Eq_person.age person
+        >=. Expr.constant (Db_type.option Db_type.int) (Some 18)
+        &&. (Eq_person.name person =$ "John" ||. (Eq_person.name person =$ "Jane")))
       |> select (fun person ->
-        Projection.pair (Eq_person.id person) (Eq_person.name person))))
+        Projection.pair (Eq_person.id person) (Eq_person.name person)))
+val esqueleto02 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 
@@ -194,15 +214,18 @@ select $ do
 #### OCaml (typed-sql)
 
 ```ocaml
-let esqueleto03 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let esqueleto03 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Eq_person.table
       |> order_by Eq_person.name `Asc
       |> limit 10
       |> offset 20
       |> select (fun person ->
-        Projection.pair (Eq_person.id person) (Eq_person.name person))))
+        Projection.pair (Eq_person.id person) (Eq_person.name person)))
+val esqueleto03 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 
@@ -247,14 +270,17 @@ select $ do
 #### OCaml (typed-sql)
 
 ```ocaml
-let esqueleto04 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let esqueleto04 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Eq_person.table
       |> inner_join Eq_blog_post.table ~on:(fun person post ->
         Eq_person.id person =. Eq_blog_post.author_id post)
       |> select (fun (person, post) ->
-        Projection.pair (Eq_person.id person) (Eq_blog_post.id post))))
+        Projection.pair (Eq_person.id person) (Eq_blog_post.id post)))
+val esqueleto04 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 
@@ -297,8 +323,9 @@ select $ do
 #### OCaml (typed-sql)
 
 ```ocaml
-let esqueleto05 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let esqueleto05 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Eq_person.table
       |> left_join Eq_blog_post.table ~on:(fun person post ->
@@ -306,7 +333,9 @@ let esqueleto05 =
       |> select (fun (person, post) ->
         Projection.pair
           (Eq_person.id person)
-          (Expr.nullable_column post Eq_blog_post.id_column))))
+          (Expr.nullable_column post Eq_blog_post.id_column)))
+val esqueleto05 :
+  (unit, (int64 * int64 option) list, Dialect.both) Statement.t = <abstr>
 ```
 
 
@@ -349,16 +378,17 @@ select $ do
 #### OCaml (typed-sql)
 
 ```ocaml
-let esqueleto06 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let esqueleto06 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Eq_blog_post.table
       |> group_by Eq_blog_post.author_id
       |> having (fun post -> Expr.count (Eq_blog_post.id post) >$ 2L)
       |> select (fun post ->
-        Projection.pair
-          (Eq_blog_post.author_id post)
-          (Expr.count (Eq_blog_post.id post)))))
+        Projection.pair (Eq_blog_post.author_id post) (Expr.count (Eq_blog_post.id post))))
+val esqueleto06 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 
@@ -411,18 +441,22 @@ select $ do
 #### OCaml (typed-sql)
 
 ```ocaml
-let esqueleto07 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let esqueleto07 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Eq_person.table
       |> where (fun person ->
         exists
           (Query.from Eq_blog_post.table
            |> Query.where (fun post ->
-             (Eq_blog_post.author_id post =. Eq_person.id person) &&.
-             (Eq_blog_post.title post =~$ "SQL%"))))
+             Eq_blog_post.author_id post
+             =. Eq_person.id person
+             &&. (Eq_blog_post.title post =~$ "SQL%"))))
       |> select (fun person ->
-        Projection.pair (Eq_person.id person) (Eq_person.name person))))
+        Projection.pair (Eq_person.id person) (Eq_person.name person)))
+val esqueleto07 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 
@@ -480,8 +514,9 @@ select $ do
 в типе возможность пустого подзапроса, поэтому decoder преобразует `None` в `0L`.
 
 ```ocaml
-let esqueleto08 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let esqueleto08 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Eq_person.table
       |> select (fun person ->
@@ -494,7 +529,9 @@ let esqueleto08 =
         Projection.map2
           ~f:(fun person_id count -> person_id, Option.value count ~default:0L)
           (Projection.expr (Eq_person.id person))
-          (Projection.expr (Expr.scalar_subquery post_count)))))
+          (Projection.expr (Expr.scalar_subquery post_count))))
+val esqueleto08 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 
@@ -546,19 +583,22 @@ select $ do
 #### OCaml (typed-sql)
 
 ```ocaml
-let esqueleto09 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let esqueleto09 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Eq_person.table
       |> where (fun person ->
         in_subquery
           (Eq_person.id person)
-          (Query.(
-             from Eq_blog_post.table
-             |> where (fun post -> Eq_blog_post.title post =~$ "SQL%")
-             |> select_scalar Eq_blog_post.author_id)))
+          Query.(
+            from Eq_blog_post.table
+            |> where (fun post -> Eq_blog_post.title post =~$ "SQL%")
+            |> select_scalar Eq_blog_post.author_id))
       |> select (fun person ->
-        Projection.pair (Eq_person.id person) (Eq_person.name person))))
+        Projection.pair (Eq_person.id person) (Eq_person.name person)))
+val esqueleto09 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 
@@ -620,14 +660,19 @@ let esqueleto10_counts =
       Derived_table.Fields.pair
         (Eq_blog_post.author_id post)
         (Expr.count (Eq_blog_post.id post))))
+;;
+```
 
-let esqueleto10 =
-  Statement.query_many ~dialect:Dialect.portable (
+```ocaml
+# let esqueleto10 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from_relation esqueleto10_counts
       |> where (fun (_author_id, post_count) -> post_count >$ 2L)
-      |> select (fun (author_id, post_count) ->
-        Projection.pair author_id post_count)))
+      |> select (fun (author_id, post_count) -> Projection.pair author_id post_count))
+val esqueleto10 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 
@@ -688,10 +733,15 @@ let esqueleto11_by_name pattern =
     from Eq_person.table
     |> where (fun person -> Eq_person.name person =~$ pattern)
     |> select (fun person -> Projection.expr (Eq_person.name person)))
+;;
+```
 
-let esqueleto11 =
-  Statement.query_many ~dialect:Dialect.portable (
-    Query.union_all (esqueleto11_by_name "A%") (esqueleto11_by_name "%a"))
+```ocaml
+# let esqueleto11 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Query.union_all (esqueleto11_by_name "A%") (esqueleto11_by_name "%a"))
+val esqueleto11 : (unit, string list, Dialect.both) Statement.t = <abstr>
 ```
 
 
@@ -757,16 +807,22 @@ let esqueleto12_adults =
     |> where (fun person ->
       Eq_person.age person >=. Expr.constant (Db_type.option Db_type.int) (Some 18))
     |> select (fun person -> Projection.expr (Eq_person.id person)))
+;;
 
 let esqueleto12_sql_authors =
   Query.(
     from Eq_blog_post.table
     |> where (fun post -> Eq_blog_post.title post =~$ "SQL%")
     |> select (fun post -> Projection.expr (Eq_blog_post.author_id post)))
+;;
+```
 
-let esqueleto12 =
-  Statement.query_many ~dialect:Dialect.portable (
-    Query.intersect esqueleto12_adults esqueleto12_sql_authors)
+```ocaml
+# let esqueleto12 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Query.intersect esqueleto12_adults esqueleto12_sql_authors)
+val esqueleto12 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 
@@ -828,9 +884,11 @@ select $ do
 Используются обе выборки, объявленные в EQ-12; `except` устраняет дубликаты.
 
 ```ocaml
-let esqueleto13 =
-  Statement.query_many ~dialect:Dialect.portable (
-    Query.except esqueleto12_adults esqueleto12_sql_authors)
+# let esqueleto13 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Query.except esqueleto12_adults esqueleto12_sql_authors)
+val esqueleto13 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 
@@ -899,31 +957,31 @@ let esqueleto14_relation =
   Derived_table.create
     ~table:Eq_post_counts.table
     ~columns:(fun counts ->
-      Projection.pair
-        (Eq_post_counts.author_id counts)
-        (Eq_post_counts.post_count counts))
+      Projection.pair (Eq_post_counts.author_id counts) (Eq_post_counts.post_count counts))
     Query.(
       from Eq_blog_post.table
       |> group_by Eq_blog_post.author_id
       |> select (fun post ->
-        Projection.pair
-          (Eq_blog_post.author_id post)
-          (Expr.count (Eq_blog_post.id post))))
+        Projection.pair (Eq_blog_post.author_id post) (Expr.count (Eq_blog_post.id post))))
+;;
 
 let esqueleto14_cte = Cte.select esqueleto14_relation
+```
 
-let esqueleto14 =
-  Statement.query_many ~dialect:Dialect.portable (
-    Cte.with_result esqueleto14_cte ~f:(fun post_counts ->
-      Query.(
-        from Eq_person.table
-        |> inner_join_cte post_counts ~on:(fun person counts ->
-          Eq_person.id person =. Eq_post_counts.author_id counts)
-        |> where (fun (_person, counts) -> Eq_post_counts.post_count counts >$ 2L)
-        |> select (fun (person, counts) ->
-          Projection.pair
-            (Eq_person.name person)
-            (Eq_post_counts.post_count counts)))))
+```ocaml
+# let esqueleto14 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Cte.with_result esqueleto14_cte ~f:(fun post_counts ->
+       Query.(
+         from Eq_person.table
+         |> inner_join_cte post_counts ~on:(fun person counts ->
+           Eq_person.id person =. Eq_post_counts.author_id counts)
+         |> where (fun (_person, counts) -> Eq_post_counts.post_count counts >$ 2L)
+         |> select (fun (person, counts) ->
+           Projection.pair (Eq_person.name person) (Eq_post_counts.post_count counts)))))
+val esqueleto14 : (unit, (string * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 
@@ -987,8 +1045,9 @@ select $ do
 #### OCaml (typed-sql)
 
 ```ocaml
-let esqueleto15 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let esqueleto15 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Eq_person.table
       |> select (fun person ->
@@ -996,11 +1055,13 @@ let esqueleto15 =
         Projection.pair
           (Eq_person.id person)
           (Expr.case
-             [ (Expr.is_null age, Expr.constant Db_type.text "unknown")
+             [ Expr.is_null age, Expr.constant Db_type.text "unknown"
              ; ( age >=. Expr.constant (Db_type.option Db_type.int) (Some 18)
                , Expr.constant Db_type.text "adult" )
              ]
-             ~else_:(Expr.constant Db_type.text "minor")))))
+             ~else_:(Expr.constant Db_type.text "minor"))))
+val esqueleto15 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 
@@ -1045,14 +1106,16 @@ select $ distinct $ do
 #### OCaml (typed-sql)
 
 ```ocaml
-let esqueleto16 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let esqueleto16 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Eq_person.table
       |> inner_join Eq_blog_post.table ~on:(fun person post ->
         Eq_person.id person =. Eq_blog_post.author_id post)
       |> distinct
-      |> select (fun (person, _) -> Projection.expr (Eq_person.name person))))
+      |> select (fun (person, _) -> Projection.expr (Eq_person.name person)))
+val esqueleto16 : (unit, string list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1108,8 +1171,9 @@ select $ do
 `LEFT JOIN LATERAL` представлен коррелированным scalar subquery; `LIMIT 1` и сортировка сохраняют выбор последнего поста, а отсутствие постов даёт `NULL`.
 
 ```ocaml
-let esqueleto17 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let esqueleto17 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Eq_person.table
       |> select (fun person ->
@@ -1121,9 +1185,9 @@ let esqueleto17 =
             |> limit 1
             |> select_scalar Eq_blog_post.title)
         in
-        Projection.pair
-          (Eq_person.id person)
-          (Expr.scalar_subquery latest_title))))
+        Projection.pair (Eq_person.id person) (Expr.scalar_subquery latest_title)))
+val esqueleto17 :
+  (unit, (int64 * string option) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1184,6 +1248,7 @@ let esqueleto18_people =
       Projection.pair
         (Expr.to_nullable (Eq_person.name person))
         (Expr.nullable_column post Eq_blog_post.title_column)))
+;;
 
 let esqueleto18_orphan_posts =
   Query.(
@@ -1196,10 +1261,17 @@ let esqueleto18_orphan_posts =
       Projection.pair
         (Expr.nullable_column person Eq_person.name_column)
         (Expr.to_nullable (Eq_blog_post.title post))))
+;;
+```
 
-let esqueleto18 =
-  Statement.query_many ~dialect:Dialect.portable (
-    Query.union_all esqueleto18_people esqueleto18_orphan_posts)
+```ocaml
+# let esqueleto18 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Query.union_all esqueleto18_people esqueleto18_orphan_posts)
+val esqueleto18 :
+  (unit, (string option * string option) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1261,14 +1333,16 @@ select $ do
 Запрос выполняется внутри `Typed_sql_caqti_lwt.transaction`; блокировка живёт до завершения транзакции.
 
 ```ocaml
-let esqueleto19 =
-  Statement.query_many ~dialect:Dialect.postgresql (
+# let esqueleto19 =
+  Statement.query_many
+    ~dialect:Dialect.postgresql
     Query.(
       from Eq_person.table
       |> order_by Eq_person.id `Asc
       |> limit 5
       |> Postgresql.Query.for_update ~skip_locked:true
-      |> select (fun person -> Projection.expr (Eq_person.id person))))
+      |> select (fun person -> Projection.expr (Eq_person.id person)))
+val esqueleto19 : (unit, int64 list, [ `Postgresql ]) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1328,24 +1402,31 @@ let esqueleto20_adults =
     |> where (fun person ->
       Eq_person.age person >=. Expr.constant (Db_type.option Db_type.int) (Some 18))
     |> select (fun person -> Projection.expr (Eq_person.id person)))
+;;
 
 let esqueleto20_unknown_age =
   Query.(
     from Eq_person.table
     |> where (fun person -> Expr.is_null (Eq_person.age person))
     |> select (fun person -> Projection.expr (Eq_person.id person)))
+;;
 
 let esqueleto20_blocked =
   Query.(
     from Eq_person.table
     |> where (fun person -> Eq_person.name person =$ "blocked")
     |> select (fun person -> Projection.expr (Eq_person.id person)))
+;;
+```
 
-let esqueleto20 =
-  Statement.query_many ~dialect:Dialect.portable (
-    Query.except
-      (Query.union_all esqueleto20_adults esqueleto20_unknown_age)
-      esqueleto20_blocked)
+```ocaml
+# let esqueleto20 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Query.except
+       (Query.union_all esqueleto20_adults esqueleto20_unknown_age)
+       esqueleto20_blocked)
+val esqueleto20 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1382,16 +1463,3 @@ FROM (
     (t0."name" = $2)
 ) AS s0
 ```
-
-
-## Уведомление о лицензии
-
-Copyright (c) 2012–2016 Felipe Almeida Lessa
-
-Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
-
-1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

@@ -191,3 +191,29 @@ values в событие не попадают. Встроенный bounded pro
 Transactions находятся в execution adapters. Callback получает то же
 connection value; [Ok] приводит к commit, [Error] — к rollback, исключение
 откатывается и затем пробрасывается дальше.
+
+
+{1 Среднее и числовые преобразования}
+
+[Expr.avg_int], [Expr.avg_int64] и [Expr.avg_float] возвращают [float option].
+Целочисленный вход явно преобразуется в floating-point перед [AVG], поэтому
+PostgreSQL и SQLite используют один descriptor результата. Варианты
+[_nullable] игнорируют SQL [NULL] без дополнительного слоя [option]. Пустой
+вход и вход только из [NULL] дают [None]. [Postgresql.Numeric] сохраняет
+нативный точный результат [Decimal.t option]; [Numeric_projection] предоставляет
+тот же контракт для [Query.aggregate_one].
+
+Именованные числовые [CAST] между [int], [int64] и [float] сохраняют requirements
+входа. Преобразования с [numeric] в [Postgresql.Numeric] добавляют [Not_sqlite].
+Descriptor результата соответствует целевому встроенному типу. Варианты
+[_nullable] сохраняют SQL [NULL]. Округление, переполнение и потеря точности
+определяются выбранной БД; DSL не унифицирует эти правила.
+
+[Update.with_target] предоставляет существующий target reference для
+корреляции без добавления SQL-источника. Коррелированный scalar subquery с
+[AVG] сохраняет доказательство cardinality; compiler проверяет source identity
+и вложенные агрегаты также под [CAST]. [Update.set_nullable_expr] явно
+разрешает присвоить nullable-выражение колонке [NOT NULL]. Выражение не
+изменяется: SQL [NULL] вызывает ошибку ограничения при выполнении через
+существующий канал ошибок адаптера. Для nullable-колонок используется
+[Update.set_expr]. Финализация по-прежнему требует [where] или [all_rows].

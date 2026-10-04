@@ -34,6 +34,9 @@ let set_expr column expression update =
   { update with assignments = update.assignments @ [ assignment ] }
 ;;
 
+let with_target ~f update = f update.reference update
+let set_nullable_expr = set_expr
+
 let set column value update =
   set_expr column (Expr.constant (Column.db_type column) value) update
 ;;

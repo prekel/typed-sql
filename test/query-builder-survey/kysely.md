@@ -2,11 +2,36 @@
 
 # Сценарии запросов из Kysely
 
+## Уведомление о лицензии источника
+
+The MIT License (MIT)
+
+Copyright (c) 2022 Sami Koskimäki
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
 Первые 50 сценариев по [API Kysely](https://kysely-org.github.io/kysely-apidoc/) (доступ 28.09.2026). Примеры сокращены и адаптированы. Это каталог кандидатов для автоматических тестов запросов; приведённый SQL показывает ожидаемую форму для PostgreSQL, а не побайтовый снимок вывода Kysely. Плейсхолдеры `$1`, `$2` и далее обозначают bind-параметры.
 
 **Желаемый таргет: 50–70 сценариев.**
 
-Источник примеров: Kysely, © 2022 Sami Koskimäki, [лицензия MIT](https://github.com/kysely-org/kysely/blob/master/LICENSE). Копирайт и текст разрешения приведены в конце файла. Схема: `person(id PK generated, first_name, last_name, age, manager_id, profile JSONB)`, `pet(id PK generated, owner_id, name, species)` и `person_import(id PK, first_name, last_name, age)`. `manager_id`, `last_name` и `profile` допускают `NULL`; для `pet.name` задано ограничение уникальности. Для проверки nullable-результатов нужна персона без питомцев.
+Источник примеров: Kysely, © 2022 Sami Koskimäki, [лицензия MIT](https://github.com/kysely-org/kysely/blob/master/LICENSE). Копирайт и текст разрешения приведены в начале файла. Схема: `person(id PK generated, first_name, last_name, age, manager_id, profile JSONB)`, `pet(id PK generated, owner_id, name, species)` и `person_import(id PK, first_name, last_name, age)`. `manager_id`, `last_name` и `profile` допускают `NULL`; для `pet.name` задано ограничение уникальности. Для проверки nullable-результатов нужна персона без питомцев.
 
 Переносимы между PostgreSQL и SQLite 3.46 сценарии KY-16, KY-18–KY-25, KY-27–KY-33, KY-36–KY-40 и KY-43–KY-46. Сценарии KY-17, KY-26, KY-34–KY-35, KY-41–KY-42 и KY-47–KY-50 используют возможности отдельных диалектов.
 
@@ -90,7 +115,6 @@ module Descendants = struct
   let manager_id row = Expr.column row manager_id_column
   let projection row = Projection.pair (id row) (manager_id row)
 end
-
 ```
 
 ### KY-01. Фильтр и проекция
@@ -119,16 +143,18 @@ await db.selectFrom('person')
 Фильтр по возрасту остаётся bind-параметром; проекция сохраняет обе колонки.
 
 ```ocaml
-let kysely01 =
+# let kysely01 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ min_age = params.expr Db_type.int ~get:Fn.id in
-    params.query_many (
-    Query.(
-      from Person.table
-      |> where (fun person -> Person.age person >=. min_age)
-      |> select (fun person ->
-        Projection.pair (Person.id person) (Person.first_name person)))))
+    params.query_many
+      Query.(
+        from Person.table
+        |> where (fun person -> Person.age person >=. min_age)
+        |> select (fun person ->
+          Projection.pair (Person.id person) (Person.first_name person))))
+val kysely01 : (int, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -171,18 +197,20 @@ await query.execute()
 Опциональный фильтр меняет форму SQL, поэтому используется динамический statement. MDX печатает оба варианта.
 
 ```ocaml
-let kysely02 =
+# let kysely02 =
   Statement.Dynamic.query_many ~dialect:Dialect.portable (fun minimum_age ->
     Query.(
       from Person.table
       |> where_opt minimum_age ~f:(fun person age -> Person.age person >=$ age)
       |> select (fun person -> Projection.expr (Person.id person))))
+val kysely02 : (int option, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL, фильтр есть)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ~input:(Some 18) kysely02);;
+# let () =
+  Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ~input:(Some 18) kysely02);;
 SELECT
   t0."id"
 FROM "person" AS t0
@@ -229,25 +257,31 @@ await db.selectFrom('person')
 Условия собраны с явными скобками: OR остаётся внутри AND.
 
 ```ocaml
-let kysely03 =
+# let kysely03 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ young = params.expr Db_type.int ~get:(fun (young, _, _) -> young)
     and+ old = params.expr Db_type.int ~get:(fun (_, old, _) -> old)
     and+ surname = params.expr Db_type.text ~get:(fun (_, _, surname) -> surname) in
-    params.query_many (
-    Query.(
-      from Person.table
-      |> where (fun person ->
-        ((Person.age person <. young) ||. (Person.age person >. old))
-        &&. (Person.last_name person =. surname))
-      |> select (fun person -> Projection.expr (Person.id person)))))
+    params.query_many
+      Query.(
+        from Person.table
+        |> where (fun person ->
+          Person.age person
+          <. young
+          ||. (Person.age person >. old)
+          &&. (Person.last_name person =. surname))
+        |> select (fun person -> Projection.expr (Person.id person))))
+val kysely03 : (int * int * string, int64 list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ~input:(18, 65, "Smith") kysely03);;
+# let () =
+  Stdlib.print_endline
+    (Statement.sql_exn ~dialect:Postgresql ~input:(18, 65, "Smith") kysely03);;
 SELECT
   t0."id"
 FROM "person" AS t0
@@ -288,14 +322,15 @@ await db.selectFrom('person')
 Обе таблицы имеют собственные типизированные ссылки; одинаковые имена колонок не требуют ручного alias.
 
 ```ocaml
-let kysely04 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let kysely04 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Person.table
-      |> inner_join Pet.table ~on:(fun person pet ->
-        Pet.owner_id pet =. Person.id person)
-      |> select (fun (person, pet) ->
-        Projection.pair (Person.id person) (Pet.name pet))))
+      |> inner_join Pet.table ~on:(fun person pet -> Pet.owner_id pet =. Person.id person)
+      |> select (fun (person, pet) -> Projection.pair (Person.id person) (Pet.name pet)))
+val kysely04 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -337,14 +372,16 @@ await db.selectFrom('person')
 После LEFT JOIN имя питомца становится nullable в OCaml-типе результата.
 
 ```ocaml
-let kysely05 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let kysely05 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Person.table
-      |> left_join Pet.table ~on:(fun person pet ->
-        Pet.owner_id pet =. Person.id person)
+      |> left_join Pet.table ~on:(fun person pet -> Pet.owner_id pet =. Person.id person)
       |> select (fun (person, pet) ->
-        Projection.pair (Person.id person) (Pet.nullable_name pet))))
+        Projection.pair (Person.id person) (Pet.nullable_name pet)))
+val kysely05 : (unit, (int64 * string option) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -391,20 +428,22 @@ await db.selectFrom('pet')
 `HAVING` сравнивает агрегат с runtime bind-параметром.
 
 ```ocaml
-let kysely06 =
+# let kysely06 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ minimum_count = params.expr Db_type.int64 ~get:Fn.id in
-    params.query_many (
-    Query.(
-      from Pet.table
-      |> group_by Pet.owner_id
-      |> having (fun pet -> Expr.count (Pet.id pet) >. minimum_count)
-      |> select (fun pet ->
-        Projection.map2
-          ~f:(fun owner_id count -> owner_id, count)
-          (Projection.expr (Pet.owner_id pet))
-          (Projection.expr (Expr.count (Pet.id pet)))))))
+    params.query_many
+      Query.(
+        from Pet.table
+        |> group_by Pet.owner_id
+        |> having (fun pet -> Expr.count (Pet.id pet) >. minimum_count)
+        |> select (fun pet ->
+          Projection.map2
+            ~f:(fun owner_id count -> owner_id, count)
+            (Projection.expr (Pet.owner_id pet))
+            (Projection.expr (Expr.count (Pet.id pet))))))
+val kysely06 : (int64, (int64 * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -453,8 +492,9 @@ await db.selectFrom('person')
 Глобальная агрегатная scalar query возвращает `0` для владельца без питомцев.
 
 ```ocaml
-let kysely07 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let kysely07 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Person.table
       |> select (fun person ->
@@ -470,7 +510,9 @@ let kysely07 =
           (Projection.expr
              (Expr.coalesce
                 (Expr.scalar_subquery pet_count)
-                ~default:(Expr.constant Db_type.int64 0L))))))
+                ~default:(Expr.constant Db_type.int64 0L)))))
+val kysely07 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -522,15 +564,15 @@ await db.selectFrom('person')
 `Query.exists` оставляет по одной строке на человека независимо от числа питомцев.
 
 ```ocaml
-let kysely08 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let kysely08 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Person.table
       |> where (fun person ->
-        exists
-          (from Pet.table
-           |> where (fun pet -> Pet.owner_id pet =. Person.id person)))
-      |> select (fun person -> Projection.expr (Person.id person))))
+        exists (from Pet.table |> where (fun pet -> Pet.owner_id pet =. Person.id person)))
+      |> select (fun person -> Projection.expr (Person.id person)))
+val kysely08 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -587,25 +629,27 @@ await db.selectFrom(counts)
 Агрегированный SELECT становится derived relation с проверенным описанием полей.
 
 ```ocaml
-let kysely09 =
+# let kysely09 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ minimum_count = params.expr Db_type.int64 ~get:Fn.id in
-    params.query_many (
-    let counts =
-      Derived_table.create
-        ~table:Pet_counts.table
-        ~columns:Pet_counts.projection
-        Query.(
-          from Pet.table
-          |> group_by Pet.owner_id
-          |> select (fun pet ->
-            Projection.pair (Pet.owner_id pet) (Expr.count (Pet.id pet))))
-    in
-    Query.(
-      from_derived counts
-      |> where (fun count -> Pet_counts.pet_count count >. minimum_count)
-      |> select (fun count -> Pet_counts.projection count))))
+    params.query_many
+      (let counts =
+         Derived_table.create
+           ~table:Pet_counts.table
+           ~columns:Pet_counts.projection
+           Query.(
+             from Pet.table
+             |> group_by Pet.owner_id
+             |> select (fun pet ->
+               Projection.pair (Pet.owner_id pet) (Expr.count (Pet.id pet))))
+       in
+       Query.(
+         from_derived counts
+         |> where (fun count -> Pet_counts.pet_count count >. minimum_count)
+         |> select (fun count -> Pet_counts.projection count))))
+val kysely09 : (int64, (int64 * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -657,27 +701,29 @@ await db.with('older_people', (db) =>
 CTE объявляется из typed derived relation и доступен только внутри callback.
 
 ```ocaml
-let kysely10 =
+# let kysely10 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ minimum_age = params.expr Db_type.int ~get:Fn.id in
-    params.query_many (
-    let older_people =
-      Derived_table.create
-        ~table:Person.table
-        ~columns:(fun person ->
-          Projection.pair (Person.id person) (Person.first_name person))
-        Query.(
-          from Person.table
-          |> where (fun person -> Person.age person >=. minimum_age)
-          |> select (fun person ->
-            Projection.pair (Person.id person) (Person.first_name person)))
-    in
-    Cte.with_result (Cte.select older_people) ~f:(fun older_people ->
-      Query.(
-        from_cte older_people
-        |> select (fun person ->
-          Projection.pair (Person.id person) (Person.first_name person))))))
+    params.query_many
+      (let older_people =
+         Derived_table.create
+           ~table:Person.table
+           ~columns:(fun person ->
+             Projection.pair (Person.id person) (Person.first_name person))
+           Query.(
+             from Person.table
+             |> where (fun person -> Person.age person >=. minimum_age)
+             |> select (fun person ->
+               Projection.pair (Person.id person) (Person.first_name person)))
+       in
+       Cte.with_result (Cte.select older_people) ~f:(fun older_people ->
+         Query.(
+           from_cte older_people
+           |> select (fun person ->
+             Projection.pair (Person.id person) (Person.first_name person))))))
+val kysely10 : (int, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -726,15 +772,19 @@ await db.selectFrom('person')
 #### OCaml (typed-sql)
 
 ```ocaml
-let kysely11 =
-  Statement.query_many ~dialect:Dialect.portable (
-    let people =
-      Query.(from Person.table |> select (fun person -> Projection.expr (Person.first_name person)))
-    in
-    let pets =
-      Query.(from Pet.table |> select (fun pet -> Projection.expr (Pet.name pet)))
-    in
-    Query.union people pets)
+# let kysely11 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (let people =
+       Query.(
+         from Person.table
+         |> select (fun person -> Projection.expr (Person.first_name person)))
+     in
+     let pets =
+       Query.(from Pet.table |> select (fun pet -> Projection.expr (Pet.name pet)))
+     in
+     Query.union people pets)
+val kysely11 : (unit, string list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -788,8 +838,9 @@ await db.selectFrom('pet')
 Оконный `COUNT` заменён коррелированным scalar aggregate; для каждой строки получается тот же count по владельцу.
 
 ```ocaml
-let kysely12 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let kysely12 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Pet.table
       |> select (fun pet ->
@@ -805,7 +856,9 @@ let kysely12 =
           (Projection.expr
              (Expr.coalesce
                 (Expr.scalar_subquery owner_count)
-                ~default:(Expr.constant Db_type.int64 0L))))))
+                ~default:(Expr.constant Db_type.int64 0L)))))
+val kysely12 : (unit, (int64 * int64 * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -851,19 +904,22 @@ await db.insertInto('person')
 Runtime значения вставки объявлены typed bind-параметрами.
 
 ```ocaml
-let kysely13 =
+# let kysely13 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ first_name = params.expr Db_type.text ~get:(fun (first_name, _, _) -> first_name)
     and+ last_name = params.expr Db_type.text ~get:(fun (_, last_name, _) -> last_name)
     and+ age = params.expr Db_type.int ~get:(fun (_, _, age) -> age) in
-    params.expect_one (
-    Insert.(
-      into Person.table
-      |> set_expr Person.first_name_column first_name
-      |> set_expr Person.last_name_column last_name
-      |> set_expr Person.age_column age
-      |> returning (fun person -> Projection.pair (Person.id person) (Person.first_name person)))))
+    params.expect_one
+      Insert.(
+        into Person.table
+        |> set_expr Person.first_name_column first_name
+        |> set_expr Person.last_name_column last_name
+        |> set_expr Person.age_column age
+        |> returning (fun person ->
+          Projection.pair (Person.id person) (Person.first_name person))))
+val kysely13 :
+  (string * string * int, int64 * string, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -910,21 +966,24 @@ await db.updateTable('person')
 Чтобы сослаться на обновляемую строку, пример self-joins таблицу по первичному ключу в `UPDATE FROM`.
 
 ```ocaml
-let kysely14 =
+# let kysely14 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ person_id = params.expr Db_type.int64 ~get:(fun (person_id, _) -> person_id)
     and+ years = params.expr Db_type.int ~get:(fun (_, years) -> years) in
-    params.expect_optional (
-    Update.(
-      table Person.table
-      |> from Person.table ~f:(fun _target source update ->
-        let open Expr.Int.Infix in
-        update
-        |> set_expr Person.age_column (Person.age source +. years)
-        |> where (fun target ->
-          (Person.id target =. person_id) &&. (Person.id target =. Person.id source)))
-      |> returning (fun person -> Projection.pair (Person.id person) (Person.age person)))))
+    params.expect_optional
+      Update.(
+        table Person.table
+        |> from Person.table ~f:(fun _target source update ->
+          let open Expr.Int.Infix in
+          update
+          |> set_expr Person.age_column (Person.age source +. years)
+          |> where (fun target ->
+            Person.id target =. person_id &&. (Person.id target =. Person.id source)))
+        |> returning (fun person ->
+          Projection.pair (Person.id person) (Person.age person))))
+val kysely14 : (int64 * int, (int64 * int) option, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -967,15 +1026,17 @@ await db.deleteFrom('pet')
 #### OCaml (typed-sql)
 
 ```ocaml
-let kysely15 =
+# let kysely15 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ pet_id = params.column Pet.id_column ~get:Fn.id in
-    params.expect_optional (
-    Delete.(
-      from Pet.table
-      |> where (fun pet -> Pet.id pet =. pet_id)
-      |> returning (fun pet -> Projection.pair (Pet.id pet) (Pet.name pet)))))
+    params.expect_optional
+      Delete.(
+        from Pet.table
+        |> where (fun pet -> Pet.id pet =. pet_id)
+        |> returning (fun pet -> Projection.pair (Pet.id pet) (Pet.name pet))))
+val kysely15 : (int64, (int64 * string) option, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1015,16 +1076,17 @@ await db.selectFrom('pet')
 #### OCaml (typed-sql)
 
 ```ocaml
-let kysely16 =
+# let kysely16 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ owner_id = params.column Pet.owner_id_column ~get:Fn.id in
-    params.query_many (
-    Query.(
-      from Pet.table
-      |> where (fun pet -> Pet.owner_id pet =. owner_id)
-      |> distinct
-      |> select (fun pet -> Projection.expr (Pet.species pet)))))
+    params.query_many
+      Query.(
+        from Pet.table
+        |> where (fun pet -> Pet.owner_id pet =. owner_id)
+        |> distinct
+        |> select (fun pet -> Projection.expr (Pet.species pet))))
+val kysely16 : (int64, string list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1067,22 +1129,25 @@ await db.selectFrom('pet')
 `DISTINCT ON` выражен через anti-exists: выбирается строка с максимальным `id` владельца и сохраняется порядок исходного результата.
 
 ```ocaml
-let kysely17 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let kysely17 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Pet.table
       |> where (fun pet ->
         not_exists
           (from Pet.table
            |> where (fun newer ->
-             (Pet.owner_id newer =. Pet.owner_id pet) &&. (Pet.id newer >. Pet.id pet))))
+             Pet.owner_id newer =. Pet.owner_id pet &&. (Pet.id newer >. Pet.id pet))))
       |> order_by Pet.owner_id `Asc
       |> order_by Pet.id `Desc
       |> select (fun pet ->
         Projection.map2
           ~f:(fun owner_id (id, name) -> owner_id, id, name)
           (Projection.expr (Pet.owner_id pet))
-          (Projection.pair (Pet.id pet) (Pet.name pet)))))
+          (Projection.pair (Pet.id pet) (Pet.name pet))))
+val kysely17 :
+  (unit, (int64 * int64 * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1144,8 +1209,9 @@ await db.selectFrom('person')
 #### OCaml (typed-sql)
 
 ```ocaml
-let kysely18 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let kysely18 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Person.table
       |> select (fun person ->
@@ -1159,7 +1225,9 @@ let kysely18 =
           (Projection.expr
              (Expr.coalesce
                 (Person.nullable_last_name person)
-                ~default:(Person.first_name person))))))
+                ~default:(Person.first_name person)))))
+val kysely18 :
+  (unit, (int64 * string * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1200,12 +1268,16 @@ await db.selectFrom('person')
 #### OCaml (typed-sql)
 
 ```ocaml
-let kysely19 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let kysely19 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Person.table
       |> where (fun person -> Expr.is_null (Person.nullable_last_name person))
-      |> select (fun person -> Projection.pair (Person.id person) (Person.first_name person))))
+      |> select (fun person ->
+        Projection.pair (Person.id person) (Person.first_name person)))
+val kysely19 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1250,18 +1322,20 @@ await db.selectFrom('person')
 `Expr.in_` передаёт каждый элемент как bind-параметр, а пустой список нормализуется в `FALSE`.
 
 ```ocaml
-let kysely20 =
+# let kysely20 =
   Statement.Dynamic.query_many ~dialect:Dialect.portable (fun person_ids ->
     Query.(
       from Person.table
       |> where (fun person -> Expr.in_ (Person.id person) person_ids)
       |> select (fun person -> Projection.expr (Person.id person))))
+val kysely20 : (int64 list, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL, non-empty list)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ~input:[ 1L; 2L ] kysely20);;
+# let () =
+  Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ~input:[ 1L; 2L ] kysely20);;
 SELECT
   t0."id"
 FROM "person" AS t0
@@ -1326,24 +1400,33 @@ await db.selectFrom('person')
 Фильтр исключает `NULL` до лексикографического сравнения и сохраняет порядок курсора.
 
 ```ocaml
-let kysely21 =
-  Statement.Dynamic.query_many ~dialect:Dialect.portable (fun (last_name, id, page_size) ->
-    Query.(
-      from Person.table
-      |> where (fun person ->
-        Expr.is_not_null (Person.nullable_last_name person)
-        &&. ((Person.last_name person >$ last_name)
-             ||. ((Person.last_name person =$ last_name) &&. (Person.id person >$ id))))
-      |> order_by Person.last_name `Asc
-      |> order_by Person.id `Asc
-      |> limit page_size
-      |> select (fun person -> Projection.pair (Person.id person) (Person.last_name person))))
+# let kysely21 =
+  Statement.Dynamic.query_many
+    ~dialect:Dialect.portable
+    (fun (last_name, id, page_size) ->
+       Query.(
+         from Person.table
+         |> where (fun person ->
+           Expr.is_not_null (Person.nullable_last_name person)
+           &&. (Person.last_name person
+                >$ last_name
+                ||. (Person.last_name person =$ last_name &&. (Person.id person >$ id))))
+         |> order_by Person.last_name `Asc
+         |> order_by Person.id `Asc
+         |> limit page_size
+         |> select (fun person ->
+           Projection.pair (Person.id person) (Person.last_name person))))
+val kysely21 :
+  (string * int64 * int, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ~input:("Smith", 10L, 20) kysely21);;
+# let () =
+  Stdlib.print_endline
+    (Statement.sql_exn ~dialect:Postgresql ~input:("Smith", 10L, 20) kysely21);;
 SELECT
   t0."id",
   t0."last_name"
@@ -1398,34 +1481,48 @@ type kysely_person_with_optional_age =
   { person_id : int64
   ; person_age : int option
   }
+```
 
-let kysely22_with_age =
+```ocaml
+# let kysely22_with_age =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    Statement.Parameters.return (params.query_many
-    Query.(
-      from Person.table
-      |> select (fun person ->
-        Projection.map2
-          ~f:(fun person_id person_age -> { person_id; person_age })
-          (Projection.expr (Person.id person))
-          (Projection.expr (Expr.to_nullable (Person.age person)))))))
+    Statement.Parameters.return
+      (params.query_many
+         Query.(
+           from Person.table
+           |> select (fun person ->
+             Projection.map2
+               ~f:(fun person_id person_age -> { person_id; person_age })
+               (Projection.expr (Person.id person))
+               (Projection.expr (Expr.to_nullable (Person.age person)))))))
+val kysely22_with_age :
+  ('_weak1, kysely_person_with_optional_age list, Dialect.both) Statement.t =
+  <abstr>
+```
 
-let kysely22_without_age =
+```ocaml
+# let kysely22_without_age =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    Statement.Parameters.return (params.query_many
-    Query.(
-      from Person.table
-      |> select (fun person ->
-        Projection.map2
-          ~f:(fun person_id person_age -> { person_id; person_age })
-          (Projection.expr (Person.id person))
-          (Projection.expr (Expr.constant (Db_type.option Db_type.int) None))))))
+    Statement.Parameters.return
+      (params.query_many
+         Query.(
+           from Person.table
+           |> select (fun person ->
+             Projection.map2
+               ~f:(fun person_id person_age -> { person_id; person_age })
+               (Projection.expr (Person.id person))
+               (Projection.expr (Expr.constant (Db_type.option Db_type.int) None))))))
+val kysely22_without_age :
+  ('_weak2, kysely_person_with_optional_age list, Dialect.both) Statement.t =
+  <abstr>
+```
 
-let kysely22 =
-  Statement.choose
-    ~when_:Fn.id
-    ~if_true:kysely22_with_age
-    ~if_false:kysely22_without_age
+```ocaml
+# let kysely22 =
+  Statement.choose ~when_:Fn.id ~if_true:kysely22_with_age ~if_false:kysely22_without_age
+val kysely22 :
+  (bool, kysely_person_with_optional_age list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL, age включён)
@@ -1441,7 +1538,8 @@ FROM "person" AS t0
 #### SQL typed-sql (PostgreSQL, age отсутствует)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ~input:false kysely22);;
+# let () =
+  Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ~input:false kysely22);;
 SELECT
   t0."id",
   $1
@@ -1479,7 +1577,7 @@ await db.selectFrom('person')
 Разрешённые идентификаторы выбираются по закрытому variant; пользовательская строка не попадает в SQL.
 
 ```ocaml
-let kysely23 =
+# let kysely23 =
   Statement.Dynamic.query_many ~dialect:Dialect.portable (fun sort_by ->
     match sort_by with
     | `Age ->
@@ -1492,6 +1590,9 @@ let kysely23 =
         from Person.table
         |> order_by Person.id `Asc
         |> select (fun person -> Projection.pair (Person.id person) (Person.age person))))
+val kysely23 :
+  ([< `Age | `Id ] as '_weak3, (int64 * int) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL, сортировка по age)
@@ -1547,16 +1648,18 @@ await db.selectFrom('person')
 Декартово произведение строится как `INNER JOIN ON TRUE`; результат эквивалентен `CROSS JOIN`.
 
 ```ocaml
-let kysely24 =
+# let kysely24 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ person_id = params.column Person.id_column ~get:Fn.id in
-    params.query_many (
-    Query.(
-      from Person.table
-      |> inner_join Pet.table ~on:(fun _person _pet -> Condition.true_)
-      |> where (fun (person, _) -> Person.id person =. person_id)
-      |> select (fun (person, pet) -> Projection.pair (Person.id person) (Pet.name pet)))))
+    params.query_many
+      Query.(
+        from Person.table
+        |> inner_join Pet.table ~on:(fun _person _pet -> Condition.true_)
+        |> where (fun (person, _) -> Person.id person =. person_id)
+        |> select (fun (person, pet) -> Projection.pair (Person.id person) (Pet.name pet))))
+val kysely24 : (int64, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1600,33 +1703,41 @@ await db.selectFrom('person')
 `FULL OUTER JOIN` собран из `LEFT JOIN` и второй ветви с несопоставленными питомцами. Предполагаются уникальные ключи `person.id` и `pet.id`.
 
 ```ocaml
-let kysely25 =
-  Statement.query_many ~dialect:Dialect.portable (
-    let people_with_pets =
-      Query.(
-        from Person.table
-        |> left_join Pet.table ~on:(fun person pet -> Pet.owner_id pet =. Person.id person)
-        |> select (fun (person, pet) ->
-          Projection.map2
-            ~f:(fun person_id (pet_id, name) -> person_id, pet_id, name)
-            (Projection.expr (Expr.to_nullable (Person.id person)))
-            (Projection.pair
-               (Expr.nullable_column pet Pet.id_column)
-               (Pet.nullable_name pet))))
-    in
-    let pets_without_people =
-      Query.(
-        from Pet.table
-        |> left_join Person.table ~on:(fun pet person -> Pet.owner_id pet =. Person.id person)
-        |> where (fun (_, person) ->
-          Expr.is_null (Expr.nullable_column person Person.id_column))
-        |> select (fun (pet, _) ->
-          Projection.map2
-            ~f:(fun person_id (pet_id, name) -> person_id, pet_id, name)
-            (Projection.expr (Expr.constant (Db_type.option Db_type.int64) None))
-            (Projection.pair (Expr.to_nullable (Pet.id pet)) (Expr.to_nullable (Pet.name pet)))))
-    in
-    Query.union_all people_with_pets pets_without_people)
+# let kysely25 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (let people_with_pets =
+       Query.(
+         from Person.table
+         |> left_join Pet.table ~on:(fun person pet ->
+           Pet.owner_id pet =. Person.id person)
+         |> select (fun (person, pet) ->
+           Projection.map2
+             ~f:(fun person_id (pet_id, name) -> person_id, pet_id, name)
+             (Projection.expr (Expr.to_nullable (Person.id person)))
+             (Projection.pair
+                (Expr.nullable_column pet Pet.id_column)
+                (Pet.nullable_name pet))))
+     in
+     let pets_without_people =
+       Query.(
+         from Pet.table
+         |> left_join Person.table ~on:(fun pet person ->
+           Pet.owner_id pet =. Person.id person)
+         |> where (fun (_, person) ->
+           Expr.is_null (Expr.nullable_column person Person.id_column))
+         |> select (fun (pet, _) ->
+           Projection.map2
+             ~f:(fun person_id (pet_id, name) -> person_id, pet_id, name)
+             (Projection.expr (Expr.constant (Db_type.option Db_type.int64) None))
+             (Projection.pair
+                (Expr.to_nullable (Pet.id pet))
+                (Expr.to_nullable (Pet.name pet)))))
+     in
+     Query.union_all people_with_pets pets_without_people)
+val kysely25 :
+  (unit, (int64 option * int64 option * string option) list, Dialect.both)
+  Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1699,8 +1810,9 @@ await db.selectFrom('person')
 Коррелированный scalar subquery с `LIMIT 1` возвращает `NULL`, если у человека нет питомцев; он заменяет `LEFT JOIN LATERAL`.
 
 ```ocaml
-let kysely26 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let kysely26 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Person.table
       |> select (fun person ->
@@ -1715,7 +1827,9 @@ let kysely26 =
         Projection.map2
           ~f:(fun id name -> id, name)
           (Projection.expr (Person.id person))
-          (Projection.expr (Expr.scalar_subquery latest_pet)))))
+          (Projection.expr (Expr.scalar_subquery latest_pet))))
+val kysely26 : (unit, (int64 * string option) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1771,15 +1885,16 @@ await db.selectFrom('person')
 #### OCaml (typed-sql)
 
 ```ocaml
-let kysely27 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let kysely27 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Person.table
       |> where (fun person ->
         not_exists
-          (from Pet.table
-           |> where (fun pet -> Pet.owner_id pet =. Person.id person)))
-      |> select (fun person -> Projection.expr (Person.id person))))
+          (from Pet.table |> where (fun pet -> Pet.owner_id pet =. Person.id person)))
+      |> select (fun person -> Projection.expr (Person.id person)))
+val kysely27 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1833,17 +1948,19 @@ await db.selectFrom('pet')
 `COUNT(*) FILTER` выражен как `COUNT(CASE ...)`: совпавший `id` остаётся non-NULL, остальные строки превращаются в `NULL`.
 
 ```ocaml
-let kysely28 =
-  Statement.query_one ~dialect:Dialect.portable (
-    Query.Aggregate.(from Pet.table)
-    |> Query.aggregate_one (fun pet ->
-      let count_when species =
-        Aggregate_projection.count
-          (Expr.case
-             [ Pet.species pet =$ species, Expr.to_nullable (Pet.id pet) ]
-             ~else_:(Expr.constant (Db_type.option Db_type.int64) None))
-      in
-      Aggregate_projection.both (count_when "cat") (count_when "dog")))
+# let kysely28 =
+  Statement.query_one
+    ~dialect:Dialect.portable
+    (Query.Aggregate.(from Pet.table)
+     |> Query.aggregate_one (fun pet ->
+       let count_when species =
+         Aggregate_projection.count
+           (Expr.case
+              [ Pet.species pet =$ species, Expr.to_nullable (Pet.id pet) ]
+              ~else_:(Expr.constant (Db_type.option Db_type.int64) None))
+       in
+       Aggregate_projection.both (count_when "cat") (count_when "dog")))
+val kysely28 : (unit, int64 * int64, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1893,8 +2010,9 @@ await db.selectFrom('person')
 #### OCaml (typed-sql)
 
 ```ocaml
-let kysely29 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let kysely29 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Person.table
       |> inner_join Pet.table ~on:(fun person pet -> Pet.owner_id pet =. Person.id person)
@@ -1905,7 +2023,9 @@ let kysely29 =
           ~f:(fun age species owners -> age, species, owners)
           (Projection.expr (Person.age person))
           (Projection.expr (Pet.species pet))
-          (Projection.expr (Expr.count_distinct (Pet.owner_id pet))))))
+          (Projection.expr (Expr.count_distinct (Pet.owner_id pet)))))
+val kysely29 : (unit, (int * string * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1950,12 +2070,12 @@ await db.selectFrom('pet')
 Ungrouped aggregate имеет exactly-one cardinality даже при пустом входе; `COUNT(*)` вернёт `0`.
 
 ```ocaml
-let kysely30 =
-  Statement.query_one ~dialect:Dialect.portable (
-    Query.Aggregate.(
-      from Pet.table
-      |> where (fun pet -> Pet.id pet <$ 0L))
-    |> Query.aggregate_one (fun _ -> Aggregate_projection.count_all))
+# let kysely30 =
+  Statement.query_one
+    ~dialect:Dialect.portable
+    (Query.Aggregate.(from Pet.table |> where (fun pet -> Pet.id pet <$ 0L))
+     |> Query.aggregate_one (fun _ -> Aggregate_projection.count_all))
+val kysely30 : (unit, int64, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2009,20 +2129,23 @@ await db.with('ranked_pets', (db) =>
 Так как `id` уникален, `ROW_NUMBER() = 1` для каждого владельца эквивалентен выбору строки, для которой не существует более новой.
 
 ```ocaml
-let kysely31 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let kysely31 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Pet.table
       |> where (fun pet ->
         not_exists
           (from Pet.table
            |> where (fun newer ->
-             (Pet.owner_id newer =. Pet.owner_id pet) &&. (Pet.id newer >. Pet.id pet))))
+             Pet.owner_id newer =. Pet.owner_id pet &&. (Pet.id newer >. Pet.id pet))))
       |> select (fun pet ->
         Projection.map2
           ~f:(fun owner_id (id, name) -> owner_id, id, name)
           (Projection.expr (Pet.owner_id pet))
-          (Projection.pair (Pet.id pet) (Pet.name pet)))))
+          (Projection.pair (Pet.id pet) (Pet.name pet))))
+val kysely31 :
+  (unit, (int64 * int64 * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2114,13 +2237,10 @@ await db.withRecursive('descendants', (db) =>
 #### OCaml (typed-sql)
 
 ```ocaml
-let kysely33 =
+# let kysely33 =
   Statement.Dynamic.query_many ~dialect:Dialect.portable (fun root_id ->
     let relation query =
-      Derived_table.create
-        ~table:Descendants.table
-        ~columns:Descendants.projection
-        query
+      Derived_table.create ~table:Descendants.table ~columns:Descendants.projection query
     in
     let anchor =
       relation
@@ -2131,22 +2251,19 @@ let kysely33 =
             Projection.pair (Person.id person) (Person.manager_id person)))
     in
     let descendants =
-      Cte.recursive
-        ~union:`Union_all
-        ~anchor
-        ~step:(fun descendants ->
-          relation
-            Query.(
-              from Person.table
-              |> inner_join_cte descendants ~on:(fun person ancestor ->
-                Person.manager_id person =. Expr.to_nullable (Descendants.id ancestor))
-              |> select (fun (person, _) ->
-                Projection.pair (Person.id person) (Person.manager_id person))))
+      Cte.recursive ~union:`Union_all ~anchor ~step:(fun descendants ->
+        relation
+          Query.(
+            from Person.table
+            |> inner_join_cte descendants ~on:(fun person ancestor ->
+              Person.manager_id person =. Expr.to_nullable (Descendants.id ancestor))
+            |> select (fun (person, _) ->
+              Projection.pair (Person.id person) (Person.manager_id person))))
     in
     Cte.with_result descendants ~f:(fun descendants ->
-      Query.(
-        from_cte descendants
-        |> select (fun person -> Descendants.projection person))))
+      Query.(from_cte descendants |> select (fun person -> Descendants.projection person))))
+val kysely33 : (int64, (int64 * int64 option) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2211,25 +2328,29 @@ await db.with(
 #### OCaml (typed-sql)
 
 ```ocaml
-let kysely34 =
+# let kysely34 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ minimum_age = params.expr Db_type.int ~get:Fn.id in
-    params.query_many (
-    let older_people =
-      Derived_table.create
-        ~table:Person.table
-        ~columns:(fun person -> Projection.pair (Person.id person) (Person.age person))
-        Query.(
-          from Person.table
-          |> where (fun person -> Person.age person >=. minimum_age)
-          |> select (fun person -> Projection.pair (Person.id person) (Person.age person)))
-    in
-    Cte.with_result (Cte.select ~materialization:`Materialized older_people)
-      ~f:(fun older_people ->
-        Query.(
-          from_cte older_people
-          |> select (fun person -> Projection.pair (Person.id person) (Person.age person))))))
+    params.query_many
+      (let older_people =
+         Derived_table.create
+           ~table:Person.table
+           ~columns:(fun person -> Projection.pair (Person.id person) (Person.age person))
+           Query.(
+             from Person.table
+             |> where (fun person -> Person.age person >=. minimum_age)
+             |> select (fun person ->
+               Projection.pair (Person.id person) (Person.age person)))
+       in
+       Cte.with_result
+         (Cte.select ~materialization:`Materialized older_people)
+         ~f:(fun older_people ->
+           Query.(
+             from_cte older_people
+             |> select (fun person ->
+               Projection.pair (Person.id person) (Person.age person))))))
+val kysely34 : (int, (int64 * int) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2286,26 +2407,28 @@ await db.with('deleted_pets', (db) =>
 #### OCaml (typed-sql)
 
 ```ocaml
-let kysely35 =
+# let kysely35 =
   Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ pet_id = params.column Pet.id_column ~get:Fn.id in
-    params.query_many (
-    let deleted_pets =
-      Delete.(
-        from Pet.table
-        |> where (fun pet -> Pet.id pet =. pet_id)
-        |> returning (fun pet -> Projection.pair (Pet.id pet) (Pet.name pet)))
-    in
-    Cte.with_result
-      (Postgresql.Cte.returning
-         ~table:Pet.table
-         ~columns:(fun pet -> Projection.pair (Pet.id pet) (Pet.name pet))
-         deleted_pets)
-      ~f:(fun deleted ->
-        Query.(
-          from_cte deleted
-          |> select (fun pet -> Projection.pair (Pet.id pet) (Pet.name pet))))))
+    params.query_many
+      (let deleted_pets =
+         Delete.(
+           from Pet.table
+           |> where (fun pet -> Pet.id pet =. pet_id)
+           |> returning (fun pet -> Projection.pair (Pet.id pet) (Pet.name pet)))
+       in
+       Cte.with_result
+         (Postgresql.Cte.returning
+            ~table:Pet.table
+            ~columns:(fun pet -> Projection.pair (Pet.id pet) (Pet.name pet))
+            deleted_pets)
+         ~f:(fun deleted ->
+           Query.(
+             from_cte deleted
+             |> select (fun pet -> Projection.pair (Pet.id pet) (Pet.name pet))))))
+val kysely35 : (int64, (int64 * string) list, [ `Postgresql ]) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2354,11 +2477,19 @@ await db.selectFrom('person')
 #### OCaml (typed-sql)
 
 ```ocaml
-let kysely36 =
-  Statement.query_many ~dialect:Dialect.portable (
-    let people = Query.(from Person.table |> select (fun person -> Projection.expr (Person.first_name person))) in
-    let pets = Query.(from Pet.table |> select (fun pet -> Projection.expr (Pet.name pet))) in
-    Query.union_all people pets)
+# let kysely36 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (let people =
+       Query.(
+         from Person.table
+         |> select (fun person -> Projection.expr (Person.first_name person)))
+     in
+     let pets =
+       Query.(from Pet.table |> select (fun pet -> Projection.expr (Pet.name pet)))
+     in
+     Query.union_all people pets)
+val kysely36 : (unit, string list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2404,11 +2535,19 @@ await db.selectFrom('person')
 #### OCaml (typed-sql)
 
 ```ocaml
-let kysely37 =
-  Statement.query_many ~dialect:Dialect.portable (
-    let people = Query.(from Person.table |> select (fun person -> Projection.expr (Person.first_name person))) in
-    let pets = Query.(from Pet.table |> select (fun pet -> Projection.expr (Pet.name pet))) in
-    Query.intersect people pets)
+# let kysely37 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (let people =
+       Query.(
+         from Person.table
+         |> select (fun person -> Projection.expr (Person.first_name person)))
+     in
+     let pets =
+       Query.(from Pet.table |> select (fun pet -> Projection.expr (Pet.name pet)))
+     in
+     Query.intersect people pets)
+val kysely37 : (unit, string list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2454,11 +2593,19 @@ await db.selectFrom('person')
 #### OCaml (typed-sql)
 
 ```ocaml
-let kysely38 =
-  Statement.query_many ~dialect:Dialect.portable (
-    let people = Query.(from Person.table |> select (fun person -> Projection.expr (Person.first_name person))) in
-    let pets = Query.(from Pet.table |> select (fun pet -> Projection.expr (Pet.name pet))) in
-    Query.except people pets)
+# let kysely38 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (let people =
+       Query.(
+         from Person.table
+         |> select (fun person -> Projection.expr (Person.first_name person)))
+     in
+     let pets =
+       Query.(from Pet.table |> select (fun pet -> Projection.expr (Pet.name pet)))
+     in
+     Query.except people pets)
+val kysely38 : (unit, string list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2516,23 +2663,27 @@ await db.selectFrom('person')
 Scalar подзапрос сохраняет `NULL` для человека без питомцев; его значение используется как ключ сортировки.
 
 ```ocaml
-let kysely39 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let kysely39 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Person.table
       |> order_by
            (fun person ->
-             let first_pet =
-               Query.(
-                 from Pet.table
-                 |> where (fun pet -> Pet.owner_id pet =. Person.id person)
-                 |> order_by Pet.id `Asc
-                 |> limit_one
-                 |> select_scalar Pet.name)
-             in
-             Expr.scalar_subquery first_pet)
+              let first_pet =
+                Query.(
+                  from Pet.table
+                  |> where (fun pet -> Pet.owner_id pet =. Person.id person)
+                  |> order_by Pet.id `Asc
+                  |> limit_one
+                  |> select_scalar Pet.name)
+              in
+              Expr.scalar_subquery first_pet)
            `Asc
-      |> select (fun person -> Projection.pair (Person.id person) (Person.first_name person))))
+      |> select (fun person ->
+        Projection.pair (Person.id person) (Person.first_name person)))
+val kysely39 : (unit, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2584,17 +2735,16 @@ await db.selectFrom('person')
 Верхний регистр параметра вычисляется до bind; для этого примера предполагаются ASCII-имена.
 
 ```ocaml
-let kysely40 =
+# let kysely40 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
-    let+ uppercase_name =
-      params.expr Db_type.text ~get:Stdlib.String.uppercase_ascii
-    in
-    params.query_many (
-    Query.(
-      from Person.table
-      |> where (fun person -> Expr.upper (Person.first_name person) =. uppercase_name)
-      |> select (fun person -> Projection.expr (Person.id person)))))
+    let+ uppercase_name = params.expr Db_type.text ~get:Stdlib.String.uppercase_ascii in
+    params.query_many
+      Query.(
+        from Person.table
+        |> where (fun person -> Expr.upper (Person.first_name person) =. uppercase_name)
+        |> select (fun person -> Projection.expr (Person.id person))))
+val kysely40 : (string/2, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2686,9 +2836,12 @@ type kysely_pet_summary =
   { pet_id : int64
   ; pet_name : string
   }
+```
 
-let kysely42 =
-  Statement.query_many ~dialect:Dialect.portable (
+```ocaml
+# let kysely42 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Person.table
       |> left_join Pet.table ~on:(fun person pet -> Pet.owner_id pet =. Person.id person)
@@ -2706,11 +2859,13 @@ let kysely42 =
           ~f:(fun person_id rows ->
             ( person_id
             , List.map rows ~f:(fun (pet_id, pet_name) ->
-                { pet_id = Option.value_exn pet_id
-                ; pet_name = Option.value_exn pet_name
-                }) ))
+                { pet_id = Option.value_exn pet_id; pet_name = Option.value_exn pet_name })
+            ))
           (Projection.expr (Person.id person))
-          pets)))
+          pets))
+val kysely42 :
+  (unit, (int64 * kysely_pet_summary list) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2768,7 +2923,7 @@ await db.insertInto('pet')
 Динамический statement строит по одной одинаковой строке INSERT на каждый входной tuple.
 
 ```ocaml
-let kysely43 =
+# let kysely43 =
   Statement.Dynamic.command ~dialect:Dialect.portable (fun rows ->
     let row_builders =
       List.map rows ~f:(fun (owner_id, name, species) row ->
@@ -2779,12 +2934,20 @@ let kysely43 =
           |> set Pet.owner_id_column owner_id))
     in
     Insert.command (Insert.rows Pet.table row_builders))
+val kysely43 :
+  ((int64 * string * string) list, Affected_rows.t, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
 
 ```ocaml
-# let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql ~input:[ 1L, "Milo", "cat"; 2L, "Rex", "dog" ] kysely43);;
+# let () =
+  Stdlib.print_endline
+    (Statement.sql_exn
+       ~dialect:Postgresql
+       ~input:[ 1L, "Milo", "cat"; 2L, "Rex", "dog" ]
+       kysely43);;
 INSERT INTO "pet" (
   "name",
   "species",
@@ -2830,26 +2993,30 @@ let kysely44_columns =
     |> add Person.first_name_column
     |> add Person.last_name_column
     |> add Person.age_column)
+;;
+```
 
-let kysely44 =
+```ocaml
+# let kysely44 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ min_age = params.expr Db_type.int ~get:Fn.id in
-    params.command (
-    let source =
-      Query.(
-        from Person_import.table
-        |> where (fun person -> Person_import.age person >=. min_age)
-        |> select (fun person ->
-          Projection.both
-            (Projection.pair
-               (Person_import.id person)
-               (Person_import.first_name person))
-            (Projection.pair
-               (Person_import.last_name person)
-               (Person_import.age person))))
-    in
-    Insert.(into Person.table |> from_select kysely44_columns source |> command)))
+    params.command
+      (let source =
+         Query.(
+           from Person_import.table
+           |> where (fun person -> Person_import.age person >=. min_age)
+           |> select (fun person ->
+             Projection.both
+               (Projection.pair
+                  (Person_import.id person)
+                  (Person_import.first_name person))
+               (Projection.pair
+                  (Person_import.last_name person)
+                  (Person_import.age person))))
+       in
+       Insert.(into Person.table |> from_select kysely44_columns source |> command)))
+val kysely44 : (int, Affected_rows.t, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2897,21 +3064,24 @@ await db.insertInto('pet')
 #### OCaml (typed-sql)
 
 ```ocaml
-let kysely45 =
+# let kysely45 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ name = params.expr Db_type.text ~get:(fun (name, _, _) -> name)
     and+ species = params.expr Db_type.text ~get:(fun (_, species, _) -> species)
     and+ owner_id = params.expr Db_type.int64 ~get:(fun (_, _, owner_id) -> owner_id) in
-    params.command (
-    Insert.(
-      into Pet.table
-      |> set_expr Pet.name_column name
-      |> set_expr Pet.species_column species
-      |> set_expr Pet.owner_id_column owner_id
-      |> on_conflict (Conflict_target.column Pet.name_column)
-      |> do_nothing
-      |> command)))
+    params.command
+      Insert.(
+        into Pet.table
+        |> set_expr Pet.name_column name
+        |> set_expr Pet.species_column species
+        |> set_expr Pet.owner_id_column owner_id
+        |> on_conflict (Conflict_target.column Pet.name_column)
+        |> do_nothing
+        |> command))
+val kysely45 :
+  (string * string * int64, Affected_rows.t, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -2963,28 +3133,31 @@ await db.insertInto('pet')
 #### OCaml (typed-sql)
 
 ```ocaml
-let kysely46 =
+# let kysely46 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ name = params.expr Db_type.text ~get:(fun (name, _, _) -> name)
     and+ species = params.expr Db_type.text ~get:(fun (_, species, _) -> species)
     and+ owner_id = params.expr Db_type.int64 ~get:(fun (_, _, owner_id) -> owner_id) in
-    params.expect_optional (
-    Insert.(
-      into Pet.table
-      |> set_expr Pet.name_column name
-      |> set_expr Pet.species_column species
-      |> set_expr Pet.owner_id_column owner_id
-      |> on_conflict (Conflict_target.column Pet.name_column)
-      |> do_update (fun ~existing ~excluded ->
-        Conflict_update.empty
-        |> Conflict_update.set_expr Pet.species_column (Pet.species excluded)
-        |> Conflict_update.where (Pet.species excluded <>. Pet.species existing))
-      |> returning (fun pet ->
-        Projection.map2
-          ~f:(fun id (name, species) -> id, name, species)
-          (Projection.expr (Pet.id pet))
-          (Projection.pair (Pet.name pet) (Pet.species pet))))))
+    params.expect_optional
+      Insert.(
+        into Pet.table
+        |> set_expr Pet.name_column name
+        |> set_expr Pet.species_column species
+        |> set_expr Pet.owner_id_column owner_id
+        |> on_conflict (Conflict_target.column Pet.name_column)
+        |> do_update (fun ~existing ~excluded ->
+          Conflict_update.empty
+          |> Conflict_update.set_expr Pet.species_column (Pet.species excluded)
+          |> Conflict_update.where (Pet.species excluded <>. Pet.species existing))
+        |> returning (fun pet ->
+          Projection.map2
+            ~f:(fun id (name, species) -> id, name, species)
+            (Projection.expr (Pet.id pet))
+            (Projection.pair (Pet.name pet) (Pet.species pet)))))
+val kysely46 :
+  (string * string * int64, (int64 * string * string) option, Dialect.both)
+  Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -3045,18 +3218,20 @@ await db.selectFrom('pet')
 `limit_one` сохраняет тип результата `option`; вызов выполняется внутри PostgreSQL-транзакции.
 
 ```ocaml
-let kysely47 =
+# let kysely47 =
   Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ owner_id = params.column Pet.owner_id_column ~get:Fn.id in
-    params.query_optional (
-    Query.(
-      from Pet.table
-      |> where (fun pet -> Pet.owner_id pet =. owner_id)
-      |> order_by Pet.id `Asc
-      |> limit_one
-      |> Postgresql.Query.for_update ~skip_locked:true
-      |> select (fun pet -> Projection.pair (Pet.id pet) (Pet.name pet)))))
+    params.query_optional
+      Query.(
+        from Pet.table
+        |> where (fun pet -> Pet.owner_id pet =. owner_id)
+        |> order_by Pet.id `Asc
+        |> limit_one
+        |> Postgresql.Query.for_update ~skip_locked:true
+        |> select (fun pet -> Projection.pair (Pet.id pet) (Pet.name pet))))
+val kysely47 : (int64, (int64 * string) option, [ `Postgresql ]) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -3106,19 +3281,20 @@ await db.updateTable('person')
 `Update.from` задаёт источник значения; связь и фильтр обновляемой строки проверяются через unique `person.id`.
 
 ```ocaml
-let kysely48 =
+# let kysely48 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ person_id = params.expr Db_type.int64 ~get:Fn.id in
-    params.command (
-    Update.(
-      table Person.table
-      |> from Pet.table ~f:(fun _target pet update ->
-        update
-        |> set_expr Person.first_name_column (Pet.name pet)
-        |> where (fun person ->
-          (Person.id person =. person_id) &&. (Pet.owner_id pet =. Person.id person)))
-      |> command)))
+    params.command
+      Update.(
+        table Person.table
+        |> from Pet.table ~f:(fun _target pet update ->
+          update
+          |> set_expr Person.first_name_column (Pet.name pet)
+          |> where (fun person ->
+            Person.id person =. person_id &&. (Pet.owner_id pet =. Person.id person)))
+        |> command))
+val kysely48 : (int64, Affected_rows.t, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -3167,20 +3343,22 @@ await db.deleteFrom('pet')
 `DELETE USING` переписан как `DELETE ... WHERE EXISTS`; уникальный `person.id` сохраняет набор удаляемых питомцев.
 
 ```ocaml
-let kysely49 =
+# let kysely49 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ maximum_age = params.expr Db_type.int ~get:Fn.id in
-    params.query_many (
-    Delete.(
-      from Pet.table
-      |> where (fun pet ->
-        Query.exists
-          Query.(
-            from Person.table
-            |> where (fun person ->
-              (Person.id person =. Pet.owner_id pet) &&. (Person.age person <. maximum_age))))
-      |> returning (fun pet -> Projection.pair (Pet.id pet) (Pet.name pet)))))
+    params.query_many
+      Delete.(
+        from Pet.table
+        |> where (fun pet ->
+          Query.exists
+            Query.(
+              from Person.table
+              |> where (fun person ->
+                Person.id person =. Pet.owner_id pet &&. (Person.age person <. maximum_age))))
+        |> returning (fun pet -> Projection.pair (Pet.id pet) (Pet.name pet))))
+val kysely49 : (int, (int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -3249,27 +3427,3 @@ await db.mergeInto('person')
   }))
   .execute()
 ```
-
-## Уведомление о лицензии источника
-
-The MIT License (MIT)
-
-Copyright (c) 2022 Sami Koskimäki
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.

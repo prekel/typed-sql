@@ -7,6 +7,8 @@ let rec normalize_expr = function
     Ast.Arithmetic (operator, normalize_expr left, normalize_expr right)
   | Ast.String_function (function_, expression) ->
     Ast.String_function (function_, normalize_expr expression)
+  | Ast.Cast (source, target, expression) ->
+    Ast.Cast (source, target, normalize_expr expression)
   | Ast.Concat (left, right) -> Ast.Concat (normalize_expr left, normalize_expr right)
   | Ast.Coalesce (left, right) -> Ast.Coalesce (normalize_expr left, normalize_expr right)
   | Ast.Case ([], else_) -> normalize_expr else_
@@ -28,6 +30,10 @@ let rec normalize_expr = function
     Ast.Aggregate (Ast.Sum_int64 (normalize_expr expression))
   | Ast.Aggregate (Ast.Sum_numeric expression) ->
     Ast.Aggregate (Ast.Sum_numeric (normalize_expr expression))
+  | Ast.Aggregate (Ast.Avg_float expression) ->
+    Ast.Aggregate (Ast.Avg_float (normalize_expr expression))
+  | Ast.Aggregate (Ast.Avg_numeric expression) ->
+    Ast.Aggregate (Ast.Avg_numeric (normalize_expr expression))
   | Ast.Aggregate (Ast.Min expression) ->
     Ast.Aggregate (Ast.Min (normalize_expr expression))
   | Ast.Aggregate (Ast.Max expression) ->

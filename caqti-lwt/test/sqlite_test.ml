@@ -2313,6 +2313,175 @@ let dynamic_test conn =
   Connection.exec (direct "DROP TABLE dynamic_items") () |> caqti_or_fail
 ;;
 
+module Average_fixture = struct
+  type blog
+  type post
+
+  let blogs : blog Table.t = Table.v_exn "average_blogs"
+  let posts : post Table.t = Table.v_exn "average_posts"
+  let id = Column.v_exn blogs "id" Db_type.int
+  let rating = Column.v_exn blogs "rating" Db_type.int
+  let optional_rating = Column.nullable_v_exn blogs "optional_rating" Db_type.int
+  let owner = Column.v_exn posts "owner" Db_type.int
+  let value = Column.nullable_v_exn posts "value" Db_type.int
+
+  let average target =
+    Query.(
+      from posts
+      |> where (fun post -> Expr.column post owner =. Expr.column target id)
+      |> select_scalar (fun post -> Expr.avg_int_nullable (Expr.column post value)))
+  ;;
+
+  let update_nullable =
+    Update.(
+      table blogs
+      |> with_target ~f:(fun target update ->
+        update
+        |> set_expr
+             optional_rating
+             (Expr.cast_float_to_int_nullable
+                (Expr.scalar_subquery_nullable (average target))))
+      |> all_rows
+      |> command)
+  ;;
+
+  let update_required =
+    Update.(
+      table blogs
+      |> with_target ~f:(fun target update ->
+        update
+        |> set_nullable_expr
+             rating
+             (Expr.cast_float_to_int_nullable
+                (Expr.scalar_subquery_nullable (average target))))
+      |> all_rows
+      |> command)
+  ;;
+
+  let rows =
+    Query.(
+      from blogs
+      |> order_by (fun blog -> Expr.column blog id) `Asc
+      |> select (fun blog ->
+        Projection.both
+          (Projection.expr (Expr.column blog rating))
+          (Projection.expr (Expr.column blog optional_rating))))
+  ;;
+end
+
+let test_average conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let exec sql = Connection.exec (direct sql) () |> caqti_or_fail in
+  let* () =
+    exec
+      "CREATE TABLE average_blogs (id INTEGER PRIMARY KEY, rating INTEGER NOT NULL, optional_rating INTEGER)"
+  in
+  let* () = exec "CREATE TABLE average_posts (owner INTEGER NOT NULL, value INTEGER)" in
+  let* () =
+    exec "INSERT INTO average_blogs VALUES (1,99,99),(2,99,99),(3,99,99),(4,99,99)"
+  in
+  let* () =
+    exec "INSERT INTO average_posts VALUES (1,2),(1,3),(1,NULL),(2,-2),(2,-3),(4,NULL)"
+  in
+  let run statement = Adapter.run ~conn statement () >>= adapter_or_fail in
+  let* _ =
+    run (Statement.command ~dialect:Dialect.sqlite Average_fixture.update_nullable)
+  in
+  let fetch () =
+    run (Statement.query_many ~dialect:Dialect.sqlite Average_fixture.rows)
+  in
+  let* rows = fetch () in
+  let equal =
+    List.equal (fun (a, b) (c, d) -> Int.equal a c && Option.equal Int.equal b d)
+  in
+  assert (equal rows [ 99, Some 2; 99, Some (-2); 99, None; 99, None ]);
+  let* () = exec "SAVEPOINT average_failure" in
+  let* error =
+    Adapter.run
+      ~conn
+      (Statement.command ~dialect:Dialect.sqlite Average_fixture.update_required)
+      ()
+  in
+  (match error with
+   | Error (Adapter.Constraint_violation { kind = Not_null; _ }) -> ()
+   | Error error -> failwith (Adapter.error_to_string error)
+   | Ok _ -> failwith "NULL average did not violate NOT NULL");
+  let* after_failure = fetch () in
+  assert (equal rows after_failure);
+  let* () = exec "ROLLBACK TO SAVEPOINT average_failure" in
+  let* () = exec "RELEASE SAVEPOINT average_failure" in
+  let* unchanged = fetch () in
+  assert (equal rows unchanged);
+  let average owner =
+    Query.(
+      from Average_fixture.posts
+      |> where (fun post -> Expr.column post Average_fixture.owner =$ owner)
+      |> select (fun post ->
+        Projection.expr (Expr.avg_int_nullable (Expr.column post Average_fixture.value))))
+  in
+  let check owner expected =
+    let* value = run (Statement.expect_one ~dialect:Dialect.sqlite (average owner)) in
+    assert (Option.equal Float.equal value expected);
+    Lwt.return_unit
+  in
+  let* () = check 1 (Some 2.5) in
+  let* () = check 2 (Some (-2.5)) in
+  let* () = check 3 None in
+  let* () = check 4 None in
+  let* () = exec "UPDATE average_blogs SET rating = id" in
+  let self_update =
+    Update.(
+      table Average_fixture.blogs
+      |> with_target ~f:(fun target update ->
+        let scalar =
+          Query.(
+            from Average_fixture.blogs
+            |> where (fun row ->
+              Expr.column row Average_fixture.id =. Expr.column target Average_fixture.id)
+            |> select_scalar (fun row ->
+              Expr.avg_int (Expr.column row Average_fixture.rating)))
+        in
+        update
+        |> set_nullable_expr
+             Average_fixture.rating
+             (Expr.cast_float_to_int_nullable (Expr.scalar_subquery_nullable scalar)))
+      |> all_rows
+      |> command)
+  in
+  let* _ = run (Statement.command ~dialect:Dialect.sqlite self_update) in
+  let* self_rows = fetch () in
+  assert (List.equal Int.equal (List.map self_rows ~f:fst) [ 1; 2; 3; 4 ]);
+  let check_nullable expression equal expected =
+    let* actual =
+      run (Statement.query_one ~dialect:Dialect.sqlite (Query.select_one expression))
+    in
+    assert (equal actual expected);
+    Lwt.return_unit
+  in
+  let* () =
+    check_nullable
+      (Expr.cast_int_to_int64_nullable (Expr.constant (Db_type.option Db_type.int) None))
+      (Option.equal Int64.equal)
+      None
+  in
+  let* () =
+    check_nullable
+      (Expr.cast_int64_to_float_nullable
+         (Expr.constant (Db_type.option Db_type.int64) (Some 3L)))
+      (Option.equal Float.equal)
+      (Some 3.)
+  in
+  let* () =
+    check_nullable
+      (Expr.cast_float_to_int_nullable
+         (Expr.constant (Db_type.option Db_type.float) None))
+      (Option.equal Int.equal)
+      None
+  in
+  let* () = exec "DROP TABLE average_posts" in
+  exec "DROP TABLE average_blogs"
+;;
+
 let main () =
   let* conn =
     Caqti_lwt_unix.connect (Uri.of_string "sqlite3::memory:") |> caqti_or_fail
@@ -2320,6 +2489,7 @@ let main () =
   let module Connection = (val conn : Caqti_lwt.CONNECTION) in
   Lwt.finalize
     (fun () ->
+       let* () = test_average conn in
        let* () = dynamic_test conn in
        let* () = upsert_test conn in
        run conn)

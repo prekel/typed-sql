@@ -518,6 +518,60 @@ module Expr : sig
   (** Count distinct non-null values of an expression. *)
   val count_distinct : ('a, 'requirements) t -> (int64, 'requirements) t
 
+  (** Average non-null values; empty or entirely null inputs yield [None]. Integer input is cast to floating point before aggregation. *)
+  val avg_int : (int, 'r) t -> (float option, 'r) t
+
+  (** Average non-null values; empty or entirely null inputs yield [None]. Integer input is cast to floating point before aggregation. *)
+  val avg_int_nullable : (int option, 'r) t -> (float option, 'r) t
+
+  (** Average non-null values; empty or entirely null inputs yield [None]. Integer input is cast to floating point before aggregation. *)
+  val avg_int64 : (int64, 'r) t -> (float option, 'r) t
+
+  (** Average non-null values; empty or entirely null inputs yield [None]. Integer input is cast to floating point before aggregation. *)
+  val avg_int64_nullable : (int64 option, 'r) t -> (float option, 'r) t
+
+  (** Average non-null values; empty or entirely null inputs yield [None]. *)
+  val avg_float : (float, 'r) t -> (float option, 'r) t
+
+  (** Average non-null values; empty or entirely null inputs yield [None]. *)
+  val avg_float_nullable : (float option, 'r) t -> (float option, 'r) t
+
+  (** SQL numeric CAST with provider-defined rounding, overflow and precision. *)
+  val cast_int_to_int64 : (int, 'r) t -> (int64, 'r) t
+
+  (** SQL numeric CAST with provider-defined rounding, overflow and precision. Preserves SQL [NULL]. *)
+  val cast_int_to_int64_nullable : (int option, 'r) t -> (int64 option, 'r) t
+
+  (** SQL numeric CAST with provider-defined rounding, overflow and precision. *)
+  val cast_int_to_float : (int, 'r) t -> (float, 'r) t
+
+  (** SQL numeric CAST with provider-defined rounding, overflow and precision. Preserves SQL [NULL]. *)
+  val cast_int_to_float_nullable : (int option, 'r) t -> (float option, 'r) t
+
+  (** SQL numeric CAST with provider-defined rounding, overflow and precision. *)
+  val cast_int64_to_int : (int64, 'r) t -> (int, 'r) t
+
+  (** SQL numeric CAST with provider-defined rounding, overflow and precision. Preserves SQL [NULL]. *)
+  val cast_int64_to_int_nullable : (int64 option, 'r) t -> (int option, 'r) t
+
+  (** SQL numeric CAST with provider-defined rounding, overflow and precision. *)
+  val cast_int64_to_float : (int64, 'r) t -> (float, 'r) t
+
+  (** SQL numeric CAST with provider-defined rounding, overflow and precision. Preserves SQL [NULL]. *)
+  val cast_int64_to_float_nullable : (int64 option, 'r) t -> (float option, 'r) t
+
+  (** SQL numeric CAST with provider-defined rounding, overflow and precision. *)
+  val cast_float_to_int : (float, 'r) t -> (int, 'r) t
+
+  (** SQL numeric CAST with provider-defined rounding, overflow and precision. Preserves SQL [NULL]. *)
+  val cast_float_to_int_nullable : (float option, 'r) t -> (int option, 'r) t
+
+  (** SQL numeric CAST with provider-defined rounding, overflow and precision. *)
+  val cast_float_to_int64 : (float, 'r) t -> (int64, 'r) t
+
+  (** SQL numeric CAST with provider-defined rounding, overflow and precision. Preserves SQL [NULL]. *)
+  val cast_float_to_int64_nullable : (float option, 'r) t -> (int64 option, 'r) t
+
   (** Sum non-null [int] values into [int64]. An empty group, or one containing
       only nulls, returns [None]. *)
   val sum_int : (int, 'r) t -> (int64 option, 'r) t
@@ -764,6 +818,24 @@ module Aggregate_projection : sig
 
   (** Count distinct non-null values of an expression. *)
   val count_distinct : ('a, 'r) Expr.t -> (int64, 'r) t
+
+  (** Average non-null values; empty or entirely null inputs yield [None]. Integer input is cast to floating point before aggregation. *)
+  val avg_int : (int, 'r) Expr.t -> (float option, 'r) t
+
+  (** Average non-null values; empty or entirely null inputs yield [None]. Integer input is cast to floating point before aggregation. *)
+  val avg_int_nullable : (int option, 'r) Expr.t -> (float option, 'r) t
+
+  (** Average non-null values; empty or entirely null inputs yield [None]. Integer input is cast to floating point before aggregation. *)
+  val avg_int64 : (int64, 'r) Expr.t -> (float option, 'r) t
+
+  (** Average non-null values; empty or entirely null inputs yield [None]. Integer input is cast to floating point before aggregation. *)
+  val avg_int64_nullable : (int64 option, 'r) Expr.t -> (float option, 'r) t
+
+  (** Average non-null values; empty or entirely null inputs yield [None]. *)
+  val avg_float : (float, 'r) Expr.t -> (float option, 'r) t
+
+  (** Average non-null values; empty or entirely null inputs yield [None]. *)
+  val avg_float_nullable : (float option, 'r) Expr.t -> (float option, 'r) t
 
   (** Sum [int] values into [int64]; empty or entirely null groups yield [None]. *)
   val sum_int : (int, 'r) Expr.t -> (int64 option, 'r) t
@@ -1778,6 +1850,22 @@ module Update : sig
     -> ('row, 'scope, 'requirements) t
     -> ('row, 'scope, 'requirements) t
 
+  (** Explicitly assign a nullable expression to a non-nullable column.
+      SQL [NULL] is preserved; constraint violations are execution errors
+      returned through the adapter's existing error channel. *)
+  val set_nullable_expr
+    :  ('row, 'a, 'a) Column.t
+    -> ('a option, 'r) Expr.t
+    -> ('row, 'scope, 'r) t
+    -> ('row, 'scope, 'r) t
+
+  (** Expose the existing target reference for correlated expressions without
+      adding a SQL source. Row authorization still requires [where] or [all_rows]. *)
+  val with_target
+    :  f:('row Table_ref.t -> ('row, 'scope, 'r) t -> ('row, 'new_scope, 'r) t)
+    -> ('row, 'scope, 'r) t
+    -> ('row, 'new_scope, 'r) t
+
   (** Assign SQL [DEFAULT] to a column. This excludes SQLite
       because SQLite does not support [UPDATE SET DEFAULT]. *)
   val default
@@ -1963,10 +2051,98 @@ module Postgresql : sig
     -> (string option, 'r) Expr.t
     -> (string option, 'r) Expr.t
 
-  (** PostgreSQL aggregate expressions whose result is exact [numeric]. Each
-      constructor marks its query as PostgreSQL-only. [SUM], [MIN], and [MAX]
+  (** PostgreSQL exact aggregates and numeric conversions. Each constructor
+      marks its query as PostgreSQL-only. [AVG], [SUM], [MIN], and [MAX]
       return [None] for empty or entirely null groups. *)
   module Numeric : sig
+    (** Average non-null values; empty or entirely null inputs yield [None]. *)
+    val avg_int : (int, ([> `Not_sqlite ] as 'r)) Expr.t -> (Decimal.t option, 'r) Expr.t
+
+    (** Average non-null values; empty or entirely null inputs yield [None]. *)
+    val avg_int_nullable
+      :  (int option, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Expr.t
+
+    (** Average non-null values; empty or entirely null inputs yield [None]. *)
+    val avg_int64
+      :  (int64, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Expr.t
+
+    (** Average non-null values; empty or entirely null inputs yield [None]. *)
+    val avg_int64_nullable
+      :  (int64 option, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Expr.t
+
+    (** Average non-null values; empty or entirely null inputs yield [None]. *)
+    val avg_numeric
+      :  (Decimal.t, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Expr.t
+
+    (** Average non-null values; empty or entirely null inputs yield [None]. *)
+    val avg_numeric_nullable
+      :  (Decimal.t option, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Expr.t
+
+    (** SQL numeric CAST with provider-defined rounding, overflow and precision. *)
+    val cast_int_to_numeric
+      :  (int, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (Decimal.t, 'r) Expr.t
+
+    (** SQL numeric CAST with provider-defined rounding, overflow and precision. Preserves SQL [NULL]. *)
+    val cast_int_to_numeric_nullable
+      :  (int option, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Expr.t
+
+    (** SQL numeric CAST with provider-defined rounding, overflow and precision. *)
+    val cast_int64_to_numeric
+      :  (int64, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (Decimal.t, 'r) Expr.t
+
+    (** SQL numeric CAST with provider-defined rounding, overflow and precision. Preserves SQL [NULL]. *)
+    val cast_int64_to_numeric_nullable
+      :  (int64 option, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Expr.t
+
+    (** SQL numeric CAST with provider-defined rounding, overflow and precision. *)
+    val cast_float_to_numeric
+      :  (float, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (Decimal.t, 'r) Expr.t
+
+    (** SQL numeric CAST with provider-defined rounding, overflow and precision. Preserves SQL [NULL]. *)
+    val cast_float_to_numeric_nullable
+      :  (float option, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Expr.t
+
+    (** SQL numeric CAST with provider-defined rounding, overflow and precision. *)
+    val cast_numeric_to_int
+      :  (Decimal.t, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (int, 'r) Expr.t
+
+    (** SQL numeric CAST with provider-defined rounding, overflow and precision. Preserves SQL [NULL]. *)
+    val cast_numeric_to_int_nullable
+      :  (Decimal.t option, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (int option, 'r) Expr.t
+
+    (** SQL numeric CAST with provider-defined rounding, overflow and precision. *)
+    val cast_numeric_to_int64
+      :  (Decimal.t, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (int64, 'r) Expr.t
+
+    (** SQL numeric CAST with provider-defined rounding, overflow and precision. Preserves SQL [NULL]. *)
+    val cast_numeric_to_int64_nullable
+      :  (Decimal.t option, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (int64 option, 'r) Expr.t
+
+    (** SQL numeric CAST with provider-defined rounding, overflow and precision. *)
+    val cast_numeric_to_float
+      :  (Decimal.t, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (float, 'r) Expr.t
+
+    (** SQL numeric CAST with provider-defined rounding, overflow and precision. Preserves SQL [NULL]. *)
+    val cast_numeric_to_float_nullable
+      :  (Decimal.t option, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (float option, 'r) Expr.t
+
     (** Sum [bigint] values without [int64] overflow in the result. *)
     val sum_int64
       :  (int64, ([> `Not_sqlite ] as 'r)) Expr.t
@@ -2012,6 +2188,36 @@ module Postgresql : sig
       the SQLite exclusion and can be combined with
       [Aggregate_projection.Let_syntax]. *)
   module Numeric_projection : sig
+    (** Average non-null values; empty or entirely null inputs yield [None]. *)
+    val avg_int
+      :  (int, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Aggregate_projection.t
+
+    (** Average non-null values; empty or entirely null inputs yield [None]. *)
+    val avg_int_nullable
+      :  (int option, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Aggregate_projection.t
+
+    (** Average non-null values; empty or entirely null inputs yield [None]. *)
+    val avg_int64
+      :  (int64, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Aggregate_projection.t
+
+    (** Average non-null values; empty or entirely null inputs yield [None]. *)
+    val avg_int64_nullable
+      :  (int64 option, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Aggregate_projection.t
+
+    (** Average non-null values; empty or entirely null inputs yield [None]. *)
+    val avg_numeric
+      :  (Decimal.t, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Aggregate_projection.t
+
+    (** Average non-null values; empty or entirely null inputs yield [None]. *)
+    val avg_numeric_nullable
+      :  (Decimal.t option, ([> `Not_sqlite ] as 'r)) Expr.t
+      -> (Decimal.t option, 'r) Aggregate_projection.t
+
     (** Sum [bigint] values into an exact [numeric] result. *)
     val sum_int64
       :  (int64, ([> `Not_sqlite ] as 'r)) Expr.t
@@ -2393,8 +2599,110 @@ module Statement : sig
     (** Building a dynamic statement for the supplied input failed. *)
   [@@deriving sexp_of]
 
+  (** A diagnostic representation of a bound value. [Encoded] is not a SQL
+      literal and must not be substituted into the SQL template. *)
+  type parameter_value =
+    | Null
+    | Encoded of string
+  [@@deriving sexp_of]
+
+  (** One distinct placeholder in SQL order. [dialect_type] is the PostgreSQL
+      SQL type, or the SQLite storage class when a value has been bound. *)
+  type parameter =
+    { position : int
+    ; placeholder : string
+    ; name : string option
+    ; db_type : string
+    ; dialect_type : string option
+    ; value : parameter_value option
+    }
+  [@@deriving sexp_of]
+
+  (** One SQL result column. [name] is present only for a direct column
+      reference; computed expressions have no source column name. SQLite
+      result storage classes depend on runtime values, so [dialect_type] is
+      provided only for PostgreSQL. *)
+  type output_column =
+    { position : int
+    ; name : string option
+    ; db_type : string
+    ; dialect_type : string option
+    }
+  [@@deriving sexp_of]
+
+  (** Cardinality of the statement result. [One] and [Optional] include
+      statements whose cardinality is checked at execution time. *)
+  type row_cardinality =
+    [ `Many
+    | `One
+    | `Optional
+    ]
+  [@@deriving sexp_of]
+
+  type output =
+    | Query_output of
+        { cardinality : row_cardinality
+        ; columns : output_column list
+        }
+    | Command_output
+  [@@deriving sexp_of]
+
+  type statement_kind =
+    [ `Query
+    | `Command
+    ]
+  [@@deriving sexp_of]
+
+  type statement_mode =
+    [ `Static
+    | `Dynamic
+    ]
+  [@@deriving sexp_of]
+
+  (** Structural statement choices. [selected] is [None] inside a branch that
+      was not visited. Unselected dynamic builders and input predicates are
+      never evaluated for diagnostics. *)
+  type statement_tree =
+    | Leaf of
+        { kind : statement_kind
+        ; mode : statement_mode
+        }
+    | Input_choice of
+        { selected : bool option
+        ; if_true : statement_tree
+        ; if_false : statement_tree
+        }
+    | Dialect_choice of
+        { selected : Dialect.t option
+        ; postgresql : statement_tree
+        ; sqlite : statement_tree
+        }
+  [@@deriving sexp_of]
+
+  type inspection =
+    { dialect : Dialect.t
+    ; parameters : parameter list
+    ; output : output
+    ; tree : statement_tree
+    }
+  [@@deriving sexp_of]
+
+  type inspection_error =
+    | Statement_error of sql_error
+    | Codec_error of
+        { position : int
+        ; name : string option
+        ; message : string
+        }
+  [@@deriving sexp_of]
+
   (** Raised by [sql_exn] for SQL rendering failures other than compilation. *)
   exception Sql_error of sql_error
+
+  (** Raised by [inspect_exn] when a mapped parameter codec cannot produce its
+      diagnostic value. Statement errors use [Sql_error], and dynamic
+      compilation failures use [Definition_error]. *)
+  exception Inspection_error of inspection_error
 
   (** Opaque applicative value returned by a parameter declaration. Its SQL
       value becomes available only inside a mapping operation. *)
@@ -2484,7 +2792,8 @@ module Statement : sig
         -> ('input, 'requirements, ('value, 'requirements) Expr.t) Parameters.t
       (** Declare a bind slot using a column's database type. Reusing the
           expression inside the mapping operation reuses this slot and its
-          parameter index. *)
+          parameter index. Its diagnostic name defaults to the column name;
+          [name] overrides it. *)
     ; non_negative_int :
         name:string
         -> get:('input -> int)
@@ -2688,4 +2997,26 @@ module Statement : sig
     -> ?input:'input
     -> ('input, 'output, 'supports) t
     -> string
+
+  (** Return SQL and diagnostics separately, without inserting values into SQL.
+      Diagnostics describe the selected plan's output, shape and statement
+      choices. Without [input], static statements expose parameter types and
+      names only; dynamic statements and input-selected branches require
+      [input]. With [input], getters run once and mapped codecs produce
+      diagnostic values. [params.column] uses the column name unless [name]
+      was supplied. *)
+  val inspect
+    :  dialect:'supports sql_dialect
+    -> ?input:'input
+    -> ('input, 'output, 'supports) t
+    -> (string * inspection, inspection_error) Result.t
+
+  (** Like [inspect], raising [Sql_error] for statement errors,
+      [Definition_error] for dynamic compilation failures, and
+      [Inspection_error] for codec failures. *)
+  val inspect_exn
+    :  dialect:'supports sql_dialect
+    -> ?input:'input
+    -> ('input, 'output, 'supports) t
+    -> string * inspection
 end

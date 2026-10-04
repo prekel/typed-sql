@@ -304,3 +304,131 @@ end
 
 let node expression = expression.node
 let create node db_type = { node; db_type }
+
+let cast source target db_type expression =
+  { node = Ast.Cast (source, target, expression.node); db_type }
+;;
+
+let cast_int_to_int64 expression = cast Ast.Int Ast.Int64 Db_type.int64 expression
+
+let cast_int_to_int64_nullable expression =
+  cast Ast.Int Ast.Int64 (Db_type.option Db_type.int64) expression
+;;
+
+let cast_int_to_float expression = cast Ast.Int Ast.Float Db_type.float expression
+
+let cast_int_to_float_nullable expression =
+  cast Ast.Int Ast.Float (Db_type.option Db_type.float) expression
+;;
+
+let cast_int_to_numeric expression = cast Ast.Int Ast.Numeric Db_type.numeric expression
+
+let cast_int_to_numeric_nullable expression =
+  cast Ast.Int Ast.Numeric (Db_type.option Db_type.numeric) expression
+;;
+
+let cast_int64_to_int expression = cast Ast.Int64 Ast.Int Db_type.int expression
+
+let cast_int64_to_int_nullable expression =
+  cast Ast.Int64 Ast.Int (Db_type.option Db_type.int) expression
+;;
+
+let cast_int64_to_float expression = cast Ast.Int64 Ast.Float Db_type.float expression
+
+let cast_int64_to_float_nullable expression =
+  cast Ast.Int64 Ast.Float (Db_type.option Db_type.float) expression
+;;
+
+let cast_int64_to_numeric expression =
+  cast Ast.Int64 Ast.Numeric Db_type.numeric expression
+;;
+
+let cast_int64_to_numeric_nullable expression =
+  cast Ast.Int64 Ast.Numeric (Db_type.option Db_type.numeric) expression
+;;
+
+let cast_float_to_int expression = cast Ast.Float Ast.Int Db_type.int expression
+
+let cast_float_to_int_nullable expression =
+  cast Ast.Float Ast.Int (Db_type.option Db_type.int) expression
+;;
+
+let cast_float_to_int64 expression = cast Ast.Float Ast.Int64 Db_type.int64 expression
+
+let cast_float_to_int64_nullable expression =
+  cast Ast.Float Ast.Int64 (Db_type.option Db_type.int64) expression
+;;
+
+let cast_float_to_numeric expression =
+  cast Ast.Float Ast.Numeric Db_type.numeric expression
+;;
+
+let cast_float_to_numeric_nullable expression =
+  cast Ast.Float Ast.Numeric (Db_type.option Db_type.numeric) expression
+;;
+
+let cast_numeric_to_int expression = cast Ast.Numeric Ast.Int Db_type.int expression
+
+let cast_numeric_to_int_nullable expression =
+  cast Ast.Numeric Ast.Int (Db_type.option Db_type.int) expression
+;;
+
+let cast_numeric_to_int64 expression = cast Ast.Numeric Ast.Int64 Db_type.int64 expression
+
+let cast_numeric_to_int64_nullable expression =
+  cast Ast.Numeric Ast.Int64 (Db_type.option Db_type.int64) expression
+;;
+
+let cast_numeric_to_float expression = cast Ast.Numeric Ast.Float Db_type.float expression
+
+let cast_numeric_to_float_nullable expression =
+  cast Ast.Numeric Ast.Float (Db_type.option Db_type.float) expression
+;;
+
+let avg_int expression =
+  { node = Ast.Aggregate (Ast.Avg_float (cast_int_to_float expression).node)
+  ; db_type = Db_type.option Db_type.float
+  }
+;;
+
+let avg_int_nullable = avg_int
+
+let avg_int64 expression =
+  { node = Ast.Aggregate (Ast.Avg_float (cast_int64_to_float expression).node)
+  ; db_type = Db_type.option Db_type.float
+  }
+;;
+
+let avg_int64_nullable = avg_int64
+
+let avg_float expression =
+  { node = Ast.Aggregate (Ast.Avg_float expression.node)
+  ; db_type = Db_type.option Db_type.float
+  }
+;;
+
+let avg_float_nullable = avg_float
+
+let avg_int_numeric expression =
+  { node = Ast.Aggregate (Ast.Avg_numeric expression.node)
+  ; db_type = Db_type.option Db_type.numeric
+  }
+;;
+
+let avg_int_numeric_nullable = avg_int_numeric
+
+let avg_int64_numeric expression =
+  { node = Ast.Aggregate (Ast.Avg_numeric expression.node)
+  ; db_type = Db_type.option Db_type.numeric
+  }
+;;
+
+let avg_int64_numeric_nullable = avg_int64_numeric
+
+let avg_numeric expression =
+  { node = Ast.Aggregate (Ast.Avg_numeric expression.node)
+  ; db_type = Db_type.option Db_type.numeric
+  }
+;;
+
+let avg_numeric_nullable = avg_numeric

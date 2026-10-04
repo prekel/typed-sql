@@ -92,6 +92,215 @@ let command kind assignments : A.command =
   }
 ;;
 
+let%test_module "subquery detection for correlated updates" =
+  (module struct
+    let plain = A.Param (A.Value (Db_type.Value (Db_type.int, 1)))
+    let subquery = { select with projection = [ plain ] }
+    let nested = A.Scalar_subquery subquery
+    let order expr : A.order = { expr; direction = A.Asc }
+
+    let expression_cases expected expressions =
+      List.for_all expressions ~f:(fun expression ->
+        Bool.equal (Renderer.expression_has_subquery expression) expected)
+    ;;
+
+    let condition_cases expected conditions =
+      List.for_all conditions ~f:(fun condition ->
+        Bool.equal (Renderer.condition_has_subquery condition) expected)
+    ;;
+
+    let%test "subquery expressions are recognized directly" =
+      expression_cases
+        true
+        [ nested
+        ; A.Multiset_subquery
+            { query = A.Simple subquery; field_types = [ Db_type.Pack Db_type.int ] }
+        ; A.Exists_expr subquery
+        ]
+    ;;
+
+    let%test "plain expressions do not require update aliases" =
+      expression_cases
+        false
+        [ column 0; plain; A.Current_timestamp; A.Aggregate A.Count_all ]
+    ;;
+
+    let%test "unary expressions retain nested subqueries" =
+      expression_cases
+        true
+        [ A.Cast (A.Int, A.Float, nested); A.String_function (A.Lower, nested) ]
+    ;;
+
+    let rejected_assignments expressions =
+      List.for_all expressions ~f:(fun expression ->
+        let assigned = { assignment with value = A.Expression expression } in
+        Result.is_error (Validator.command (command A.Update [ assigned ])))
+    ;;
+
+    let%test "aggregate assignments are rejected before alias allocation" =
+      rejected_assignments
+        [ A.Aggregate (A.Count nested)
+        ; A.Aggregate (A.Count_distinct nested)
+        ; A.Aggregate (A.Sum_int nested)
+        ; A.Aggregate (A.Sum_int64 nested)
+        ; A.Aggregate (A.Sum_float nested)
+        ; A.Aggregate (A.Sum_numeric nested)
+        ; A.Aggregate (A.Avg_float nested)
+        ; A.Aggregate (A.Avg_numeric nested)
+        ; A.Aggregate (A.Min nested)
+        ; A.Aggregate (A.Max nested)
+        ]
+    ;;
+
+    let%test "binary expressions inspect both operands" =
+      expression_cases
+        true
+        [ A.Arithmetic (A.Add, nested, plain)
+        ; A.Arithmetic (A.Add, plain, nested)
+        ; A.Concat (nested, plain)
+        ; A.Concat (plain, nested)
+        ; A.Coalesce (nested, plain)
+        ; A.Coalesce (plain, nested)
+        ]
+    ;;
+
+    let%test "CASE inspects its fallback, conditions, and results" =
+      expression_cases
+        true
+        [ A.Case ([], nested)
+        ; A.Case ([ A.Is_null nested, plain ], plain)
+        ; A.Case ([ A.True, nested ], plain)
+        ]
+    ;;
+
+    let%test "ordered string aggregation cannot be assigned" =
+      let string_agg value delimiter order_by =
+        A.Aggregate (A.String_agg { value; delimiter; order_by })
+      in
+      rejected_assignments
+        [ string_agg nested plain []
+        ; string_agg plain nested []
+        ; string_agg plain plain [ order nested ]
+        ]
+    ;;
+
+    let%test "multiset aggregation cannot be assigned" =
+      let multiset fields filter order_by =
+        A.Aggregate (A.Multiset_agg { fields; field_types = []; filter; order_by })
+      in
+      rejected_assignments
+        [ multiset [ nested ] None []
+        ; multiset [ plain ] (Some (A.Is_null nested)) []
+        ; multiset [ plain ] None [ order nested ]
+        ]
+    ;;
+
+    let%test "subquery predicates are recognized directly" =
+      condition_cases
+        true
+        [ A.Exists subquery
+        ; A.Not_exists subquery
+        ; A.In_subquery (plain, subquery)
+        ; A.Not_in_subquery (plain, subquery)
+        ]
+    ;;
+
+    let%test "plain predicates do not require update aliases" =
+      condition_cases false [ A.True; A.False ]
+    ;;
+
+    let%test "comparison and null predicates inspect operands" =
+      condition_cases
+        true
+        [ A.Compare (A.Eq, nested, plain)
+        ; A.Compare (A.Eq, plain, nested)
+        ; A.Equals_any (nested, plain)
+        ; A.Equals_any (plain, nested)
+        ; A.Is_null nested
+        ; A.Is_not_null nested
+        ]
+    ;;
+
+    let%test "membership and range predicates inspect every operand" =
+      condition_cases
+        true
+        [ A.In (nested, [])
+        ; A.In (plain, [ nested ])
+        ; A.Not_in (nested, [])
+        ; A.Not_in (plain, [ nested ])
+        ; A.Between (nested, plain, plain)
+        ; A.Between (plain, nested, plain)
+        ; A.Between (plain, plain, nested)
+        ]
+    ;;
+
+    let%test "boolean predicates inspect nested conditions" =
+      condition_cases
+        true
+        [ A.And [ A.Is_null nested ]
+        ; A.Or [ A.Is_null nested ]
+        ; A.Not (A.Is_null nested)
+        ]
+    ;;
+
+    let%test "complex expressions without subqueries remain plain" =
+      expression_cases
+        false
+        [ A.Arithmetic (A.Add, plain, plain)
+        ; A.Concat (plain, plain)
+        ; A.Coalesce (plain, plain)
+        ; A.Case ([ A.Is_null plain, plain ], plain)
+        ; A.Aggregate
+            (A.String_agg { value = plain; delimiter = plain; order_by = [ order plain ] })
+        ; A.Aggregate
+            (A.Multiset_agg
+               { fields = [ plain ]
+               ; field_types = [ Db_type.Pack Db_type.int ]
+               ; filter = Some (A.Is_null plain)
+               ; order_by = [ order plain ]
+               })
+        ]
+    ;;
+
+    let%test "complex predicates without subqueries remain plain" =
+      condition_cases
+        false
+        [ A.Compare (A.Eq, plain, plain)
+        ; A.Equals_any (plain, plain)
+        ; A.In (plain, [ plain ])
+        ; A.Not_in (plain, [ plain ])
+        ; A.Between (plain, plain, plain)
+        ; A.And [ A.Is_null plain ]
+        ; A.Or [ A.Is_not_null plain ]
+        ; A.Not (A.Is_null plain)
+        ]
+    ;;
+
+    let%test "update with a subquery in its assignment gets a target alias" =
+      let nested_assignment = { assignment with value = A.Expression nested } in
+      match Renderer.aliases_for_command (command A.Update [ nested_assignment ]) with
+      | [ (0, "t0") ] -> true
+      | _ -> false
+    ;;
+
+    let%test "update with a subquery in its filter gets a target alias" =
+      let update =
+        { (command A.Update [ assignment ]) with where_ = Some (A.Is_null nested) }
+      in
+      match Renderer.aliases_for_command update with
+      | [ (0, "t0") ] -> true
+      | _ -> false
+    ;;
+
+    let%test "update with plain assignments needs no target alias" =
+      let default_assignment = { assignment with value = A.Default } in
+      match Renderer.aliases_for_command (command A.Update [ default_assignment ]) with
+      | [ (0, "") ] -> true
+      | _ -> false
+    ;;
+  end)
+;;
+
 let print_validation = function
   | Ok () -> failwith "expected validation error"
   | Error error -> Stdlib.print_endline (Compile_error.to_string error)
@@ -195,6 +404,37 @@ let%test_module "private query inspection" =
       Int.(Table_ref.source_id reference = Nullable_table_ref.source_id nullable)
     ;;
   end)
+;;
+
+let%test "statement inspection rejects an unregistered parameter slot" =
+  let statement =
+    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
+      Statement.Parameters.map (params.expr Db_type.int ~get:Fn.id) ~f:(fun value ->
+        params.query_one (Query.select_one value)))
+  in
+  match statement with
+  | Statement.Query { cardinality; plans = Statement.Postgresql_plan plan } ->
+    let invalid =
+      Statement.Query
+        { cardinality; plans = Statement.Postgresql_plan { plan with slots = [] } }
+    in
+    (match Statement.inspect ~dialect:Dialect.Selected.postgresql invalid with
+     | Error
+         (Statement.Statement_error
+            (Statement.Invalid_parameter { message = Statement.Unknown_parameter_slot; _ }))
+       -> true
+     | Ok _ | Error _ -> false)
+  | Statement.Query _ | Statement.Dynamic_query _ | Statement.Choose _ -> false
+;;
+
+let%test "source-free output has no field name" =
+  let query = Query.select_one (Expr.constant Db_type.int 1) in
+  match Result_query.ast query with
+  | A.Select select_query ->
+    (match Renderer.select_query_output_field_names select_query with
+     | [ None ] -> true
+     | _ -> false)
+  | A.Returning _ -> false
 ;;
 
 let%test_module "condition normalization" =
@@ -309,6 +549,14 @@ let%test_module "FETCH WITH TIES cardinality proofs" =
 
     let%test "does not prove at most one row" =
       not (Aggregate_scope.at_most_one fetch_with_ties)
+    ;;
+
+    let%test "bind LIMIT does not prove at most one row" =
+      let parameter = A.Value (Db_type.Value (Db_type.int, 1)) in
+      let parameter_limit =
+        { select with limit = Some (A.Limit (A.Parameter parameter)) }
+      in
+      not (Aggregate_scope.at_most_one parameter_limit)
     ;;
 
     let aggregate =
@@ -1529,6 +1777,62 @@ let%test "multiset decoder reports unsupported array and byte fields" =
   | Ok _ -> false
 ;;
 
+let%test "multiset decoder unwraps a named scalar type" =
+  let named =
+    Db_type.Postgresql.named
+      ~schema:(Identifier.of_string_exn "public")
+      ~name:(Identifier.of_string_exn "item_id")
+      Db_type.int
+  in
+  match Projection.decode_db_type ~path:[ 2; 1 ] named (`Int 7) with
+  | Ok value -> Int.equal value 7
+  | Error _ -> false
+;;
+
+let%test "multiset decoder rejects PostgreSQL arrays with field context" =
+  let db_type = Db_type.Postgresql.array Db_type.int in
+  match Projection.decode_db_type ~path:[ 2; 1 ] db_type (`List [ `Int 7 ]) with
+  | Error message ->
+    String.equal
+      message
+      "multiset element 2.1: array fields are unsupported in multiset JSON"
+  | Ok _ -> false
+;;
+
+let%test "multiset decoder rejects PostgreSQL array lists with field context" =
+  let db_type = Db_type.Postgresql.array_list Db_type.int in
+  match Projection.decode_db_type ~path:[ 2; 1 ] db_type (`List [ `Int 7 ]) with
+  | Error message ->
+    String.equal
+      message
+      "multiset element 2.1: array fields are unsupported in multiset JSON"
+  | Ok _ -> false
+;;
+
+let%test "multiset decoder retains a mapped codec error's field context" =
+  let db_type =
+    Db_type.map
+      ~encode:(fun value -> Ok value)
+      ~decode:(fun _ -> Error "rejected by codec")
+      Db_type.text
+  in
+  match Projection.decode_db_type ~path:[ 2; 1 ] db_type (`String "Ada") with
+  | Error message -> String.equal message "multiset element 2.1: rejected by codec"
+  | Ok _ -> false
+;;
+
+let%test "multiset decoder applies a mapped codec to a field" =
+  let db_type =
+    Db_type.map
+      ~encode:(fun value -> Ok value)
+      ~decode:(fun value -> Ok (String.uppercase value))
+      Db_type.text
+  in
+  match Projection.decode_db_type ~path:[ 2; 1 ] db_type (`String "Ada") with
+  | Ok value -> String.equal value "ADA"
+  | Error _ -> false
+;;
+
 let%test_unit "result-only multiset codecs expose their backend view" =
   let db_type : int list Db_type.t =
     Db_type.json_result
@@ -1747,4 +2051,46 @@ let%test_module "renderer reports corrupt AST invariants" =
         ignore (Renderer.command ~dialect:Dialect.Postgresql invalid))
     ;;
   end)
+;;
+
+let%test_module "numeric dialect invariants" =
+  (module struct
+    let value = A.Param (A.Value (Db_type.Value (Db_type.int, 1)))
+
+    let rejects cast =
+      match
+        Lower.result_query
+          ~dialect:Dialect.Sqlite
+          (A.Select (A.Source_free { ctes = []; expression = cast }))
+      with
+      | Error (Compile_error.Unsupported_operation { operation; _ }) ->
+        String.equal operation "numeric cast"
+      | _ -> false
+    ;;
+
+    let%test "SQLite rejects conversion to numeric" =
+      rejects (A.Cast (A.Int, A.Numeric, value))
+    ;;
+
+    let%test "SQLite rejects conversion from numeric" =
+      rejects (A.Cast (A.Numeric, A.Int, value))
+    ;;
+
+    let%test_unit "renderer reports a numeric cast bypassing SQLite lowering" =
+      match
+        Renderer.render_expr
+          ~aliases:[]
+          (A.Cast (A.Int, A.Numeric, value))
+          (Renderer.initial_state_for Dialect.Sqlite)
+      with
+      | exception Invalid_argument message ->
+        assert (String.is_substring message ~substring:"SQLite numeric cast")
+      | _ -> failwith "renderer accepted an unlowered numeric cast"
+    ;;
+  end)
+;;
+
+let%test "numeric source discovery traverses nested aggregates under CAST" =
+  let expression = A.Cast (A.Numeric, A.Float, A.Aggregate (A.Avg_numeric (column 7))) in
+  List.equal Int.equal (Aggregate_scope.expression_sources expression) [ 7 ]
 ;;

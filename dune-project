@@ -4,7 +4,7 @@
 
 (name typed-sql)
 
-(version 0.4.2)
+(version 0.4.3)
 
 (generate_opam_files true)
 
@@ -35,7 +35,6 @@
   (ipaddr :with-test)
   (mdx :with-test)
   (ppx_expect :with-test)
-  (stdio :with-test)
   (bisect_ppx :with-dev-setup)
   (ocamlformat (and (= 0.29.0) :with-dev-setup))
   (ocaml-lsp-server :with-dev-setup))

@@ -1,12 +1,14 @@
 open! Base
 open Typed_sql
 
+let print_s sexp = Stdlib.print_endline (Sexp.to_string_hum sexp)
+
 let%test_module "compile error S-expressions" =
   (module struct
     let column = Identifier.of_string_exn "id"
 
     let print_errors errors =
-      Stdio.print_s (Sexp.List (List.map errors ~f:Compile_error.sexp_of_t))
+      print_s (Sexp.List (List.map errors ~f:Compile_error.sexp_of_t))
     ;;
 
     let%test "malformed command errors retain readable messages" =

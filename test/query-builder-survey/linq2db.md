@@ -80,17 +80,17 @@ var query = from b in db.GetTable<Book>()
 Год передаётся statement как типизированный bind-параметр.
 
 ```ocaml
-let ld01 =
+# let ld01 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ minimum_year = params.expr Db_type.int64 ~get:Fn.id in
-    params.query_many (
-    Query.(
-      from Book.table
-      |> where (fun book -> Book.published_in book >. minimum_year)
-      |> order_by Book.published_in `Desc
-      |> select (fun book ->
-        Projection.pair (Book.id book) (Book.title book)))))
+    params.query_many
+      Query.(
+        from Book.table
+        |> where (fun book -> Book.published_in book >. minimum_year)
+        |> order_by Book.published_in `Desc
+        |> select (fun book -> Projection.pair (Book.id book) (Book.title book))))
+val ld01 : (int64, (int64 * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -131,14 +131,16 @@ var query = from a in db.GetTable<Author>()
 #### OCaml (typed-sql)
 
 ```ocaml
-let ld02 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let ld02 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Author.table
       |> inner_join Book.table ~on:(fun author book ->
         Book.author_id book =. Author.id author)
       |> select (fun (author, book) ->
-        Projection.pair (Author.name author) (Book.title book))))
+        Projection.pair (Author.name author) (Book.title book)))
+val ld02 : (unit, (string * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -181,18 +183,18 @@ var query = from b in db.GetTable<Book>()
 #### OCaml (typed-sql)
 
 ```ocaml
-let ld03 =
+# let ld03 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ minimum_count = params.expr Db_type.int64 ~get:Fn.id in
-    params.query_many (
-    Query.(
-      from Book.table
-      |> group_by Book.author_id
-      |> having (fun _ -> Expr.count_all >=. minimum_count)
-      |> order_by Book.author_id `Asc
-      |> select (fun book ->
-        Projection.pair (Book.author_id book) Expr.count_all))))
+    params.query_many
+      Query.(
+        from Book.table
+        |> group_by Book.author_id
+        |> having (fun _ -> Expr.count_all >=. minimum_count)
+        |> order_by Book.author_id `Asc
+        |> select (fun book -> Projection.pair (Book.author_id book) Expr.count_all)))
+val ld03 : (int64, (int64 * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -248,15 +250,17 @@ let ld04_relation =
     Query.(
       from Book.table
       |> where (fun book -> Book.published_in book >$ 2000L)
-      |> select (fun book ->
-        Projection.pair (Book.id book) (Book.title book)))
+      |> select (fun book -> Projection.pair (Book.id book) (Book.title book)))
+;;
+```
 
-let ld04 =
-  Statement.query_many ~dialect:Dialect.portable (
-    Cte.with_result (Cte.select ld04_relation) ~f:(fun recent_books ->
-      Query.(
-        from_cte recent_books
-        |> select Recent_book.projection)))
+```ocaml
+# let ld04 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Cte.with_result (Cte.select ld04_relation) ~f:(fun recent_books ->
+       Query.(from_cte recent_books |> select Recent_book.projection)))
+val ld04 : (unit, (int64 * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -309,17 +313,16 @@ var query = db.GetTable<Author>()
 Внутренний SELECT захватывает строку автора из внешнего запроса.
 
 ```ocaml
-let ld05 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let ld05 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Author.table
       |> where (fun author ->
         exists
-          (from Book.table
-           |> where (fun book ->
-             Book.author_id book =. Author.id author)))
-      |> select (fun author ->
-        Projection.pair (Author.id author) (Author.name author))))
+          (from Book.table |> where (fun book -> Book.author_id book =. Author.id author)))
+      |> select (fun author -> Projection.pair (Author.id author) (Author.name author)))
+val ld05 : (unit, (int64 * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -366,14 +369,17 @@ var query =
 #### OCaml (typed-sql)
 
 ```ocaml
-let ld06 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let ld06 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Author.table
       |> left_join Book.table ~on:(fun author book ->
         Book.author_id book =. Author.id author)
       |> select (fun (author, book) ->
-        Projection.pair (Author.id author) (Book.nullable_title book))))
+        Projection.pair (Author.id author) (Book.nullable_title book)))
+val ld06 : (unit, (int64 * string option) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -415,15 +421,16 @@ var query = db.GetTable<Author>()
 #### OCaml (typed-sql)
 
 ```ocaml
-let ld07 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let ld07 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Author.table
       |> where (fun author ->
         not_exists
-          (from Book.table
-           |> where (fun book -> Book.author_id book =. Author.id author)))
-      |> select (fun author -> Projection.pair (Author.id author) (Author.name author))))
+          (from Book.table |> where (fun book -> Book.author_id book =. Author.id author)))
+      |> select (fun author -> Projection.pair (Author.id author) (Author.name author)))
+val ld07 : (unit, (int64 * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -484,8 +491,9 @@ var query = ranked.Where(row => row.RowNo <= 2)
 #### OCaml (typed-sql)
 
 ```ocaml
-let ld08 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let ld08 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Book.table
       |> where (fun book ->
@@ -493,19 +501,26 @@ let ld08 =
           Query.(
             from Book.table
             |> where (fun other ->
-              (Book.author_id other =. Book.author_id book)
-              &&. ((Book.published_in other >. Book.published_in book)
-                   ||. ((Book.published_in other =. Book.published_in book)
+              Book.author_id other
+              =. Book.author_id book
+              &&. (Book.published_in other
+                   >. Book.published_in book
+                   ||. (Book.published_in other
+                        =. Book.published_in book
                         &&. (Book.id other >. Book.id book))))
             |> select_scalar (fun _ -> Expr.count_all))
         in
-        Expr.coalesce (Expr.scalar_subquery books_before)
-          ~default:(Expr.constant Db_type.int64 0L) <$ 2L)
+        Expr.coalesce
+          (Expr.scalar_subquery books_before)
+          ~default:(Expr.constant Db_type.int64 0L)
+        <$ 2L)
       |> select (fun book ->
         Projection.map2
           ~f:(fun (id, author_id) title -> id, author_id, title)
           (Projection.pair (Book.id book) (Book.author_id book))
-          (Projection.expr (Book.title book)))))
+          (Projection.expr (Book.title book))))
+val ld08 : (unit, (int64 * int64 * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -564,21 +579,23 @@ var query = before.UnionAll(after);
 #### OCaml (typed-sql)
 
 ```ocaml
-let ld09 =
-  Statement.query_many ~dialect:Dialect.portable (
-    let before =
-      Query.(
-        from Book.table
-        |> where (fun book -> Book.published_in book <=$ 2000L)
-        |> select (fun book -> Projection.pair (Book.id book) (Book.author_id book)))
-    in
-    let after =
-      Query.(
-        from Book.table
-        |> where (fun book -> Book.published_in book >=$ 2000L)
-        |> select (fun book -> Projection.pair (Book.id book) (Book.author_id book)))
-    in
-    Query.union_all before after)
+# let ld09 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (let before =
+       Query.(
+         from Book.table
+         |> where (fun book -> Book.published_in book <=$ 2000L)
+         |> select (fun book -> Projection.pair (Book.id book) (Book.author_id book)))
+     in
+     let after =
+       Query.(
+         from Book.table
+         |> where (fun book -> Book.published_in book >=$ 2000L)
+         |> select (fun book -> Projection.pair (Book.id book) (Book.author_id book)))
+     in
+     Query.union_all before after)
+val ld09 : (unit, (int64 * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -632,21 +649,23 @@ var changed = db.GetTable<Book>()
 #### OCaml (typed-sql)
 
 ```ocaml
-let ld10 =
+# let ld10 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Statement.Parameters.Let_syntax in
     let+ cutoff = params.expr Db_type.int64 ~get:Fn.id in
-    params.command (
-    Update.(
-      table Book.table
-      |> from Book.table ~f:(fun _target source update ->
-        let open Expr.Int64.Infix in
-        update
-        |> set_expr Book.published_in_column
-             (Book.published_in source +. Expr.constant Db_type.int64 1L)
-        |> where (fun book ->
-          (Book.id book =. Book.id source) &&. (Book.published_in book <. cutoff)))
-      |> command)))
+    params.command
+      Update.(
+        table Book.table
+        |> from Book.table ~f:(fun _target source update ->
+          let open Expr.Int64.Infix in
+          update
+          |> set_expr
+               Book.published_in_column
+               (Book.published_in source +. Expr.constant Db_type.int64 1L)
+          |> where (fun book ->
+            Book.id book =. Book.id source &&. (Book.published_in book <. cutoff)))
+        |> command))
+val ld10 : (int64, Affected_rows.t, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)

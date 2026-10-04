@@ -2,11 +2,24 @@
 
 # Сценарии запросов из Beam
 
+## Уведомление о лицензии
+
+The MIT License (MIT)
+
+Copyright (c) 2015-2018 Travis Athougies and the Beam Authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
 **Желаемый таргет: 20 сценариев — 5 обычных и 15 сложных.** Каталог включает пять обычных и пятнадцать сложных сценариев.
 
 Источники — [руководство Beam](https://haskell-beam.github.io/beam/user-guide/queries/) и его [примеры на базе Chinook](https://haskell-beam.github.io/beam/user-guide/queries/relationships/). Запросы и SQL сокращены и адаптированы. В примерах используется схема `Customer`, `Invoice`, `InvoiceLine`, `Album` из Chinook и имя базы `chinookDb` из руководства. Синтаксис соответствует Beam 0.10.
 
-Код примеров Beam распространяется по [MIT](https://haskell-beam.github.io/beam/about/license/). В конце файла приведено уведомление об авторских правах и лицензии. Это независимая подборка; указание источника не означает одобрения со стороны авторов Beam.
+Код примеров Beam распространяется по [MIT](https://haskell-beam.github.io/beam/about/license/). В начале файла приведено уведомление об авторских правах и лицензии. Это независимая подборка; указание источника не означает одобрения со стороны авторов Beam.
 
 OCaml-примеры typed-sql приведены для BE-01–BE-20. BE-09 воспроизводит `RANK` коррелированным `COUNT(*)`; оконный синтаксис в ядро не добавляется.
 
@@ -108,13 +121,16 @@ select $
 #### OCaml (typed-sql)
 
 ```ocaml
-let beam01 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let beam01 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Customer.table
       |> where (fun customer -> Customer.country customer =$ "USA")
       |> select (fun customer ->
-        Projection.pair (Customer.first_name customer) (Customer.last_name customer))))
+        Projection.pair (Customer.first_name customer) (Customer.last_name customer)))
+val beam01 : (unit, (string * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -158,16 +174,19 @@ select $
 #### OCaml (typed-sql)
 
 ```ocaml
-let beam02 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let beam02 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Customer.table
       |> where (fun customer ->
-        (Customer.first_name customer =~$ "Jo%") &&.
-        ((Customer.country customer =$ "USA") ||.
-         (Customer.country customer =$ "Canada")))
+        Customer.first_name customer
+        =~$ "Jo%"
+        &&. (Customer.country customer =$ "USA" ||. (Customer.country customer =$ "Canada")
+            ))
       |> select (fun customer ->
-        Projection.pair (Customer.id customer) (Customer.first_name customer))))
+        Projection.pair (Customer.id customer) (Customer.first_name customer)))
+val beam02 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -216,14 +235,16 @@ select $
 #### OCaml (typed-sql)
 
 ```ocaml
-let beam03 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let beam03 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Album.table
       |> order_by Album.title `Asc
       |> limit 10
       |> offset 20
-      |> select (fun album -> Projection.pair (Album.id album) (Album.title album))))
+      |> select (fun album -> Projection.pair (Album.id album) (Album.title album)))
+val beam03 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -267,14 +288,16 @@ select $ do
 #### OCaml (typed-sql)
 
 ```ocaml
-let beam04 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let beam04 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Invoice.table
       |> inner_join Invoice_line.table ~on:(fun invoice line ->
         Invoice_line.invoice_id line =. Invoice.id invoice)
       |> select (fun (invoice, line) ->
-        Projection.pair (Invoice.id invoice) (Invoice_line.id line))))
+        Projection.pair (Invoice.id invoice) (Invoice_line.id line)))
+val beam04 : (unit, (int * int) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -316,14 +339,17 @@ select $ do
 #### OCaml (typed-sql)
 
 ```ocaml
-let beam05 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let beam05 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Customer.table
       |> left_join Invoice.table ~on:(fun customer invoice ->
         Invoice.customer_id invoice =. Customer.id customer)
       |> select (fun (customer, invoice) ->
-        Projection.pair (Customer.id customer) (Invoice.nullable_id invoice))))
+        Projection.pair (Customer.id customer) (Invoice.nullable_id invoice)))
+val beam05 : (unit, (int * int option) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -367,14 +393,16 @@ select $
 #### OCaml (typed-sql)
 
 ```ocaml
-let beam06 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let beam06 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Invoice.table
       |> group_by Invoice.customer_id
       |> having (fun _ -> Expr.count_all >$ 1L)
       |> select (fun invoice ->
-        Projection.pair (Invoice.customer_id invoice) Expr.count_all)))
+        Projection.pair (Invoice.customer_id invoice) Expr.count_all))
+val beam06 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -425,18 +453,19 @@ select $ do
 Внутренний `EXISTS` использует колонку покупателя из внешнего SELECT.
 
 ```ocaml
-let beam07 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let beam07 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Customer.table
       |> where (fun customer ->
         exists
           Query.(
             from Invoice.table
-            |> where (fun invoice ->
-              Invoice.customer_id invoice =. Customer.id customer)))
+            |> where (fun invoice -> Invoice.customer_id invoice =. Customer.id customer)))
       |> select (fun customer ->
-        Projection.pair (Customer.id customer) (Customer.last_name customer))))
+        Projection.pair (Customer.id customer) (Customer.last_name customer)))
+val beam07 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -500,19 +529,23 @@ let beam08_invoice_counts =
     from Invoice.table
     |> group_by Invoice.customer_id
     |> select_relation (fun invoice ->
-      Derived_table.Fields.pair
-        (Invoice.customer_id invoice)
-        Expr.count_all))
+      Derived_table.Fields.pair (Invoice.customer_id invoice) Expr.count_all))
+;;
+```
 
-let beam08 =
-  Statement.query_many ~dialect:Dialect.portable (
+```ocaml
+# let beam08 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Customer.table
-      |> inner_join_relation beam08_invoice_counts
+      |> inner_join_relation
+           beam08_invoice_counts
            ~on:(fun customer (invoice_customer_id, _invoice_count) ->
              Customer.id customer =. invoice_customer_id)
       |> select (fun (customer, (_invoice_customer_id, invoice_count)) ->
-        Projection.pair (Customer.id customer) invoice_count)))
+        Projection.pair (Customer.id customer) invoice_count))
+val beam08 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -570,24 +603,27 @@ select $
 #### OCaml (typed-sql, коррелированный агрегат)
 
 ```ocaml
-let be09 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let be09 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Invoice.table
       |> select (fun invoice ->
         Projection.pair
           (Invoice.id invoice)
           Expr.Int64.Infix.(
-              Expr.coalesce
-                (Expr.scalar_subquery
-                   (Query.(
-                     from Invoice.table
-                     |> where (fun other ->
-                       (Invoice.customer_id other =. Invoice.customer_id invoice)
-                       &&. (Invoice.total other >. Invoice.total invoice))
-                     |> select_scalar (fun _ -> Expr.count_all))))
-                ~default:(Expr.constant Db_type.int64 0L)
-              +. Expr.constant Db_type.int64 1L))))
+            Expr.coalesce
+              (Expr.scalar_subquery
+                 Query.(
+                   from Invoice.table
+                   |> where (fun other ->
+                     Invoice.customer_id other
+                     =. Invoice.customer_id invoice
+                     &&. (Invoice.total other >. Invoice.total invoice))
+                   |> select_scalar (fun _ -> Expr.count_all)))
+              ~default:(Expr.constant Db_type.int64 0L)
+            +. Expr.constant Db_type.int64 1L)))
+val be09 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -646,8 +682,8 @@ in select $
 ```ocaml
 let beam10_names select_name =
   Query.(
-    from Customer.table
-    |> select (fun customer -> Projection.expr (select_name customer)))
+    from Customer.table |> select (fun customer -> Projection.expr (select_name customer)))
+;;
 
 let beam10_first_names = beam10_names Customer.first_name
 let beam10_last_names = beam10_names Customer.last_name
@@ -657,12 +693,17 @@ let beam10_usa_first_names =
     from Customer.table
     |> where (fun customer -> Customer.country customer =$ "USA")
     |> select (fun customer -> Projection.expr (Customer.first_name customer)))
+;;
+```
 
-let beam10 =
-  Statement.query_many ~dialect:Dialect.portable (
-    Query.except
-      (Query.intersect beam10_first_names beam10_last_names)
-      beam10_usa_first_names)
+```ocaml
+# let beam10 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Query.except
+       (Query.intersect beam10_first_names beam10_last_names)
+       beam10_usa_first_names)
+val beam10 : (unit, string list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -726,17 +767,18 @@ select $ nub_ $ do
 #### OCaml (typed-sql)
 
 ```ocaml
-let beam11 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let beam11 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Customer.table
       |> where (fun customer ->
         exists
           (from Invoice.table
-           |> where (fun invoice ->
-             Invoice.customer_id invoice =. Customer.id customer)))
+           |> where (fun invoice -> Invoice.customer_id invoice =. Customer.id customer)))
       |> distinct
-      |> select (fun customer -> Projection.expr (Customer.country customer))))
+      |> select (fun customer -> Projection.expr (Customer.country customer)))
+val beam11 : (unit, string list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -789,18 +831,21 @@ select $ do
 #### OCaml (typed-sql)
 
 ```ocaml
-let beam12 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let beam12 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Customer.table
       |> where (fun customer ->
-        (Customer.country customer =$ "USA") &&.
-        not_exists
-          (from Invoice.table
-           |> where (fun invoice ->
-             Invoice.customer_id invoice =. Customer.id customer)))
+        Customer.country customer
+        =$ "USA"
+        &&. not_exists
+              (from Invoice.table
+               |> where (fun invoice ->
+                 Invoice.customer_id invoice =. Customer.id customer)))
       |> select (fun customer ->
-        Projection.pair (Customer.id customer) (Customer.first_name customer))))
+        Projection.pair (Customer.id customer) (Customer.first_name customer)))
+val beam12 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -855,8 +900,9 @@ select $
 #### OCaml (typed-sql)
 
 ```ocaml
-let beam13 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let beam13 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Customer.table
       |> inner_join Invoice.table ~on:(fun customer invoice ->
@@ -866,7 +912,9 @@ let beam13 =
         Projection.map2
           ~f:(fun country customer_count -> country, customer_count)
           (Projection.expr (Customer.country customer))
-          (Projection.expr (Expr.count_distinct (Customer.id customer))))))
+          (Projection.expr (Expr.count_distinct (Customer.id customer)))))
+val beam13 : (unit, (string * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -932,17 +980,22 @@ let beam14_counts_relation =
       |> group_by Invoice.customer_id
       |> select (fun invoice ->
         Projection.pair (Invoice.customer_id invoice) Expr.count_all))
+;;
+```
 
-let beam14 =
-  Statement.query_many ~dialect:Dialect.portable (
-    Cte.with_result (Cte.select beam14_counts_relation) ~f:(fun invoice_counts ->
-      Query.(
-        from Customer.table
-        |> inner_join_cte invoice_counts ~on:(fun customer counts ->
-          Customer.id customer =. Invoice_counts.customer_id counts)
-        |> where (fun (_, counts) -> Invoice_counts.count counts >=$ 3L)
-        |> select (fun (customer, counts) ->
-          Projection.pair (Customer.id customer) (Invoice_counts.count counts)))))
+```ocaml
+# let beam14 =
+  Statement.query_many
+    ~dialect:Dialect.portable
+    (Cte.with_result (Cte.select beam14_counts_relation) ~f:(fun invoice_counts ->
+       Query.(
+         from Customer.table
+         |> inner_join_cte invoice_counts ~on:(fun customer counts ->
+           Customer.id customer =. Invoice_counts.customer_id counts)
+         |> where (fun (_, counts) -> Invoice_counts.count counts >=$ 3L)
+         |> select (fun (customer, counts) ->
+           Projection.pair (Customer.id customer) (Invoice_counts.count counts)))))
+val beam14 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1004,20 +1057,26 @@ select $
 `Total` объявлен как `float`; для фикстуры без равных итогов сумма определяет тот же порядок покупателей.
 
 ```ocaml
-let beam15 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let beam15 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Invoice.table
       |> group_by Invoice.customer_id
-      |> order_by (fun invoice ->
-        Expr.coalesce (Expr.sum_float (Invoice.total invoice))
-          ~default:(Expr.constant Db_type.float 0.)) `Desc
+      |> order_by
+           (fun invoice ->
+              Expr.coalesce
+                (Expr.sum_float (Invoice.total invoice))
+                ~default:(Expr.constant Db_type.float 0.))
+           `Desc
       |> limit 3
       |> select (fun invoice ->
         Projection.pair
           (Invoice.customer_id invoice)
-          (Expr.coalesce (Expr.sum_float (Invoice.total invoice))
-             ~default:(Expr.constant Db_type.float 0.)))))
+          (Expr.coalesce
+             (Expr.sum_float (Invoice.total invoice))
+             ~default:(Expr.constant Db_type.float 0.))))
+val beam15 : (unit, (int * float) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1034,22 +1093,8 @@ ORDER BY
   COALESCE(SUM(t0."Total"), $2) DESC
 LIMIT 3
 ```
-
-
-## Уведомление о лицензии
-
-The MIT License (MIT)
-
-Copyright (c) 2015-2018 Travis Athougies and the Beam Authors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-
 ### BE-16. Счётчик счетов с сохранением клиентов без счетов
+
 
 - OCaml-пример: ✓
 - Реализуемость: ✓
@@ -1067,13 +1112,17 @@ GROUP BY Customer.CustomerId
 #### OCaml (typed-sql)
 
 ```ocaml
-let beam16 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let beam16 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Customer.table
-      |> left_join Invoice.table ~on:(fun customer invoice -> Customer.id customer =. Invoice.customer_id invoice)
+      |> left_join Invoice.table ~on:(fun customer invoice ->
+        Customer.id customer =. Invoice.customer_id invoice)
       |> group_by (fun (customer, _invoice) -> Customer.id customer)
-      |> select (fun (customer, invoice) -> Projection.pair (Customer.id customer) (Expr.count (Invoice.nullable_id invoice)))))
+      |> select (fun (customer, invoice) ->
+        Projection.pair (Customer.id customer) (Expr.count (Invoice.nullable_id invoice))))
+val beam16 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1108,19 +1157,24 @@ FROM Customer
 #### OCaml (typed-sql)
 
 ```ocaml
-let beam17 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let beam17 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Customer.table
       |> select (fun customer ->
         let maximum =
           Expr.scalar_subquery_nullable
-            (Query.(
+            Query.(
               from Invoice.table
-              |> where (fun invoice -> Invoice.customer_id invoice =. Customer.id customer)
-              |> select_scalar (fun invoice -> Expr.max Db_type.Orderable.float (Invoice.total invoice))))
+              |> where (fun invoice ->
+                Invoice.customer_id invoice =. Customer.id customer)
+              |> select_scalar (fun invoice ->
+                Expr.max Db_type.Orderable.float (Invoice.total invoice)))
         in
-        Projection.pair (Customer.id customer) maximum)))
+        Projection.pair (Customer.id customer) maximum))
+val beam17 : (unit, (int * float option) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1156,13 +1210,23 @@ WHERE Country = ? AND FirstName LIKE ?
 #### OCaml (typed-sql)
 
 ```ocaml
-let beam18 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let beam18 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Customer.table
-      |> where_opt (Some "USA") ~f:(fun customer country -> Customer.country customer =$ country)
-      |> where_opt (Some "A%") ~f:(fun customer pattern -> Customer.first_name customer =~$ pattern)
-      |> select (fun customer -> Projection.map3 ~f:(fun id name country -> id, name, country) (Projection.expr (Customer.id customer)) (Projection.expr (Customer.first_name customer)) (Projection.expr (Customer.country customer)))))
+      |> where_opt (Some "USA") ~f:(fun customer country ->
+        Customer.country customer =$ country)
+      |> where_opt (Some "A%") ~f:(fun customer pattern ->
+        Customer.first_name customer =~$ pattern)
+      |> select (fun customer ->
+        Projection.map3
+          ~f:(fun id name country -> id, name, country)
+          (Projection.expr (Customer.id customer))
+          (Projection.expr (Customer.first_name customer))
+          (Projection.expr (Customer.country customer))))
+val beam18 : (unit, (int * string * string) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1199,15 +1263,20 @@ GROUP BY Customer.Country HAVING COUNT(*) > 1
 #### OCaml (typed-sql)
 
 ```ocaml
-let beam19 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let beam19 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Query.(
       from Customer.table
-      |> inner_join Invoice.table ~on:(fun customer invoice -> Customer.id customer =. Invoice.customer_id invoice)
+      |> inner_join Invoice.table ~on:(fun customer invoice ->
+        Customer.id customer =. Invoice.customer_id invoice)
       |> group_by (fun (customer, _invoice) -> Customer.country customer)
       |> having (fun _ -> Expr.count_all >$ 1L)
       |> order_by (fun (customer, _invoice) -> Customer.country customer) `Asc
-      |> select (fun (customer, _invoice) -> Projection.pair (Customer.country customer) Expr.count_all)))
+      |> select (fun (customer, _invoice) ->
+        Projection.pair (Customer.country customer) Expr.count_all))
+val beam19 : (unit, (string * int64) list, Dialect.both) Statement.t =
+  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -1244,13 +1313,15 @@ UPDATE Invoice SET Total = 0 WHERE Total < 1 RETURNING InvoiceId
 #### OCaml (typed-sql)
 
 ```ocaml
-let beam20 =
-  Statement.query_many ~dialect:Dialect.portable (
+# let beam20 =
+  Statement.query_many
+    ~dialect:Dialect.portable
     Update.(
       table Invoice.table
       |> set Invoice.total_column 0.0
       |> where (fun invoice -> Invoice.total invoice <$ 1.0)
-      |> returning (fun invoice -> Projection.expr (Invoice.id invoice))))
+      |> returning (fun invoice -> Projection.expr (Invoice.id invoice)))
+val beam20 : (unit, int list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)

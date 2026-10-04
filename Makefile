@@ -35,6 +35,10 @@ test-postgres:
 fmt:
 	opam exec -- dune build --root . @fmt
 
+.PHONY: fmt-mdx
+fmt-mdx:
+	opam exec -- python3 test/query-builder-survey/format_ocaml.py
+
 .PHONY: doc
 doc:
 	opam exec -- dune build --root . @doc
