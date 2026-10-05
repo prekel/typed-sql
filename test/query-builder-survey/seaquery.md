@@ -114,7 +114,11 @@ let (sql, values) = query.build(PostgresQueryBuilder);
     Query.(
       from Users.table
       |> where (fun user -> Users.country user =$ "US")
-      |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))
+      |> select (fun user ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Users.id user)
+        and+ projected_right = Projection.expr (Users.name user) in
+        projected_left, projected_right))
 val seaquery01 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -167,7 +171,11 @@ let (sql, values) = query.build(PostgresQueryBuilder);
     Query.(
       from Users.table
       |> where (fun user -> Users.country user =$ "US" &&. (Users.name user =~$ "A%"))
-      |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))
+      |> select (fun user ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Users.id user)
+        and+ projected_right = Projection.expr (Users.name user) in
+        projected_left, projected_right))
 val seaquery02 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -227,7 +235,11 @@ let (sql, values) = query.build(PostgresQueryBuilder);
       |> order_by Users.id `Asc
       |> limit 10
       |> offset 20
-      |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))
+      |> select (fun user ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Users.id user)
+        and+ projected_right = Projection.expr (Users.name user) in
+        projected_left, projected_right))
 val seaquery03 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -286,7 +298,11 @@ let (sql, values) = query.build(PostgresQueryBuilder);
     Query.(
       from Users.table
       |> inner_join Posts.table ~on:(fun user post -> Users.id user =. Posts.user_id post)
-      |> select (fun (user, post) -> Projection.pair (Users.id user) (Posts.title post)))
+      |> select (fun (user, post) ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Users.id user)
+        and+ projected_right = Projection.expr (Posts.title post) in
+        projected_left, projected_right))
 val seaquery04 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -345,7 +361,10 @@ let (sql, values) = query.build(PostgresQueryBuilder);
       from Users.table
       |> left_join Posts.table ~on:(fun user post -> Users.id user =. Posts.user_id post)
       |> select (fun (user, post) ->
-        Projection.pair (Users.id user) (Posts.nullable_title post)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Users.id user)
+        and+ projected_right = Projection.expr (Posts.nullable_title post) in
+        projected_left, projected_right))
 val seaquery05 :
   (unit, (int64 * string option) list, Dialect.both) Statement.t = <abstr>
 ```
@@ -414,7 +433,10 @@ let (sql, values) = query.build(PostgresQueryBuilder);
       |> having (fun (_user, post) -> Expr.count (Posts.id post) >=$ 2L)
       |> order_by (fun (user, _post) -> Users.id user) `Asc
       |> select (fun (user, post) ->
-        Projection.pair (Users.id user) (Expr.count (Posts.id post))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Users.id user)
+        and+ projected_right = Projection.expr (Expr.count (Posts.id post)) in
+        projected_left, projected_right))
 val seaquery06 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -495,7 +517,11 @@ let (sql, values) = query.build(PostgresQueryBuilder);
             from Posts.table
             |> where (fun post ->
               Posts.user_id post =. Users.id user &&. (Posts.title post =~$ "SQL%"))))
-      |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))
+      |> select (fun user ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Users.id user)
+        and+ projected_right = Projection.expr (Users.name user) in
+        projected_left, projected_right))
 val seaquery07 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -590,7 +616,10 @@ let seaquery08_counts =
         Users.id user =. post_user_id)
       |> where (fun (_user, (_post_user_id, post_count)) -> post_count >=$ 2L)
       |> select (fun (user, (_post_user_id, post_count)) ->
-        Projection.pair (Users.id user) post_count))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Users.id user)
+        and+ projected_right = Projection.expr post_count in
+        projected_left, projected_right))
 val seaquery08 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -660,7 +689,11 @@ let (sql, values) = query.build(PostgresQueryBuilder);
        Query.(
          from Users.table
          |> where (fun user -> Users.country user =$ country)
-         |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))
+         |> select (fun user ->
+           let open Projection.Let_syntax in
+           let+ projected_left = Projection.expr (Users.id user)
+           and+ projected_right = Projection.expr (Users.name user) in
+           projected_left, projected_right))
      in
      Query.union_all (by_country "US") (by_country "CA"))
 val seaquery09 : (unit, (int64 * string) list, Dialect.both) Statement.t =
@@ -739,19 +772,21 @@ let (sql, values) = query.build(PostgresQueryBuilder);
       |> order_by Posts.user_id `Asc
       |> order_by Posts.id `Asc
       |> select (fun post ->
-        Projection.map3
-          ~f:(fun id user_id count -> id, user_id, count)
-          (Projection.expr (Posts.id post))
-          (Projection.expr (Posts.user_id post))
-          (Projection.expr
-             (Expr.coalesce
-                (Expr.scalar_subquery
-                   Query.(
-                     from Posts.table
-                     |> where (fun same_user ->
-                       Posts.user_id same_user =. Posts.user_id post)
-                     |> select_scalar (fun _ -> Expr.count_all)))
-                ~default:(Expr.constant Db_type.int64 0L)))))
+        let open Projection.Let_syntax in
+        let+ id = Projection.expr (Posts.id post)
+        and+ user_id = Projection.expr (Posts.user_id post)
+        and+ count =
+          Projection.expr
+            (Expr.coalesce
+               (Expr.scalar_subquery
+                  Query.(
+                    from Posts.table
+                    |> where (fun same_user ->
+                      Posts.user_id same_user =. Posts.user_id post)
+                    |> select_scalar (fun _ -> Expr.count_all)))
+               ~default:(Expr.constant Db_type.int64 0L))
+        in
+        id, user_id, count))
 val seaquery10 :
   (unit, (int64 * int64 * int64) list, Dialect.both) Statement.t = <abstr>
 ```
@@ -820,7 +855,11 @@ let (sql, values) = query.build(PostgresQueryBuilder);
       |> where (fun user ->
         not_exists
           (from Posts.table |> where (fun post -> Posts.user_id post =. Users.id user)))
-      |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))
+      |> select (fun user ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Users.id user)
+        and+ projected_right = Projection.expr (Users.name user) in
+        projected_left, projected_right))
 val seaquery11 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -896,10 +935,15 @@ let (sql, values) = query.build(PostgresQueryBuilder);
       |> order_by Posts.user_id `Asc
       |> order_by Posts.id `Desc
       |> select (fun post ->
-        Projection.map2
-          ~f:(fun user_id (id, title) -> user_id, id, title)
-          (Projection.expr (Posts.user_id post))
-          (Projection.pair (Posts.id post) (Posts.title post))))
+        let open Projection.Let_syntax in
+        let+ user_id = Projection.expr (Posts.user_id post)
+        and+ id, title =
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Posts.id post)
+          and+ projected_right = Projection.expr (Posts.title post) in
+          projected_left, projected_right
+        in
+        user_id, id, title))
 val seaquery12 :
   (unit, (int64 * int64 * string) list, Dialect.both) Statement.t = <abstr>
 ```
@@ -1025,7 +1069,7 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 ```ocaml
 # let seaquery14 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ id = params.expr Db_type.int64 ~get:(fun (id, _, _) -> id)
     and+ user_id = params.expr Db_type.int64 ~get:(fun (_, user_id, _) -> user_id)
     and+ title = params.expr Db_type.text ~get:(fun (_, _, title) -> title) in
@@ -1095,7 +1139,7 @@ let (sql, values) = query.build(PostgresQueryBuilder);
 ```ocaml
 # let seaquery15 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ title = params.expr Db_type.text ~get:(fun (title, _) -> title)
     and+ user_id = params.expr Db_type.int64 ~get:(fun (_, user_id) -> user_id) in
     params.query_many
@@ -1149,7 +1193,10 @@ GROUP BY users.id
         Users.id user =. Posts.user_id post &&. (Posts.title post =~$ "%guide%"))
       |> group_by (fun (user, _post) -> Users.id user)
       |> select (fun (user, post) ->
-        Projection.pair (Users.id user) (Expr.count (Posts.nullable_id post))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Users.id user)
+        and+ projected_right = Projection.expr (Expr.count (Posts.nullable_id post)) in
+        projected_left, projected_right))
 val seaquery16 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -1191,11 +1238,19 @@ SELECT id, name FROM selected_users ORDER BY id
 let seaquery17_relation =
   Derived_table.create
     ~table:Users.table
-    ~columns:(fun user -> Projection.pair (Users.id user) (Users.name user))
+    ~columns:(fun user ->
+      let open Projection.Let_syntax in
+      let+ projected_left = Projection.expr (Users.id user)
+      and+ projected_right = Projection.expr (Users.name user) in
+      projected_left, projected_right)
     Query.(
       from Users.table
       |> where (fun user -> Users.id user >$ 10L)
-      |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))
+      |> select (fun user ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Users.id user)
+        and+ projected_right = Projection.expr (Users.name user) in
+        projected_left, projected_right))
 ;;
 
 let seaquery17_cte = Cte.select seaquery17_relation
@@ -1209,7 +1264,11 @@ let seaquery17_cte = Cte.select seaquery17_relation
        Query.(
          from_cte selected
          |> order_by Users.id `Asc
-         |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))))
+         |> select (fun user ->
+           let open Projection.Let_syntax in
+           let+ projected_left = Projection.expr (Users.id user)
+           and+ projected_right = Projection.expr (Users.name user) in
+           projected_left, projected_right))))
 val seaquery17 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```

@@ -409,7 +409,7 @@ let%test_module "private query inspection" =
 let%test "statement inspection rejects an unregistered parameter slot" =
   let statement =
     Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-      Statement.Parameters.map (params.expr Db_type.int ~get:Fn.id) ~f:(fun value ->
+      Parameters.map (params.expr Db_type.int ~get:Fn.id) ~f:(fun value ->
         params.query_one (Query.select_one value)))
   in
   match statement with

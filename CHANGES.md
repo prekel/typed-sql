@@ -1,5 +1,20 @@
 # История изменений
 
+## 0.4.5 — 5 октября 2026
+
+### Добавлено
+
+- Операторы `let+`/`and+` в `Projection.Let_syntax` и
+  `Aggregate_projection.Let_syntax` для использования без `ppx_let`.
+
+### Изменено
+
+- Публичный модуль `Statement.Parameters` перенесён на верхний уровень как
+  `Parameters`; вызовы через прежний путь нужно обновить.
+- Примеры DSL используют квалифицированный синтаксис `let%map.Projection`,
+  `let%map.Aggregate_projection` и `let%map.Parameters`; исполняемые MDX-примеры
+  используют `let+`/`and+`.
+
 ## 0.4.4 — 4 октября 2026
 
 ### Добавлено

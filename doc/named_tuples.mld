@@ -33,7 +33,7 @@ let start_at ((~start_at, ..) : input) = start_at
 
 let find_people =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let%map.Statement.Parameters name = params.column Person.name_column ~get:name
+    let%map.Parameters name = params.column Person.name_column ~get:name
     and min_id = params.column Person.id_column ~get:min_id
     and max_id = params.column Person.id_column ~get:max_id
     and email = params.column Person.email_column ~get:email
@@ -74,7 +74,7 @@ partial patterns:
 {[
 let find_people =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let%map.Statement.Parameters name =
+    let%map.Parameters name =
       params.column Person.name_column
         ~get:
           (fun

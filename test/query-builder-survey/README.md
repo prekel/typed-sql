@@ -16,6 +16,14 @@ opam exec -- dune runtest test/query-builder-survey
 Команда проверяет исполняемые блоки и ожидаемый вывод typed-sql.
 Примеры на языках исходных библиотек служат справочным материалом.
 
+В обычном OCaml-коде для составных проекций рекомендуется `ppx_let`:
+`let%map.Projection ... and ... in ...` (для агрегатов —
+`let%map.Aggregate_projection ... and ... in ...`). Такая форма выбирает
+синтаксис через квалификацию модуля и не требует отдельного `let open`.
+Исполняемые блоки MDX не запускаются с `ppx_let`, поэтому в них применяется
+синтаксис `let+`/`and+` из `Projection.Let_syntax` или
+`Aggregate_projection.Let_syntax`.
+
 `make fmt-mdx` форматирует OCaml-код в Markdown-файлах каталога, сохраняя
 снимки вывода. Команда `opam exec -- python3
 test/query-builder-survey/format_ocaml.py --check` проверяет форматирование без

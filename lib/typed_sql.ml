@@ -43,6 +43,7 @@ type 'supports sql_dialect = 'supports Dialect.Selected.t =
   | Sqlite : [> `Sqlite ] sql_dialect
 
 module Statement = Typed_sql_private.Statement
+module Parameters = Typed_sql_private.Parameters
 
 module Postgresql = struct
   module Expr = struct

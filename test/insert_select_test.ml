@@ -41,8 +41,7 @@ let%test_module "INSERT from SELECT" =
 
     let filtered_statement =
       Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-        let open Statement.Parameters.Let_syntax in
-        let%map cutoff = params.expr Db_type.int64 ~get:Fn.id in
+        let%map.Parameters cutoff = params.expr Db_type.int64 ~get:Fn.id in
         let source =
           Query.(
             from Book.table

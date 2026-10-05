@@ -57,7 +57,12 @@ module Book_counts = struct
   let book_count_column = Column.v_exn table "book_count" Db_type.int64
   let author_id row = Expr.column row author_id_column
   let book_count row = Expr.column row book_count_column
-  let projection row = Projection.pair (author_id row) (book_count row)
+
+  let projection row =
+    let open Projection.Let_syntax in
+    let+ projected_left = Projection.expr (author_id row)
+    and+ projected_right = Projection.expr (book_count row) in
+    projected_left, projected_right
 end
 ```
 
@@ -87,13 +92,17 @@ var query = new Query("book")
 ```ocaml
 # let sk01 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ minimum_year = params.expr Db_type.int64 ~get:Fn.id in
     params.query_many
       Query.(
         from Book.table
         |> where (fun book -> Book.published_in book >. minimum_year)
-        |> select (fun book -> Projection.pair (Book.id book) (Book.title book))))
+        |> select (fun book ->
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Book.id book)
+          and+ projected_right = Projection.expr (Book.title book) in
+          projected_left, projected_right)))
 val sk01 : (int64, (int64 * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -266,7 +275,10 @@ var query = new Query("book")
       |> limit 10
       |> offset 20
       |> select (fun (book, author) ->
-        Projection.pair (Author.name author) (Book.title book)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Author.name author)
+        and+ projected_right = Projection.expr (Book.title book) in
+        projected_left, projected_right))
 val sk04 : (unit, (string * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -323,7 +335,7 @@ var query = new Query()
 ```ocaml
 # let sk05 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ minimum_count = params.expr Db_type.int64 ~get:Fn.id in
     params.query_many
       (let book_counts_relation =
@@ -334,7 +346,11 @@ var query = new Query()
              from Book.table
              |> group_by Book.author_id
              |> having (fun _ -> Expr.count_all >=. minimum_count)
-             |> select (fun book -> Projection.pair (Book.author_id book) Expr.count_all))
+             |> select (fun book ->
+               let open Projection.Let_syntax in
+               let+ projected_left = Projection.expr (Book.author_id book)
+               and+ projected_right = Projection.expr Expr.count_all in
+               projected_left, projected_right))
        in
        Cte.with_result (Cte.select book_counts_relation) ~f:(fun book_counts ->
          Query.(from_cte book_counts |> select Book_counts.projection))))
@@ -400,7 +416,11 @@ var query = new Query("author")
       |> where (fun author ->
         not_exists
           (from Book.table |> where (fun book -> Book.author_id book =. Author.id author)))
-      |> select (fun author -> Projection.pair (Author.id author) (Author.name author)))
+      |> select (fun author ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Author.id author)
+        and+ projected_right = Projection.expr (Author.name author) in
+        projected_left, projected_right))
 val sk06 : (unit, (int64 * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -464,13 +484,19 @@ var query = new Query("author")
             |> where (fun book -> Book.author_id book =. Author.id author)
             |> select_scalar (fun _ -> Expr.count_all))
         in
-        Projection.map2
-          ~f:(fun (author_id, name) count -> author_id, name, count)
-          (Projection.pair (Author.id author) (Author.name author))
-          (Projection.expr
-             (Expr.coalesce
-                (Expr.scalar_subquery book_count)
-                ~default:(Expr.constant Db_type.int64 0L)))))
+        let open Projection.Let_syntax in
+        let+ author_id, name =
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Author.id author)
+          and+ projected_right = Projection.expr (Author.name author) in
+          projected_left, projected_right
+        and+ count =
+          Projection.expr
+            (Expr.coalesce
+               (Expr.scalar_subquery book_count)
+               ~default:(Expr.constant Db_type.int64 0L))
+        in
+        author_id, name, count))
 val sk07 : (unit, (int64 * string * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -527,13 +553,21 @@ var query = before.UnionAll(after);
        Query.(
          from Book.table
          |> where (fun book -> Book.published_in book <=$ 2000L)
-         |> select (fun book -> Projection.pair (Book.id book) (Book.author_id book)))
+         |> select (fun book ->
+           let open Projection.Let_syntax in
+           let+ projected_left = Projection.expr (Book.id book)
+           and+ projected_right = Projection.expr (Book.author_id book) in
+           projected_left, projected_right))
      in
      let after =
        Query.(
          from Book.table
          |> where (fun book -> Book.published_in book >=$ 2000L)
-         |> select (fun book -> Projection.pair (Book.id book) (Book.author_id book)))
+         |> select (fun book ->
+           let open Projection.Let_syntax in
+           let+ projected_left = Projection.expr (Book.id book)
+           and+ projected_right = Projection.expr (Book.author_id book) in
+           projected_left, projected_right))
      in
      Query.union_all before after)
 val sk08 : (unit, (int64 * int64) list, Dialect.both) Statement.t = <abstr>
@@ -592,7 +626,7 @@ var query = new Query("book_archive")
 ```ocaml
 # let sk09 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ cutoff = params.expr Db_type.int64 ~get:Fn.id in
     params.command
       (let source =
@@ -600,11 +634,19 @@ var query = new Query("book_archive")
            from Book.table
            |> where (fun book -> Book.published_in book <. cutoff)
            |> select (fun book ->
-             Projection.map2
-               ~f:(fun (id, author_id) (title, published_in) ->
-                 id, author_id, title, published_in)
-               (Projection.pair (Book.id book) (Book.author_id book))
-               (Projection.pair (Book.title book) (Book.published_in book))))
+             let open Projection.Let_syntax in
+             let+ id, author_id =
+               let open Projection.Let_syntax in
+               let+ projected_left = Projection.expr (Book.id book)
+               and+ projected_right = Projection.expr (Book.author_id book) in
+               projected_left, projected_right
+             and+ title, published_in =
+               let open Projection.Let_syntax in
+               let+ projected_left = Projection.expr (Book.title book)
+               and+ projected_right = Projection.expr (Book.published_in book) in
+               projected_left, projected_right
+             in
+             id, author_id, title, published_in))
        in
        let columns =
          Insert.Columns.(
@@ -663,7 +705,7 @@ var query = new Query("book")
 ```ocaml
 # let sk10 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ title = params.expr Db_type.text ~get:(fun (title, _, _) -> title)
     and+ author_id = params.expr Db_type.int64 ~get:(fun (_, author_id, _) -> author_id)
     and+ cutoff = params.expr Db_type.int64 ~get:(fun (_, _, cutoff) -> cutoff) in

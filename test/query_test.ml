@@ -802,8 +802,9 @@ let%test_module "PostgreSQL FETCH FIRST WITH TIES" =
     let%test "parameterized FETCH does not prove exactly one aggregate row" =
       match
         Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-          let open Statement.Parameters.Let_syntax in
-          let%map page_size = params.non_negative_int ~name:"page_size" ~get:Fn.id in
+          let%map.Parameters page_size =
+            params.non_negative_int ~name:"page_size" ~get:Fn.id
+          in
           params.query_one
             Query.(
               from Person.table
@@ -2017,8 +2018,7 @@ let%expect_test "grouped aggregates render in SQLite" =
 let sales_summary_query =
   Query.Aggregate.(from Sale.table |> where (fun sale -> Sale.quantity sale >$ 0))
   |> Query.aggregate_one (fun sale ->
-    let open Aggregate_projection.Let_syntax in
-    let%map count = Aggregate_projection.count_all
+    let%map.Aggregate_projection count = Aggregate_projection.count_all
     and quantity = Aggregate_projection.sum_int (Sale.quantity sale)
     and region = Aggregate_projection.max Db_type.Orderable.text (Sale.region sale) in
     count, quantity, region)

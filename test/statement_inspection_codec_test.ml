@@ -17,9 +17,7 @@ let mapped () =
 
 let statement () =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let%map.Statement.Parameters value =
-      params.expr ~name:"label" (mapped ()) ~get:Fn.id
-    in
+    let%map.Parameters value = params.expr ~name:"label" (mapped ()) ~get:Fn.id in
     params.query_one (Query.select_one value))
 ;;
 

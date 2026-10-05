@@ -134,7 +134,16 @@ let run conn =
        && Int64.equal cleanup_count 0L
        && maintenance_enabled)
   then
-    Lwt.fail_with "mega query did not apply its nested DML effects"
+    Lwt.fail_with
+      (Stdlib.Printf.sprintf
+         "mega query nested DML effects: score=%Ld archive_score=%Ld audit_label=%s audit_score=%Ld outbox_count=%Ld cleanup_count=%Ld maintenance_enabled=%b"
+         score
+         archive_score
+         audit_label
+         audit_score
+         outbox_count
+         cleanup_count
+         maintenance_enabled)
   else
     Lwt.return_unit
 ;;

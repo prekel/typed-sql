@@ -496,8 +496,7 @@ let outbox_rows =
 let aggregate_query =
   Query.Aggregate.(from Event.table |> where (fun event -> Event.id event >$ 0L))
   |> Query.aggregate_one (fun event ->
-    let open Aggregate_projection.Let_syntax in
-    let%map count_all = Aggregate_projection.count_all
+    let%map.Aggregate_projection count_all = Aggregate_projection.count_all
     and count_id = Aggregate_projection.count (Event.id event)
     and count_distinct = Aggregate_projection.count_distinct (Event.person_id event)
     and sum_int = Aggregate_projection.sum_int (Event.value event)
@@ -697,7 +696,7 @@ let cleanup_effect =
       into Cleanup.table
       |> using Expired.table ~f:(fun target source merge ->
         merge
-        |> on (Expr.column target cleanup_id_column =. Expired.id source)
+        |> on (Expr.column target cleanup_id_column =. Expired.person_id source)
         |> when_matched_update
              ~condition:(Expired.id source <. Expr.column target cleanup_id_column)
              Assignments.(empty |> set_expr cleanup_id_column (Expired.id source))
@@ -1242,7 +1241,7 @@ let mega_query
 
 let postgresql_statement =
   Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-    let%map.Statement.Parameters label_parameter =
+    let%map.Parameters label_parameter =
       params.column ~name:"mega_label" Person.name_column ~get:(fun _ -> "mega")
     and ids_parameter =
       params.expr (Db_type.Postgresql.array_list Db_type.int64) ~get:(fun (ids, _, _) ->
@@ -1272,7 +1271,7 @@ let postgresql_statement =
 
 let sqlite_statement =
   Statement.with_parameters ~dialect:Dialect.sqlite (fun ~params ->
-    let%map.Statement.Parameters label_parameter =
+    let%map.Parameters label_parameter =
       params.column ~name:"mega_label" Person.name_column ~get:(fun _ -> "mega")
     and limit_parameter =
       params.non_negative_int ~name:"input_rows_limit" ~get:(fun (_, limit, _) -> limit)
@@ -1330,7 +1329,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
       "c0" AS (
         MERGE INTO "mega_cleanup" AS t0
         USING "mega_expired" AS t1
-        ON (t0."id" = t1."id")
+        ON (t0."id" = t1."person_id")
         WHEN MATCHED AND (t1."id" < t0."id") THEN
           UPDATE SET
             "id" = t1."id"

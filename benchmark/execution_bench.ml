@@ -23,7 +23,7 @@ end
 
 let statement =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    Statement.Parameters.map (params.column Item.id_column ~get:Fn.id) ~f:(fun id ->
+    Parameters.map (params.column Item.id_column ~get:Fn.id) ~f:(fun id ->
       params.expect_one
         Query.(
           from Item.table

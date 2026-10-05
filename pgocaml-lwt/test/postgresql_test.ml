@@ -444,8 +444,7 @@ let test_transactions conn =
    | Ok _ -> failwith "PG'OCaml did not classify unique violation");
   let by_id =
     Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-      let open Statement.Parameters.Let_syntax in
-      let%map id = params.column ~name:"id" Item.id_column ~get:Fn.id in
+      let%map.Parameters id = params.column ~name:"id" Item.id_column ~get:Fn.id in
       params.query_many
         Query.(
           from Item.table
@@ -503,21 +502,18 @@ let test_prepared_cache conn =
   let* cache = Adapter.Prepared_cache.create ~capacity:2 ~conn () |> or_fail in
   let int_statement =
     Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-      Statement.Parameters.map
-        (params.expr ~name:"value" Db_type.int64 ~get:Fn.id)
-        ~f:(fun value -> params.query_one (Query.select_one value)))
+      Parameters.map (params.expr ~name:"value" Db_type.int64 ~get:Fn.id) ~f:(fun value ->
+        params.query_one (Query.select_one value)))
   in
   let text_statement =
     Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-      Statement.Parameters.map
-        (params.expr ~name:"value" Db_type.text ~get:Fn.id)
-        ~f:(fun value -> params.query_one (Query.select_one value)))
+      Parameters.map (params.expr ~name:"value" Db_type.text ~get:Fn.id) ~f:(fun value ->
+        params.query_one (Query.select_one value)))
   in
   let upper_statement =
     Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-      Statement.Parameters.map
-        (params.expr ~name:"value" Db_type.text ~get:Fn.id)
-        ~f:(fun value -> params.query_one (Query.select_one (Expr.upper value))))
+      Parameters.map (params.expr ~name:"value" Db_type.text ~get:Fn.id) ~f:(fun value ->
+        params.query_one (Query.select_one (Expr.upper value))))
   in
   let* first = Adapter.Prepared_cache.run cache int_statement 11L >>= or_fail in
   let* second = Adapter.Prepared_cache.run cache int_statement 12L >>= or_fail in
@@ -578,8 +574,7 @@ let test_prepared_cache conn =
   let cached_id = Column.v_exn cached_items "id" Db_type.int64 in
   let insert =
     Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-      let open Statement.Parameters.Let_syntax in
-      let%map id = params.column ~name:"id" cached_id ~get:Fn.id in
+      let%map.Parameters id = params.column ~name:"id" cached_id ~get:Fn.id in
       params.command Insert.(into cached_items |> set_expr cached_id id |> command))
   in
   let* _ = Adapter.Prepared_cache.run transaction_cache insert 1L >>= or_fail in
@@ -721,8 +716,7 @@ let test_rich_types conn =
 let test_array_lookup conn =
   let list_lookup =
     Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-      let open Statement.Parameters.Let_syntax in
-      let%map ids =
+      let%map.Parameters ids =
         params.expr (Db_type.Postgresql.array_list Db_type.int64) ~get:Fn.id
       in
       params.query_many
@@ -740,8 +734,9 @@ let test_array_lookup conn =
     failwith "PG'OCaml empty array lookup returned rows";
   let nullable_lookup =
     Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-      let open Statement.Parameters.Let_syntax in
-      let%map ids = params.expr (Db_type.Postgresql.array Db_type.int64) ~get:Fn.id in
+      let%map.Parameters ids =
+        params.expr (Db_type.Postgresql.array Db_type.int64) ~get:Fn.id
+      in
       params.query_many
         Query.(
           from Item.table

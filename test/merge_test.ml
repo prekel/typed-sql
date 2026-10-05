@@ -1348,7 +1348,7 @@ let%test_module "MERGE statement parameters" =
 
     let statement =
       Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-        let%map.Statement.Parameters replacement =
+        let%map.Parameters replacement =
           params.expr Db_type.text ~name:"replacement" ~get:(fun input ->
             input.replacement)
         and condition =

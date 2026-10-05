@@ -106,7 +106,10 @@ select $ do
       from Eq_person.table
       |> where (fun person -> Eq_person.name person =$ "John")
       |> select (fun person ->
-        Projection.pair (Eq_person.id person) (Eq_person.name person)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Eq_person.id person)
+        and+ projected_right = Projection.expr (Eq_person.name person) in
+        projected_left, projected_right))
 val esqueleto01 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -162,7 +165,10 @@ select $ do
         >=. Expr.constant (Db_type.option Db_type.int) (Some 18)
         &&. (Eq_person.name person =$ "John" ||. (Eq_person.name person =$ "Jane")))
       |> select (fun person ->
-        Projection.pair (Eq_person.id person) (Eq_person.name person)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Eq_person.id person)
+        and+ projected_right = Projection.expr (Eq_person.name person) in
+        projected_left, projected_right))
 val esqueleto02 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -223,7 +229,10 @@ select $ do
       |> limit 10
       |> offset 20
       |> select (fun person ->
-        Projection.pair (Eq_person.id person) (Eq_person.name person)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Eq_person.id person)
+        and+ projected_right = Projection.expr (Eq_person.name person) in
+        projected_left, projected_right))
 val esqueleto03 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -278,7 +287,10 @@ select $ do
       |> inner_join Eq_blog_post.table ~on:(fun person post ->
         Eq_person.id person =. Eq_blog_post.author_id post)
       |> select (fun (person, post) ->
-        Projection.pair (Eq_person.id person) (Eq_blog_post.id post)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Eq_person.id person)
+        and+ projected_right = Projection.expr (Eq_blog_post.id post) in
+        projected_left, projected_right))
 val esqueleto04 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -331,9 +343,12 @@ select $ do
       |> left_join Eq_blog_post.table ~on:(fun person post ->
         Eq_person.id person =. Eq_blog_post.author_id post)
       |> select (fun (person, post) ->
-        Projection.pair
-          (Eq_person.id person)
-          (Expr.nullable_column post Eq_blog_post.id_column)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Eq_person.id person)
+        and+ projected_right =
+          Projection.expr (Expr.nullable_column post Eq_blog_post.id_column)
+        in
+        projected_left, projected_right))
 val esqueleto05 :
   (unit, (int64 * int64 option) list, Dialect.both) Statement.t = <abstr>
 ```
@@ -386,7 +401,10 @@ select $ do
       |> group_by Eq_blog_post.author_id
       |> having (fun post -> Expr.count (Eq_blog_post.id post) >$ 2L)
       |> select (fun post ->
-        Projection.pair (Eq_blog_post.author_id post) (Expr.count (Eq_blog_post.id post))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Eq_blog_post.author_id post)
+        and+ projected_right = Projection.expr (Expr.count (Eq_blog_post.id post)) in
+        projected_left, projected_right))
 val esqueleto06 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -454,7 +472,10 @@ select $ do
              =. Eq_person.id person
              &&. (Eq_blog_post.title post =~$ "SQL%"))))
       |> select (fun person ->
-        Projection.pair (Eq_person.id person) (Eq_person.name person)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Eq_person.id person)
+        and+ projected_right = Projection.expr (Eq_person.name person) in
+        projected_left, projected_right))
 val esqueleto07 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -526,10 +547,10 @@ select $ do
             |> where (fun post -> Eq_blog_post.author_id post =. Eq_person.id person)
             |> select_scalar (fun _ -> Expr.count_all))
         in
-        Projection.map2
-          ~f:(fun person_id count -> person_id, Option.value count ~default:0L)
-          (Projection.expr (Eq_person.id person))
-          (Projection.expr (Expr.scalar_subquery post_count))))
+        let open Projection.Let_syntax in
+        let+ person_id = Projection.expr (Eq_person.id person)
+        and+ count = Projection.expr (Expr.scalar_subquery post_count) in
+        person_id, Option.value count ~default:0L))
 val esqueleto08 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -596,7 +617,10 @@ select $ do
             |> where (fun post -> Eq_blog_post.title post =~$ "SQL%")
             |> select_scalar Eq_blog_post.author_id))
       |> select (fun person ->
-        Projection.pair (Eq_person.id person) (Eq_person.name person)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Eq_person.id person)
+        and+ projected_right = Projection.expr (Eq_person.name person) in
+        projected_left, projected_right))
 val esqueleto09 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -670,7 +694,11 @@ let esqueleto10_counts =
     Query.(
       from_relation esqueleto10_counts
       |> where (fun (_author_id, post_count) -> post_count >$ 2L)
-      |> select (fun (author_id, post_count) -> Projection.pair author_id post_count))
+      |> select (fun (author_id, post_count) ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr author_id
+        and+ projected_right = Projection.expr post_count in
+        projected_left, projected_right))
 val esqueleto10 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -957,12 +985,18 @@ let esqueleto14_relation =
   Derived_table.create
     ~table:Eq_post_counts.table
     ~columns:(fun counts ->
-      Projection.pair (Eq_post_counts.author_id counts) (Eq_post_counts.post_count counts))
+      let open Projection.Let_syntax in
+      let+ projected_left = Projection.expr (Eq_post_counts.author_id counts)
+      and+ projected_right = Projection.expr (Eq_post_counts.post_count counts) in
+      projected_left, projected_right)
     Query.(
       from Eq_blog_post.table
       |> group_by Eq_blog_post.author_id
       |> select (fun post ->
-        Projection.pair (Eq_blog_post.author_id post) (Expr.count (Eq_blog_post.id post))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Eq_blog_post.author_id post)
+        and+ projected_right = Projection.expr (Expr.count (Eq_blog_post.id post)) in
+        projected_left, projected_right))
 ;;
 
 let esqueleto14_cte = Cte.select esqueleto14_relation
@@ -979,7 +1013,10 @@ let esqueleto14_cte = Cte.select esqueleto14_relation
            Eq_person.id person =. Eq_post_counts.author_id counts)
          |> where (fun (_person, counts) -> Eq_post_counts.post_count counts >$ 2L)
          |> select (fun (person, counts) ->
-           Projection.pair (Eq_person.name person) (Eq_post_counts.post_count counts)))))
+           let open Projection.Let_syntax in
+           let+ projected_left = Projection.expr (Eq_person.name person)
+           and+ projected_right = Projection.expr (Eq_post_counts.post_count counts) in
+           projected_left, projected_right))))
 val esqueleto14 : (unit, (string * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -1052,14 +1089,18 @@ select $ do
       from Eq_person.table
       |> select (fun person ->
         let age = Eq_person.age person in
-        Projection.pair
-          (Eq_person.id person)
-          (Expr.case
-             [ Expr.is_null age, Expr.constant Db_type.text "unknown"
-             ; ( age >=. Expr.constant (Db_type.option Db_type.int) (Some 18)
-               , Expr.constant Db_type.text "adult" )
-             ]
-             ~else_:(Expr.constant Db_type.text "minor"))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Eq_person.id person)
+        and+ projected_right =
+          Projection.expr
+            (Expr.case
+               [ Expr.is_null age, Expr.constant Db_type.text "unknown"
+               ; ( age >=. Expr.constant (Db_type.option Db_type.int) (Some 18)
+                 , Expr.constant Db_type.text "adult" )
+               ]
+               ~else_:(Expr.constant Db_type.text "minor"))
+        in
+        projected_left, projected_right))
 val esqueleto15 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -1185,7 +1226,10 @@ select $ do
             |> limit 1
             |> select_scalar Eq_blog_post.title)
         in
-        Projection.pair (Eq_person.id person) (Expr.scalar_subquery latest_title)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Eq_person.id person)
+        and+ projected_right = Projection.expr (Expr.scalar_subquery latest_title) in
+        projected_left, projected_right))
 val esqueleto17 :
   (unit, (int64 * string option) list, Dialect.both) Statement.t = <abstr>
 ```
@@ -1245,9 +1289,12 @@ let esqueleto18_people =
     |> left_join Eq_blog_post.table ~on:(fun person post ->
       Eq_person.id person =. Eq_blog_post.author_id post)
     |> select (fun (person, post) ->
-      Projection.pair
-        (Expr.to_nullable (Eq_person.name person))
-        (Expr.nullable_column post Eq_blog_post.title_column)))
+      let open Projection.Let_syntax in
+      let+ projected_left = Projection.expr (Expr.to_nullable (Eq_person.name person))
+      and+ projected_right =
+        Projection.expr (Expr.nullable_column post Eq_blog_post.title_column)
+      in
+      projected_left, projected_right))
 ;;
 
 let esqueleto18_orphan_posts =
@@ -1258,9 +1305,13 @@ let esqueleto18_orphan_posts =
     |> where (fun (_post, person) ->
       Expr.is_null (Expr.nullable_column person Eq_person.id_column))
     |> select (fun (post, person) ->
-      Projection.pair
-        (Expr.nullable_column person Eq_person.name_column)
-        (Expr.to_nullable (Eq_blog_post.title post))))
+      let open Projection.Let_syntax in
+      let+ projected_left =
+        Projection.expr (Expr.nullable_column person Eq_person.name_column)
+      and+ projected_right =
+        Projection.expr (Expr.to_nullable (Eq_blog_post.title post))
+      in
+      projected_left, projected_right))
 ;;
 ```
 

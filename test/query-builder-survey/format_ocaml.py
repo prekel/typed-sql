@@ -25,7 +25,11 @@ def format_code(code: str, path: Path, line: int) -> str:
     )
     if result.returncode != 0:
         raise FormatError(f"{path}:{line}: {result.stderr.strip()}")
-    return result.stdout
+    formatted = result.stdout
+    # MDX feeds implementation blocks to the toplevel, where phrase separators
+    # inside structures are rejected. Ocamlformat can add one after a let-op
+    # binding at the end of a structure.
+    return re.sub(r"(?m)^[ \t]*;;[ \t]*\n(?=[ \t]*end\b)", "", formatted)
 
 
 def format_block(block: str, path: Path, line: int) -> str:

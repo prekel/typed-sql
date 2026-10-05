@@ -102,7 +102,12 @@ module Pet_counts = struct
   let pet_count_column = Column.v_exn table "pet_count" Db_type.int64
   let owner_id row = Expr.column row owner_id_column
   let pet_count row = Expr.column row pet_count_column
-  let projection row = Projection.pair (owner_id row) (pet_count row)
+
+  let projection row =
+    let open Projection.Let_syntax in
+    let+ projected_left = Projection.expr (owner_id row)
+    and+ projected_right = Projection.expr (pet_count row) in
+    projected_left, projected_right
 end
 
 module Descendants = struct
@@ -113,7 +118,12 @@ module Descendants = struct
   let manager_id_column = Column.v_exn table "manager_id" (Db_type.option Db_type.int64)
   let id row = Expr.column row id_column
   let manager_id row = Expr.column row manager_id_column
-  let projection row = Projection.pair (id row) (manager_id row)
+
+  let projection row =
+    let open Projection.Let_syntax in
+    let+ projected_left = Projection.expr (id row)
+    and+ projected_right = Projection.expr (manager_id row) in
+    projected_left, projected_right
 end
 ```
 
@@ -145,14 +155,17 @@ await db.selectFrom('person')
 ```ocaml
 # let kysely01 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ min_age = params.expr Db_type.int ~get:Fn.id in
     params.query_many
       Query.(
         from Person.table
         |> where (fun person -> Person.age person >=. min_age)
         |> select (fun person ->
-          Projection.pair (Person.id person) (Person.first_name person))))
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Person.id person)
+          and+ projected_right = Projection.expr (Person.first_name person) in
+          projected_left, projected_right)))
 val kysely01 : (int, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -259,7 +272,7 @@ await db.selectFrom('person')
 ```ocaml
 # let kysely03 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ young = params.expr Db_type.int ~get:(fun (young, _, _) -> young)
     and+ old = params.expr Db_type.int ~get:(fun (_, old, _) -> old)
     and+ surname = params.expr Db_type.text ~get:(fun (_, _, surname) -> surname) in
@@ -328,7 +341,11 @@ await db.selectFrom('person')
     Query.(
       from Person.table
       |> inner_join Pet.table ~on:(fun person pet -> Pet.owner_id pet =. Person.id person)
-      |> select (fun (person, pet) -> Projection.pair (Person.id person) (Pet.name pet)))
+      |> select (fun (person, pet) ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Person.id person)
+        and+ projected_right = Projection.expr (Pet.name pet) in
+        projected_left, projected_right))
 val kysely04 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -379,7 +396,10 @@ await db.selectFrom('person')
       from Person.table
       |> left_join Pet.table ~on:(fun person pet -> Pet.owner_id pet =. Person.id person)
       |> select (fun (person, pet) ->
-        Projection.pair (Person.id person) (Pet.nullable_name pet)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Person.id person)
+        and+ projected_right = Projection.expr (Pet.nullable_name pet) in
+        projected_left, projected_right))
 val kysely05 : (unit, (int64 * string option) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -430,7 +450,7 @@ await db.selectFrom('pet')
 ```ocaml
 # let kysely06 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ minimum_count = params.expr Db_type.int64 ~get:Fn.id in
     params.query_many
       Query.(
@@ -438,10 +458,10 @@ await db.selectFrom('pet')
         |> group_by Pet.owner_id
         |> having (fun pet -> Expr.count (Pet.id pet) >. minimum_count)
         |> select (fun pet ->
-          Projection.map2
-            ~f:(fun owner_id count -> owner_id, count)
-            (Projection.expr (Pet.owner_id pet))
-            (Projection.expr (Expr.count (Pet.id pet))))))
+          let open Projection.Let_syntax in
+          let+ owner_id = Projection.expr (Pet.owner_id pet)
+          and+ count = Projection.expr (Expr.count (Pet.id pet)) in
+          owner_id, count)))
 val kysely06 : (int64, (int64 * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -504,13 +524,15 @@ await db.selectFrom('person')
             |> where (fun pet -> Pet.owner_id pet =. Person.id person)
             |> select_scalar (fun pet -> Expr.count (Pet.id pet)))
         in
-        Projection.map2
-          ~f:(fun id count -> id, count)
-          (Projection.expr (Person.id person))
-          (Projection.expr
-             (Expr.coalesce
-                (Expr.scalar_subquery pet_count)
-                ~default:(Expr.constant Db_type.int64 0L)))))
+        let open Projection.Let_syntax in
+        let+ id = Projection.expr (Person.id person)
+        and+ count =
+          Projection.expr
+            (Expr.coalesce
+               (Expr.scalar_subquery pet_count)
+               ~default:(Expr.constant Db_type.int64 0L))
+        in
+        id, count))
 val kysely07 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -631,7 +653,7 @@ await db.selectFrom(counts)
 ```ocaml
 # let kysely09 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ minimum_count = params.expr Db_type.int64 ~get:Fn.id in
     params.query_many
       (let counts =
@@ -642,7 +664,10 @@ await db.selectFrom(counts)
              from Pet.table
              |> group_by Pet.owner_id
              |> select (fun pet ->
-               Projection.pair (Pet.owner_id pet) (Expr.count (Pet.id pet))))
+               let open Projection.Let_syntax in
+               let+ projected_left = Projection.expr (Pet.owner_id pet)
+               and+ projected_right = Projection.expr (Expr.count (Pet.id pet)) in
+               projected_left, projected_right))
        in
        Query.(
          from_derived counts
@@ -703,25 +728,34 @@ CTE объявляется из typed derived relation и доступен то�
 ```ocaml
 # let kysely10 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ minimum_age = params.expr Db_type.int ~get:Fn.id in
     params.query_many
       (let older_people =
          Derived_table.create
            ~table:Person.table
            ~columns:(fun person ->
-             Projection.pair (Person.id person) (Person.first_name person))
+             let open Projection.Let_syntax in
+             let+ projected_left = Projection.expr (Person.id person)
+             and+ projected_right = Projection.expr (Person.first_name person) in
+             projected_left, projected_right)
            Query.(
              from Person.table
              |> where (fun person -> Person.age person >=. minimum_age)
              |> select (fun person ->
-               Projection.pair (Person.id person) (Person.first_name person)))
+               let open Projection.Let_syntax in
+               let+ projected_left = Projection.expr (Person.id person)
+               and+ projected_right = Projection.expr (Person.first_name person) in
+               projected_left, projected_right))
        in
        Cte.with_result (Cte.select older_people) ~f:(fun older_people ->
          Query.(
            from_cte older_people
            |> select (fun person ->
-             Projection.pair (Person.id person) (Person.first_name person))))))
+             let open Projection.Let_syntax in
+             let+ projected_left = Projection.expr (Person.id person)
+             and+ projected_right = Projection.expr (Person.first_name person) in
+             projected_left, projected_right)))))
 val kysely10 : (int, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -850,13 +884,19 @@ await db.selectFrom('pet')
             |> where (fun other -> Pet.owner_id other =. Pet.owner_id pet)
             |> select_scalar (fun other -> Expr.count (Pet.id other)))
         in
-        Projection.map2
-          ~f:(fun (id, owner_id) count -> id, owner_id, count)
-          (Projection.pair (Pet.id pet) (Pet.owner_id pet))
-          (Projection.expr
-             (Expr.coalesce
-                (Expr.scalar_subquery owner_count)
-                ~default:(Expr.constant Db_type.int64 0L)))))
+        let open Projection.Let_syntax in
+        let+ id, owner_id =
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Pet.id pet)
+          and+ projected_right = Projection.expr (Pet.owner_id pet) in
+          projected_left, projected_right
+        and+ count =
+          Projection.expr
+            (Expr.coalesce
+               (Expr.scalar_subquery owner_count)
+               ~default:(Expr.constant Db_type.int64 0L))
+        in
+        id, owner_id, count))
 val kysely12 : (unit, (int64 * int64 * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -906,7 +946,7 @@ Runtime значения вставки объявлены typed bind-парам
 ```ocaml
 # let kysely13 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ first_name = params.expr Db_type.text ~get:(fun (first_name, _, _) -> first_name)
     and+ last_name = params.expr Db_type.text ~get:(fun (_, last_name, _) -> last_name)
     and+ age = params.expr Db_type.int ~get:(fun (_, _, age) -> age) in
@@ -917,7 +957,10 @@ Runtime значения вставки объявлены typed bind-парам
         |> set_expr Person.last_name_column last_name
         |> set_expr Person.age_column age
         |> returning (fun person ->
-          Projection.pair (Person.id person) (Person.first_name person))))
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Person.id person)
+          and+ projected_right = Projection.expr (Person.first_name person) in
+          projected_left, projected_right)))
 val kysely13 :
   (string * string * int, int64 * string, Dialect.both) Statement.t = <abstr>
 ```
@@ -968,7 +1011,7 @@ await db.updateTable('person')
 ```ocaml
 # let kysely14 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ person_id = params.expr Db_type.int64 ~get:(fun (person_id, _) -> person_id)
     and+ years = params.expr Db_type.int ~get:(fun (_, years) -> years) in
     params.expect_optional
@@ -981,7 +1024,10 @@ await db.updateTable('person')
           |> where (fun target ->
             Person.id target =. person_id &&. (Person.id target =. Person.id source)))
         |> returning (fun person ->
-          Projection.pair (Person.id person) (Person.age person))))
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Person.id person)
+          and+ projected_right = Projection.expr (Person.age person) in
+          projected_left, projected_right)))
 val kysely14 : (int64 * int, (int64 * int) option, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -1028,13 +1074,17 @@ await db.deleteFrom('pet')
 ```ocaml
 # let kysely15 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ pet_id = params.column Pet.id_column ~get:Fn.id in
     params.expect_optional
       Delete.(
         from Pet.table
         |> where (fun pet -> Pet.id pet =. pet_id)
-        |> returning (fun pet -> Projection.pair (Pet.id pet) (Pet.name pet))))
+        |> returning (fun pet ->
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Pet.id pet)
+          and+ projected_right = Projection.expr (Pet.name pet) in
+          projected_left, projected_right)))
 val kysely15 : (int64, (int64 * string) option, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -1078,7 +1128,7 @@ await db.selectFrom('pet')
 ```ocaml
 # let kysely16 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ owner_id = params.column Pet.owner_id_column ~get:Fn.id in
     params.query_many
       Query.(
@@ -1142,10 +1192,15 @@ await db.selectFrom('pet')
       |> order_by Pet.owner_id `Asc
       |> order_by Pet.id `Desc
       |> select (fun pet ->
-        Projection.map2
-          ~f:(fun owner_id (id, name) -> owner_id, id, name)
-          (Projection.expr (Pet.owner_id pet))
-          (Projection.pair (Pet.id pet) (Pet.name pet))))
+        let open Projection.Let_syntax in
+        let+ owner_id = Projection.expr (Pet.owner_id pet)
+        and+ id, name =
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Pet.id pet)
+          and+ projected_right = Projection.expr (Pet.name pet) in
+          projected_left, projected_right
+        in
+        owner_id, id, name))
 val kysely17 :
   (unit, (int64 * int64 * string) list, Dialect.both) Statement.t = <abstr>
 ```
@@ -1215,17 +1270,20 @@ await db.selectFrom('person')
     Query.(
       from Person.table
       |> select (fun person ->
-        Projection.map3
-          ~f:(fun id age_group display_name -> id, age_group, display_name)
-          (Projection.expr (Person.id person))
-          (Projection.expr
-             (Expr.case
-                [ Person.age person >=$ 18, Expr.constant Db_type.text "adult" ]
-                ~else_:(Expr.constant Db_type.text "minor")))
-          (Projection.expr
-             (Expr.coalesce
-                (Person.nullable_last_name person)
-                ~default:(Person.first_name person)))))
+        let open Projection.Let_syntax in
+        let+ id = Projection.expr (Person.id person)
+        and+ age_group =
+          Projection.expr
+            (Expr.case
+               [ Person.age person >=$ 18, Expr.constant Db_type.text "adult" ]
+               ~else_:(Expr.constant Db_type.text "minor"))
+        and+ display_name =
+          Projection.expr
+            (Expr.coalesce
+               (Person.nullable_last_name person)
+               ~default:(Person.first_name person))
+        in
+        id, age_group, display_name))
 val kysely18 :
   (unit, (int64 * string * string) list, Dialect.both) Statement.t = <abstr>
 ```
@@ -1275,7 +1333,10 @@ await db.selectFrom('person')
       from Person.table
       |> where (fun person -> Expr.is_null (Person.nullable_last_name person))
       |> select (fun person ->
-        Projection.pair (Person.id person) (Person.first_name person)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Person.id person)
+        and+ projected_right = Projection.expr (Person.first_name person) in
+        projected_left, projected_right))
 val kysely19 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -1415,7 +1476,10 @@ await db.selectFrom('person')
          |> order_by Person.id `Asc
          |> limit page_size
          |> select (fun person ->
-           Projection.pair (Person.id person) (Person.last_name person))))
+           let open Projection.Let_syntax in
+           let+ projected_left = Projection.expr (Person.id person)
+           and+ projected_right = Projection.expr (Person.last_name person) in
+           projected_left, projected_right)))
 val kysely21 :
   (string * int64 * int, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
@@ -1486,15 +1550,15 @@ type kysely_person_with_optional_age =
 ```ocaml
 # let kysely22_with_age =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    Statement.Parameters.return
+    Parameters.return
       (params.query_many
          Query.(
            from Person.table
            |> select (fun person ->
-             Projection.map2
-               ~f:(fun person_id person_age -> { person_id; person_age })
-               (Projection.expr (Person.id person))
-               (Projection.expr (Expr.to_nullable (Person.age person)))))))
+             let open Projection.Let_syntax in
+             let+ person_id = Projection.expr (Person.id person)
+             and+ person_age = Projection.expr (Expr.to_nullable (Person.age person)) in
+             { person_id; person_age }))))
 val kysely22_with_age :
   ('_weak1, kysely_person_with_optional_age list, Dialect.both) Statement.t =
   <abstr>
@@ -1503,15 +1567,17 @@ val kysely22_with_age :
 ```ocaml
 # let kysely22_without_age =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    Statement.Parameters.return
+    Parameters.return
       (params.query_many
          Query.(
            from Person.table
            |> select (fun person ->
-             Projection.map2
-               ~f:(fun person_id person_age -> { person_id; person_age })
-               (Projection.expr (Person.id person))
-               (Projection.expr (Expr.constant (Db_type.option Db_type.int) None))))))
+             let open Projection.Let_syntax in
+             let+ person_id = Projection.expr (Person.id person)
+             and+ person_age =
+               Projection.expr (Expr.constant (Db_type.option Db_type.int) None)
+             in
+             { person_id; person_age }))))
 val kysely22_without_age :
   ('_weak2, kysely_person_with_optional_age list, Dialect.both) Statement.t =
   <abstr>
@@ -1584,12 +1650,20 @@ await db.selectFrom('person')
       Query.(
         from Person.table
         |> order_by Person.age `Asc
-        |> select (fun person -> Projection.pair (Person.id person) (Person.age person)))
+        |> select (fun person ->
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Person.id person)
+          and+ projected_right = Projection.expr (Person.age person) in
+          projected_left, projected_right))
     | `Id ->
       Query.(
         from Person.table
         |> order_by Person.id `Asc
-        |> select (fun person -> Projection.pair (Person.id person) (Person.age person))))
+        |> select (fun person ->
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Person.id person)
+          and+ projected_right = Projection.expr (Person.age person) in
+          projected_left, projected_right)))
 val kysely23 :
   ([< `Age | `Id ] as '_weak3, (int64 * int) list, Dialect.both) Statement.t =
   <abstr>
@@ -1650,14 +1724,18 @@ await db.selectFrom('person')
 ```ocaml
 # let kysely24 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ person_id = params.column Person.id_column ~get:Fn.id in
     params.query_many
       Query.(
         from Person.table
         |> inner_join Pet.table ~on:(fun _person _pet -> Condition.true_)
         |> where (fun (person, _) -> Person.id person =. person_id)
-        |> select (fun (person, pet) -> Projection.pair (Person.id person) (Pet.name pet))))
+        |> select (fun (person, pet) ->
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Person.id person)
+          and+ projected_right = Projection.expr (Pet.name pet) in
+          projected_left, projected_right)))
 val kysely24 : (int64, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -1712,12 +1790,16 @@ await db.selectFrom('person')
          |> left_join Pet.table ~on:(fun person pet ->
            Pet.owner_id pet =. Person.id person)
          |> select (fun (person, pet) ->
-           Projection.map2
-             ~f:(fun person_id (pet_id, name) -> person_id, pet_id, name)
-             (Projection.expr (Expr.to_nullable (Person.id person)))
-             (Projection.pair
-                (Expr.nullable_column pet Pet.id_column)
-                (Pet.nullable_name pet))))
+           let open Projection.Let_syntax in
+           let+ person_id = Projection.expr (Expr.to_nullable (Person.id person))
+           and+ pet_id, name =
+             let open Projection.Let_syntax in
+             let+ projected_left =
+               Projection.expr (Expr.nullable_column pet Pet.id_column)
+             and+ projected_right = Projection.expr (Pet.nullable_name pet) in
+             projected_left, projected_right
+           in
+           person_id, pet_id, name))
      in
      let pets_without_people =
        Query.(
@@ -1727,12 +1809,16 @@ await db.selectFrom('person')
          |> where (fun (_, person) ->
            Expr.is_null (Expr.nullable_column person Person.id_column))
          |> select (fun (pet, _) ->
-           Projection.map2
-             ~f:(fun person_id (pet_id, name) -> person_id, pet_id, name)
-             (Projection.expr (Expr.constant (Db_type.option Db_type.int64) None))
-             (Projection.pair
-                (Expr.to_nullable (Pet.id pet))
-                (Expr.to_nullable (Pet.name pet)))))
+           let open Projection.Let_syntax in
+           let+ person_id =
+             Projection.expr (Expr.constant (Db_type.option Db_type.int64) None)
+           and+ pet_id, name =
+             let open Projection.Let_syntax in
+             let+ projected_left = Projection.expr (Expr.to_nullable (Pet.id pet))
+             and+ projected_right = Projection.expr (Expr.to_nullable (Pet.name pet)) in
+             projected_left, projected_right
+           in
+           person_id, pet_id, name))
      in
      Query.union_all people_with_pets pets_without_people)
 val kysely25 :
@@ -1824,10 +1910,10 @@ await db.selectFrom('person')
             |> limit_one
             |> select_scalar Pet.name)
         in
-        Projection.map2
-          ~f:(fun id name -> id, name)
-          (Projection.expr (Person.id person))
-          (Projection.expr (Expr.scalar_subquery latest_pet))))
+        let open Projection.Let_syntax in
+        let+ id = Projection.expr (Person.id person)
+        and+ name = Projection.expr (Expr.scalar_subquery latest_pet) in
+        id, name))
 val kysely26 : (unit, (int64 * string option) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -1959,7 +2045,10 @@ await db.selectFrom('pet')
               [ Pet.species pet =$ species, Expr.to_nullable (Pet.id pet) ]
               ~else_:(Expr.constant (Db_type.option Db_type.int64) None))
        in
-       Aggregate_projection.both (count_when "cat") (count_when "dog")))
+       let open Aggregate_projection.Let_syntax in
+       let+ projected_left = count_when "cat"
+       and+ projected_right = count_when "dog" in
+       projected_left, projected_right))
 val kysely28 : (unit, int64 * int64, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -2019,11 +2108,11 @@ await db.selectFrom('person')
       |> group_by (fun (person, _) -> Person.age person)
       |> group_by (fun (_, pet) -> Pet.species pet)
       |> select (fun (person, pet) ->
-        Projection.map3
-          ~f:(fun age species owners -> age, species, owners)
-          (Projection.expr (Person.age person))
-          (Projection.expr (Pet.species pet))
-          (Projection.expr (Expr.count_distinct (Pet.owner_id pet)))))
+        let open Projection.Let_syntax in
+        let+ age = Projection.expr (Person.age person)
+        and+ species = Projection.expr (Pet.species pet)
+        and+ owners = Projection.expr (Expr.count_distinct (Pet.owner_id pet)) in
+        age, species, owners))
 val kysely29 : (unit, (int * string * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -2140,10 +2229,15 @@ await db.with('ranked_pets', (db) =>
            |> where (fun newer ->
              Pet.owner_id newer =. Pet.owner_id pet &&. (Pet.id newer >. Pet.id pet))))
       |> select (fun pet ->
-        Projection.map2
-          ~f:(fun owner_id (id, name) -> owner_id, id, name)
-          (Projection.expr (Pet.owner_id pet))
-          (Projection.pair (Pet.id pet) (Pet.name pet))))
+        let open Projection.Let_syntax in
+        let+ owner_id = Projection.expr (Pet.owner_id pet)
+        and+ id, name =
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Pet.id pet)
+          and+ projected_right = Projection.expr (Pet.name pet) in
+          projected_left, projected_right
+        in
+        owner_id, id, name))
 val kysely31 :
   (unit, (int64 * int64 * string) list, Dialect.both) Statement.t = <abstr>
 ```
@@ -2248,7 +2342,10 @@ await db.withRecursive('descendants', (db) =>
           from Person.table
           |> where (fun person -> Person.id person =$ root_id)
           |> select (fun person ->
-            Projection.pair (Person.id person) (Person.manager_id person)))
+            let open Projection.Let_syntax in
+            let+ projected_left = Projection.expr (Person.id person)
+            and+ projected_right = Projection.expr (Person.manager_id person) in
+            projected_left, projected_right))
     in
     let descendants =
       Cte.recursive ~union:`Union_all ~anchor ~step:(fun descendants ->
@@ -2258,7 +2355,10 @@ await db.withRecursive('descendants', (db) =>
             |> inner_join_cte descendants ~on:(fun person ancestor ->
               Person.manager_id person =. Expr.to_nullable (Descendants.id ancestor))
             |> select (fun (person, _) ->
-              Projection.pair (Person.id person) (Person.manager_id person))))
+              let open Projection.Let_syntax in
+              let+ projected_left = Projection.expr (Person.id person)
+              and+ projected_right = Projection.expr (Person.manager_id person) in
+              projected_left, projected_right)))
     in
     Cte.with_result descendants ~f:(fun descendants ->
       Query.(from_cte descendants |> select (fun person -> Descendants.projection person))))
@@ -2330,18 +2430,25 @@ await db.with(
 ```ocaml
 # let kysely34 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ minimum_age = params.expr Db_type.int ~get:Fn.id in
     params.query_many
       (let older_people =
          Derived_table.create
            ~table:Person.table
-           ~columns:(fun person -> Projection.pair (Person.id person) (Person.age person))
+           ~columns:(fun person ->
+             let open Projection.Let_syntax in
+             let+ projected_left = Projection.expr (Person.id person)
+             and+ projected_right = Projection.expr (Person.age person) in
+             projected_left, projected_right)
            Query.(
              from Person.table
              |> where (fun person -> Person.age person >=. minimum_age)
              |> select (fun person ->
-               Projection.pair (Person.id person) (Person.age person)))
+               let open Projection.Let_syntax in
+               let+ projected_left = Projection.expr (Person.id person)
+               and+ projected_right = Projection.expr (Person.age person) in
+               projected_left, projected_right))
        in
        Cte.with_result
          (Cte.select ~materialization:`Materialized older_people)
@@ -2349,7 +2456,10 @@ await db.with(
            Query.(
              from_cte older_people
              |> select (fun person ->
-               Projection.pair (Person.id person) (Person.age person))))))
+               let open Projection.Let_syntax in
+               let+ projected_left = Projection.expr (Person.id person)
+               and+ projected_right = Projection.expr (Person.age person) in
+               projected_left, projected_right)))))
 val kysely34 : (int, (int64 * int) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -2409,24 +2519,36 @@ await db.with('deleted_pets', (db) =>
 ```ocaml
 # let kysely35 =
   Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ pet_id = params.column Pet.id_column ~get:Fn.id in
     params.query_many
       (let deleted_pets =
          Delete.(
            from Pet.table
            |> where (fun pet -> Pet.id pet =. pet_id)
-           |> returning (fun pet -> Projection.pair (Pet.id pet) (Pet.name pet)))
+           |> returning (fun pet ->
+             let open Projection.Let_syntax in
+             let+ projected_left = Projection.expr (Pet.id pet)
+             and+ projected_right = Projection.expr (Pet.name pet) in
+             projected_left, projected_right))
        in
        Cte.with_result
          (Postgresql.Cte.returning
             ~table:Pet.table
-            ~columns:(fun pet -> Projection.pair (Pet.id pet) (Pet.name pet))
+            ~columns:(fun pet ->
+              let open Projection.Let_syntax in
+              let+ projected_left = Projection.expr (Pet.id pet)
+              and+ projected_right = Projection.expr (Pet.name pet) in
+              projected_left, projected_right)
             deleted_pets)
          ~f:(fun deleted ->
            Query.(
              from_cte deleted
-             |> select (fun pet -> Projection.pair (Pet.id pet) (Pet.name pet))))))
+             |> select (fun pet ->
+               let open Projection.Let_syntax in
+               let+ projected_left = Projection.expr (Pet.id pet)
+               and+ projected_right = Projection.expr (Pet.name pet) in
+               projected_left, projected_right)))))
 val kysely35 : (int64, (int64 * string) list, [ `Postgresql ]) Statement.t =
   <abstr>
 ```
@@ -2681,7 +2803,10 @@ Scalar подзапрос сохраняет `NULL` для человека бе
               Expr.scalar_subquery first_pet)
            `Asc
       |> select (fun person ->
-        Projection.pair (Person.id person) (Person.first_name person)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Person.id person)
+        and+ projected_right = Projection.expr (Person.first_name person) in
+        projected_left, projected_right))
 val kysely39 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -2737,7 +2862,7 @@ await db.selectFrom('person')
 ```ocaml
 # let kysely40 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ uppercase_name = params.expr Db_type.text ~get:Stdlib.String.uppercase_ascii in
     params.query_many
       Query.(
@@ -2851,18 +2976,18 @@ type kysely_pet_summary =
           Projection.multiset_agg
             ~filter:(Expr.is_not_null (Expr.nullable_column pet Pet.id_column))
             ~order_by:[ Aggregate_order.asc (Expr.nullable_column pet Pet.id_column) ]
-            (Projection.pair
-               (Expr.nullable_column pet Pet.id_column)
-               (Pet.nullable_name pet))
+            (let open Projection.Let_syntax in
+             let+ projected_left =
+               Projection.expr (Expr.nullable_column pet Pet.id_column)
+             and+ projected_right = Projection.expr (Pet.nullable_name pet) in
+             projected_left, projected_right)
         in
-        Projection.map2
-          ~f:(fun person_id rows ->
-            ( person_id
-            , List.map rows ~f:(fun (pet_id, pet_name) ->
-                { pet_id = Option.value_exn pet_id; pet_name = Option.value_exn pet_name })
-            ))
-          (Projection.expr (Person.id person))
-          pets))
+        let open Projection.Let_syntax in
+        let+ person_id = Projection.expr (Person.id person)
+        and+ rows = pets in
+        ( person_id
+        , List.map rows ~f:(fun (pet_id, pet_name) ->
+            { pet_id = Option.value_exn pet_id; pet_name = Option.value_exn pet_name }) )))
 val kysely42 :
   (unit, (int64 * kysely_pet_summary list) list, Dialect.both) Statement.t =
   <abstr>
@@ -2999,7 +3124,7 @@ let kysely44_columns =
 ```ocaml
 # let kysely44 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ min_age = params.expr Db_type.int ~get:Fn.id in
     params.command
       (let source =
@@ -3007,13 +3132,19 @@ let kysely44_columns =
            from Person_import.table
            |> where (fun person -> Person_import.age person >=. min_age)
            |> select (fun person ->
-             Projection.both
-               (Projection.pair
-                  (Person_import.id person)
-                  (Person_import.first_name person))
-               (Projection.pair
-                  (Person_import.last_name person)
-                  (Person_import.age person))))
+             let open Projection.Let_syntax in
+             let+ projected_left =
+               let open Projection.Let_syntax in
+               let+ projected_left = Projection.expr (Person_import.id person)
+               and+ projected_right = Projection.expr (Person_import.first_name person) in
+               projected_left, projected_right
+             and+ projected_right =
+               let open Projection.Let_syntax in
+               let+ projected_left = Projection.expr (Person_import.last_name person)
+               and+ projected_right = Projection.expr (Person_import.age person) in
+               projected_left, projected_right
+             in
+             projected_left, projected_right))
        in
        Insert.(into Person.table |> from_select kysely44_columns source |> command)))
 val kysely44 : (int, Affected_rows.t, Dialect.both) Statement.t = <abstr>
@@ -3066,7 +3197,7 @@ await db.insertInto('pet')
 ```ocaml
 # let kysely45 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ name = params.expr Db_type.text ~get:(fun (name, _, _) -> name)
     and+ species = params.expr Db_type.text ~get:(fun (_, species, _) -> species)
     and+ owner_id = params.expr Db_type.int64 ~get:(fun (_, _, owner_id) -> owner_id) in
@@ -3135,7 +3266,7 @@ await db.insertInto('pet')
 ```ocaml
 # let kysely46 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ name = params.expr Db_type.text ~get:(fun (name, _, _) -> name)
     and+ species = params.expr Db_type.text ~get:(fun (_, species, _) -> species)
     and+ owner_id = params.expr Db_type.int64 ~get:(fun (_, _, owner_id) -> owner_id) in
@@ -3151,10 +3282,15 @@ await db.insertInto('pet')
           |> Conflict_update.set_expr Pet.species_column (Pet.species excluded)
           |> Conflict_update.where (Pet.species excluded <>. Pet.species existing))
         |> returning (fun pet ->
-          Projection.map2
-            ~f:(fun id (name, species) -> id, name, species)
-            (Projection.expr (Pet.id pet))
-            (Projection.pair (Pet.name pet) (Pet.species pet)))))
+          let open Projection.Let_syntax in
+          let+ id = Projection.expr (Pet.id pet)
+          and+ name, species =
+            let open Projection.Let_syntax in
+            let+ projected_left = Projection.expr (Pet.name pet)
+            and+ projected_right = Projection.expr (Pet.species pet) in
+            projected_left, projected_right
+          in
+          id, name, species)))
 val kysely46 :
   (string * string * int64, (int64 * string * string) option, Dialect.both)
   Statement.t = <abstr>
@@ -3220,7 +3356,7 @@ await db.selectFrom('pet')
 ```ocaml
 # let kysely47 =
   Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ owner_id = params.column Pet.owner_id_column ~get:Fn.id in
     params.query_optional
       Query.(
@@ -3229,7 +3365,11 @@ await db.selectFrom('pet')
         |> order_by Pet.id `Asc
         |> limit_one
         |> Postgresql.Query.for_update ~skip_locked:true
-        |> select (fun pet -> Projection.pair (Pet.id pet) (Pet.name pet))))
+        |> select (fun pet ->
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Pet.id pet)
+          and+ projected_right = Projection.expr (Pet.name pet) in
+          projected_left, projected_right)))
 val kysely47 : (int64, (int64 * string) option, [ `Postgresql ]) Statement.t =
   <abstr>
 ```
@@ -3283,7 +3423,7 @@ await db.updateTable('person')
 ```ocaml
 # let kysely48 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ person_id = params.expr Db_type.int64 ~get:Fn.id in
     params.command
       Update.(
@@ -3345,7 +3485,7 @@ await db.deleteFrom('pet')
 ```ocaml
 # let kysely49 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ maximum_age = params.expr Db_type.int ~get:Fn.id in
     params.query_many
       Delete.(
@@ -3356,7 +3496,11 @@ await db.deleteFrom('pet')
               from Person.table
               |> where (fun person ->
                 Person.id person =. Pet.owner_id pet &&. (Person.age person <. maximum_age))))
-        |> returning (fun pet -> Projection.pair (Pet.id pet) (Pet.name pet))))
+        |> returning (fun pet ->
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Pet.id pet)
+          and+ projected_right = Projection.expr (Pet.name pet) in
+          projected_left, projected_right)))
 val kysely49 : (int, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```

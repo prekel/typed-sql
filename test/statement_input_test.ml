@@ -64,8 +64,7 @@ let%test "a statement without runtime parameters has unit input" =
 
 let applicative_pagination_statement =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
-    let%map page_size = params.non_negative_int ~name:"page_size" ~get:fst
+    let%map.Parameters page_size = params.non_negative_int ~name:"page_size" ~get:fst
     and page_offset = params.non_negative_int ~name:"page_offset" ~get:snd in
     params.query_many
       Query.(
@@ -92,10 +91,9 @@ let%expect_test "applicative parameter declarations compile before the query" =
     |}]
 ;;
 
-let let_plus_statement =
+let mapped_parameters_statement =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
-    let+ expected_name = params.expr Db_type.text ~get:Fn.id in
+    let%map.Parameters expected_name = params.expr Db_type.text ~get:Fn.id in
     params.query_many
       Query.(
         from Person.table
@@ -103,27 +101,33 @@ let let_plus_statement =
         |> select Person.projection))
 ;;
 
-let%test "Parameters.Let_syntax supports let+" =
+let%test "Parameters supports qualified PPX syntax" =
   String.is_substring
-    (Statement.sql_exn ~dialect:Postgresql ~input:"Ada" let_plus_statement)
+    (Statement.sql_exn ~dialect:Postgresql ~input:"Ada" mapped_parameters_statement)
     ~substring:"= $1"
 ;;
 
-let nested_let_plus_statement =
+let mapped_multiple_parameters_statement =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax.Let_syntax in
-    let+ expected_name = params.expr Db_type.text ~get:Fn.id in
+    let%map.Parameters expected_name = params.expr Db_type.text ~get:fst
+    and minimum_age = params.expr Db_type.int ~get:snd in
     params.query_many
       Query.(
         from Person.table
-        |> where (fun person -> Person.name person =. expected_name)
+        |> where (fun person ->
+          Person.name person =. expected_name &&. (Person.age person >=. minimum_age))
         |> select Person.projection))
 ;;
 
-let%test "Parameters.Let_syntax.Let_syntax supports let+" =
-  String.is_substring
-    (Statement.sql_exn ~dialect:Postgresql ~input:"Ada" nested_let_plus_statement)
-    ~substring:"= $1"
+let%test_unit "Parameters supports parallel qualified PPX bindings" =
+  let sql =
+    Statement.sql_exn
+      ~dialect:Postgresql
+      ~input:("Ada", 18)
+      mapped_multiple_parameters_statement
+  in
+  assert (String.is_substring sql ~substring:"= $1");
+  assert (String.is_substring sql ~substring:">= $2")
 ;;
 
 let%test "shared parameter compilation raises definition errors" =
@@ -142,8 +146,7 @@ type tuple_input = string * int64 * int64 * string * int * int * string * bool *
 
 let tuple_statement =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
-    let%map name =
+    let%map.Parameters name =
       params.column Person.name_column ~get:(fun (name, _, _, _, _, _, _, _, _, _) ->
         name)
     and min_id =
@@ -205,8 +208,8 @@ type record_input =
 
 let record_statement =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
-    let%map name = params.column Person.name_column ~get:(fun input -> input.name)
+    let%map.Parameters name =
+      params.column Person.name_column ~get:(fun input -> input.name)
     and min_id = params.column Person.id_column ~get:(fun input -> input.min_id)
     and max_id = params.column Person.id_column ~get:(fun input -> input.max_id)
     and email = params.column Person.email_column ~get:(fun input -> input.email)
@@ -252,8 +255,7 @@ module Find_people = struct
 
   let statement =
     Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-      let open Statement.Parameters.Let_syntax in
-      let%map name = params.column Person.name_column ~get:Input.name
+      let%map.Parameters name = params.column Person.name_column ~get:Input.name
       and min_id = params.column Person.id_column ~get:Input.min_id
       and max_id = params.column Person.id_column ~get:Input.max_id
       and email = params.column Person.email_column ~get:Input.email
@@ -320,8 +322,7 @@ let%test_unit "tuple, manual record, and PPX record describe the same statement"
 
 let fetch_with_ties_statement =
   Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
-    let%map page_size = params.non_negative_int ~name:"page_size" ~get:snd
+    let%map.Parameters page_size = params.non_negative_int ~name:"page_size" ~get:snd
     and start_at = params.non_negative_int ~name:"start_at" ~get:fst in
     params.query_many
       Query.(
@@ -381,7 +382,7 @@ let%test_module "choosing among ten static sort variants" =
       Statement.with_parameters
         ~dialect:Dialect.portable
         (fun ~(params : (sort, Dialect.portable, Dialect.both) Statement.parameters) ->
-           Statement.Parameters.return
+           Parameters.return
              (params.query_many
                 Query.(
                   from Person.table
@@ -476,7 +477,7 @@ let%test_module "page and total statements share runtime filters" =
 
     let page_statement, total_statement =
       Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-        let%map.Statement.Parameters min_age =
+        let%map.Parameters min_age =
           params.column Person.age_column ~get:(fun input -> input.min_age)
         and city = params.column Person.city_column ~get:(fun input -> input.city)
         and maximum_rows =
@@ -602,8 +603,7 @@ let%test_module "PostgreSQL pagination shares input and binds NULL" =
 
     let page_statement, total_statement =
       Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-        let open Statement.Parameters.Let_syntax in
-        let%map min_age =
+        let%map.Parameters min_age =
           params.column Person.age_column ~get:(fun input -> input.inner.min_age)
         and city = params.column Person.city_column ~get:(fun input -> input.inner.city)
         and maximum_rows =
@@ -688,8 +688,9 @@ let%test_module "PostgreSQL pagination shares input and binds NULL" =
 
     let optional_offset_statement =
       Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-        let open Statement.Parameters.Let_syntax in
-        let%map start_at = params.non_negative_int_opt ~name:"offset" ~get:Fn.id in
+        let%map.Parameters start_at =
+          params.non_negative_int_opt ~name:"offset" ~get:Fn.id
+        in
         params.query_many
           Query.(
             from Person.table
@@ -742,8 +743,7 @@ let%test_module "nested input fields bind directly through parameters" =
 
     let statement =
       Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-        let open Statement.Parameters.Let_syntax in
-        let%map minimum_age =
+        let%map.Parameters minimum_age =
           params.expr Db_type.int ~get:(fun input -> input.inner.minimum_age)
         and name = params.column Person.name_column ~get:(fun input -> input.inner.name)
         and city = params.optional_expr Db_type.text ~get:(fun input -> input.inner.city)
@@ -812,8 +812,7 @@ let%test "a slot from another statement returns an explicit binding error" =
   let captured = ref None in
   let _first =
     Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-      let open Statement.Parameters.Let_syntax in
-      let%map expression = params.expr Db_type.int64 ~get:Fn.id in
+      let%map.Parameters expression = params.expr Db_type.int64 ~get:Fn.id in
       captured := Some expression;
       params.query_many
         Query.(from Person.table |> select (fun _ -> Projection.expr expression)))
@@ -821,7 +820,7 @@ let%test "a slot from another statement returns an explicit binding error" =
   let expression = Option.value_exn !captured in
   let second =
     Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-      Statement.Parameters.return
+      Parameters.return
         (params.query_many
            Query.(from Person.table |> select (fun _ -> Projection.expr expression))))
   in
@@ -850,8 +849,7 @@ let%test_module "PostgreSQL array lookup uses one stable bind slot" =
   (module struct
     let statement =
       Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-        let open Statement.Parameters.Let_syntax in
-        let%map ids =
+        let%map.Parameters ids =
           params.expr (Db_type.Postgresql.array_list Db_type.int64) ~get:Fn.id
         in
         params.query_many
@@ -888,8 +886,7 @@ let%test_module "optional PostgreSQL array lookup keeps one bind slot" =
 
     let statement =
       Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-        let open Statement.Parameters.Let_syntax in
-        let%map ids =
+        let%map.Parameters ids =
           params.optional_expr
             (Db_type.Postgresql.array_list Db_type.int64)
             ~get:(fun input -> input.ids)

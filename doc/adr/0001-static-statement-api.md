@@ -40,7 +40,7 @@ type input =
 
 let find_people =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let%map.Statement.Parameters name =
+    let%map.Parameters name =
       params.column Person.name_column ~get:(fun input -> input.name)
     and min_id =
       params.column Person.id_column ~get:(fun input -> input.min_id)

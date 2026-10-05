@@ -22,8 +22,7 @@ let sqlite_getter_calls = ref 0
 
 let postgresql_statement =
   Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
-    let%map id =
+    let%map.Parameters id =
       params.column Person.id_column ~get:(fun input ->
         Int.incr postgresql_getter_calls;
         input.id)
@@ -37,8 +36,7 @@ let postgresql_statement =
 
 let sqlite_statement =
   Statement.with_parameters ~dialect:Dialect.sqlite (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
-    let%map name =
+    let%map.Parameters name =
       params.column Person.name_column ~get:(fun input ->
         Int.incr sqlite_getter_calls;
         input.name)

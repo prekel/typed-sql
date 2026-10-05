@@ -32,8 +32,7 @@ let statement_builds = ref 0
 let filtered_statement =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     Int.incr statement_builds;
-    let open Statement.Parameters.Let_syntax in
-    let%map minimum_id =
+    let%map.Parameters minimum_id =
       params.column ~name:"minimum_id" id ~get:(fun input -> input.minimum_id)
     and maximum_rows =
       params.non_negative_int ~name:"maximum_rows" ~get:(fun input -> input.maximum_rows)
@@ -60,9 +59,7 @@ let all_statement =
     ~dialect:Dialect.portable
     (fun
         ~(params : (statement_input, Dialect.portable, Dialect.both) Statement.parameters)
-       ->
-       Statement.Parameters.return
-         (params.query_many Query.(from items |> select projection)))
+       -> Parameters.return (params.query_many Query.(from items |> select projection)))
 ;;
 
 let selected_statement =
@@ -74,8 +71,7 @@ let selected_statement =
 
 let insert_statement =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
-    let%map inserted_id = params.expr ~name:"id" Db_type.int ~get:Fn.id in
+    let%map.Parameters inserted_id = params.expr ~name:"id" Db_type.int ~get:Fn.id in
     params.command Insert.(into items |> set_expr id inserted_id |> command))
 ;;
 
@@ -83,8 +79,7 @@ type optional_filter_input = { name : string option }
 
 let optional_filter_statement =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
-    let%map expected_name =
+    let%map.Parameters expected_name =
       params.optional_expr Db_type.text ~name:"name" ~get:(fun input -> input.name)
     in
     params.query_many
@@ -200,8 +195,7 @@ let%test_unit "rendering static SQL without input does not evaluate getters" =
   let getter_calls = ref 0 in
   let statement =
     Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-      let open Statement.Parameters.Let_syntax in
-      let%map runtime_id =
+      let%map.Parameters runtime_id =
         params.column id ~get:(fun input ->
           Int.incr getter_calls;
           input)
@@ -316,8 +310,7 @@ let%test_unit "select_exactly_one validates its aggregate proof" =
         |> select_exactly_one (fun _ -> Projection.expr Expr.count_all)));
   check_not_proven (fun () ->
     Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-      let open Statement.Parameters.Let_syntax in
-      let%map maximum = params.non_negative_int ~name:"limit" ~get:Fn.id in
+      let%map.Parameters maximum = params.non_negative_int ~name:"limit" ~get:Fn.id in
       params.query_one
         Query.(
           from items

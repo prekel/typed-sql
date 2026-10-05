@@ -37,7 +37,7 @@ let%test_module "statement parameter inspection" =
 
     let statement =
       Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-        let%map.Statement.Parameters id =
+        let%map.Parameters id =
           params.column Person.id_column ~get:(fun input -> input.id)
         and name =
           params.optional_expr Db_type.text ~name:"name_filter" ~get:(fun input ->
@@ -156,7 +156,7 @@ let%test_module "statement parameter inspection" =
     let%test "an explicit name overrides the column name" =
       let statement =
         Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-          let%map.Statement.Parameters id =
+          let%map.Parameters id =
             params.column Person.id_column ~name:"person_id" ~get:Fn.id
           in
           params.query_many
@@ -174,7 +174,7 @@ let%test_module "statement parameter inspection" =
     let%test "command parameters are inspected" =
       let command =
         Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-          let%map.Statement.Parameters id = params.column Person.id_column ~get:Fn.id in
+          let%map.Parameters id = params.column Person.id_column ~get:Fn.id in
           params.command
             Delete.(
               from Person.table |> where (fun person -> Person.id person =. id) |> command))
@@ -257,7 +257,7 @@ let%test_module "statement parameter inspection" =
     let%test "invalid pagination input retains its name" =
       let statement =
         Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-          let%map.Statement.Parameters maximum_rows =
+          let%map.Parameters maximum_rows =
             params.non_negative_int ~name:"maximum_rows" ~get:Fn.id
           in
           params.query_many
@@ -280,7 +280,7 @@ let%test_module "statement parameter inspection" =
       let calls = ref 0 in
       let statement =
         Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-          let%map.Statement.Parameters id =
+          let%map.Parameters id =
             params.column Person.id_column ~get:(fun input ->
               Int.incr calls;
               input)
@@ -683,7 +683,7 @@ let%test_module "command choice tree inspection" =
 let%test "PostgreSQL array uses one encoded placeholder" =
   let statement =
     Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-      let%map.Statement.Parameters ids =
+      let%map.Parameters ids =
         params.expr ~name:"ids" (Db_type.Postgresql.array_list Db_type.int64) ~get:Fn.id
       in
       params.query_one (Query.select_one ids))

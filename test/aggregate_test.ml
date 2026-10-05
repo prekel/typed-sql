@@ -49,37 +49,59 @@ let compile_sql dialect query =
 let portable_aggregate =
   Query.Aggregate.(from Item.table)
   |> Query.aggregate_one (fun item ->
-    Aggregate_projection.both
-      (Aggregate_projection.sum_int (Item.int_value item))
-      (Aggregate_projection.both
-         (Aggregate_projection.sum_float (Item.float_value item))
-         (Aggregate_projection.both
-            (Aggregate_projection.min Db_type.Orderable.text (Item.text_value item))
-            (Aggregate_projection.max Db_type.Orderable.text (Item.text_value item)))))
+    let%map.Aggregate_projection int_sum =
+      Aggregate_projection.sum_int (Item.int_value item)
+    and float_sum = Aggregate_projection.sum_float (Item.float_value item)
+    and text_min = Aggregate_projection.min Db_type.Orderable.text (Item.text_value item)
+    and text_max =
+      Aggregate_projection.max Db_type.Orderable.text (Item.text_value item)
+    in
+    int_sum, (float_sum, (text_min, text_max)))
+;;
+
+let nested_aggregate_syntax =
+  Query.Aggregate.(from Item.table)
+  |> Query.aggregate_one (fun item ->
+    let%map.Aggregate_projection int_sum =
+      Aggregate_projection.sum_int (Item.int_value item)
+    and row_count = Aggregate_projection.count_all in
+    int_sum, row_count)
+;;
+
+let%test_unit "aggregate projection PPX syntax compiles at both syntax levels" =
+  let outer_sql = compile_sql Dialect.sqlite portable_aggregate in
+  assert (String.is_substring outer_sql ~substring:"SUM(");
+  let nested_sql = compile_sql Dialect.sqlite nested_aggregate_syntax in
+  assert (String.is_substring nested_sql ~substring:"COUNT(*)")
 ;;
 
 let numeric_aggregate =
   Query.Aggregate.(from Item.table)
   |> Query.aggregate_one (fun item ->
-    Aggregate_projection.both
-      (Postgresql.Numeric_projection.sum_int64 (Item.int64_value item))
-      (Aggregate_projection.both
-         (Postgresql.Numeric_projection.sum_numeric (Item.numeric_value item))
-         (Aggregate_projection.both
-            (Postgresql.Numeric_projection.min_numeric (Item.numeric_value item))
-            (Aggregate_projection.both
-               (Postgresql.Numeric_projection.max_numeric (Item.numeric_value item))
-               (Aggregate_projection.both
-                  (Postgresql.Numeric_projection.sum_int64_nullable
-                     (Item.nullable_int64_value item))
-                  (Aggregate_projection.both
-                     (Postgresql.Numeric_projection.sum_numeric_nullable
-                        (Item.nullable_numeric_value item))
-                     (Aggregate_projection.both
-                        (Postgresql.Numeric_projection.min_numeric_nullable
-                           (Item.nullable_numeric_value item))
-                        (Postgresql.Numeric_projection.max_numeric_nullable
-                           (Item.nullable_numeric_value item)))))))))
+    let%map.Aggregate_projection sum_int64 =
+      Postgresql.Numeric_projection.sum_int64 (Item.int64_value item)
+    and sum_numeric = Postgresql.Numeric_projection.sum_numeric (Item.numeric_value item)
+    and min_numeric = Postgresql.Numeric_projection.min_numeric (Item.numeric_value item)
+    and max_numeric = Postgresql.Numeric_projection.max_numeric (Item.numeric_value item)
+    and sum_int64_nullable =
+      Postgresql.Numeric_projection.sum_int64_nullable (Item.nullable_int64_value item)
+    and sum_numeric_nullable =
+      Postgresql.Numeric_projection.sum_numeric_nullable
+        (Item.nullable_numeric_value item)
+    and min_numeric_nullable =
+      Postgresql.Numeric_projection.min_numeric_nullable
+        (Item.nullable_numeric_value item)
+    and max_numeric_nullable =
+      Postgresql.Numeric_projection.max_numeric_nullable
+        (Item.nullable_numeric_value item)
+    in
+    ( sum_int64
+    , ( sum_numeric
+      , ( min_numeric
+        , ( max_numeric
+          , ( sum_int64_nullable
+            , (sum_numeric_nullable, (min_numeric_nullable, max_numeric_nullable)) ) ) )
+      ) ))
 ;;
 
 let sqlite_numeric_aggregate =
@@ -289,8 +311,7 @@ let%test_unit "SQLite rejects numeric values and runtime parameter slots" =
    | Ok _ -> failwith "numeric value unexpectedly compiled for SQLite");
   match
     Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-      let open Statement.Parameters.Let_syntax in
-      let%map amount = params.expr Db_type.numeric ~get:Fn.id in
+      let%map.Parameters amount = params.expr Db_type.numeric ~get:Fn.id in
       params.query_many
         Query.(from Item.table |> select (fun _ -> Projection.expr amount)))
   with

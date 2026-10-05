@@ -109,14 +109,17 @@ Bind-значение сравнивается с выражением коло�
 ```ocaml
 # let sqlalchemy01 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ name = params.expr Db_type.text ~get:Fn.id in
     params.query_many
       Query.(
         from User_account.table
         |> where (fun user -> User_account.name user =. name)
         |> select (fun user ->
-          Projection.pair (User_account.id user) (User_account.name user))))
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (User_account.id user)
+          and+ projected_right = Projection.expr (User_account.name user) in
+          projected_left, projected_right)))
 val sqlalchemy01 : (string, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -165,7 +168,7 @@ OR-группа явно вложена в AND-группу.
 ```ocaml
 # let sqlalchemy02 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ name1 = params.expr Db_type.text ~get:(fun (name1, _, _) -> name1)
     and+ name2 = params.expr Db_type.text ~get:(fun (_, name2, _) -> name2)
     and+ min_id = params.expr Db_type.int64 ~get:(fun (_, _, min_id) -> min_id) in
@@ -234,7 +237,7 @@ stmt = (
 ```ocaml
 # let sqlalchemy03 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ page_size =
       params.non_negative_int ~name:"page_size" ~get:(fun (page_size, _) -> page_size)
     and+ page_offset =
@@ -248,7 +251,10 @@ stmt = (
         |> Query.limit_param page_size
         |> Query.offset_param page_offset
         |> select (fun user ->
-          Projection.pair (User_account.id user) (User_account.name user))))
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (User_account.id user)
+          and+ projected_right = Projection.expr (User_account.name user) in
+          projected_left, projected_right)))
 val sqlalchemy03 :
   (int * int, (int64 * string) list, Dialect.both) Statement.t = <abstr>
 ```
@@ -305,7 +311,10 @@ Foreign key связь задаётся явно через callback JOIN.
       |> inner_join Address.table ~on:(fun user address ->
         User_account.id user =. Address.user_id address)
       |> select (fun (user, address) ->
-        Projection.pair (User_account.name user) (Address.email address)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (User_account.name user)
+        and+ projected_right = Projection.expr (Address.email address) in
+        projected_left, projected_right))
 val sqlalchemy04 : (unit, (string * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -357,7 +366,10 @@ Nullable-колонка адреса в результате имеет тип s
       |> left_join Address.table ~on:(fun user address ->
         User_account.id user =. Address.user_id address)
       |> select (fun (user, address) ->
-        Projection.pair (User_account.name user) (Address.nullable_email address)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (User_account.name user)
+        and+ projected_right = Projection.expr (Address.nullable_email address) in
+        projected_left, projected_right))
 val sqlalchemy05 :
   (unit, (string * string option) list, Dialect.both) Statement.t = <abstr>
 ```
@@ -412,7 +424,11 @@ stmt = (
       |> group_by Address.user_id
       |> having (fun _ -> Expr.count_all >=$ 2L)
       |> order_by Address.user_id `Asc
-      |> select (fun address -> Projection.pair (Address.user_id address) Expr.count_all))
+      |> select (fun address ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Address.user_id address)
+        and+ projected_right = Projection.expr Expr.count_all in
+        projected_left, projected_right))
 val sqlalchemy06 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -468,13 +484,17 @@ stmt = select(user_table.c.id, address_count.label("address_count"))
     Query.(
       from User_account.table
       |> select (fun user ->
-        Projection.pair
-          (User_account.id user)
-          (Expr.scalar_subquery
-             Query.(
-               from Address.table
-               |> where (fun address -> Address.user_id address =. User_account.id user)
-               |> select_scalar (fun _ -> Expr.count_all)))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (User_account.id user)
+        and+ projected_right =
+          Projection.expr
+            (Expr.scalar_subquery
+               Query.(
+                 from Address.table
+                 |> where (fun address -> Address.user_id address =. User_account.id user)
+                 |> select_scalar (fun _ -> Expr.count_all)))
+        in
+        projected_left, projected_right))
 val sqlalchemy07 :
   (unit, (int64 * int64 option) list, Dialect.both) Statement.t = <abstr>
 ```
@@ -536,7 +556,10 @@ stmt = select(user_table.c.id).where(has_address)
             from Address.table
             |> where (fun address -> Address.user_id address =. User_account.id user)))
       |> select (fun user ->
-        Projection.pair (User_account.id user) (User_account.name user)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (User_account.id user)
+        and+ projected_right = Projection.expr (User_account.name user) in
+        projected_left, projected_right))
 val sqlalchemy08 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -610,7 +633,11 @@ let sqlalchemy09_counts =
     Query.(
       from_relation sqlalchemy09_counts
       |> order_by fst `Asc
-      |> select (fun (user_id, count) -> Projection.pair user_id count))
+      |> select (fun (user_id, count) ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr user_id
+        and+ projected_right = Projection.expr count in
+        projected_left, projected_right))
 val sqlalchemy09 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -670,12 +697,19 @@ stmt = select(counts.c.user_id, counts.c.address_count)
 let sqlalchemy10_relation =
   Derived_table.create
     ~table:User_account.table
-    ~columns:(fun user -> Projection.pair (User_account.id user) (User_account.name user))
+    ~columns:(fun user ->
+      let open Projection.Let_syntax in
+      let+ projected_left = Projection.expr (User_account.id user)
+      and+ projected_right = Projection.expr (User_account.name user) in
+      projected_left, projected_right)
     Query.(
       from User_account.table
       |> where (fun user -> User_account.id user >$ 10L)
       |> select (fun user ->
-        Projection.pair (User_account.id user) (User_account.name user)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (User_account.id user)
+        and+ projected_right = Projection.expr (User_account.name user) in
+        projected_left, projected_right))
 ;;
 
 let sqlalchemy10_cte = Cte.select sqlalchemy10_relation
@@ -690,7 +724,10 @@ let sqlalchemy10_cte = Cte.select sqlalchemy10_relation
          from_cte selected
          |> order_by User_account.id `Asc
          |> select (fun user ->
-           Projection.pair (User_account.id user) (User_account.name user)))))
+           let open Projection.Let_syntax in
+           let+ projected_left = Projection.expr (User_account.id user)
+           and+ projected_right = Projection.expr (User_account.name user) in
+           projected_left, projected_right))))
 val sqlalchemy10 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -1200,11 +1237,15 @@ stmt = select(user_table.c.id, category)
     Query.(
       from User_account.table
       |> select (fun user ->
-        Projection.pair
-          (User_account.id user)
-          (Expr.case
-             [ User_account.name user =$ "sandy", Expr.constant Db_type.text "matched" ]
-             ~else_:(Expr.constant Db_type.text "other"))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (User_account.id user)
+        and+ projected_right =
+          Projection.expr
+            (Expr.case
+               [ User_account.name user =$ "sandy", Expr.constant Db_type.text "matched" ]
+               ~else_:(Expr.constant Db_type.text "other"))
+        in
+        projected_left, projected_right))
 val sqlalchemy20 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -1262,7 +1303,12 @@ stmt = select(address_table.c.id, address_table.c.email_address).order_by(
            `Asc
       |> order_by (fun address -> Expr.to_nullable (Address.email address)) `Asc
       |> select (fun address ->
-        Projection.pair (Address.id address) (Expr.to_nullable (Address.email address))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Address.id address)
+        and+ projected_right =
+          Projection.expr (Expr.to_nullable (Address.email address))
+        in
+        projected_left, projected_right))
 val sqlalchemy21 :
   (unit, (int64 * string option) list, Dialect.both) Statement.t = <abstr>
 ```
@@ -1319,7 +1365,10 @@ stmt = select(user_table.c.name, related_user.c.name).join_from(
       |> inner_join User_account.table ~on:(fun user related ->
         User_account.id user <. User_account.id related)
       |> select (fun (user, related) ->
-        Projection.pair (User_account.name user) (User_account.name related)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (User_account.name user)
+        and+ projected_right = Projection.expr (User_account.name related) in
+        projected_left, projected_right))
 val sqlalchemy22 : (unit, (string * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -1369,7 +1418,10 @@ stmt = select(user_table.c.id, address_table.c.id).select_from(
       from User_account.table
       |> inner_join Address.table ~on:(fun _ _ -> Condition.true_)
       |> select (fun (user, address) ->
-        Projection.pair (User_account.id user) (Address.id address)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (User_account.id user)
+        and+ projected_right = Projection.expr (Address.id address) in
+        projected_left, projected_right))
 val sqlalchemy23 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -1420,9 +1472,10 @@ let sqlalchemy24_left =
     |> left_join Address.table ~on:(fun user address ->
       User_account.id user =. Address.user_id address)
     |> select (fun (user, address) ->
-      Projection.pair
-        (Expr.to_nullable (User_account.id user))
-        (Address.nullable_id address)))
+      let open Projection.Let_syntax in
+      let+ projected_left = Projection.expr (Expr.to_nullable (User_account.id user))
+      and+ projected_right = Projection.expr (Address.nullable_id address) in
+      projected_left, projected_right))
 ;;
 
 let sqlalchemy24_right =
@@ -1431,9 +1484,10 @@ let sqlalchemy24_right =
     |> left_join User_account.table ~on:(fun address user ->
       User_account.id user =. Address.user_id address)
     |> select (fun (address, user) ->
-      Projection.pair
-        (User_account.nullable_id user)
-        (Expr.to_nullable (Address.id address))))
+      let open Projection.Let_syntax in
+      let+ projected_left = Projection.expr (User_account.nullable_id user)
+      and+ projected_right = Projection.expr (Expr.to_nullable (Address.id address)) in
+      projected_left, projected_right))
 ;;
 ```
 
@@ -1516,15 +1570,20 @@ stmt = select(user_table.c.id, latest_address.c.email_address).select_from(
     Query.(
       from User_account.table
       |> select (fun user ->
-        Projection.pair
-          (User_account.id user)
-          (Expr.scalar_subquery_nullable
-             Query.(
-               from Address.table
-               |> where (fun address -> Address.user_id address =. User_account.id user)
-               |> order_by Address.id `Desc
-               |> limit_one
-               |> select_scalar (fun address -> Expr.to_nullable (Address.email address))))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (User_account.id user)
+        and+ projected_right =
+          Projection.expr
+            (Expr.scalar_subquery_nullable
+               Query.(
+                 from Address.table
+                 |> where (fun address -> Address.user_id address =. User_account.id user)
+                 |> order_by Address.id `Desc
+                 |> limit_one
+                 |> select_scalar (fun address ->
+                   Expr.to_nullable (Address.email address))))
+        in
+        projected_left, projected_right))
 val sqlalchemy25 :
   (unit, (int64 * string option) list, Dialect.both) Statement.t = <abstr>
 ```
@@ -1964,7 +2023,7 @@ let sqlalchemy32_columns =
 ```ocaml
 # let sqlalchemy32 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ email = params.expr Db_type.text ~get:(fun (email, _) -> email)
     and+ name = params.expr Db_type.text ~get:(fun (_, name) -> name) in
     params.command
@@ -1972,7 +2031,11 @@ let sqlalchemy32_columns =
          Query.(
            from User_account.table
            |> where (fun user -> User_account.name user =. name)
-           |> select (fun user -> Projection.pair (User_account.id user) email))
+           |> select (fun user ->
+             let open Projection.Let_syntax in
+             let+ projected_left = Projection.expr (User_account.id user)
+             and+ projected_right = Projection.expr email in
+             projected_left, projected_right))
        in
        Insert.(into Address.table |> from_select sqlalchemy32_columns source |> command)))
 val sqlalchemy32 :
@@ -2222,7 +2285,10 @@ stmt = select(user_table.c.id, user_table.c.name).where(~addresses)
             from Address.table
             |> where (fun address -> Address.user_id address =. User_account.id user)))
       |> select (fun user ->
-        Projection.pair (User_account.id user) (User_account.name user)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (User_account.id user)
+        and+ projected_right = Projection.expr (User_account.name user) in
+        projected_left, projected_right))
 val sqlalchemy36 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -2294,7 +2360,12 @@ stmt = (
         &&. (Address.email address =~$ "%@example.com"))
       |> group_by (fun (user, _address) -> User_account.id user)
       |> select (fun (user, address) ->
-        Projection.pair (User_account.id user) (Expr.count (Address.nullable_id address))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (User_account.id user)
+        and+ projected_right =
+          Projection.expr (Expr.count (Address.nullable_id address))
+        in
+        projected_left, projected_right))
 val sqlalchemy37 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -2379,7 +2450,10 @@ stmt = (
       |> inner_join User_account.table ~on:(fun address user ->
         Address.user_id address =. User_account.id user)
       |> select (fun (address, user) ->
-        Projection.pair (User_account.name user) (Address.email address)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (User_account.name user)
+        and+ projected_right = Projection.expr (Address.email address) in
+        projected_left, projected_right))
 val sqlalchemy38 : (unit, (string * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -2440,7 +2514,7 @@ stmt = (
 ```ocaml
 # let sqlalchemy39 =
   Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ page_size = params.non_negative_int ~name:"page_size" ~get:Fn.id in
     params.query_many
       Query.(
@@ -2451,7 +2525,10 @@ stmt = (
              ~of_:(fun user -> [ Postgresql.Query.target user ])
              ~skip_locked:true
         |> select (fun user ->
-          Projection.pair (User_account.id user) (User_account.name user))))
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (User_account.id user)
+          and+ projected_right = Projection.expr (User_account.name user) in
+          projected_left, projected_right)))
 val sqlalchemy39 : (int, (int64 * string) list, [ `Postgresql ]) Statement.t =
   <abstr>
 ```
@@ -2515,19 +2592,28 @@ stmt = select(updated.c.id, updated.c.fullname)
          |> where (fun user ->
            User_account.name user =. Expr.constant Db_type.text "sandy")
          |> returning (fun user ->
-           Projection.pair (User_account.id user) (User_account.fullname user)))
+           let open Projection.Let_syntax in
+           let+ projected_left = Projection.expr (User_account.id user)
+           and+ projected_right = Projection.expr (User_account.fullname user) in
+           projected_left, projected_right))
      in
      Cte.with_result
        (Postgresql.Cte.returning
           ~table:User_account.table
           ~columns:(fun user ->
-            Projection.pair (User_account.id user) (User_account.fullname user))
+            let open Projection.Let_syntax in
+            let+ projected_left = Projection.expr (User_account.id user)
+            and+ projected_right = Projection.expr (User_account.fullname user) in
+            projected_left, projected_right)
           updated)
        ~f:(fun updated ->
          Query.(
            from_cte updated
            |> select (fun user ->
-             Projection.pair (User_account.id user) (User_account.fullname user)))))
+             let open Projection.Let_syntax in
+             let+ projected_left = Projection.expr (User_account.id user)
+             and+ projected_right = Projection.expr (User_account.fullname user) in
+             projected_left, projected_right))))
 val sqlalchemy40 :
   (unit, (int64 * string option) list, [ `Postgresql ]) Statement.t = <abstr>
 ```
@@ -2583,7 +2669,10 @@ WHERE name = :name AND id >= :minimum_id ORDER BY id
         User_account.id user >=$ minimum_id)
       |> order_by User_account.id `Asc
       |> select (fun user ->
-        Projection.pair (User_account.id user) (User_account.name user)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (User_account.id user)
+        and+ projected_right = Projection.expr (User_account.name user) in
+        projected_left, projected_right))
 val sqlalchemy41 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -2708,19 +2797,23 @@ FROM user_account
     Query.(
       from User_account.table
       |> select (fun user ->
-        Projection.pair
-          (User_account.id user)
-          (Expr.coalesce
-             (Expr.scalar_subquery_nullable
-                Query.(
-                  from Address.table
-                  |> where (fun address ->
-                    Address.user_id address =. User_account.id user)
-                  |> order_by Address.id `Asc
-                  |> limit_one
-                  |> select_scalar (fun address ->
-                    Expr.to_nullable (Address.email address))))
-             ~default:(Expr.constant Db_type.text "(none)"))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (User_account.id user)
+        and+ projected_right =
+          Projection.expr
+            (Expr.coalesce
+               (Expr.scalar_subquery_nullable
+                  Query.(
+                    from Address.table
+                    |> where (fun address ->
+                      Address.user_id address =. User_account.id user)
+                    |> order_by Address.id `Asc
+                    |> limit_one
+                    |> select_scalar (fun address ->
+                      Expr.to_nullable (Address.email address))))
+               ~default:(Expr.constant Db_type.text "(none)"))
+        in
+        projected_left, projected_right))
 val sqlalchemy43 : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -2772,7 +2865,12 @@ GROUP BY user_account.id HAVING COUNT(address.id) >= 2
       |> group_by (fun (user, _address) -> User_account.id user)
       |> having (fun (user, address) -> Expr.count (Address.nullable_id address) >=$ 2L)
       |> select (fun (user, address) ->
-        Projection.pair (User_account.id user) (Expr.count (Address.nullable_id address))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (User_account.id user)
+        and+ projected_right =
+          Projection.expr (Expr.count (Address.nullable_id address))
+        in
+        projected_left, projected_right))
 val sqlalchemy44 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -2824,7 +2922,10 @@ ORDER BY name, id LIMIT :page_size
       |> order_by User_account.id `Asc
       |> limit 20
       |> select (fun user ->
-        Projection.pair (User_account.name user) (User_account.id user)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (User_account.name user)
+        and+ projected_right = Projection.expr (User_account.id user) in
+        projected_left, projected_right))
 val sqlalchemy45 : (unit, (string * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -3112,7 +3213,10 @@ ORDER BY COUNT(address.id) DESC, user_account.id LIMIT 10
       |> order_by (fun (user, _address) -> User_account.id user) `Asc
       |> limit 10
       |> select (fun (user, address) ->
-        Projection.pair (User_account.id user) (Expr.count (Address.id address))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (User_account.id user)
+        and+ projected_right = Projection.expr (Expr.count (Address.id address)) in
+        projected_left, projected_right))
 val sqlalchemy50 : (unit, (int64 * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```

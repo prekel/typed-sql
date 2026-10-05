@@ -55,7 +55,7 @@ let main () =
        let open Typed_sql in
        let statement =
          Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-           Statement.Parameters.map
+           Parameters.map
              (params.expr ~name:"value" Db_type.int64 ~get:Fn.id)
              ~f:(fun value -> params.query_one (Query.select_one value)))
        in

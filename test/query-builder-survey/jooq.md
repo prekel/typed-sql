@@ -156,11 +156,11 @@ create.select(AUTHOR.FIRST_NAME, AUTHOR.LAST_NAME, count())
       |> limit 2
       |> offset 1
       |> select (fun (author, _book) ->
-        Projection.map3
-          ~f:(fun first last count -> first, last, count)
-          (Projection.expr (Author.first_name author))
-          (Projection.expr (Author.last_name author))
-          (Projection.expr Expr.count_all)))
+        let open Projection.Let_syntax in
+        let+ first = Projection.expr (Author.first_name author)
+        and+ last = Projection.expr (Author.last_name author)
+        and+ count = Projection.expr Expr.count_all in
+        first, last, count))
 val jq01 : (unit, (string * string * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -312,11 +312,11 @@ create.select(AUTHOR.ID, BOOK.ID, BOOK.TITLE)
       |> order_by (fun (author, _book) -> Author.id author) `Asc
       |> order_by (fun (_author, book) -> Book.nullable_id book) `Asc
       |> select (fun (author, book) ->
-        Projection.map3
-          ~f:(fun author_id book_id title -> author_id, book_id, title)
-          (Projection.expr (Author.id author))
-          (Projection.expr (Book.nullable_id book))
-          (Projection.expr (Book.nullable_title book))))
+        let open Projection.Let_syntax in
+        let+ author_id = Projection.expr (Author.id author)
+        and+ book_id = Projection.expr (Book.nullable_id book)
+        and+ title = Projection.expr (Book.nullable_title book) in
+        author_id, book_id, title))
 val jq03 :
   (unit, (int * int option * string option) list, Dialect.both) Statement.t =
   <abstr>
@@ -384,7 +384,10 @@ create.select(AUTHOR.ID, AUTHOR.LAST_NAME)
           Query.(
             from Book.table |> where (fun book -> Book.author_id book =. Author.id author)))
       |> select (fun author ->
-        Projection.pair (Author.id author) (Author.last_name author)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Author.id author)
+        and+ projected_right = Projection.expr (Author.last_name author) in
+        projected_left, projected_right))
 val jq04 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -456,10 +459,10 @@ create.select(
             |> where (fun book -> Book.author_id book =. Author.id author)
             |> select_scalar (fun _ -> Expr.count_all))
         in
-        Projection.map2
-          ~f:(fun author_id count -> author_id, Option.value count ~default:0L)
-          (Projection.expr (Author.id author))
-          (Projection.expr (Expr.scalar_subquery count))))
+        let open Projection.Let_syntax in
+        let+ author_id = Projection.expr (Author.id author)
+        and+ count = Projection.expr (Expr.scalar_subquery count) in
+        author_id, Option.value count ~default:0L))
 val jq05 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -535,7 +538,10 @@ let jq06_relation =
       |> order_by (fun (_author_id, books) -> books) `Desc
       |> select (fun fields ->
         let author_id, books = fields in
-        Projection.pair author_id books))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr author_id
+        and+ projected_right = Projection.expr books in
+        projected_left, projected_right))
 val jq06 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -614,11 +620,18 @@ let jq07_relation =
   Derived_table.create
     ~table:Book_count.table
     ~columns:(fun row ->
-      Projection.pair (Book_count.author_id row) (Book_count.books row))
+      let open Projection.Let_syntax in
+      let+ projected_left = Projection.expr (Book_count.author_id row)
+      and+ projected_right = Projection.expr (Book_count.books row) in
+      projected_left, projected_right)
     Query.(
       from Book.table
       |> group_by Book.author_id
-      |> select (fun book -> Projection.pair (Book.author_id book) Expr.count_all))
+      |> select (fun book ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Book.author_id book)
+        and+ projected_right = Projection.expr Expr.count_all in
+        projected_left, projected_right))
 ;;
 
 let jq07_cte = Cte.select jq07_relation
@@ -634,7 +647,10 @@ let jq07_cte = Cte.select jq07_relation
          |> where (fun counts -> Book_count.books counts >$ 1L)
          |> order_by Book_count.author_id `Asc
          |> select (fun counts ->
-           Projection.pair (Book_count.author_id counts) (Book_count.books counts)))))
+           let open Projection.Let_syntax in
+           let+ projected_left = Projection.expr (Book_count.author_id counts)
+           and+ projected_right = Projection.expr (Book_count.books counts) in
+           projected_left, projected_right))))
 val jq07 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -784,7 +800,11 @@ create.select(BOOK.AUTHOR_ID, count())
       from Book.table
       |> group_by Book.author_id
       |> having (fun _ -> Expr.count_all >=$ 2L)
-      |> select (fun book -> Projection.pair (Book.author_id book) Expr.count_all))
+      |> select (fun book ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Book.author_id book)
+        and+ projected_right = Projection.expr Expr.count_all in
+        projected_left, projected_right))
 val jq09 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -894,19 +914,21 @@ create.select(
       from Book.table
       |> order_by Book.id `Asc
       |> select (fun book ->
-        Projection.map3
-          ~f:(fun id author_id count -> id, author_id, count)
-          (Projection.expr (Book.id book))
-          (Projection.expr (Book.author_id book))
-          (Projection.expr
-             (Expr.coalesce
-                (Expr.scalar_subquery
-                   Query.(
-                     from Book.table
-                     |> where (fun same_author ->
-                       Book.author_id same_author =. Book.author_id book)
-                     |> select_scalar (fun _ -> Expr.count_all)))
-                ~default:(Expr.constant Db_type.int64 0L)))))
+        let open Projection.Let_syntax in
+        let+ id = Projection.expr (Book.id book)
+        and+ author_id = Projection.expr (Book.author_id book)
+        and+ count =
+          Projection.expr
+            (Expr.coalesce
+               (Expr.scalar_subquery
+                  Query.(
+                    from Book.table
+                    |> where (fun same_author ->
+                      Book.author_id same_author =. Book.author_id book)
+                    |> select_scalar (fun _ -> Expr.count_all)))
+               ~default:(Expr.constant Db_type.int64 0L))
+        in
+        id, author_id, count))
 val jq11 : (unit, (int * int * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -976,14 +998,20 @@ create.select(
       from Author.table
       |> order_by Author.id `Asc
       |> select (fun author ->
-        Projection.map2
-          ~f:(fun id books -> id, books)
-          (Projection.expr (Author.id author))
-          (Query.multiset
-             Query.(
-               from Book.table
-               |> where (fun book -> Book.author_id book =. Author.id author)
-               |> select (fun book -> Projection.pair (Book.id book) (Book.title book))))))
+        let open Projection.Let_syntax in
+        let+ id = Projection.expr (Author.id author)
+        and+ books =
+          Query.multiset
+            Query.(
+              from Book.table
+              |> where (fun book -> Book.author_id book =. Author.id author)
+              |> select (fun book ->
+                let open Projection.Let_syntax in
+                let+ projected_left = Projection.expr (Book.id book)
+                and+ projected_right = Projection.expr (Book.title book) in
+                projected_left, projected_right))
+        in
+        id, books))
 val jq12 : (unit, (int * (int * string) list) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -1068,12 +1096,17 @@ create.select(
       |> group_by (fun (author, _book) -> Author.id author)
       |> order_by (fun (author, _book) -> Author.id author) `Asc
       |> select (fun (author, book) ->
-        Projection.map2
-          ~f:(fun id books -> id, books)
-          (Projection.expr (Author.id author))
-          (Projection.multiset_agg
-             ~order_by:[ Aggregate_order.asc (Book.id book) ]
-             (Projection.pair (Book.id book) (Book.title book)))))
+        let open Projection.Let_syntax in
+        let+ id = Projection.expr (Author.id author)
+        and+ books =
+          Projection.multiset_agg
+            ~order_by:[ Aggregate_order.asc (Book.id book) ]
+            (let open Projection.Let_syntax in
+             let+ projected_left = Projection.expr (Book.id book)
+             and+ projected_right = Projection.expr (Book.title book) in
+             projected_left, projected_right)
+        in
+        id, books))
 val jq13 : (unit, (int * (int * string) list) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -1286,7 +1319,10 @@ create.select(AUTHOR.ID, AUTHOR.LAST_NAME)
             from Book.table |> where (fun book -> Book.author_id book =. Author.id author)))
       |> order_by Author.id `Asc
       |> select (fun author ->
-        Projection.pair (Author.id author) (Author.last_name author)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Author.id author)
+        and+ projected_right = Projection.expr (Author.last_name author) in
+        projected_left, projected_right))
 val jq16 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -1349,7 +1385,10 @@ create.select(AUTHOR.ID, LANGUAGE.CD)
       |> order_by (fun (author, _language) -> Author.id author) `Asc
       |> order_by (fun (_author, language) -> Language.cd language) `Asc
       |> select (fun (author, language) ->
-        Projection.pair (Author.id author) (Language.cd language)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Author.id author)
+        and+ projected_right = Projection.expr (Language.cd language) in
+        projected_left, projected_right))
 val jq17 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -1406,7 +1445,10 @@ create.select(BOOK.ID, BOOK.TITLE, BOOK_ARCHIVE.ARCHIVED_AT)
       |> inner_join Book.table ~on:(fun author book ->
         Author.id author =. Book.author_id book)
       |> select (fun (author, book) ->
-        Projection.pair (Author.id author) (Book.title book)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Author.id author)
+        and+ projected_right = Projection.expr (Book.title book) in
+        projected_left, projected_right))
 val jq18 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -1484,7 +1526,11 @@ CROSS JOIN LATERAL возвращает только авторов, для ко
                |> order_by Book.id `Desc
                |> limit_one
                |> select_scalar Book.id))
-      |> select (fun (author, book) -> Projection.pair (Author.id author) (Book.id book)))
+      |> select (fun (author, book) ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Author.id author)
+        and+ projected_right = Projection.expr (Book.id book) in
+        projected_left, projected_right))
 val jq19 : (unit, (int * int) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -1558,7 +1604,10 @@ let query =
       Book.published_in book >=. Threshold.min_year threshold)
     |> order_by (fun (threshold, book) -> Threshold.min_year threshold) `Asc
     |> select (fun (threshold, book) ->
-      Projection.pair (Threshold.min_year threshold) (Book.id book)))
+      let open Projection.Let_syntax in
+      let+ projected_left = Projection.expr (Threshold.min_year threshold)
+      and+ projected_right = Projection.expr (Book.id book) in
+      projected_left, projected_right))
 ;;
 ```
 
@@ -1628,9 +1677,19 @@ let jq21_fields ~directory_id ~parent_id ~label ~depth =
 ;;
 
 let jq21_projection ((id, parent_id), (label, depth)) =
-  Projection.both
-    (Projection.both (Projection.expr id) (Projection.expr parent_id))
-    (Projection.both (Projection.expr label) (Projection.expr depth))
+  let open Projection.Let_syntax in
+  let+ projected_left =
+    let open Projection.Let_syntax in
+    let+ projected_left = Projection.expr id
+    and+ projected_right = Projection.expr parent_id in
+    projected_left, projected_right
+  and+ projected_right =
+    let open Projection.Let_syntax in
+    let+ projected_left = Projection.expr label
+    and+ projected_right = Projection.expr depth in
+    projected_left, projected_right
+  in
+  projected_left, projected_right
 ;;
 
 let jq21_anchor =
@@ -1813,7 +1872,11 @@ DISTINCT ON является расширением PostgreSQL; для друг�
                         =. Book.published_in book
                         &&. (Book.id earlier <. Book.id book))))))
       |> order_by Book.language_id `Asc
-      |> select (fun book -> Projection.pair (Book.language_id book) (Book.id book)))
+      |> select (fun book ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Book.language_id book)
+        and+ projected_right = Projection.expr (Book.id book) in
+        projected_left, projected_right))
 val jq23 : (unit, (int * int) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -1883,11 +1946,15 @@ create.select(
     Query.(
       from Book.table
       |> select (fun book ->
-        Projection.pair
-          (Book.id book)
-          (Expr.case
-             [ Book.published_in book <$ 1950, Expr.constant Db_type.text "classic" ]
-             ~else_:(Expr.constant Db_type.text "modern"))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Book.id book)
+        and+ projected_right =
+          Projection.expr
+            (Expr.case
+               [ Book.published_in book <$ 1950, Expr.constant Db_type.text "classic" ]
+               ~else_:(Expr.constant Db_type.text "modern"))
+        in
+        projected_left, projected_right))
 val jq24 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -1946,7 +2013,10 @@ create.select(BOOK_ARCHIVE.ID, BOOK_ARCHIVE.ARCHIVED_AT)
            `Asc
       |> order_by Book_archive.archived_at `Asc
       |> select (fun archive ->
-        Projection.pair (Book_archive.id archive) (Book_archive.archived_at archive)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Book_archive.id archive)
+        and+ projected_right = Projection.expr (Book_archive.archived_at archive) in
+        projected_left, projected_right))
 val jq25 : (unit, (int * Ptime.t option) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -2000,7 +2070,11 @@ create.select(BOOK.ID, BOOK.PUBLISHED_IN)
       from Book.table
       |> order_by Book.published_in `Asc
       |> Postgresql.Query.fetch_with_ties 2
-      |> select (fun book -> Projection.pair (Book.id book) (Book.published_in book)))
+      |> select (fun book ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Book.id book)
+        and+ projected_right = Projection.expr (Book.published_in book) in
+        projected_left, projected_right))
 val jq26 : (unit, (int * int) list, [ `Postgresql ]) Statement.t = <abstr>
 ```
 
@@ -2126,7 +2200,11 @@ create.select(BOOK.ID, BOOK.PUBLISHED_IN)
         Book.published_in book
         >$ 1950
         ||. (Book.published_in book =$ 1950 &&. (Book.id book >$ 100)))
-      |> select (fun book -> Projection.pair (Book.published_in book) (Book.id book)))
+      |> select (fun book ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Book.published_in book)
+        and+ projected_right = Projection.expr (Book.id book) in
+        projected_left, projected_right))
 val jq28 : (unit, (int * int) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -2217,12 +2295,16 @@ create.select(
       from Book.table
       |> group_by Book.author_id
       |> select (fun book ->
-        Projection.pair
-          (Book.author_id book)
-          (Expr.sum_int
-             (Expr.case
-                [ Book.published_in book >$ 2000, Expr.constant Db_type.int 1 ]
-                ~else_:(Expr.constant Db_type.int 0)))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Book.author_id book)
+        and+ projected_right =
+          Projection.expr
+            (Expr.sum_int
+               (Expr.case
+                  [ Book.published_in book >$ 2000, Expr.constant Db_type.int 1 ]
+                  ~else_:(Expr.constant Db_type.int 0)))
+        in
+        projected_left, projected_right))
 val jq30 : (unit, (int * int64 option) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -2330,7 +2412,11 @@ QUALIFY доступен не во всех СУБД; jOOQ поддержива�
                    ||. (Book.published_in newer
                         =. Book.published_in book
                         &&. (Book.id newer >. Book.id book))))))
-      |> select (fun book -> Projection.pair (Book.author_id book) (Book.id book)))
+      |> select (fun book ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Book.author_id book)
+        and+ projected_right = Projection.expr (Book.id book) in
+        projected_left, projected_right))
 val jq32 : (unit, (int * int) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -2577,14 +2663,18 @@ let jq36_columns =
 ```ocaml
 # let jq36 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ cutoff = params.expr Db_type.int ~get:Fn.id in
     params.command
       (let source =
          Query.(
            from Book.table
            |> where (fun book -> Book.published_in book <. cutoff)
-           |> select (fun book -> Projection.pair (Book.id book) (Book.title book)))
+           |> select (fun book ->
+             let open Projection.Let_syntax in
+             let+ projected_left = Projection.expr (Book.id book)
+             and+ projected_right = Projection.expr (Book.title book) in
+             projected_left, projected_right))
        in
        Insert.(into Book_archive.table |> from_select jq36_columns source |> command)))
 val jq36 : (int, Affected_rows.t, Dialect.both) Statement.t = <abstr>
@@ -2641,7 +2731,11 @@ Record1<Integer> inserted =
       into Book.table
       |> set Book.title_column "New title"
       |> set Book.author_id_column 1
-      |> returning (fun book -> Projection.pair (Book.id book) (Book.title book)))
+      |> returning (fun book ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Book.id book)
+        and+ projected_right = Projection.expr (Book.title book) in
+        projected_left, projected_right))
 val jq37 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -2875,11 +2969,11 @@ create.select(BOOK.ID, BOOK.TITLE, BOOK.PUBLISHED_IN)
       |> order_by Book.id `Asc
       |> limit 20
       |> select (fun book ->
-        Projection.map3
-          ~f:(fun year id title -> year, id, title)
-          (Projection.expr (Book.published_in book))
-          (Projection.expr (Book.id book))
-          (Projection.expr (Book.title book))))
+        let open Projection.Let_syntax in
+        let+ year = Projection.expr (Book.published_in book)
+        and+ id = Projection.expr (Book.id book)
+        and+ title = Projection.expr (Book.title book) in
+        year, id, title))
 val jq41 : (unit, (int * int * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -2943,7 +3037,7 @@ create.select(BOOK.ID, BOOK.TITLE)
 ```ocaml
 # let jooq42 =
   Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ cutoff = params.column Book.published_in_column ~get:Fn.id in
     params.query_many
       Query.(
@@ -2952,7 +3046,11 @@ create.select(BOOK.ID, BOOK.TITLE)
         |> order_by Book.id `Asc
         |> limit 5
         |> Postgresql.Query.for_update ~skip_locked:true
-        |> select (fun book -> Projection.pair (Book.id book) (Book.title book))))
+        |> select (fun book ->
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Book.id book)
+          and+ projected_right = Projection.expr (Book.title book) in
+          projected_left, projected_right)))
 val jooq42 : (int, (int * string) list, [ `Postgresql ]) Statement.t =
   <abstr>
 ```
@@ -3030,7 +3128,10 @@ create.deleteFrom(BOOK_ARCHIVE)
       from Book_archive.table
       |> where (fun archive -> Expr.is_null (Book_archive.archived_at archive))
       |> returning (fun archive ->
-        Projection.pair (Book_archive.id archive) (Book_archive.title archive)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Book_archive.id archive)
+        and+ projected_right = Projection.expr (Book_archive.title archive) in
+        projected_left, projected_right))
 val jq44 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -3078,14 +3179,18 @@ create.insertInto(BOOK_ARCHIVE, BOOK_ARCHIVE.ID, BOOK_ARCHIVE.TITLE)
 ```ocaml
 # let jq45 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ cutoff = params.expr Db_type.int ~get:Fn.id in
     params.command
       (let source =
          Query.(
            from Book.table
            |> where (fun book -> Book.published_in book <. cutoff)
-           |> select (fun book -> Projection.pair (Book.id book) (Book.title book)))
+           |> select (fun book ->
+             let open Projection.Let_syntax in
+             let+ projected_left = Projection.expr (Book.id book)
+             and+ projected_right = Projection.expr (Book.title book) in
+             projected_left, projected_right))
        in
        Insert.(
          into Book_archive.table
@@ -3222,12 +3327,19 @@ SELECT ID, LAST_NAME FROM selected_authors ORDER BY ID
 let jq48_relation =
   Derived_table.create
     ~table:Author.table
-    ~columns:(fun author -> Projection.pair (Author.id author) (Author.last_name author))
+    ~columns:(fun author ->
+      let open Projection.Let_syntax in
+      let+ projected_left = Projection.expr (Author.id author)
+      and+ projected_right = Projection.expr (Author.last_name author) in
+      projected_left, projected_right)
     Query.(
       from Author.table
       |> where (fun author -> Author.id author >$ 10)
       |> select (fun author ->
-        Projection.pair (Author.id author) (Author.last_name author)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Author.id author)
+        and+ projected_right = Projection.expr (Author.last_name author) in
+        projected_left, projected_right))
 ;;
 
 let jq48_cte = Cte.select jq48_relation
@@ -3242,7 +3354,10 @@ let jq48_cte = Cte.select jq48_relation
          from_cte selected
          |> order_by Author.id `Asc
          |> select (fun author ->
-           Projection.pair (Author.id author) (Author.last_name author)))))
+           let open Projection.Let_syntax in
+           let+ projected_left = Projection.expr (Author.id author)
+           and+ projected_right = Projection.expr (Author.last_name author) in
+           projected_left, projected_right))))
 val jq48 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -3302,7 +3417,11 @@ RETURNING ID, TITLE
           Book.title_column
           (Book.title excluded)
           Conflict_update.empty)
-      |> returning (fun book -> Projection.pair (Book.id book) (Book.title book)))
+      |> returning (fun book ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Book.id book)
+        and+ projected_right = Projection.expr (Book.title book) in
+        projected_left, projected_right))
 val jq49 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -3351,7 +3470,11 @@ SELECT ID, TITLE FROM BOOK WHERE PUBLISHED_IN >= 2000 ORDER BY ID
       from Book.table
       |> where_opt (Some 2000) ~f:(fun book year -> Book.published_in book >=$ year)
       |> order_by Book.id `Asc
-      |> select (fun book -> Projection.pair (Book.id book) (Book.title book)))
+      |> select (fun book ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Book.id book)
+        and+ projected_right = Projection.expr (Book.title book) in
+        projected_left, projected_right))
 val jq50 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -3396,7 +3519,10 @@ GROUP BY AUTHOR.ID
         Author.id author =. Book.author_id book)
       |> group_by (fun (author, _book) -> Author.id author)
       |> select (fun (author, book) ->
-        Projection.pair (Author.id author) (Expr.count (Book.nullable_id book))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Author.id author)
+        and+ projected_right = Projection.expr (Expr.count (Book.nullable_id book)) in
+        projected_left, projected_right))
 val jq51 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -3482,7 +3608,11 @@ GROUP BY AUTHOR.ID HAVING COUNT(*) >= 2 ORDER BY AUTHOR.ID
       |> group_by (fun (author, _book) -> Author.id author)
       |> having (fun _ -> Expr.count_all >=$ 2L)
       |> order_by (fun (author, _book) -> Author.id author) `Asc
-      |> select (fun (author, _book) -> Projection.pair (Author.id author) Expr.count_all))
+      |> select (fun (author, _book) ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Author.id author)
+        and+ projected_right = Projection.expr Expr.count_all in
+        projected_left, projected_right))
 val jq53 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -3528,11 +3658,15 @@ FROM BOOK WHERE AUTHOR_ID = 1
       from Book.table
       |> where (fun book -> Book.author_id book =$ 1)
       |> select (fun book ->
-        Projection.pair
-          (Book.id book)
-          (Expr.case
-             [ Book.published_in book >=$ 2000, Expr.constant Db_type.text "recent" ]
-             ~else_:(Expr.constant Db_type.text "older"))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Book.id book)
+        and+ projected_right =
+          Projection.expr
+            (Expr.case
+               [ Book.published_in book >=$ 2000, Expr.constant Db_type.text "recent" ]
+               ~else_:(Expr.constant Db_type.text "older"))
+        in
+        projected_left, projected_right))
 val jq54 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -3574,7 +3708,11 @@ UPDATE BOOK SET PUBLISHED_IN = 2020 WHERE PUBLISHED_IN < 1900 RETURNING ID, PUBL
       table Book.table
       |> set Book.published_in_column 2020
       |> where (fun book -> Book.published_in book <$ 1900)
-      |> returning (fun book -> Projection.pair (Book.id book) (Book.published_in book)))
+      |> returning (fun book ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Book.id book)
+        and+ projected_right = Projection.expr (Book.published_in book) in
+        projected_left, projected_right))
 val jq55 : (unit, (int * int) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -3735,7 +3873,11 @@ WHERE ID < (SELECT MAX(ID) FROM BOOK AS B2 WHERE B2.AUTHOR_ID = BOOK.AUTHOR_ID)
                   |> select_scalar (fun other ->
                     Expr.max Db_type.Orderable.int (Book.id other))))
              ~default:(Expr.constant Db_type.int Int.max_value))
-      |> select (fun book -> Projection.pair (Book.id book) (Book.author_id book)))
+      |> select (fun book ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Book.id book)
+        and+ projected_right = Projection.expr (Book.author_id book) in
+        projected_left, projected_right))
 val jq58 : (unit, (int * int) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -3867,7 +4009,11 @@ ORDER BY AUTHOR.ID LIMIT 10 OFFSET 5
       |> order_by (fun (author, _book) -> Author.id author) `Asc
       |> limit 10
       |> offset 5
-      |> select (fun (author, _book) -> Projection.pair (Author.id author) Expr.count_all))
+      |> select (fun (author, _book) ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Author.id author)
+        and+ projected_right = Projection.expr Expr.count_all in
+        projected_left, projected_right))
 val jq60 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 

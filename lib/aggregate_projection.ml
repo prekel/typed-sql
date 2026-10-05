@@ -7,9 +7,14 @@ let map value ~f = Projection.map value ~f
 let both left right = Projection.both left right
 
 module Let_syntax = struct
+  let ( let+ ) value f = map value ~f
+  let ( and+ ) = both
+
   module Let_syntax = struct
     let map = map
     let both = both
+    let ( let+ ) value f = map value ~f
+    let ( and+ ) = both
 
     module Open_on_rhs = struct end
   end

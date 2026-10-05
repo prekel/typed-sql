@@ -111,7 +111,7 @@ module Find_by_name = struct
 
   let statement =
     Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-      let%map.Statement.Parameters name = params.column Person.name_column ~get:Input.name
+      let%map.Parameters name = params.column Person.name_column ~get:Input.name
       and maximum_rows =
         params.non_negative_int ~name:"maximum_rows" ~get:Input.maximum_rows
       in
@@ -157,7 +157,7 @@ runtime-размера страницы используйте параметр,
 {[
 let tied_people =
   Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-    let%map.Statement.Parameters page_size = params.non_negative_int ~name:"page_size" ~get:Fn.id in
+    let%map.Parameters page_size = params.non_negative_int ~name:"page_size" ~get:Fn.id in
     params.query_many
       Query.(
         from Person.table

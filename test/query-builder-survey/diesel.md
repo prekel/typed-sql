@@ -104,13 +104,17 @@ let rows = users::table
 ```ocaml
 # let diesel01 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ name = params.expr Db_type.text ~get:Fn.id in
     params.query_many
       Query.(
         from Users.table
         |> where (fun user -> Users.name user =. name)
-        |> select (fun user -> Projection.pair (Users.id user) (Users.name user))))
+        |> select (fun user ->
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Users.id user)
+          and+ projected_right = Projection.expr (Users.name user) in
+          projected_left, projected_right)))
 val diesel01 : (string, (int * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -157,7 +161,7 @@ let rows = users::table
 ```ocaml
 # let diesel02 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ min_id = params.expr Db_type.int ~get:(fun (min_id, _) -> min_id)
     and+ name_pattern =
       params.expr Db_type.text ~get:(fun (_, name_pattern) -> name_pattern)
@@ -167,7 +171,11 @@ let rows = users::table
         from Users.table
         |> where (fun user ->
           Users.id user >. min_id &&. (Users.name user =~. name_pattern))
-        |> select (fun user -> Projection.pair (Users.id user) (Users.name user))))
+        |> select (fun user ->
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Users.id user)
+          and+ projected_right = Projection.expr (Users.name user) in
+          projected_left, projected_right)))
 val diesel02 : (int * string, (int * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -219,7 +227,7 @@ let rows = users::table
 ```ocaml
 # let diesel03 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ page_size = params.non_negative_int ~name:"page_size" ~get:fst
     and+ page_offset = params.non_negative_int ~name:"page_offset" ~get:snd in
     params.query_many
@@ -228,7 +236,11 @@ let rows = users::table
         |> order_by Users.id `Asc
         |> Query.limit_param page_size
         |> Query.offset_param page_offset
-        |> select (fun user -> Projection.pair (Users.id user) (Users.name user))))
+        |> select (fun user ->
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Users.id user)
+          and+ projected_right = Projection.expr (Users.name user) in
+          projected_left, projected_right)))
 val diesel03 : (int * int, (int * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -279,7 +291,11 @@ let rows = users::table
     Query.(
       from Users.table
       |> inner_join Posts.table ~on:(fun user post -> Users.id user =. Posts.user_id post)
-      |> select (fun (user, post) -> Projection.pair (Users.id user) (Posts.title post)))
+      |> select (fun (user, post) ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Users.id user)
+        and+ projected_right = Projection.expr (Posts.title post) in
+        projected_left, projected_right))
 val diesel04 : (unit, (int * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -330,7 +346,10 @@ let rows = users::table
       from Users.table
       |> left_join Posts.table ~on:(fun user post -> Users.id user =. Posts.user_id post)
       |> select (fun (user, post) ->
-        Projection.pair (Users.id user) (Posts.nullable_id post)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Users.id user)
+        and+ projected_right = Projection.expr (Posts.nullable_id post) in
+        projected_left, projected_right))
 val diesel05 : (unit, (int * int option) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -379,7 +398,7 @@ let rows = users::table
 ```ocaml
 # let diesel06 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ min_posts = params.expr Db_type.int64 ~get:Fn.id in
     params.query_many
       Query.(
@@ -389,7 +408,10 @@ let rows = users::table
         |> group_by (fun (user, _post) -> Users.id user)
         |> having (fun (_user, post) -> Expr.count (Posts.id post) >. min_posts)
         |> select (fun (user, post) ->
-          Projection.pair (Users.id user) (Expr.count (Posts.id post)))))
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Users.id user)
+          and+ projected_right = Projection.expr (Expr.count (Posts.id post)) in
+          projected_left, projected_right)))
 val diesel06 : (int64, (int * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -446,7 +468,7 @@ let rows = users::table
 ```ocaml
 # let diesel07 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ title_pattern = params.expr Db_type.text ~get:Fn.id in
     params.query_many
       Query.(
@@ -459,7 +481,11 @@ let rows = users::table
                 Posts.user_id post
                 =. Users.id user
                 &&. (Posts.title post =~. title_pattern))))
-        |> select (fun user -> Projection.pair (Users.id user) (Users.name user))))
+        |> select (fun user ->
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Users.id user)
+          and+ projected_right = Projection.expr (Users.name user) in
+          projected_left, projected_right)))
 val diesel07 : (string, (int * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -522,7 +548,7 @@ let rows = users::table
 ```ocaml
 # let diesel08 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ title_pattern = params.expr Db_type.text ~get:Fn.id in
     params.query_many
       Query.(
@@ -535,7 +561,11 @@ let rows = users::table
               |> select_scalar Posts.user_id)
           in
           Query.in_subquery (Users.id user) post_user_ids)
-        |> select (fun user -> Projection.pair (Users.id user) (Users.name user))))
+        |> select (fun user ->
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Users.id user)
+          and+ projected_right = Projection.expr (Users.name user) in
+          projected_left, projected_right)))
 val diesel08 : (string, (int * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -598,7 +628,7 @@ let rows = by_owner
 ```ocaml
 # let diesel09 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ owner_id = params.expr Db_type.int ~get:(fun (owner_id, _) -> owner_id)
     and+ title_pattern =
       params.expr Db_type.text ~get:(fun (_, title_pattern) -> title_pattern)
@@ -688,19 +718,21 @@ let rows = posts::table
       |> order_by Posts.user_id `Asc
       |> order_by Posts.id `Asc
       |> select (fun post ->
-        Projection.map3
-          ~f:(fun id user_id count -> id, user_id, count)
-          (Projection.expr (Posts.id post))
-          (Projection.expr (Posts.user_id post))
-          (Projection.expr
-             (Expr.coalesce
-                (Expr.scalar_subquery
-                   Query.(
-                     from Posts.table
-                     |> where (fun same_user ->
-                       Posts.user_id same_user =. Posts.user_id post)
-                     |> select_scalar (fun _ -> Expr.count_all)))
-                ~default:(Expr.constant Db_type.int64 0L)))))
+        let open Projection.Let_syntax in
+        let+ id = Projection.expr (Posts.id post)
+        and+ user_id = Projection.expr (Posts.user_id post)
+        and+ count =
+          Projection.expr
+            (Expr.coalesce
+               (Expr.scalar_subquery
+                  Query.(
+                    from Posts.table
+                    |> where (fun same_user ->
+                      Posts.user_id same_user =. Posts.user_id post)
+                    |> select_scalar (fun _ -> Expr.count_all)))
+               ~default:(Expr.constant Db_type.int64 0L))
+        in
+        id, user_id, count))
 val diesel10 : (unit, (int * int * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -823,7 +855,11 @@ let rows = query
          |> where_opt title_pattern ~f:(fun post pattern -> Posts.title post =~$ pattern)
          |> where_opt minimum_id ~f:(fun post id -> Posts.id post >=$ id)
          |> order_by Posts.id `Asc
-         |> select (fun post -> Projection.pair (Posts.id post) (Posts.title post))))
+         |> select (fun post ->
+           let open Projection.Let_syntax in
+           let+ projected_left = Projection.expr (Posts.id post)
+           and+ projected_right = Projection.expr (Posts.title post) in
+           projected_left, projected_right)))
 val diesel12 :
   (string option * int option, (int * string) list, Dialect.both) Statement.t =
   <abstr>
@@ -898,7 +934,7 @@ let saved = diesel::insert_into(posts::table)
 ```ocaml
 # let diesel13 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ id = params.expr Db_type.int ~get:(fun (id, _, _) -> id)
     and+ user_id = params.expr Db_type.int ~get:(fun (_, user_id, _) -> user_id)
     and+ title = params.expr Db_type.text ~get:(fun (_, _, title) -> title) in
@@ -912,7 +948,11 @@ let saved = diesel::insert_into(posts::table)
         |> do_update (fun ~existing:_ ~excluded ->
           Conflict_update.empty
           |> Conflict_update.set_expr Posts.title_column (Posts.title excluded))
-        |> returning (fun post -> Projection.pair (Posts.id post) (Posts.title post))))
+        |> returning (fun post ->
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Posts.id post)
+          and+ projected_right = Projection.expr (Posts.title post) in
+          projected_left, projected_right)))
 val diesel13 : (int * int * string, int * string, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -967,7 +1007,7 @@ let changed = diesel::update(posts::table.filter(posts::user_id.eq(user_id)))
 ```ocaml
 # let diesel14 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ title = params.expr Db_type.text ~get:(fun (title, user_id) -> title)
     and+ user_id = params.expr Db_type.int ~get:(fun (_, user_id) -> user_id) in
     params.query_many
@@ -975,7 +1015,11 @@ let changed = diesel::update(posts::table.filter(posts::user_id.eq(user_id)))
         table Posts.table
         |> set_expr Posts.title_column title
         |> where (fun post -> Posts.user_id post =. user_id)
-        |> returning (fun post -> Projection.pair (Posts.id post) (Posts.title post))))
+        |> returning (fun post ->
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Posts.id post)
+          and+ projected_right = Projection.expr (Posts.title post) in
+          projected_left, projected_right)))
 val diesel14 : (string * int, (int * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -1025,7 +1069,7 @@ let removed_ids = diesel::delete(
 ```ocaml
 # let diesel15 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ pattern = params.expr Db_type.text ~get:Fn.id in
     params.query_many
       Delete.(
@@ -1075,7 +1119,10 @@ ORDER BY users.id
       |> having (fun (_user, post) -> Expr.count (Posts.id post) >=$ 2L)
       |> order_by (fun (user, _post) -> Users.id user) `Asc
       |> select (fun (user, post) ->
-        Projection.pair (Users.id user) (Expr.count (Posts.id post))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Users.id user)
+        and+ projected_right = Projection.expr (Expr.count (Posts.id post)) in
+        projected_left, projected_right))
 val diesel16 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -1126,11 +1173,11 @@ ORDER BY user_id, id LIMIT 20
       |> order_by Posts.id `Asc
       |> limit 20
       |> select (fun post ->
-        Projection.map3
-          ~f:(fun id user_id title -> id, user_id, title)
-          (Projection.expr (Posts.id post))
-          (Projection.expr (Posts.user_id post))
-          (Projection.expr (Posts.title post))))
+        let open Projection.Let_syntax in
+        let+ id = Projection.expr (Posts.id post)
+        and+ user_id = Projection.expr (Posts.user_id post)
+        and+ title = Projection.expr (Posts.title post) in
+        id, user_id, title))
 val diesel17 : (unit, (int * int * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -1184,7 +1231,11 @@ WHERE NOT EXISTS (SELECT 1 FROM posts WHERE posts.user_id = users.id)
         not_exists
           Query.(
             from Posts.table |> where (fun post -> Posts.user_id post =. Users.id user)))
-      |> select (fun user -> Projection.pair (Users.id user) (Users.name user)))
+      |> select (fun user ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Users.id user)
+        and+ projected_right = Projection.expr (Users.name user) in
+        projected_left, projected_right))
 val diesel18 : (unit, (int * string) list, Dialect.both) Statement.t =
   <abstr>
 ```

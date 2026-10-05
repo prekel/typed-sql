@@ -10,7 +10,7 @@ let id_column = Column.v_exn table "id" Db_type.int
 let _statement =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let id = params.expr Db_type.int ~get:Fn.id in
-    Statement.Parameters.return
+    Parameters.return
       (params.query_many
          Query.(
            from table

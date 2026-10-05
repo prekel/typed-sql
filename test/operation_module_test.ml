@@ -26,8 +26,7 @@ module Find_people = struct
 
   let statement =
     Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-      let open Statement.Parameters.Let_syntax in
-      let%map name = params.column Person.name_column ~get:Input.name
+      let%map.Parameters name = params.column Person.name_column ~get:Input.name
       and min_id = params.column Person.id_column ~get:Input.min_id
       and maximum_rows =
         params.non_negative_int ~name:"maximum_rows" ~get:Input.maximum_rows
@@ -55,8 +54,7 @@ module Create_person = struct
 
   let statement =
     Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-      let open Statement.Parameters.Let_syntax in
-      let%map id = params.column Person.id_column ~get:Input.id
+      let%map.Parameters id = params.column Person.id_column ~get:Input.id
       and name = params.column Person.name_column ~get:Input.name
       and email = params.column Person.email_column ~get:Input.email in
       params.command

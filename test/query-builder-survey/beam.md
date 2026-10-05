@@ -90,7 +90,12 @@ module Invoice_counts = struct
   let count_column = Column.v_exn table "invoice_count" Db_type.int64
   let customer_id row = Expr.column row customer_id_column
   let count row = Expr.column row count_column
-  let projection row = Projection.pair (customer_id row) (count row)
+
+  let projection row =
+    let open Projection.Let_syntax in
+    let+ projected_left = Projection.expr (customer_id row)
+    and+ projected_right = Projection.expr (count row) in
+    projected_left, projected_right
 end
 ```
 
@@ -128,7 +133,10 @@ select $
       from Customer.table
       |> where (fun customer -> Customer.country customer =$ "USA")
       |> select (fun customer ->
-        Projection.pair (Customer.first_name customer) (Customer.last_name customer)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Customer.first_name customer)
+        and+ projected_right = Projection.expr (Customer.last_name customer) in
+        projected_left, projected_right))
 val beam01 : (unit, (string * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -185,7 +193,10 @@ select $
         &&. (Customer.country customer =$ "USA" ||. (Customer.country customer =$ "Canada")
             ))
       |> select (fun customer ->
-        Projection.pair (Customer.id customer) (Customer.first_name customer)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Customer.id customer)
+        and+ projected_right = Projection.expr (Customer.first_name customer) in
+        projected_left, projected_right))
 val beam02 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -243,7 +254,11 @@ select $
       |> order_by Album.title `Asc
       |> limit 10
       |> offset 20
-      |> select (fun album -> Projection.pair (Album.id album) (Album.title album)))
+      |> select (fun album ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Album.id album)
+        and+ projected_right = Projection.expr (Album.title album) in
+        projected_left, projected_right))
 val beam03 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -296,7 +311,10 @@ select $ do
       |> inner_join Invoice_line.table ~on:(fun invoice line ->
         Invoice_line.invoice_id line =. Invoice.id invoice)
       |> select (fun (invoice, line) ->
-        Projection.pair (Invoice.id invoice) (Invoice_line.id line)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Invoice.id invoice)
+        and+ projected_right = Projection.expr (Invoice_line.id line) in
+        projected_left, projected_right))
 val beam04 : (unit, (int * int) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -347,7 +365,10 @@ select $ do
       |> left_join Invoice.table ~on:(fun customer invoice ->
         Invoice.customer_id invoice =. Customer.id customer)
       |> select (fun (customer, invoice) ->
-        Projection.pair (Customer.id customer) (Invoice.nullable_id invoice)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Customer.id customer)
+        and+ projected_right = Projection.expr (Invoice.nullable_id invoice) in
+        projected_left, projected_right))
 val beam05 : (unit, (int * int option) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -401,7 +422,10 @@ select $
       |> group_by Invoice.customer_id
       |> having (fun _ -> Expr.count_all >$ 1L)
       |> select (fun invoice ->
-        Projection.pair (Invoice.customer_id invoice) Expr.count_all))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Invoice.customer_id invoice)
+        and+ projected_right = Projection.expr Expr.count_all in
+        projected_left, projected_right))
 val beam06 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -464,7 +488,10 @@ select $ do
             from Invoice.table
             |> where (fun invoice -> Invoice.customer_id invoice =. Customer.id customer)))
       |> select (fun customer ->
-        Projection.pair (Customer.id customer) (Customer.last_name customer)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Customer.id customer)
+        and+ projected_right = Projection.expr (Customer.last_name customer) in
+        projected_left, projected_right))
 val beam07 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -544,7 +571,10 @@ let beam08_invoice_counts =
            ~on:(fun customer (invoice_customer_id, _invoice_count) ->
              Customer.id customer =. invoice_customer_id)
       |> select (fun (customer, (_invoice_customer_id, invoice_count)) ->
-        Projection.pair (Customer.id customer) invoice_count))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Customer.id customer)
+        and+ projected_right = Projection.expr invoice_count in
+        projected_left, projected_right))
 val beam08 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -609,20 +639,24 @@ select $
     Query.(
       from Invoice.table
       |> select (fun invoice ->
-        Projection.pair
-          (Invoice.id invoice)
-          Expr.Int64.Infix.(
-            Expr.coalesce
-              (Expr.scalar_subquery
-                 Query.(
-                   from Invoice.table
-                   |> where (fun other ->
-                     Invoice.customer_id other
-                     =. Invoice.customer_id invoice
-                     &&. (Invoice.total other >. Invoice.total invoice))
-                   |> select_scalar (fun _ -> Expr.count_all)))
-              ~default:(Expr.constant Db_type.int64 0L)
-            +. Expr.constant Db_type.int64 1L)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Invoice.id invoice)
+        and+ projected_right =
+          Projection.expr
+            Expr.Int64.Infix.(
+              Expr.coalesce
+                (Expr.scalar_subquery
+                   Query.(
+                     from Invoice.table
+                     |> where (fun other ->
+                       Invoice.customer_id other
+                       =. Invoice.customer_id invoice
+                       &&. (Invoice.total other >. Invoice.total invoice))
+                     |> select_scalar (fun _ -> Expr.count_all)))
+                ~default:(Expr.constant Db_type.int64 0L)
+              +. Expr.constant Db_type.int64 1L)
+        in
+        projected_left, projected_right))
 val be09 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -844,7 +878,10 @@ select $ do
                |> where (fun invoice ->
                  Invoice.customer_id invoice =. Customer.id customer)))
       |> select (fun customer ->
-        Projection.pair (Customer.id customer) (Customer.first_name customer)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Customer.id customer)
+        and+ projected_right = Projection.expr (Customer.first_name customer) in
+        projected_left, projected_right))
 val beam12 : (unit, (int * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -909,10 +946,12 @@ select $
         Customer.id customer =. Invoice.customer_id invoice)
       |> group_by (fun (customer, _) -> Customer.country customer)
       |> select (fun (customer, _) ->
-        Projection.map2
-          ~f:(fun country customer_count -> country, customer_count)
-          (Projection.expr (Customer.country customer))
-          (Projection.expr (Expr.count_distinct (Customer.id customer)))))
+        let open Projection.Let_syntax in
+        let+ country = Projection.expr (Customer.country customer)
+        and+ customer_count =
+          Projection.expr (Expr.count_distinct (Customer.id customer))
+        in
+        country, customer_count))
 val beam13 : (unit, (string * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -979,7 +1018,10 @@ let beam14_counts_relation =
       from Invoice.table
       |> group_by Invoice.customer_id
       |> select (fun invoice ->
-        Projection.pair (Invoice.customer_id invoice) Expr.count_all))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Invoice.customer_id invoice)
+        and+ projected_right = Projection.expr Expr.count_all in
+        projected_left, projected_right))
 ;;
 ```
 
@@ -994,7 +1036,10 @@ let beam14_counts_relation =
            Customer.id customer =. Invoice_counts.customer_id counts)
          |> where (fun (_, counts) -> Invoice_counts.count counts >=$ 3L)
          |> select (fun (customer, counts) ->
-           Projection.pair (Customer.id customer) (Invoice_counts.count counts)))))
+           let open Projection.Let_syntax in
+           let+ projected_left = Projection.expr (Customer.id customer)
+           and+ projected_right = Projection.expr (Invoice_counts.count counts) in
+           projected_left, projected_right))))
 val beam14 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -1071,11 +1116,15 @@ select $
            `Desc
       |> limit 3
       |> select (fun invoice ->
-        Projection.pair
-          (Invoice.customer_id invoice)
-          (Expr.coalesce
-             (Expr.sum_float (Invoice.total invoice))
-             ~default:(Expr.constant Db_type.float 0.))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Invoice.customer_id invoice)
+        and+ projected_right =
+          Projection.expr
+            (Expr.coalesce
+               (Expr.sum_float (Invoice.total invoice))
+               ~default:(Expr.constant Db_type.float 0.))
+        in
+        projected_left, projected_right))
 val beam15 : (unit, (int * float) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -1121,7 +1170,12 @@ GROUP BY Customer.CustomerId
         Customer.id customer =. Invoice.customer_id invoice)
       |> group_by (fun (customer, _invoice) -> Customer.id customer)
       |> select (fun (customer, invoice) ->
-        Projection.pair (Customer.id customer) (Expr.count (Invoice.nullable_id invoice))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Customer.id customer)
+        and+ projected_right =
+          Projection.expr (Expr.count (Invoice.nullable_id invoice))
+        in
+        projected_left, projected_right))
 val beam16 : (unit, (int * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -1172,7 +1226,10 @@ FROM Customer
               |> select_scalar (fun invoice ->
                 Expr.max Db_type.Orderable.float (Invoice.total invoice)))
         in
-        Projection.pair (Customer.id customer) maximum))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Customer.id customer)
+        and+ projected_right = Projection.expr maximum in
+        projected_left, projected_right))
 val beam17 : (unit, (int * float option) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -1220,11 +1277,11 @@ WHERE Country = ? AND FirstName LIKE ?
       |> where_opt (Some "A%") ~f:(fun customer pattern ->
         Customer.first_name customer =~$ pattern)
       |> select (fun customer ->
-        Projection.map3
-          ~f:(fun id name country -> id, name, country)
-          (Projection.expr (Customer.id customer))
-          (Projection.expr (Customer.first_name customer))
-          (Projection.expr (Customer.country customer))))
+        let open Projection.Let_syntax in
+        let+ id = Projection.expr (Customer.id customer)
+        and+ name = Projection.expr (Customer.first_name customer)
+        and+ country = Projection.expr (Customer.country customer) in
+        id, name, country))
 val beam18 : (unit, (int * string * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -1274,7 +1331,10 @@ GROUP BY Customer.Country HAVING COUNT(*) > 1
       |> having (fun _ -> Expr.count_all >$ 1L)
       |> order_by (fun (customer, _invoice) -> Customer.country customer) `Asc
       |> select (fun (customer, _invoice) ->
-        Projection.pair (Customer.country customer) Expr.count_all))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Customer.country customer)
+        and+ projected_right = Projection.expr Expr.count_all in
+        projected_left, projected_right))
 val beam19 : (unit, (string * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```

@@ -25,7 +25,7 @@ let ada_after_ten =
 меняются.
 
 Значение времени выполнения объявляется через аргумент [params] конструктора.
-Для объединения параметров рекомендуется [let%map.Statement.Parameters]
+Для объединения параметров рекомендуется [let%map.Parameters]
 без локального открытия модуля; последующие параметры в том же выражении
 добавляются через [and].
 [params.column] выводит [Db_type] из descriptor колонки, а [params.expr]
@@ -120,7 +120,7 @@ type input = filters paged
 
 let page, total =
   Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-    let%map.Statement.Parameters min_age =
+    let%map.Parameters min_age =
       params.column Person.age_column ~get:(fun input -> input.inner.min_age)
     and city = params.column Person.city_column ~get:(fun input -> input.inner.city)
     and maximum_rows =
@@ -178,7 +178,7 @@ module Find_people = struct
 
   let statement =
     Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-      let%map.Statement.Parameters name = params.column Person.name_column ~get:Input.name
+      let%map.Parameters name = params.column Person.name_column ~get:Input.name
       and min_id = params.column Person.id_column ~get:Input.min_id
       and maximum_rows =
         params.non_negative_int ~name:"maximum_rows" ~get:Input.maximum_rows
@@ -229,7 +229,7 @@ type input =
 
 let find_people =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let%map.Statement.Parameters name =
+    let%map.Parameters name =
       params.column Person.name_column
         ~get:(fun (name, _, _, _, _, _, _, _, _, _) -> name)
     and min_id =
@@ -299,7 +299,7 @@ type input =
 
 let find_people =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let%map.Statement.Parameters name = params.column Person.name_column ~get:(fun input -> input.name)
+    let%map.Parameters name = params.column Person.name_column ~get:(fun input -> input.name)
     and min_id = params.column Person.id_column ~get:(fun input -> input.min_id)
     and max_id = params.column Person.id_column ~get:(fun input -> input.max_id)
     and email = params.column Person.email_column ~get:(fun input -> input.email)
@@ -363,7 +363,7 @@ module Find_people = struct
 
   let statement =
     Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-      let%map.Statement.Parameters name = params.column Person.name_column ~get:Input.name
+      let%map.Parameters name = params.column Person.name_column ~get:Input.name
       and min_id = params.column Person.id_column ~get:Input.min_id
       and max_id = params.column Person.id_column ~get:Input.max_id
       and email = params.column Person.email_column ~get:Input.email

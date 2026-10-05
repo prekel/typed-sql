@@ -22,8 +22,7 @@ let compile_exn
 let%test_module "applicative projection rendering" =
   (module struct
     let projection =
-      let open Projection.Let_syntax in
-      let%map label = Projection.return "label"
+      let%map.Projection label = Projection.return "label"
       and values =
         A.all
           [ Projection.expr (Expr.constant Db_type.int 11)
@@ -145,8 +144,7 @@ let multiset_decoder projection =
 let%test_unit "backend interpreter defers maps until decoding" =
   let mapped = ref 0 in
   let projection =
-    let open Projection.Let_syntax in
-    let%map id = Projection.expr (Expr.constant Db_type.int 7)
+    let%map.Projection id = Projection.expr (Expr.constant Db_type.int 7)
     and name = Projection.expr (Expr.constant Db_type.text "Ada")
     and suffix = Projection.return "!" in
     Int.incr mapped;

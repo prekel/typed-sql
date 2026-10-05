@@ -108,22 +108,22 @@ type dialect_choice_input =
 
 let dialect_choice_statement =
   let postgresql =
-    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params:parameters ->
-      let open Statement.Parameters.Let_syntax in
-      let%map id = parameters.column Person.id_column ~get:(fun input -> input.id) in
-      parameters.query_many
+    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
+      let%map.Parameters id =
+        params.column Person.id_column ~get:(fun input -> input.id)
+      in
+      params.query_many
         Query.(
           from Person.table
           |> where (fun person -> Person.id person =. id)
           |> select (fun person -> Projection.expr (Person.name person))))
   in
   let sqlite =
-    Statement.with_parameters ~dialect:Dialect.sqlite (fun ~params:parameters ->
-      let open Statement.Parameters.Let_syntax in
-      let%map name =
-        parameters.column Person.name_column ~get:(fun input -> input.name)
+    Statement.with_parameters ~dialect:Dialect.sqlite (fun ~params ->
+      let%map.Parameters name =
+        params.column Person.name_column ~get:(fun input -> input.name)
       in
-      parameters.query_many
+      params.query_many
         Query.(
           from Person.table
           |> where (fun person -> Person.name person =. name)
@@ -257,8 +257,7 @@ type person_lookup =
 
 let person_lookup_statement =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
-    let%map person_id =
+    let%map.Parameters person_id =
       params.column ~name:"person_id" Person.id_column ~get:(fun input -> input.person_id)
     and maximum_rows =
       params.non_negative_int ~name:"maximum_rows" ~get:(fun input -> input.maximum_rows)
@@ -643,15 +642,13 @@ let run conn =
     failwith "CROSS JOIN with an empty source returned rows";
   let optional_id_statement =
     Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-      Statement.Parameters.map
-        (params.optional_expr Db_type.int64 ~get:Fn.id)
-        ~f:(fun id ->
-          params.query_many
-            Query.(
-              from Person.table
-              |> where_optional_param id ~f:(fun person id -> Person.id person =. id)
-              |> order_by Person.id `Asc
-              |> select (fun person -> Projection.expr (Person.id person)))))
+      Parameters.map (params.optional_expr Db_type.int64 ~get:Fn.id) ~f:(fun id ->
+        params.query_many
+          Query.(
+            from Person.table
+            |> where_optional_param id ~f:(fun person id -> Person.id person =. id)
+            |> order_by Person.id `Asc
+            |> select (fun person -> Projection.expr (Person.id person)))))
   in
   let* all_ids = Adapter.run ~conn optional_id_statement None >>= adapter_or_fail in
   if not (List.equal Int64.equal all_ids [ 1L; 2L; 3L ]) then

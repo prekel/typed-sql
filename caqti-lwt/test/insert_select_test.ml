@@ -64,7 +64,7 @@ let all_source =
 
 let filtered_statement =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    Statement.Parameters.map (params.expr Db_type.int64 ~get:Fn.id) ~f:(fun cutoff ->
+    Parameters.map (params.expr Db_type.int64 ~get:Fn.id) ~f:(fun cutoff ->
       let source =
         Query.(
           from Source.table

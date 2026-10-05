@@ -419,7 +419,7 @@ module Expr : sig
       captures it at definition time; a dynamic statement captures it during
       the current callback invocation. It is sent as a bind value and never
       interpolated into rendered SQL. Runtime input in a static statement must
-      be introduced through [Statement.parameters]. *)
+      be introduced through [Parameters]. *)
   val constant : 'a Db_type.t -> 'a -> ('a, 'requirements) t
 
   (** Use [default] when the nullable expression evaluates to SQL [NULL].
@@ -761,7 +761,8 @@ module Projection : sig
     -> ('a, 'requirements) t
     -> ('a list, 'requirements) t
 
-  (** Syntax support for applicative [let%map] and parallel [and] bindings. *)
+  (** Applicative syntax. Prefer [let%map.Projection] with [ppx_let]; use
+      [let+] and [and+] where the PPX is unavailable. *)
   module Let_syntax : sig
     val return : 'a -> ('a, 'requirements) t
 
@@ -769,11 +770,25 @@ module Projection : sig
       Base.Applicative.Applicative_infix2
       with type ('a, 'requirements) t := ('a, 'requirements) t
 
+    val ( let+ ) : ('a, 'requirements) t -> ('a -> 'b) -> ('b, 'requirements) t
+
+    val ( and+ )
+      :  ('a, 'requirements) t
+      -> ('b, 'requirements) t
+      -> ('a * 'b, 'requirements) t
+
     module Let_syntax : sig
       val return : 'a -> ('a, 'requirements) t
       val map : ('a, 'requirements) t -> f:('a -> 'b) -> ('b, 'requirements) t
 
       val both
+        :  ('a, 'requirements) t
+        -> ('b, 'requirements) t
+        -> ('a * 'b, 'requirements) t
+
+      val ( let+ ) : ('a, 'requirements) t -> ('a -> 'b) -> ('b, 'requirements) t
+
+      val ( and+ )
         :  ('a, 'requirements) t
         -> ('b, 'requirements) t
         -> ('a * 'b, 'requirements) t
@@ -795,16 +810,22 @@ module Aggregate_projection : sig
   (** Combine aggregate expressions from left to right. *)
   val both : ('a, 'r) t -> ('b, 'r) t -> ('a * 'b, 'r) t
 
-  (** Recommended syntax for combining aggregates with [let%map] and [and].
+  (** Syntax for combining aggregates. Prefer [let%map.Aggregate_projection]
+      with [ppx_let]; use [let+] and [and+] where the PPX is unavailable.
       There is no [return]: a value without an aggregate would break the
       guarantee that this projection contains an aggregate. *)
   module Let_syntax : sig
+    val ( let+ ) : ('a, 'r) t -> ('a -> 'b) -> ('b, 'r) t
+    val ( and+ ) : ('a, 'r) t -> ('b, 'r) t -> ('a * 'b, 'r) t
+
     module Let_syntax : sig
       (** The operations used by [ppx_let]; they have the semantics of [map]
           and [both] above. *)
       val map : ('a, 'r) t -> f:('a -> 'b) -> ('b, 'r) t
 
       val both : ('a, 'r) t -> ('b, 'r) t -> ('a * 'b, 'r) t
+      val ( let+ ) : ('a, 'r) t -> ('a -> 'b) -> ('b, 'r) t
+      val ( and+ ) : ('a, 'r) t -> ('b, 'r) t -> ('a * 'b, 'r) t
 
       module Open_on_rhs : sig end
     end
@@ -1735,7 +1756,7 @@ module Insert : sig
 
   (** Assign a column from an OCaml constant captured in the current AST. The
       constant is encoded as a bind value. In a static statement, use
-      [set_expr] with [Statement.parameters] for runtime input. *)
+      [set_expr] with [Parameters] for runtime input. *)
   val set
     :  ('row, 'base, 'value) Column.t
     -> 'value
@@ -1837,7 +1858,7 @@ module Update : sig
 
   (** Assign a column from an OCaml constant captured in the current AST. The
       constant is encoded as a bind value. In a static statement, use
-      [set_expr] with [Statement.parameters] for runtime input. *)
+      [set_expr] with [Parameters] for runtime input. *)
   val set
     :  ('row, 'base, 'value) Column.t
     -> 'value
@@ -2749,6 +2770,62 @@ type 'supports sql_dialect =
   | Postgresql : [> `Postgresql ] sql_dialect (** Select PostgreSQL SQL rendering. *)
   | Sqlite : [> `Sqlite ] sql_dialect (** Select SQLite SQL rendering. *)
 
+(** Opaque applicative value returned by a parameter declaration. Its SQL
+    value becomes available only inside a mapping operation. *)
+module Parameters : sig
+  type ('input, 'requirements, 'value) t
+
+  include
+    Applicative.S3
+    with type ('value, 'input, 'requirements) t := ('input, 'requirements, 'value) t
+
+  (** Applicative syntax. Prefer [let%map.Parameters ... and ...]
+      with [ppx_let]; use [let+] and [and+] where the PPX is unavailable. *)
+  module Let_syntax : sig
+    val return : 'value -> ('input, 'requirements, 'value) t
+
+    include
+      Applicative.Applicative_infix3
+      with type ('value, 'input, 'requirements) t := ('input, 'requirements, 'value) t
+
+    val ( let+ )
+      :  ('input, 'requirements, 'value) t
+      -> ('value -> 'result)
+      -> ('input, 'requirements, 'result) t
+
+    val ( and+ )
+      :  ('input, 'requirements, 'left) t
+      -> ('input, 'requirements, 'right) t
+      -> ('input, 'requirements, 'left * 'right) t
+
+    module Let_syntax : sig
+      val return : 'value -> ('input, 'requirements, 'value) t
+
+      val map
+        :  ('input, 'requirements, 'value) t
+        -> f:('value -> 'result)
+        -> ('input, 'requirements, 'result) t
+
+      val both
+        :  ('input, 'requirements, 'left) t
+        -> ('input, 'requirements, 'right) t
+        -> ('input, 'requirements, 'left * 'right) t
+
+      val ( let+ )
+        :  ('input, 'requirements, 'value) t
+        -> ('value -> 'result)
+        -> ('input, 'requirements, 'result) t
+
+      val ( and+ )
+        :  ('input, 'requirements, 'left) t
+        -> ('input, 'requirements, 'right) t
+        -> ('input, 'requirements, 'left * 'right) t
+
+      module Open_on_rhs : sig end
+    end
+  end
+end
+
 (** A reusable query or command accepting one typed input. [with_parameters]
     compiles static statements at definition time; [Dynamic] builds and
     compiles from input on each execution. *)
@@ -2904,62 +2981,6 @@ module Statement : sig
       diagnostic value. Statement errors use [Sql_error], and dynamic
       compilation failures use [Definition_error]. *)
   exception Inspection_error of inspection_error
-
-  (** Opaque applicative value returned by a parameter declaration. Its SQL
-      value becomes available only inside a mapping operation. *)
-  module Parameters : sig
-    type ('input, 'requirements, 'value) t
-
-    include
-      Applicative.S3
-      with type ('value, 'input, 'requirements) t := ('input, 'requirements, 'value) t
-
-    (** Syntax for combining parameter declarations with [let%map]/[and] or
-        [let+]/[and+]. *)
-    module Let_syntax : sig
-      val return : 'value -> ('input, 'requirements, 'value) t
-
-      include
-        Applicative.Applicative_infix3
-        with type ('value, 'input, 'requirements) t := ('input, 'requirements, 'value) t
-
-      val ( let+ )
-        :  ('input, 'requirements, 'value) t
-        -> ('value -> 'result)
-        -> ('input, 'requirements, 'result) t
-
-      val ( and+ )
-        :  ('input, 'requirements, 'left) t
-        -> ('input, 'requirements, 'right) t
-        -> ('input, 'requirements, 'left * 'right) t
-
-      module Let_syntax : sig
-        val return : 'value -> ('input, 'requirements, 'value) t
-
-        val map
-          :  ('input, 'requirements, 'value) t
-          -> f:('value -> 'result)
-          -> ('input, 'requirements, 'result) t
-
-        val both
-          :  ('input, 'requirements, 'left) t
-          -> ('input, 'requirements, 'right) t
-          -> ('input, 'requirements, 'left * 'right) t
-
-        val ( let+ )
-          :  ('input, 'requirements, 'value) t
-          -> ('value -> 'result)
-          -> ('input, 'requirements, 'result) t
-
-        val ( and+ )
-          :  ('input, 'requirements, 'left) t
-          -> ('input, 'requirements, 'right) t
-          -> ('input, 'requirements, 'left * 'right) t
-
-        module Open_on_rhs : sig end
-      end
-    end
-  end
 
   (** Parameter declarations and statement builders for one input type. The
       declarations share bind slots; combine declaration results

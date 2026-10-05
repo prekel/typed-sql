@@ -65,20 +65,20 @@ type dialect_choice_input =
 
 let dialect_choice_statement =
   let postgresql =
-    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params:parameters ->
-      let open Statement.Parameters.Let_syntax in
-      let%map id = parameters.column Item.id_column ~get:(fun input -> input.id) in
-      parameters.query_many
+    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
+      let%map.Parameters id = params.column Item.id_column ~get:(fun input -> input.id) in
+      params.query_many
         Query.(
           from Item.table
           |> where (fun item -> Item.id item =. id)
           |> select (fun item -> Projection.expr (Item.name item))))
   in
   let sqlite =
-    Statement.with_parameters ~dialect:Dialect.sqlite (fun ~params:parameters ->
-      let open Statement.Parameters.Let_syntax in
-      let%map name = parameters.column Item.name_column ~get:(fun input -> input.name) in
-      parameters.query_many
+    Statement.with_parameters ~dialect:Dialect.sqlite (fun ~params ->
+      let%map.Parameters name =
+        params.column Item.name_column ~get:(fun input -> input.name)
+      in
+      params.query_many
         Query.(
           from Item.table
           |> where (fun item -> Item.name item =. name)
@@ -1019,11 +1019,10 @@ let test_fetch_with_ties conn =
     [ 2000; 2001; 2001 ]
     locked_tied_years;
   let parameterized_query =
-    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params:parameters ->
-      let open Statement.Parameters.Let_syntax in
-      let%map page_size = parameters.non_negative_int ~name:"page_size" ~get:snd
-      and start_at = parameters.non_negative_int ~name:"start_at" ~get:fst in
-      parameters.query_many
+    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
+      let%map.Parameters page_size = params.non_negative_int ~name:"page_size" ~get:snd
+      and start_at = params.non_negative_int ~name:"start_at" ~get:fst in
+      params.query_many
         Query.(
           from Tie_item.table
           |> order_by Tie_item.published_in `Asc
@@ -1288,8 +1287,7 @@ let run ~postgresql conn =
   assert_rows ~name:"empty aggregate cardinality" ~equal:Int64.equal [ 0L ] rows;
   let parameterized =
     Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-      let open Statement.Parameters.Let_syntax in
-      let%map id = params.column ~name:"id" Item.id_column ~get:Fn.id in
+      let%map.Parameters id = params.column ~name:"id" Item.id_column ~get:Fn.id in
       params.query_many
         Query.(
           from Item.table
@@ -1635,9 +1633,8 @@ let test_caqti_prepared conn =
     failwith "Caqti did not retain server-side prepared statements";
   let statement =
     Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-      Statement.Parameters.map
-        (params.expr ~name:"value" Db_type.int64 ~get:Fn.id)
-        ~f:(fun value -> params.query_one (Query.select_one value)))
+      Parameters.map (params.expr ~name:"value" Db_type.int64 ~get:Fn.id) ~f:(fun value ->
+        params.query_one (Query.select_one value)))
   in
   let* first = Adapter.run ~conn statement 11L >>= adapter_or_fail in
   let* after_first = count () in
@@ -1652,12 +1649,11 @@ let test_caqti_prepared conn =
 
 let test_array_lookup conn =
   let list_lookup =
-    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params:parameters ->
-      let open Statement.Parameters.Let_syntax in
-      let%map ids =
-        parameters.expr (Db_type.Postgresql.array_list Db_type.int64) ~get:Fn.id
+    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
+      let%map.Parameters ids =
+        params.expr (Db_type.Postgresql.array_list Db_type.int64) ~get:Fn.id
       in
-      parameters.query_many
+      params.query_many
         Query.(
           from Item.table
           |> where (fun item -> Postgresql.Expr.equals_any_list (Item.id item) ids)
@@ -1669,10 +1665,11 @@ let test_array_lookup conn =
   let* empty = Adapter.run ~conn list_lookup [] >>= adapter_or_fail in
   assert_rows ~name:"empty array lookup" ~equal:Int64.equal [] empty;
   let nullable_lookup =
-    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params:parameters ->
-      let open Statement.Parameters.Let_syntax in
-      let%map ids = parameters.expr (Db_type.Postgresql.array Db_type.int64) ~get:Fn.id in
-      parameters.query_many
+    Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
+      let%map.Parameters ids =
+        params.expr (Db_type.Postgresql.array Db_type.int64) ~get:Fn.id
+      in
+      params.query_many
         Query.(
           from Item.table
           |> where (fun item ->

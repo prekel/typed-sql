@@ -224,10 +224,15 @@ module Let_syntax = struct
 
   include Applicative_infix
 
+  let ( let+ ) value f = map value ~f
+  let ( and+ ) = both
+
   module Let_syntax = struct
     let return = return
     let map = map
     let both = both
+    let ( let+ ) value f = map value ~f
+    let ( and+ ) = both
 
     module Open_on_rhs = struct end
   end

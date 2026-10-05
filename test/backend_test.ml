@@ -125,8 +125,9 @@ let%test "numeric codecs expose an exact adapter view" =
   let numeric_value = Decimal.of_string "1.25" |> Option.value_exn in
   let query =
     Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-      let open Statement.Parameters.Let_syntax in
-      let%map value = params.expr Db_type.numeric ~get:(fun () -> numeric_value) in
+      let%map.Parameters value =
+        params.expr Db_type.numeric ~get:(fun () -> numeric_value)
+      in
       params.query_many Query.(from table |> select (fun _ -> Projection.expr value)))
   in
   match B.Statement.resolve ~dialect:Dialect.Postgresql () query with
@@ -155,8 +156,7 @@ let%test_module "PostgreSQL nullable pagination binds typed optional values" =
 
     let statement =
       Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-        let open Statement.Parameters.Let_syntax in
-        let%map minimum_id =
+        let%map.Parameters minimum_id =
           params.expr Db_type.int ~get:(fun input -> input.inner.minimum_id)
         and maximum_rows =
           params.non_negative_int_opt ~name:"limit" ~get:(fun input -> input.inner.limit)
@@ -219,8 +219,7 @@ let%test "list-array parameter exposes a reversible backend codec" =
   let descriptor = Db_type.Postgresql.array_list Db_type.int64 in
   let statement =
     Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-      let open Statement.Parameters.Let_syntax in
-      let%map value = params.expr descriptor ~get:Fn.id in
+      let%map.Parameters value = params.expr descriptor ~get:Fn.id in
       params.query_one (Query.select_one value))
   in
   match

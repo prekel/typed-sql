@@ -44,7 +44,7 @@ type find_people =
 
 let find_people =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let%map.Statement.Parameters name = params.column Person.name_col ~get:(fun input -> input.name)
+    let%map.Parameters name = params.column Person.name_col ~get:(fun input -> input.name)
     and maximum_rows =
       params.non_negative_int
         ~name:"maximum_rows"
@@ -57,17 +57,58 @@ let find_people =
         |> order_by (fun person -> Person.id person) `Asc
         |> limit_param maximum_rows
         |> select (fun person ->
-          Projection.pair (Person.id person) (Person.name person))))
+          let%map.Projection id = Projection.expr (Person.id person)
+          and name = Projection.expr (Person.name person) in
+          id, name)))
 ```
 
 `Query.(...)` локально открывает только query-builder и сохраняет видимой
 границу DSL. `select` ставится последним: он задаёт projection и превращает
 builder в готовый `Result_query.t`.
 
+## Составные проекции
+
+Для объединения нескольких SQL-выражений предпочитайте `ppx_let`. Укажите
+модуль сразу после `%map`, без отдельного `let open`; параллельные значения
+связываются через `and`:
+
+```ocaml
+let person_projection person =
+  let%map.Projection id = Projection.expr (Person.id person)
+  and name = Projection.expr (Person.name person) in
+  id, name
+
+let person_summary person =
+  let%map.Aggregate_projection row_count = Aggregate_projection.count_all
+  and smallest_id =
+    Aggregate_projection.min Db_type.Orderable.int64 (Person.id person) in
+  row_count, smallest_id
+```
+
+Для параметров используется та же форма:
+`let%map.Parameters ... and ...`. Если `ppx_let` недоступен,
+используйте `let+` и `and+` из соответствующего `Let_syntax`
+(`Parameters.Let_syntax` для параметров), открыв его локально:
+
+```ocaml
+let person_projection person =
+  let open Projection.Let_syntax in
+  let+ id = Projection.expr (Person.id person)
+  and+ name = Projection.expr (Person.name person) in
+  id, name
+
+let person_summary person =
+  let open Aggregate_projection.Let_syntax in
+  let+ row_count = Aggregate_projection.count_all
+  and+ smallest_id =
+    Aggregate_projection.min Db_type.Orderable.int64 (Person.id person) in
+  row_count, smallest_id
+```
+
 `with_parameters` вызывает callback один раз при создании значения, а
 `params.query_many` компилирует statement сразу.
 `params.column` выводит SQL-тип из descriptor колонки. Параметры объединяются
-через `let%map.Statement.Parameters` до построения запроса; это рекомендуемый
+через `let%map.Parameters` до построения запроса; это рекомендуемый
 способ без локального `open`. Связанные объявления записываются через `and`. Объявление
 параметра само по себе не является `Expr.t`: его значение становится доступно
 внутри такого выражения. Для запроса без runtime-параметров
@@ -347,7 +388,7 @@ PostgreSQL поддерживает `FETCH FIRST ... WITH TIES` через
 ```ocaml
 let tied_people =
   Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
-    let%map.Statement.Parameters page_size = params.non_negative_int ~name:"page_size" ~get:Fn.id in
+    let%map.Parameters page_size = params.non_negative_int ~name:"page_size" ~get:Fn.id in
     params.query_many
       Query.(
         from Person.table

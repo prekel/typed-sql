@@ -38,6 +38,14 @@
   (pps ppx_expect ppx_let)))
 
 (library
+ (name typed_sql_let_syntax_tests)
+ (modules let_syntax_test)
+ (libraries base typed-sql)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
+
+(library
  (name typed_sql_mega_coverage_tests)
  (modules mega_coverage_test)
  (libraries base typed-sql)

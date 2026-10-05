@@ -148,7 +148,7 @@ typed-sql рендерит portable PostgreSQL SQL; значения стран�
 ```ocaml
 # let ef01 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ skip = params.non_negative_int ~name:"skip" ~get:(fun (skip, _) -> skip)
     and+ take = params.non_negative_int ~name:"take" ~get:(fun (_, take) -> take) in
     params.query_many
@@ -214,7 +214,7 @@ let last_date = Ptime.of_date_time ((2020, 1, 1), ((0, 0, 0), 0)) |> Option.valu
 ```ocaml
 # let ef02 =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
+    let open Parameters.Let_syntax in
     let+ last_date =
       params.expr Db_type.timestamp ~get:(fun (last_date, _, _) -> last_date)
     and+ last_id = params.expr Db_type.int64 ~get:(fun (_, last_id, _) -> last_id)
@@ -229,7 +229,11 @@ let last_date = Ptime.of_date_time ((2020, 1, 1), ((0, 0, 0), 0)) |> Option.valu
         |> order_by Post.date `Asc
         |> order_by Post.id `Asc
         |> Query.limit_param take
-        |> select (fun post -> Projection.pair (Post.id post) (Post.date post))))
+        |> select (fun post ->
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Post.id post)
+          and+ projected_right = Projection.expr (Post.date post) in
+          projected_left, projected_right)))
 val ef02 :
   (Ptime.t * int64 * int, (int64 * Ptime.t) list, Dialect.both) Statement.t =
   <abstr>
@@ -292,7 +296,11 @@ var query =
     Query.(
       from Blog.table
       |> inner_join Post.table ~on:(fun blog post -> Blog.id blog =. Post.blog_id post)
-      |> select (fun (blog, post) -> Projection.pair (Blog.id blog) (Post.id post)))
+      |> select (fun (blog, post) ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Blog.id blog)
+        and+ projected_right = Projection.expr (Post.id post) in
+        projected_left, projected_right))
 val ef03 : (unit, (int64 * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -343,7 +351,10 @@ var query =
       from Blog.table
       |> left_join Post.table ~on:(fun blog post -> Blog.id blog =. Post.blog_id post)
       |> select (fun (blog, post) ->
-        Projection.pair (Blog.id blog) (Post.nullable_id post)))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Blog.id blog)
+        and+ projected_right = Projection.expr (Post.nullable_id post) in
+        projected_left, projected_right))
 val ef04 : (unit, (int64 * int64 option) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -393,7 +404,11 @@ var query =
     Query.(
       from Blog.table
       |> cross_join Post.table
-      |> select (fun (blog, post) -> Projection.pair (Blog.id blog) (Post.id post)))
+      |> select (fun (blog, post) ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Blog.id blog)
+        and+ projected_right = Projection.expr (Post.id post) in
+        projected_left, projected_right))
 val ef05 : (unit, (int64 * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -441,7 +456,11 @@ var query =
     Query.(
       from Blog.table
       |> inner_join Post.table ~on:(fun blog post -> Blog.id blog =. Post.blog_id post)
-      |> select (fun (blog, post) -> Projection.pair (Blog.id blog) (Post.id post)))
+      |> select (fun (blog, post) ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Blog.id blog)
+        and+ projected_right = Projection.expr (Post.id post) in
+        projected_left, projected_right))
 val ef06 : (unit, (int64 * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -491,9 +510,13 @@ var query =
       from Blog.table
       |> inner_join Post.table ~on:(fun _blog _post -> Condition.true_)
       |> select (fun (blog, post) ->
-        Projection.pair
-          (Blog.id blog)
-          (Expr.concat (Expr.concat_value (Blog.url blog) "=>") (Post.title post))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Blog.id blog)
+        and+ projected_right =
+          Projection.expr
+            (Expr.concat (Expr.concat_value (Blog.url blog) "=>") (Post.title post))
+        in
+        projected_left, projected_right))
 val ef07 : (unit, (int64 * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -539,7 +562,11 @@ var query = context.Posts
     Query.(
       from Post.table
       |> group_by Post.author_id
-      |> select (fun post -> Projection.pair (Post.author_id post) Expr.count_all))
+      |> select (fun post ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Post.author_id post)
+        and+ projected_right = Projection.expr Expr.count_all in
+        projected_left, projected_right))
 val ef08 : (unit, (int64 * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -591,7 +618,11 @@ var query = context.Posts
       |> group_by Post.author_id
       |> having (fun _ -> Expr.count_all >$ 2L)
       |> order_by Post.author_id `Asc
-      |> select (fun post -> Projection.pair (Post.author_id post) Expr.count_all))
+      |> select (fun post ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Post.author_id post)
+        and+ projected_right = Projection.expr Expr.count_all in
+        projected_left, projected_right))
 val ef09 : (unit, (int64 * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -700,11 +731,11 @@ typed-sql может выразить серверную выборку стро
       from Book.table
       |> order_by Book.price `Asc
       |> select (fun book ->
-        Projection.map3
-          ~f:(fun price id author_id -> price, id, author_id)
-          (Projection.expr (Book.price book))
-          (Projection.expr (Book.id book))
-          (Projection.expr (Book.author_id book))))
+        let open Projection.Let_syntax in
+        let+ price = Projection.expr (Book.price book)
+        and+ id = Projection.expr (Book.id book)
+        and+ author_id = Projection.expr (Book.author_id book) in
+        price, id, author_id))
 val ef11 : (unit, (int * int64 * int64) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -762,11 +793,11 @@ var blogs = await context.Blogs
       |> order_by (fun ((blog, _post), _contributor) -> Blog.id blog) `Asc
       |> order_by (fun ((_blog, post), _contributor) -> Post.nullable_id post) `Asc
       |> select (fun ((blog, post), contributor) ->
-        Projection.map3
-          ~f:(fun blog_id post_id contributor_id -> blog_id, post_id, contributor_id)
-          (Projection.expr (Blog.id blog))
-          (Projection.expr (Post.nullable_id post))
-          (Projection.expr (Contributor.nullable_id contributor))))
+        let open Projection.Let_syntax in
+        let+ blog_id = Projection.expr (Blog.id blog)
+        and+ post_id = Projection.expr (Post.nullable_id post)
+        and+ contributor_id = Projection.expr (Contributor.nullable_id contributor) in
+        blog_id, post_id, contributor_id))
 val ef12 :
   (unit, (int64 * int64 option * int64 option) list, Dialect.both)
   Statement.t = <abstr>
@@ -839,11 +870,11 @@ val ef13_blogs : (unit, int64 list, Dialect.both) Statement.t = <abstr>
       |> inner_join Post.table ~on:(fun blog post -> Blog.id blog =. Post.blog_id post)
       |> order_by (fun (blog, _post) -> Blog.id blog) `Asc
       |> select (fun (blog, post) ->
-        Projection.map3
-          ~f:(fun post_id post_blog_id blog_id -> post_id, post_blog_id, blog_id)
-          (Projection.expr (Post.id post))
-          (Projection.expr (Post.blog_id post))
-          (Projection.expr (Blog.id blog))))
+        let open Projection.Let_syntax in
+        let+ post_id = Projection.expr (Post.id post)
+        and+ post_blog_id = Projection.expr (Post.blog_id post)
+        and+ blog_id = Projection.expr (Blog.id blog) in
+        post_id, post_blog_id, blog_id))
 val ef13_posts :
   (unit, (int64 * int64 * int64) list, Dialect.both) Statement.t = <abstr>
 ```
@@ -1017,7 +1048,11 @@ var blogs = await context.Blogs
     ~dialect:Dialect.portable
     Query.(
       from Blog.table
-      |> select (fun blog -> Projection.pair (Blog.id blog) (Blog.url blog)))
+      |> select (fun blog ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Blog.id blog)
+        and+ projected_right = Projection.expr (Blog.url blog) in
+        projected_left, projected_right))
 val ef16 : (unit, (int64 * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -1065,7 +1100,11 @@ var blogs = await context.Blogs
     Query.(
       from Blog.table
       |> where (fun blog -> Blog.url blog =~$ "https://example.%")
-      |> select (fun blog -> Projection.pair (Blog.id blog) (Blog.url blog)))
+      |> select (fun blog ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Blog.id blog)
+        and+ projected_right = Projection.expr (Blog.url blog) in
+        projected_left, projected_right))
 val ef17 : (unit, (int64 * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -1339,11 +1378,11 @@ var latest = await context.Posts
       |> order_by Post.id `Desc
       |> limit_one
       |> select (fun post ->
-        Projection.map3
-          ~f:(fun id title date -> id, title, date)
-          (Projection.expr (Post.id post))
-          (Projection.expr (Post.title post))
-          (Projection.expr (Post.date post))))
+        let open Projection.Let_syntax in
+        let+ id = Projection.expr (Post.id post)
+        and+ title = Projection.expr (Post.title post)
+        and+ date = Projection.expr (Post.date post) in
+        id, title, date))
 val ef22 :
   (unit, (int64 * string * Ptime.t) option, Dialect.both) Statement.t =
   <abstr>
@@ -1553,7 +1592,11 @@ typed-sql не имеет model-level global filters. Эквивалентный
     Query.(
       from Blog.table
       |> where (fun blog -> Blog.is_deleted blog =$ false)
-      |> select (fun blog -> Projection.pair (Blog.id blog) (Blog.url blog)))
+      |> select (fun blog ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Blog.id blog)
+        and+ projected_right = Projection.expr (Blog.url blog) in
+        projected_left, projected_right))
 val ef26 : (unit, (int64 * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -1643,13 +1686,21 @@ var blogs = await context.Blogs
       |> order_by (fun (_blog, post) -> Post.nullable_id post) `Asc
       |> order_by (fun (_blog, post) -> Expr.nullable_column post Post.title_column) `Desc
       |> select (fun (blog, post) ->
-        Projection.map3
-          ~f:(fun blog_fields post_fields title -> blog_fields, post_fields, title)
-          (Projection.pair (Blog.id blog) (Blog.url blog))
-          (Projection.pair
-             (Post.nullable_id post)
-             (Expr.nullable_column post Post.blog_id_column))
-          (Projection.expr (Expr.nullable_column post Post.title_column))))
+        let open Projection.Let_syntax in
+        let+ blog_fields =
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Blog.id blog)
+          and+ projected_right = Projection.expr (Blog.url blog) in
+          projected_left, projected_right
+        and+ post_fields =
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Post.nullable_id post)
+          and+ projected_right =
+            Projection.expr (Expr.nullable_column post Post.blog_id_column)
+          in
+          projected_left, projected_right
+        and+ title = Projection.expr (Expr.nullable_column post Post.title_column) in
+        blog_fields, post_fields, title))
 val ef27 :
   (unit,
    ((int64 * string) * (int64 option * int64 option) * string option) list,
@@ -1737,12 +1788,21 @@ var blogs = await context.Blogs
       |> order_by (fun ((blog, _post), _author) -> Blog.id blog) `Asc
       |> order_by (fun ((_blog, post), _author) -> Post.nullable_id post) `Asc
       |> select (fun ((blog, post), author) ->
-        Projection.map2
-          ~f:(fun blog_and_post author_fields -> blog_and_post, author_fields)
-          (Projection.pair (Blog.id blog) (Post.nullable_id post))
-          (Projection.pair
-             (Author.nullable_id author)
-             (Expr.nullable_column author Author.name_column))))
+        let open Projection.Let_syntax in
+        let+ blog_and_post =
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Blog.id blog)
+          and+ projected_right = Projection.expr (Post.nullable_id post) in
+          projected_left, projected_right
+        and+ author_fields =
+          let open Projection.Let_syntax in
+          let+ projected_left = Projection.expr (Author.nullable_id author)
+          and+ projected_right =
+            Projection.expr (Expr.nullable_column author Author.name_column)
+          in
+          projected_left, projected_right
+        in
+        blog_and_post, author_fields))
 val ef28 :
   (unit, ((int64 * int64 option) * (int64 option * string option)) list,
    Dialect.both)
@@ -1801,11 +1861,11 @@ typed-sql может построить сам rowset, но tracking, identity r
     Query.(
       from Blog.table
       |> select (fun blog ->
-        Projection.map3
-          ~f:(fun id rating url -> id, rating, url)
-          (Projection.expr (Blog.id blog))
-          (Projection.expr (Blog.rating blog))
-          (Projection.expr (Blog.url blog))))
+        let open Projection.Let_syntax in
+        let+ id = Projection.expr (Blog.id blog)
+        and+ rating = Projection.expr (Blog.rating blog)
+        and+ url = Projection.expr (Blog.url blog) in
+        id, rating, url))
 val ef29 : (unit, (int64 * int * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -1854,7 +1914,11 @@ var blogs = await context.Blogs
     Query.(
       from Blog.table
       |> order_by (fun blog -> Blog.rating blog) `Desc
-      |> select (fun blog -> Projection.pair (Blog.id blog) (Blog.url blog)))
+      |> select (fun blog ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Blog.id blog)
+        and+ projected_right = Projection.expr (Blog.url blog) in
+        projected_left, projected_right))
 val ef30_query : (unit, (int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -2267,11 +2331,11 @@ var posts = await context.Posts.Where(p => p.Rating >= minimum)
       |> order_by Post.id `Asc
       |> limit 10
       |> select (fun post ->
-        Projection.map3
-          ~f:(fun id blog_id title -> id, blog_id, title)
-          (Projection.expr (Post.id post))
-          (Projection.expr (Post.blog_id post))
-          (Projection.expr (Post.title post))))
+        let open Projection.Let_syntax in
+        let+ id = Projection.expr (Post.id post)
+        and+ blog_id = Projection.expr (Post.blog_id post)
+        and+ title = Projection.expr (Post.title post) in
+        id, blog_id, title))
 val ef41 : (unit, (int64 * int64 * string) list, Dialect.both) Statement.t =
   <abstr>
 ```
@@ -2324,14 +2388,18 @@ var result = await context.Blogs.Select(b => new {
     Query.(
       from Blog.table
       |> select (fun blog ->
-        Projection.pair
-          (Blog.id blog)
-          (Expr.scalar_subquery
-             Query.(
-               from Post.table
-               |> where (fun post -> Post.blog_id post =. Blog.id blog)
-               |> select_scalar (fun post ->
-                 Expr.max Db_type.Orderable.timestamp (Post.date post))))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Blog.id blog)
+        and+ projected_right =
+          Projection.expr
+            (Expr.scalar_subquery
+               Query.(
+                 from Post.table
+                 |> where (fun post -> Post.blog_id post =. Blog.id blog)
+                 |> select_scalar (fun post ->
+                   Expr.max Db_type.Orderable.timestamp (Post.date post))))
+        in
+        projected_left, projected_right))
 val ef42 :
   (unit, (int64 * Ptime.t option option) list, Dialect.both) Statement.t =
   <abstr>
@@ -2432,7 +2500,11 @@ var books = await context.Books.Where(b => !context.Authors
             from Author.table
             |> where (fun author ->
               Author.id author =. Book.author_id book &&. (Author.name author =$ "Ada"))))
-      |> select (fun book -> Projection.pair (Book.id book) (Book.price book)))
+      |> select (fun book ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Book.id book)
+        and+ projected_right = Projection.expr (Book.price book) in
+        projected_left, projected_right))
 val ef44 : (unit, (int64 * int) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -2520,7 +2592,11 @@ var posts = await context.Posts.Where(p => authorIds.Contains(p.AuthorId))
     Query.(
       from Post.table
       |> where (fun post -> Expr.in_ (Post.author_id post) [ 1L; 2L ])
-      |> select (fun post -> Projection.pair (Post.id post) (Post.author_id post)))
+      |> select (fun post ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Post.id post)
+        and+ projected_right = Projection.expr (Post.author_id post) in
+        projected_left, projected_right))
 val ef46 : (unit, (int64 * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -2570,11 +2646,15 @@ var page = await context.Blogs.OrderBy(b => b.BlogId).Skip(5).Take(10)
       |> limit 10
       |> offset 5
       |> select (fun blog ->
-        Projection.pair
-          (Blog.id blog)
-          (Expr.coalesce
-             (Blog.nullable_url blog)
-             ~default:(Expr.constant Db_type.text "(missing)"))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Blog.id blog)
+        and+ projected_right =
+          Projection.expr
+            (Expr.coalesce
+               (Blog.nullable_url blog)
+               ~default:(Expr.constant Db_type.text "(missing)"))
+        in
+        projected_left, projected_right))
 val ef47 : (unit, (int64 * string) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -2617,11 +2697,19 @@ var blogs = await context.Blogs.Where(b => b.Rating >= 4)
 let ef48_relation =
   Derived_table.create
     ~table:Blog.table
-    ~columns:(fun blog -> Projection.pair (Blog.id blog) (Blog.rating blog))
+    ~columns:(fun blog ->
+      let open Projection.Let_syntax in
+      let+ projected_left = Projection.expr (Blog.id blog)
+      and+ projected_right = Projection.expr (Blog.rating blog) in
+      projected_left, projected_right)
     Query.(
       from Blog.table
       |> where (fun blog -> Blog.rating blog >=$ 4)
-      |> select (fun blog -> Projection.pair (Blog.id blog) (Blog.rating blog)))
+      |> select (fun blog ->
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Blog.id blog)
+        and+ projected_right = Projection.expr (Blog.rating blog) in
+        projected_left, projected_right))
 ;;
 
 let ef48_cte = Cte.select ef48_relation
@@ -2635,7 +2723,11 @@ let ef48_cte = Cte.select ef48_relation
        Query.(
          from_cte selected
          |> order_by Blog.rating `Desc
-         |> select (fun blog -> Projection.pair (Blog.id blog) (Blog.rating blog)))))
+         |> select (fun blog ->
+           let open Projection.Let_syntax in
+           let+ projected_left = Projection.expr (Blog.id blog)
+           and+ projected_right = Projection.expr (Blog.rating blog) in
+           projected_left, projected_right))))
 val ef48 : (unit, (int64 * int) list, Dialect.both) Statement.t = <abstr>
 ```
 
@@ -2762,7 +2854,10 @@ var counts = await context.Blogs.Select(b => new { b.BlogId, Count = b.Posts.Cou
       |> having (fun (_blog, post) -> Expr.count (Post.nullable_id post) >=$ 2L)
       |> order_by (fun (blog, _post) -> Blog.id blog) `Asc
       |> select (fun (blog, post) ->
-        Projection.pair (Blog.id blog) (Expr.count (Post.nullable_id post))))
+        let open Projection.Let_syntax in
+        let+ projected_left = Projection.expr (Blog.id blog)
+        and+ projected_right = Projection.expr (Expr.count (Post.nullable_id post)) in
+        projected_left, projected_right))
 val ef50 : (unit, (int64 * int64) list, Dialect.both) Statement.t = <abstr>
 ```
 

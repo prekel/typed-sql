@@ -14,8 +14,7 @@ type input = minimum:int64 * maximum:int64
 
 let annotated_statement =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
-    let%map minimum =
+    let%map.Parameters minimum =
       params.column Item.id_column ~get:(fun ((~minimum, ..) : input) -> minimum)
     and maximum =
       params.column Item.id_column ~get:(fun ((~maximum, ..) : input) -> maximum)
@@ -29,8 +28,7 @@ let annotated_statement =
 
 let inferred_statement =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
-    let open Statement.Parameters.Let_syntax in
-    let%map minimum =
+    let%map.Parameters minimum =
       params.column Item.id_column ~get:(fun (~minimum, ~maximum:_) -> minimum)
     and maximum =
       params.column Item.id_column ~get:(fun (~minimum:_, ~maximum) -> maximum)
