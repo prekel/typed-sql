@@ -59,6 +59,67 @@ let sql dialect predicate =
     Search_people.statement
 ;;
 
+let%test_module "dynamic field projection" =
+  (module struct
+    type field =
+      | Id
+      | Name
+
+    type 'requirements selected_field =
+      | Selected_field :
+          string * ('value, 'requirements) Expr.t * ('value -> Yojson.Safe.t)
+          -> 'requirements selected_field
+
+    let fields_projection fields row =
+      let fields =
+        List.map fields ~f:(function
+          | Id ->
+            Selected_field
+              ("id", Person.id row, fun value -> `Intlit (Int64.to_string value))
+          | Name -> Selected_field ("name", Person.name row, fun value -> `String value))
+      in
+      let field_projection (Selected_field (name, expression, encode)) =
+        Projection.map (Projection.expr expression) ~f:(fun value -> name, encode value)
+      in
+      match List.map fields ~f:field_projection with
+      | [] ->
+        Projection.map
+          (Projection.expr (Expr.constant Db_type.int 1))
+          ~f:(fun _ -> `Assoc [])
+      | projections ->
+        projections |> Projection.all |> Projection.map ~f:(fun fields -> `Assoc fields)
+    ;;
+
+    let statement =
+      Statement.Dynamic.query_many ~dialect:Dialect.portable (fun fields ->
+        Query.(from Person.table |> select (fun row -> fields_projection fields row)))
+    ;;
+
+    let sql fields = Statement.sql_exn ~dialect:Postgresql ~input:fields statement
+
+    let%expect_test "selects only the requested name field" =
+      sql [ Name ] |> Stdlib.print_endline;
+      [%expect
+        {|
+        SELECT
+          t0."name"
+        FROM "people" AS t0
+        |}]
+    ;;
+
+    let%expect_test "selects the requested id and name fields" =
+      sql [ Id; Name ] |> Stdlib.print_endline;
+      [%expect
+        {|
+        SELECT
+          t0."id",
+          t0."name"
+        FROM "people" AS t0
+        |}]
+    ;;
+  end)
+;;
+
 let%expect_test "at least comparison uses PostgreSQL syntax" =
   Stdlib.print_endline (sql Postgresql (At_least 3L));
   [%expect
