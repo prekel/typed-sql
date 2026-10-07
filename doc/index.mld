@@ -66,7 +66,9 @@ DSL, compiler и Caqti описаны в {!page-architecture}. Решение с
 [Statement] единственным API выполнения и отвергнутые варианты записаны в
 {{:adr/0001-static-statement-api.md}ADR 0001}. Выбранные рамки и открытые
 вопросы Raw SQL escape hatch записаны в
-{{:adr/0002-raw-sql-escape-hatch.md}ADR 0002}.
+{{:adr/0002-raw-sql-escape-hatch.md}ADR 0002}. Выводы эксперимента по
+типизированным нарушениям ограничений и варианты будущего API собраны в
+{{:adr/0003-constraint-errors.md}ADR 0003}.
 
 API запросов описан в [lib/typed_sql.mli], а API схемы — в
 [schema/typed_sql_schema.mli]. Для авторов execution adapters есть отдельная
