@@ -64,6 +64,28 @@
   (database sql caqti lwt postgresql sqlite)))
 
 (package
+ (name typed-sql-graphql)
+ (synopsis "GraphQL request support for typed-sql")
+ (description
+  "GraphQL request parsing and typed JSON projections for schema-specific typed-sql queries.")
+ (depends
+  (ocaml (>= 4.14.1))
+  (typed-sql (= :version))
+  base
+  graphql_parser
+  yojson
+  ppx_let
+  (ppx_expect :with-test)
+  (typed-sql-caqti-lwt :with-test)
+  (caqti :with-test)
+  (caqti-lwt :with-test)
+  (caqti-driver-sqlite3 :with-test)
+  (lwt :with-test)
+  (uri :with-test))
+ (tags
+  (database sql graphql)))
+
+(package
  (name typed-sql-pgocaml-lwt)
  (synopsis "PG'OCaml Lwt execution backend for typed-sql")
  (description

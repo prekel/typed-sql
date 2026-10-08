@@ -1,0 +1,7 @@
+(library
+ (name typed_sql_graphql)
+ (public_name typed-sql-graphql)
+ (modules typed_sql_graphql)
+ (libraries base graphql_parser typed-sql yojson)
+ (preprocess
+  (pps ppx_let)))
