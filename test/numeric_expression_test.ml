@@ -715,7 +715,7 @@ let%test_unit "AVG retains exactly-one cardinality with FETCH WITH TIES" =
   assert (
     String.is_substring
       (Statement.sql_exn ~dialect:Postgresql ~input:() statement)
-      ~substring:"FETCH FIRST 1 ROWS WITH TIES")
+      ~substring:"FETCH FIRST $1 ROWS WITH TIES")
 ;;
 
 let%test_unit "AVG in a range bound proves exactly-one cardinality under CASE" =

@@ -129,7 +129,7 @@ let%expect_test "at least comparison uses PostgreSQL syntax" =
     FROM "people" AS t0
     WHERE
       (t0."id" >= $1)
-    LIMIT 10
+    LIMIT $2
     |}]
 ;;
 
@@ -142,7 +142,7 @@ let%expect_test "at least comparison uses SQLite syntax" =
     FROM "people" AS t0
     WHERE
       (t0."id" >= ?1)
-    LIMIT 10
+    LIMIT ?2
     |}]
 ;;
 
@@ -155,7 +155,7 @@ let%expect_test "at most comparison uses PostgreSQL syntax" =
     FROM "people" AS t0
     WHERE
       (t0."id" <= $1)
-    LIMIT 10
+    LIMIT $2
     |}]
 ;;
 
@@ -168,8 +168,24 @@ let%expect_test "at most comparison uses SQLite syntax" =
     FROM "people" AS t0
     WHERE
       (t0."id" <= ?1)
-    LIMIT 10
+    LIMIT ?2
     |}]
+;;
+
+let%test_unit "dynamic LIMIT is included in parameter inspection" =
+  let input = { Search_people.Input.predicate = At_least 3L; maximum_rows = 10 } in
+  let _, inspection =
+    Statement.inspect_exn ~dialect:Postgresql ~input Search_people.statement
+  in
+  match List.rev inspection.parameters with
+  | limit :: _ ->
+    assert (Int.equal limit.position 2);
+    assert (String.equal limit.placeholder "$2");
+    assert (String.equal limit.db_type "int");
+    (match limit.value with
+     | Some (Statement.Encoded value) -> assert (String.equal value "10")
+     | None | Some Statement.Null -> failwith "dynamic LIMIT value was not inspected")
+  | [] -> failwith "dynamic LIMIT parameter was not inspected"
 ;;
 
 let%test_unit "nested predicates and variable IN preserve portable SQL" =

@@ -1,16 +1,16 @@
-{0 Динамические statements}
+# Динамические statements
 
-[Statement.Dynamic] предназначен для случая, когда input определяет
-саму форму SQL: оператор сравнения, число элементов [IN], вложенность
+`Statement.Dynamic` предназначен для случая, когда input определяет
+саму форму SQL: оператор сравнения, число элементов `IN`, вложенность
 предикатов или projection. Все варианты projection должны декодироваться в
 один OCaml-тип, заданный типом statement. Конструктор сохраняет callback и не
-запускает его. Каждый вызов [Statement.sql] или execution adapter вызывает
+запускает его. Каждый вызов `Statement.sql` или execution adapter вызывает
 callback один раз, проверяет и компилирует получившийся запрос для выбранного
 dialect.
 
 Например, приложение может определить небольшой язык поиска:
 
-{[
+```ocaml
 module Predicate = struct
   type t =
     | Name_equals of string
@@ -34,11 +34,11 @@ module Predicate = struct
         result ||. to_condition person predicate)
     | Not predicate -> Condition.not_ (to_condition person predicate)
 end
-]}
+```
 
-Операция сохраняет тот же рекомендуемый layout с вложенным [Input]:
+Операция сохраняет тот же рекомендуемый layout с вложенным `Input`:
 
-{[
+```ocaml
 module Search_people = struct
   module Input = struct
     type t =
@@ -57,15 +57,15 @@ module Search_people = struct
         |> limit input.maximum_rows
         |> select Person.projection))
 end
-]}
+```
 
-В динамическом callback операторы с [$], [Expr.constant], [Insert.set] и
-[Update.set] получают значения текущего input. Они всё равно создают bind
+В динамическом callback операторы с `$`, `Expr.constant`, `Insert.set` и
+`Update.set` получают значения текущего input. Они всё равно создают bind
 parameters и не интерполируют значения в SQL. В отличие от статического
-[Statement.with_parameters] с [params.query_many], отдельный [params] здесь не
+`Statement.with_parameters` с `params.query_many`, отдельный `params` здесь не
 нужен: запрос целиком перестраивается для вызова.
 
-{[
+```ocaml
 Typed_sql_caqti_lwt.run
   ~conn
   Search_people.statement
@@ -76,37 +76,37 @@ Typed_sql_caqti_lwt.run
         ]
   ; maximum_rows = 20
   }
-]}
+```
 
-Доступны [query_many], [query_one], [query_optional] и [command]. Их
+Доступны `query_many`, `query_one`, `query_optional` и `command`. Их
 cardinality проверяется adapter так же, как у статических statements.
-[Statement.choose] выбирает ветку по input и может объединять статические и
+`Statement.choose` выбирает ветку по input и может объединять статические и
 динамические statements; callback запускается только у выбранной динамической
-ветки. [Statement.choose_dialect] выбирает готовую PostgreSQL или SQLite ветку
+ветки. `Statement.choose_dialect` выбирает готовую PostgreSQL или SQLite ветку
 по dialect соединения и требует одинаковые типы input и output.
 
-{1 Ошибки и стоимость}
+## Ошибки и стоимость
 
 Validation, lowering и rendering происходят при каждом вызове без cache. Ошибка
-компиляции возвращается как [Statement.Compilation_error] из [Statement.sql] и
-как [Typed_sql_caqti_lwt.Compile] или [Typed_sql_pgocaml_lwt.Compile] из
-execution adapter. [Statement.sql_exn] поднимает
-[Statement.Definition_error]. Исключение, выброшенное самим callback, проходит
+компиляции возвращается как `Statement.Compilation_error` из `Statement.sql` и
+как `Typed_sql_caqti_lwt.Compile` или `Typed_sql_pgocaml_lwt.Compile` из
+execution adapter. `Statement.sql_exn` поднимает
+`Statement.Definition_error`. Исключение, выброшенное самим callback, проходит
 без изменения.
 
 В отличие от статического statement, dynamic statement нельзя отрендерить без
-input: [Statement.sql] возвращает [Statement.Dynamic_input_required], поскольку
+input: `Statement.sql` возвращает `Statement.Dynamic_input_required`, поскольку
 callback определяет форму SQL. То же ограничение действует для
-[Statement.choose], где input выбирает ветвь.
+`Statement.choose`, где input выбирает ветвь.
 
-Статический [Statement.with_parameters ~dialect:Dialect.portable] остаётся
+Статический `Statement.with_parameters ~dialect:Dialect.portable` остаётся
 предпочтительным для фиксированной формы: он компилирует PostgreSQL и SQLite
 планы при создании модуля и выполняет только binding. Dynamic-вариант нужен,
 когда число возможных форм не ограничено или их явное перечисление через
-[Statement.choose] непрактично.
+`Statement.choose` непрактично.
 
-[Dynamic] сохраняет статическую проверку исключённых диалектов: callback обязан
-вернуть query или command, совместимый со свидетелем сборки [~dialect].
-[Dialect.portable] разрешает PostgreSQL и SQLite; concrete witness ограничивает
-statement одним dialect. [Statement.sql] и [Statement.sql_exn] не принимают
+`Dynamic` сохраняет статическую проверку исключённых диалектов: callback обязан
+вернуть query или command, совместимый со свидетелем сборки `~dialect`.
+`Dialect.portable` разрешает PostgreSQL и SQLite; concrete witness ограничивает
+statement одним dialect. `Statement.sql` и `Statement.sql_exn` не принимают
 селектор неподдерживаемого диалекта уже при проверке типов.

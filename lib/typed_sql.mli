@@ -224,7 +224,9 @@ module Db_type : sig
     val uuid : Uuid.t t
   end
 
-  (** SQL text represented as an OCaml [string]. *)
+  (** SQL text represented as an OCaml [string]. PostgreSQL [varchar] and
+      [bpchar] use the same descriptor; length limits and blank-padding
+      semantics remain enforced by PostgreSQL, not by this descriptor. *)
   val text : string t
 
   (** SQL binary data represented as mutable OCaml [bytes]. *)
@@ -1576,18 +1578,18 @@ module Query : sig
     -> ('ctx, 'grouping, 'cardinality, 'requirements) t
     -> ('ctx, 'grouping, 'cardinality, 'requirements) t
 
-  (** Set the maximum number of returned rows. The compiler rejects negative
-      values. A later call replaces the previous row limit. Because an
-      arbitrary integer may exceed one, this operation resets the proof to
-      [Cardinality.many], even when the supplied value happens to be zero or
-      one. *)
+  (** Set the maximum number of returned rows. The row count is rendered as a
+      bind parameter, and the compiler rejects negative values. A later call
+      replaces the previous row limit. Because an arbitrary integer may exceed
+      one, this operation resets the proof to [Cardinality.many], even when the
+      supplied value happens to be zero or one. *)
   val limit
     :  int
     -> ('ctx, 'grouping, 'cardinality, 'requirements) t
     -> ('ctx, 'grouping, Cardinality.many, 'requirements) t
 
-  (** Set [LIMIT 1]. This proves that the SELECT returns at most one row. A
-      later [limit], [limit_param], or PostgreSQL
+  (** Set [LIMIT 1] as a bind parameter. This proves that the SELECT returns at
+      most one row. A later [limit], [limit_param], or PostgreSQL
       [Postgresql.Query.fetch_with_ties] replaces that proof. It does not
       prove that a row exists, so the result is unsuitable for
       [Statement.with_parameters] with [parameters.query_one]. *)
@@ -1595,9 +1597,10 @@ module Query : sig
     :  ('ctx, 'grouping, 'cardinality, 'requirements) t
     -> ('ctx, 'grouping, Cardinality.at_most_one, 'requirements) t
 
-  (** Set the number of rows to skip. The compiler rejects negative values. A
-      later call replaces the previous offset. Skipping rows preserves an
-      existing upper bound. *)
+  (** Set the number of rows to skip. The count is rendered as a bind
+      parameter, and the compiler rejects negative values. A later call
+      replaces the previous offset. Skipping rows preserves an existing upper
+      bound. *)
   val offset
     :  int
     -> ('ctx, 'grouping, 'cardinality, 'requirements) t
@@ -2500,11 +2503,13 @@ module Postgresql : sig
            Query.t
       -> ('ctx, Query.ungrouped, 'cardinality, 'requirements) Query.t
 
-    (** Set PostgreSQL [FETCH FIRST n ROWS WITH TIES]. The final query must
-        have at least one [ORDER BY] key; all keys together determine ties.
-        The compiler checks this after the builder is complete. A later row
-        limit replaces this clause. Since tied rows can extend the requested
-        count, this resets cardinality to [Cardinality.many]. *)
+    (** Set PostgreSQL [FETCH FIRST n ROWS WITH TIES]. The count is rendered as
+        a bind parameter, and the compiler rejects negative values. The final
+        query must have at least one [ORDER BY] key; all keys together
+        determine ties. The compiler checks this after the builder is
+        complete. A later row limit replaces this clause. Since tied rows can
+        extend the requested count, this resets cardinality to
+        [Cardinality.many]. *)
     val fetch_with_ties
       :  int
       -> ('ctx, 'grouping, 'cardinality, ([> `Not_sqlite ] as 'requirements)) Query.t

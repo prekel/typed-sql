@@ -34,8 +34,7 @@ module Category = struct
   let id_column = Column.v_exn table "id" Db_type.int
   let name_column = Column.v_exn table "name" Db_type.text
   let id row = Expr.column row id_column
-  let nullable_id row = Expr.nullable_column row id_column
-  let nullable_name row = Expr.nullable_column row name_column
+  let name row = Expr.column row name_column
 end
 
 type object_field =
@@ -186,29 +185,9 @@ let projected_expression key expression encode =
   Gql.Json_projection.field ~key expression ~encode
 ;;
 
-let author_projection fields author =
-  let field_projection = function
-    | Object_id key -> projected_expression key (Author.id author) (fun id -> `Int id)
-    | Object_name key ->
-      projected_expression key (Author.name author) (fun name -> `String name)
-  in
-  Gql.Json_projection.object_ (List.map fields ~f:field_projection)
-;;
-
-let category_projection fields category =
-  let field_projection = function
-    | Object_id key ->
-      Projection.map
-        (Projection.expr (Category.nullable_id category))
-        ~f:(fun id -> key, Option.map id ~f:(fun id -> `Int id))
-    | Object_name key ->
-      Projection.map
-        (Projection.expr (Category.nullable_name category))
-        ~f:(fun name -> key, Option.map name ~f:(fun name -> `String name))
-  in
-  Projection.all (List.map fields ~f:field_projection)
+let nullable_object_projection fields =
+  Projection.all fields
   |> Projection.map ~f:(fun fields ->
-    (* Every selected category column is non-null before the LEFT JOIN. *)
     if List.for_all fields ~f:(fun (_, value) -> Option.is_none value) then
       `Null
     else
@@ -216,24 +195,84 @@ let category_projection fields category =
         (List.map fields ~f:(fun (key, value) ->
            match value with
            | Some value -> key, value
-           | None -> failwith "present category has a NULL required field")))
+           | None -> failwith "present related row has a NULL required field")))
 ;;
 
-let post_projection fields post author category =
+let author_id post =
+  Query.(
+    from Author.table
+    |> where (fun author -> Author.id author =. Post.author_id post)
+    |> limit 1
+    |> select_scalar Author.id)
+  |> Expr.scalar_subquery
+;;
+
+let author_name post =
+  Query.(
+    from Author.table
+    |> where (fun author -> Author.id author =. Post.author_id post)
+    |> limit 1
+    |> select_scalar Author.name)
+  |> Expr.scalar_subquery
+;;
+
+let category_id post =
+  Query.(
+    from Category.table
+    |> where (fun category ->
+      Expr.to_nullable (Category.id category) =. Post.category_id post)
+    |> limit 1
+    |> select_scalar Category.id)
+  |> Expr.scalar_subquery
+;;
+
+let category_name post =
+  Query.(
+    from Category.table
+    |> where (fun category ->
+      Expr.to_nullable (Category.id category) =. Post.category_id post)
+    |> limit 1
+    |> select_scalar Category.name)
+  |> Expr.scalar_subquery
+;;
+
+let author_projection fields post =
+  let field_projection = function
+    | Object_id key ->
+      Projection.map
+        (Projection.expr (author_id post))
+        ~f:(fun id -> key, Option.map id ~f:(fun id -> `Int id))
+    | Object_name key ->
+      Projection.map
+        (Projection.expr (author_name post))
+        ~f:(fun name -> key, Option.map name ~f:(fun name -> `String name))
+  in
+  nullable_object_projection (List.map fields ~f:field_projection)
+;;
+
+let category_projection fields post =
+  let field_projection = function
+    | Object_id key ->
+      Projection.map
+        (Projection.expr (category_id post))
+        ~f:(fun id -> key, Option.map id ~f:(fun id -> `Int id))
+    | Object_name key ->
+      Projection.map
+        (Projection.expr (category_name post))
+        ~f:(fun name -> key, Option.map name ~f:(fun name -> `String name))
+  in
+  nullable_object_projection (List.map fields ~f:field_projection)
+;;
+
+let post_projection fields post =
   let field_projection = function
     | Post_id key -> projected_expression key (Post.id post) (fun id -> `Int id)
     | Post_title key ->
       projected_expression key (Post.title post) (fun title -> `String title)
     | Post_author (key, fields) ->
-      (match author with
-       | Some author ->
-         Projection.map (author_projection fields author) ~f:(fun value -> key, value)
-       | None -> failwith "author projection requires an author join")
+      Projection.map (author_projection fields post) ~f:(fun value -> key, value)
     | Post_category (key, fields) ->
-      (match category with
-       | Some category ->
-         Projection.map (category_projection fields category) ~f:(fun value -> key, value)
-       | None -> failwith "category projection requires a category join")
+      Projection.map (category_projection fields post) ~f:(fun value -> key, value)
   in
   Gql.Json_projection.object_ (List.map fields ~f:field_projection)
 ;;
@@ -244,78 +283,40 @@ let post_condition (request : request) post =
   | Some min_id -> Post.id post >=$ min_id
 ;;
 
-let author_condition (request : request) author =
+let author_condition (request : request) post =
   match request.author_name with
   | None -> Condition.true_
-  | Some name -> Author.name author =$ name
+  | Some name ->
+    Query.(
+      from Author.table
+      |> where (fun author ->
+        Author.id author =. Post.author_id post &&. (Author.name author =$ name))
+      |> exists)
 ;;
 
-let category_condition (request : request) category =
+let category_condition (request : request) post =
   match request.category_name with
   | None -> Condition.true_
-  | Some name -> Category.nullable_name category =$ Some name
-;;
-
-let needs_author (request : request) =
-  Option.is_some request.author_name
-  || List.exists request.fields ~f:(function
-    | Post_author _ -> true
-    | _ -> false)
-;;
-
-let needs_category (request : request) =
-  Option.is_some request.category_name
-  || List.exists request.fields ~f:(function
-    | Post_category _ -> true
-    | _ -> false)
+  | Some name ->
+    Query.(
+      from Category.table
+      |> where (fun category ->
+        Expr.to_nullable (Category.id category)
+        =. Post.category_id post
+        &&. (Category.name category =$ name))
+      |> exists)
 ;;
 
 let query (request : request) =
-  match needs_author request, needs_category request with
-  | false, false ->
-    Query.(
-      from Post.table
-      |> where (fun post -> post_condition request post)
-      |> order_by Post.id request.order
-      |> limit request.first
-      |> select (fun post -> post_projection request.fields post None None))
-  | true, false ->
-    Query.(
-      from Post.table
-      |> inner_join Author.table ~on:(fun post author ->
-        Post.author_id post =. Author.id author)
-      |> where (fun (post, author) ->
-        post_condition request post &&. author_condition request author)
-      |> order_by (fun (post, _) -> Post.id post) request.order
-      |> limit request.first
-      |> select (fun (post, author) ->
-        post_projection request.fields post (Some author) None))
-  | false, true ->
-    Query.(
-      from Post.table
-      |> left_join Category.table ~on:(fun post category ->
-        Post.category_id post =. Expr.to_nullable (Category.id category))
-      |> where (fun (post, category) ->
-        post_condition request post &&. category_condition request category)
-      |> order_by (fun (post, _) -> Post.id post) request.order
-      |> limit request.first
-      |> select (fun (post, category) ->
-        post_projection request.fields post None (Some category)))
-  | true, true ->
-    Query.(
-      from Post.table
-      |> inner_join Author.table ~on:(fun post author ->
-        Post.author_id post =. Author.id author)
-      |> left_join Category.table ~on:(fun (post, _) category ->
-        Post.category_id post =. Expr.to_nullable (Category.id category))
-      |> where (fun ((post, author), category) ->
-        post_condition request post
-        &&. author_condition request author
-        &&. category_condition request category)
-      |> order_by (fun ((post, _), _) -> Post.id post) request.order
-      |> limit request.first
-      |> select (fun ((post, author), category) ->
-        post_projection request.fields post (Some author) (Some category)))
+  Query.(
+    from Post.table
+    |> where (fun post ->
+      post_condition request post
+      &&. author_condition request post
+      &&. category_condition request post)
+    |> order_by Post.id request.order
+    |> limit request.first
+    |> select (fun post -> post_projection request.fields post))
 ;;
 
 let statement : (request, Yojson.Safe.t list, Dialect.both) Statement.t =

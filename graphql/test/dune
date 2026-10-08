@@ -10,7 +10,12 @@
  (name typed_sql_graphql_expect_tests)
  (package typed-sql-graphql)
  (modules graphql_translation_test)
- (libraries base typed-sql typed-sql-graphql typed_sql_graphql_test_support yojson)
+ (libraries
+  base
+  typed-sql
+  typed-sql-graphql
+  typed_sql_graphql_test_support
+  yojson)
  (inline_tests)
  (preprocess
   (pps ppx_expect ppx_let)))

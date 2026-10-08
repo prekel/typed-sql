@@ -1,12 +1,12 @@
-{0 Запросы во время разработки}
+# Запросы во время разработки
 
-{1 SQL для psql или SQLite}
+## SQL для psql или SQLite
 
-[Statement.debug_sql_exn] принимает конкретный [input] и возвращает один SQL
+`Statement.debug_sql_exn` принимает конкретный `input` и возвращает один SQL
 statement с литералами и завершающей точкой с запятой. Его можно напечатать в
-expect-тесте или [utop] и скопировать в [psql]:
+expect-тесте или `utop` и скопировать в `psql`:
 
-{[
+```ocaml
 let statement =
   Statement.Dynamic.query_one ~dialect:Dialect.postgresql (fun name ->
     Query.select_one (Expr.constant Db_type.text name))
@@ -14,18 +14,18 @@ let statement =
 let () =
   Statement.debug_sql_exn ~dialect:Postgresql ~input:"O'Reilly" statement
   |> Stdlib.print_endline
-]}
+```
 
 Напечатанный запрос:
 
-{v
+```sql
 SELECT
   CAST(E'O''Reilly' AS text);
-v}
+```
 
 В expect-тесте поместите тот же вызов перед snapshot:
 
-{[
+```ocaml
 let%expect_test "copyable SQL" =
   Statement.debug_sql_exn ~dialect:Postgresql ~input:"O'Reilly" statement
   |> Stdlib.print_endline;
@@ -33,29 +33,29 @@ let%expect_test "copyable SQL" =
     SELECT
       CAST(E'O''Reilly' AS text);
   |}]
-]}
+```
 
-Для запроса к таблице используйте свой уже построенный [statement] и его
-обычный [input]. Вывод можно целиком вставить в [psql], если таблицы и типы
+Для запроса к таблице используйте свой уже построенный `statement` и его
+обычный `input`. Вывод можно целиком вставить в `psql`, если таблицы и типы
 существуют в целевой базе. Форматирование параметров учитывает dialect;
 например, массивы PostgreSQL сохраняют явный SQL-тип.
 
-Для SQLite используется [~dialect:Sqlite]. [Statement.debug_sql] возвращает
-[Result.t] с причиной ошибки. Например, PostgreSQL не может принять нулевой
+Для SQLite используется `~dialect:Sqlite`. `Statement.debug_sql` возвращает
+`Result.t` с причиной ошибки. Например, PostgreSQL не может принять нулевой
 байт внутри text, а SQLite не может точно выразить все специальные значения
 float через SQL-литерал. В этих случаях функция не выдаёт приблизительный SQL.
 Вывод содержит сами значения параметров; не записывайте его в обычный журнал
-приложения. [Statement.sql_exn] и адаптеры продолжают использовать bind
+приложения. `Statement.sql_exn` и адаптеры продолжают использовать bind
 parameters.
 
-{1 Результат из PostgreSQL expect-теста}
+## Результат из PostgreSQL expect-теста
 
-Да, [let%expect_test] может открыть соединение, выполнить запрос через
-[Typed_sql_caqti_lwt.run] и напечатать результат. В
-[caqti-lwt/test/postgresql_expect_test.ml] есть полный пример с временной
+Да, `let%expect_test` может открыть соединение, выполнить запрос через
+`Typed_sql_caqti_lwt.run` и напечатать результат. В
+`caqti-lwt/test/postgresql_expect_test.ml` есть полный пример с временной
 таблицей и предсказуемым результатом. Основная часть выглядит так:
 
-{[
+```ocaml
 let%expect_test "a PostgreSQL expect test can print the database result" =
   Lwt_main.run
     (with_seeded_connection (fun conn ->
@@ -63,34 +63,34 @@ let%expect_test "a PostgreSQL expect test can print the database result" =
        Stdlib.print_endline name;
        Lwt.return_unit));
   [%expect {| Ada |}]
-]}
+```
 
-[make test-postgres] поднимает временный PostgreSQL, запускает этот пример и
-удаляет сервер после тестов. Поэтому обычный [make test] не требует PostgreSQL.
-Если PostgreSQL уже запущен и доступен через [postgresql://], можно выполнить
+`make test-postgres` поднимает временный PostgreSQL, запускает этот пример и
+удаляет сервер после тестов. Поэтому обычный `make test` не требует PostgreSQL.
+Если PostgreSQL уже запущен и доступен через `postgresql://`, можно выполнить
 только этот expect-тест:
 
-{v
+```sh
 TYPED_SQL_PG_EXPECT=1 opam exec -- dune build --root . @runtest-typed_sql_postgresql_expect_tests
-v}
+```
 
-Если хотите посмотреть другой результат, меняйте [input] и snapshot в своём
-expect-тесте. Для запросов к собственной базе используйте тот же [run] с её
+Если хотите посмотреть другой результат, меняйте `input` и snapshot в своём
+expect-тесте. Для запросов к собственной базе используйте тот же `run` с её
 соединением.
 
-{1 Отправить запрос из dune utop}
+## Отправить запрос из dune utop
 
-Установите [utop] командой [opam install utop] либо через [make deps_all],
+Установите `utop` командой `opam install utop` либо через `make deps_all`,
 затем откройте toplevel PG'OCaml адаптера:
 
-{v
+```sh
 opam exec -- dune utop pgocaml-lwt
-v}
+```
 
-В [utop] выполните запрос. [Pgocaml.connect ()] использует настройки вашего
-PostgreSQL, в том числе [PGHOST], [PGUSER] и [PGDATABASE]:
+В `utop` выполните запрос. `Pgocaml.connect ()` использует настройки вашего
+PostgreSQL, в том числе `PGHOST`, `PGUSER` и `PGDATABASE`:
 
-{[
+```ocaml
 open Typed_sql;;
 
 let statement =
@@ -111,8 +111,8 @@ Statement.debug_sql_exn ~dialect:Postgresql ~input:"Ada" statement
 |> Stdlib.print_endline;;
 
 Lwt_main.run (Typed_sql_pgocaml_lwt.Pgocaml.close conn);;
-]}
+```
 
-В рабочем проекте замените демонстрационный [statement] на свой. Для
-результата-списка используйте [Statement.query_many] или
-[Statement.Dynamic.query_many]; [run] вернёт список декодированных значений.
+В рабочем проекте замените демонстрационный `statement` на свой. Для
+результата-списка используйте `Statement.query_many` или
+`Statement.Dynamic.query_many`; `run` вернёт список декодированных значений.

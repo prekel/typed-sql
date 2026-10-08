@@ -843,29 +843,32 @@ and render_select
         ( concat [ parts; break " "; text "ORDER BY"; nest (concat [ break " "; orders ]) ]
         , state )
     in
-    let render_offset parts state =
-      match select.offset with
-      | None -> parts, state
-      | Some (Ast.Literal n) ->
-        concat [ parts; break " "; text "OFFSET "; text (Int.to_string n) ], state
-      | Some (Ast.Parameter parameter) ->
-        let parameter, state = render_parameter parameter state in
-        concat [ parts; break " "; text "OFFSET "; parameter ], state
-    in
-    let render_row_count prefix suffix parts state pagination =
-      match pagination with
-      | Ast.Literal n ->
-        ( concat [ parts; break " "; text prefix; text (Int.to_string n); text suffix ]
-        , state )
+    let render_pagination prefix suffix parts state = function
+      | Ast.Literal value ->
+        let parameter, state =
+          render_parameter (Ast.Value (Db_type.Value (Db_type.int, value))) state
+        in
+        concat [ parts; break " "; text prefix; parameter; text suffix ], state
       | Ast.Parameter parameter ->
         let parameter, state = render_parameter parameter state in
         concat [ parts; break " "; text prefix; parameter; text suffix ], state
+    in
+    let render_offset parts state =
+      match select.offset with
+      | None -> parts, state
+      | Some pagination -> render_pagination "OFFSET " "" parts state pagination
+    in
+    let render_row_count prefix suffix parts state pagination =
+      render_pagination prefix suffix parts state pagination
+    in
+    let render_limit parts state pagination =
+      render_pagination "LIMIT " "" parts state pagination
     in
     let parts, state =
       match select.limit with
       | None -> render_offset parts state
       | Some (Ast.Limit pagination) ->
-        let parts, state = render_row_count "LIMIT " "" parts state pagination in
+        let parts, state = render_limit parts state pagination in
         render_offset parts state
       | Some (Ast.Fetch_with_ties pagination) ->
         let parts, state = render_offset parts state in

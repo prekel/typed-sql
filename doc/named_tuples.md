@@ -1,13 +1,13 @@
-{0 Именованные кортежи}
+# Именованные кортежи
 
 Этот документ содержит примеры синтаксиса именованных кортежей OCaml 5.5+.
 
-{1 Кортеж с метками и объявленным типом}
+## Кортеж с метками и объявленным типом
 
 Labeled tuple сохраняет имена. Известный тип позволяет каждому getter читать
-только своё поле через partial pattern [..]:
+только своё поле через partial pattern `..`:
 
-{[
+```ocaml
 type input =
   name:string
   * min_id:int64
@@ -63,15 +63,15 @@ let result =
     , ~active:true
     , ~maximum_rows:50
     , ~start_at:0 )
-]}
+```
 
-{1 Кортеж с метками без объявления типа}
+## Кортеж с метками без объявления типа
 
-OCaml может вывести тот же десятиэлементный тип без [type input]. Первый getter
+OCaml может вывести тот же десятиэлементный тип без `type input`. Первый getter
 должен задать полную форму кортежа; после этого остальные getters используют
 partial patterns:
 
-{[
+```ocaml
 let find_people =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let%map.Parameters name =
@@ -114,8 +114,8 @@ let find_people =
       (build_query
          ~name ~min_id ~max_id ~email ~min_age ~max_age ~city ~active
          ~maximum_rows ~start_at))
-]}
+```
 
-Если все getters используют [..] и тип не указан снаружи, компилятор не может
+Если все getters используют `..` и тип не указан снаружи, компилятор не может
 восстановить пропущенные поля. Поэтому вариант без объявления типа всё равно
 требует один полный десятиэлементный pattern.

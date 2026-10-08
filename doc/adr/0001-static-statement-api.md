@@ -66,7 +66,7 @@ OCaml-значение, переданное прямо в DSL через опе
 
 Input statement не ограничен record: можно использовать обычный кортеж,
 labeled tuple или любой другой OCaml-тип. Сравнение этих трёх вариантов и
-полные примеры находятся в `doc/statement_inputs.mld`.
+полные примеры находятся в [`doc/statement_inputs.md`](../statement_inputs.md).
 
 Конструктор строит semantic AST один раз. Статические конструкторы `Statement`
 принимают обязательный `~dialect`: `Dialect.portable` сразу проверяет и

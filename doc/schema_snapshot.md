@@ -44,6 +44,12 @@
 `{"kind":"unsupported","database_type":"numeric(20,4)"}`. Snapshot сохраняет
 неизвестный SQL-тип; без правила codegen возвращает явную ошибку.
 
+При интроспекции PostgreSQL встроенные `text`, `varchar` и `bpchar` записываются
+как `{"kind":"text"}` и генерируют `Db_type.text` (`string`). Ограничение длины
+`varchar(n)` и размер `char(n)` в snapshot не сохраняются. PostgreSQL продолжает
+проверять длину при записи; `char(n)` также сохраняет серверную семантику
+дополнения пробелами и их сравнения.
+
 В `foreign_keys` каждый объект содержит `columns` — список имён колонок,
 `referenced_schema` — строку или `null`, `referenced_table` — строку и
 `referenced_columns` — список имён. В `unique_constraints` каждый объект

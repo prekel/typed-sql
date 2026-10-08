@@ -55,7 +55,7 @@ let run conn ~query ~variables =
   Lwt.return (Demo.response request rows)
 ;;
 
-let check_nested_join_aliases_and_null conn =
+let check_nested_related_objects_and_null conn =
   let query =
     {|
     query Posts($author: String!, $first: Int!) {
@@ -92,7 +92,7 @@ let check_nested_join_aliases_and_null conn =
   Lwt.return_unit
 ;;
 
-let check_filter_only_join conn =
+let check_relation_filter conn =
   let query = {|{ posts(categoryName: "News") { id title } }|} in
   let* actual = run conn ~query ~variables:[] in
   let expected =
@@ -125,8 +125,8 @@ let main () =
   Lwt.finalize
     (fun () ->
        let* () = seed conn in
-       let* () = check_nested_join_aliases_and_null conn in
-       let* () = check_filter_only_join conn in
+       let* () = check_nested_related_objects_and_null conn in
+       let* () = check_relation_filter conn in
        check_zero_limit conn)
     (fun () -> Connection.disconnect ())
 ;;

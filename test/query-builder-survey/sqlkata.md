@@ -294,8 +294,8 @@ INNER JOIN "author" AS t1
   ON (t0."author_id" = t1."id")
 ORDER BY
   t0."id" ASC
-LIMIT 10
-OFFSET 20
+LIMIT $1
+OFFSET $2
 ```
 
 ### SK-05. CTE с агрегацией и фильтром групп

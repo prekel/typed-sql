@@ -1509,7 +1509,7 @@ WHERE
 ORDER BY
   t0."last_name" ASC,
   t0."id" ASC
-LIMIT 20
+LIMIT $4
 ```
 ### KY-22. Условная проекция через $if
 
@@ -1932,7 +1932,7 @@ SELECT
       (t1."owner_id" = t0."id")
     ORDER BY
       t1."id" DESC
-    LIMIT 1
+    LIMIT $1
   )
 FROM "person" AS t0
 ```
@@ -2828,7 +2828,7 @@ ORDER BY
       (t1."owner_id" = t0."id")
     ORDER BY
       t1."id" ASC
-    LIMIT 1
+    LIMIT $1
   ) ASC
 ```
 ### KY-40. SQL template tag с bind-значением
@@ -3386,7 +3386,7 @@ WHERE
   (t0."owner_id" = $1)
 ORDER BY
   t0."id" ASC
-LIMIT 1
+LIMIT $2
 FOR UPDATE SKIP LOCKED
 ```
 

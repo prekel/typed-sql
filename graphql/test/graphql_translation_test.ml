@@ -28,7 +28,7 @@ let%test_module "GraphQL SQL rendering" =
   (module struct
     let simple = "{ posts { id title } }"
 
-    let joined =
+    let related_objects =
       {|
       query Posts($author: String!, $first: Int!) {
         results: posts(authorName: $author, minId: 2, first: $first, orderBy: ID_DESC) {
@@ -54,7 +54,7 @@ let%test_module "GraphQL SQL rendering" =
         FROM "posts" AS t0
         ORDER BY
           t0."id" ASC
-        LIMIT 20
+        LIMIT $1
         |}]
     ;;
 
@@ -68,14 +68,14 @@ let%test_module "GraphQL SQL rendering" =
         FROM "posts" AS t0
         ORDER BY
           t0."id" ASC
-        LIMIT 20
+        LIMIT ?1
         |}]
     ;;
 
-    let%expect_test "both joins, variables and aliases in PostgreSQL" =
+    let%expect_test "related objects, variables and aliases in PostgreSQL" =
       sql_exn
         Postgresql
-        ~query:joined
+        ~query:related_objects
         ~variables:[ "author", `String "Ada"; "first", `Int 2 ]
       |> Stdlib.print_endline;
       [%expect
@@ -83,117 +83,200 @@ let%test_module "GraphQL SQL rendering" =
         SELECT
           t0."id",
           t0."title",
-          t1."name",
-          t2."id",
-          t2."name"
+          (
+            SELECT
+              t1."name"
+            FROM "authors" AS t1
+            WHERE
+              (t1."id" = t0."author_id")
+            LIMIT $1
+          ),
+          (
+            SELECT
+              t1."id"
+            FROM "categories" AS t1
+            WHERE
+              (t1."id" = t0."category_id")
+            LIMIT $2
+          ),
+          (
+            SELECT
+              t1."name"
+            FROM "categories" AS t1
+            WHERE
+              (t1."id" = t0."category_id")
+            LIMIT $3
+          )
         FROM "posts" AS t0
-        INNER JOIN "authors" AS t1
-          ON (t0."author_id" = t1."id")
-        LEFT JOIN "categories" AS t2
-          ON (t0."category_id" = t2."id")
         WHERE
           (
-            (t0."id" >= $1)
-            AND (t1."name" = $2)
+            (t0."id" >= $4)
+            AND (EXISTS (
+              SELECT
+                1
+              FROM "authors" AS t1
+              WHERE
+                (
+                  (t1."id" = t0."author_id")
+                  AND (t1."name" = $5)
+                )
+            ))
           )
         ORDER BY
           t0."id" DESC
-        LIMIT 2
+        LIMIT $6
         |}]
     ;;
 
-    let%expect_test "both joins, variables and aliases in SQLite" =
-      sql_exn Sqlite ~query:joined ~variables:[ "author", `String "Ada"; "first", `Int 2 ]
+    let%expect_test "related objects, variables and aliases in SQLite" =
+      sql_exn
+        Sqlite
+        ~query:related_objects
+        ~variables:[ "author", `String "Ada"; "first", `Int 2 ]
       |> Stdlib.print_endline;
       [%expect
         {|
         SELECT
           t0."id",
           t0."title",
-          t1."name",
-          t2."id",
-          t2."name"
+          (
+            SELECT
+              t1."name"
+            FROM "authors" AS t1
+            WHERE
+              (t1."id" = t0."author_id")
+            LIMIT ?1
+          ),
+          (
+            SELECT
+              t1."id"
+            FROM "categories" AS t1
+            WHERE
+              (t1."id" = t0."category_id")
+            LIMIT ?2
+          ),
+          (
+            SELECT
+              t1."name"
+            FROM "categories" AS t1
+            WHERE
+              (t1."id" = t0."category_id")
+            LIMIT ?3
+          )
         FROM "posts" AS t0
-        INNER JOIN "authors" AS t1
-          ON (t0."author_id" = t1."id")
-        LEFT JOIN "categories" AS t2
-          ON (t0."category_id" = t2."id")
         WHERE
           (
-            (t0."id" >= ?1)
-            AND (t1."name" = ?2)
+            (t0."id" >= ?4)
+            AND (EXISTS (
+              SELECT
+                1
+              FROM "authors" AS t1
+              WHERE
+                (
+                  (t1."id" = t0."author_id")
+                  AND (t1."name" = ?5)
+                )
+            ))
           )
         ORDER BY
           t0."id" DESC
-        LIMIT 2
+        LIMIT ?6
         |}]
     ;;
 
-    let%expect_test "filter-only inner join in PostgreSQL" =
+    let%expect_test "author filter uses EXISTS in PostgreSQL" =
       sql_exn Postgresql ~query:author_filter ~variables:[] |> Stdlib.print_endline;
       [%expect
         {|
         SELECT
           t0."title"
         FROM "posts" AS t0
-        INNER JOIN "authors" AS t1
-          ON (t0."author_id" = t1."id")
         WHERE
-          (t1."name" = $1)
+          (EXISTS (
+            SELECT
+              1
+            FROM "authors" AS t1
+            WHERE
+              (
+                (t1."id" = t0."author_id")
+                AND (t1."name" = $1)
+              )
+          ))
         ORDER BY
           t0."id" ASC
-        LIMIT 20
+        LIMIT $2
         |}]
     ;;
 
-    let%expect_test "filter-only inner join in SQLite" =
+    let%expect_test "author filter uses EXISTS in SQLite" =
       sql_exn Sqlite ~query:author_filter ~variables:[] |> Stdlib.print_endline;
       [%expect
         {|
         SELECT
           t0."title"
         FROM "posts" AS t0
-        INNER JOIN "authors" AS t1
-          ON (t0."author_id" = t1."id")
         WHERE
-          (t1."name" = ?1)
+          (EXISTS (
+            SELECT
+              1
+            FROM "authors" AS t1
+            WHERE
+              (
+                (t1."id" = t0."author_id")
+                AND (t1."name" = ?1)
+              )
+          ))
         ORDER BY
           t0."id" ASC
-        LIMIT 20
+        LIMIT ?2
         |}]
     ;;
 
-    let%expect_test "filter-only left join in PostgreSQL" =
+    let%expect_test "category filter uses EXISTS in PostgreSQL" =
       sql_exn Postgresql ~query:category_filter ~variables:[] |> Stdlib.print_endline;
       [%expect
         {|
         SELECT
           t0."title"
         FROM "posts" AS t0
-        LEFT JOIN "categories" AS t1
-          ON (t0."category_id" = t1."id")
         WHERE
-          (t1."name" = $1)
+          (EXISTS (
+            SELECT
+              1
+            FROM "categories" AS t1
+            WHERE
+              (
+                (t1."id" = t0."category_id")
+                AND (t1."name" = $1)
+              )
+          ))
         ORDER BY
           t0."id" ASC
-        LIMIT 1
+        LIMIT $2
         |}]
     ;;
 
-    let%expect_test "filter-only left join in SQLite" =
+    let%expect_test "category filter uses EXISTS in SQLite" =
       sql_exn Sqlite ~query:category_filter ~variables:[] |> Stdlib.print_endline;
       [%expect
         {|
         SELECT
           t0."title"
         FROM "posts" AS t0
-        LEFT JOIN "categories" AS t1
-          ON (t0."category_id" = t1."id")
         WHERE
-          (t1."name" = ?1)
+          (EXISTS (
+            SELECT
+              1
+            FROM "categories" AS t1
+            WHERE
+              (
+                (t1."id" = t0."category_id")
+                AND (t1."name" = ?1)
+              )
+          ))
         ORDER BY
           t0."id" ASC
-        LIMIT 1
+        LIMIT ?2
         |}]
     ;;
   end)

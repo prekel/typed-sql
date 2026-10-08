@@ -7,7 +7,7 @@
 - `caqti-lwt/` — единственное место для зависимости от Caqti и Lwt.
 - `test/` — regression, property, golden и compile-fail тесты ядра.
 - `caqti-lwt/test/` — интеграционные тесты через SQLite `:memory:`.
-- `doc/` — odoc-документация архитектуры и публичного API.
+- `doc/` — Markdown-документация архитектуры и публичного API.
 - `benchmark/` — небольшие воспроизводимые benchmark без внешней БД.
 - Метаданные пакетов задаются в `dune-project`; сгенерированные `.opam` вручную
   не редактируются.

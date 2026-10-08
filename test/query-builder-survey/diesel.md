@@ -1202,7 +1202,7 @@ WHERE
 ORDER BY
   t0."user_id" ASC,
   t0."id" ASC
-LIMIT 20
+LIMIT $4
 ```
 
 ### DI-18. Пользователи без публикаций

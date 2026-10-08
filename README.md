@@ -22,7 +22,10 @@ query-пакета и выбранного execution-адаптера. Подд�
 Полный набор интеграционных тестов пройден на PostgreSQL 15.19 и 18.6 через
 оба адаптера; версии 16 и 17 отдельно пока не проверялись.
 
-[Гайд для разработки](doc/development_workflow.mld) показывает, как получить
+Обзор руководств и архитектурных решений находится в
+[документации](doc/index.md).
+
+[Гайд для разработки](doc/development_workflow.md) показывает, как получить
 SQL со значениями для `psql` или SQLite и выполнить statement из expect-теста
 или `dune utop`.
 
@@ -140,7 +143,7 @@ let person_summary person =
 константы времени создания statement. Меняющиеся между вызовами значения
 вводятся через `params` и используются как expressions операторами с точкой.
 Input может быть обычным кортежем, кортежем с метками или record; полные
-варианты приведены в [документации](doc/statement_inputs.mld).
+варианты приведены в [документации](doc/statement_inputs.md).
 
 Если input задаёт саму структуру запроса, например рекурсивный язык предикатов
 или список переменной длины для `IN`, используется
@@ -150,12 +153,12 @@ Input может быть обычным кортежем, кортежем с �
 ограничивает statement одним диалектом. Неподдерживаемый диалект отклоняется до
 вызова callback.
 Подробный пример находится в
-[документации динамических statements](doc/dynamic_statements.mld).
+[документации динамических statements](doc/dynamic_statements.md).
 
 Для nullable значений используйте `params.optional_expr`: nullable и
 non-null views указывают на один bind slot. Nullable pagination через
 `params.non_negative_int_opt` принимает `None` как SQL `NULL` и доступна только
-в PostgreSQL. Примеры есть в [руководстве по input](doc/statement_inputs.mld).
+в PostgreSQL. Примеры есть в [руководстве по input](doc/statement_inputs.md).
 
 Если PostgreSQL и SQLite должны использовать разные SQL-запросы, готовые
 статические ветки можно объединить через `Statement.choose_dialect`:

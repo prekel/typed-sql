@@ -518,7 +518,7 @@ let%expect_test "UNION ALL wraps branches with local ordering and limits" =
         (t0."id" > ?1)
       ORDER BY
         t0."id" DESC
-      LIMIT 2
+      LIMIT ?2
     ) AS s0
     UNION ALL
     SELECT *
@@ -528,10 +528,10 @@ let%expect_test "UNION ALL wraps branches with local ordering and limits" =
         t0."name"
       FROM "public"."people" AS t0
       WHERE
-        (t0."id" < ?2)
+        (t0."id" < ?3)
       ORDER BY
         t0."id" ASC
-      LIMIT 3
+      LIMIT ?4
     ) AS s0
     |}]
 ;;

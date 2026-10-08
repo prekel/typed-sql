@@ -185,8 +185,8 @@ let%test_module "portable query rendering" =
           )
         ORDER BY
           t0."id" DESC
-        LIMIT 20
-        OFFSET 5
+        LIMIT $3
+        OFFSET $4
         |}]
     ;;
 
@@ -208,8 +208,8 @@ let%test_module "portable query rendering" =
           )
         ORDER BY
           t0."id" DESC
-        LIMIT 20
-        OFFSET 5
+        LIMIT ?3
+        OFFSET ?4
         |}]
     ;;
 
@@ -241,7 +241,7 @@ let%test_module "portable query rendering" =
                   (t1."person_id" = t0."id")
                 ORDER BY
                   t1."name" ASC
-                LIMIT 3
+                LIMIT $1
               ) AS m0
             )
             AS TEXT
@@ -277,7 +277,7 @@ let%test_module "portable query rendering" =
                 (t1."person_id" = t0."id")
               ORDER BY
                 t1."name" ASC
-              LIMIT 3
+              LIMIT ?1
             ) AS m0
           )
         FROM "public"."people" AS t0
@@ -746,7 +746,7 @@ let%test_module "PostgreSQL FETCH FIRST WITH TIES" =
         ORDER BY
           t0."name" ASC,
           t0."id" DESC
-        FETCH FIRST 2 ROWS WITH TIES
+        FETCH FIRST $1 ROWS WITH TIES
         |}]
     ;;
 
@@ -760,7 +760,7 @@ let%test_module "PostgreSQL FETCH FIRST WITH TIES" =
           |> select Person.projection)
       in
       let sql = query |> compile_postgresql_exn |> Compiled_query.sql in
-      String.is_substring sql ~substring:"LIMIT 3"
+      String.is_substring sql ~substring:"LIMIT $1"
       && not (String.is_substring sql ~substring:"FETCH FIRST")
     ;;
 
@@ -853,7 +853,7 @@ let%test_module "PostgreSQL FOR UPDATE" =
         FROM "public"."people" AS t0
         ORDER BY
           t0."id" ASC
-        LIMIT 2
+        LIMIT $1
         FOR UPDATE
         |}]
     ;;
@@ -879,7 +879,7 @@ let%test_module "PostgreSQL FOR UPDATE" =
         FROM "public"."people" AS t0
         ORDER BY
           t0."id" ASC
-        LIMIT 1
+        LIMIT $1
         FOR UPDATE OF t0 SKIP LOCKED
         |}]
     ;;
@@ -929,7 +929,7 @@ let%test_module "PostgreSQL FOR UPDATE" =
           ON (t0."id" = t1."person_id")
         ORDER BY
           t0."id" ASC
-        LIMIT 2
+        LIMIT $1
         FOR UPDATE OF t0 SKIP LOCKED
         |}]
     ;;
@@ -2196,8 +2196,8 @@ let%expect_test "scalar fallback renders without FROM in PostgreSQL" =
         FROM "public"."people" AS t0
         WHERE
           (t0."id" = $1)
-        LIMIT 1
-      ), $2)
+        LIMIT $2
+      ), $3)
     |}]
 ;;
 
@@ -2215,8 +2215,8 @@ let%expect_test "scalar fallback renders without FROM in SQLite" =
         FROM "public"."people" AS t0
         WHERE
           (t0."id" = ?1)
-        LIMIT 1
-      ), ?2)
+        LIMIT ?2
+      ), ?3)
     |}]
 ;;
 
@@ -2303,8 +2303,8 @@ let%expect_test "source-free SELECT with CTE renders in PostgreSQL" =
         SELECT
           t0."id"
         FROM "c0" AS t0
-        LIMIT 1
-      ), $2)
+        LIMIT $2
+      ), $3)
     |}]
 ;;
 
@@ -2327,8 +2327,8 @@ let%expect_test "source-free SELECT with CTE renders in SQLite" =
         SELECT
           t0."id"
         FROM "c0" AS t0
-        LIMIT 1
-      ), ?2)
+        LIMIT ?2
+      ), ?3)
     |}]
 ;;
 
@@ -2908,7 +2908,7 @@ let%expect_test "correlated subqueries render in PostgreSQL" =
         FROM "public"."departments" AS t1
         WHERE
           (t1."person_id" = t0."id")
-        LIMIT 1
+        LIMIT $1
       )
     FROM "public"."people" AS t0
     WHERE
@@ -2944,7 +2944,7 @@ let%expect_test "correlated subqueries render in SQLite" =
         FROM "public"."departments" AS t1
         WHERE
           (t1."person_id" = t0."id")
-        LIMIT 1
+        LIMIT ?1
       )
     FROM "public"."people" AS t0
     WHERE
@@ -3021,7 +3021,7 @@ let%expect_test "zero-limit scalar subquery renders in PostgreSQL" =
         SELECT
           t1."name"
         FROM "public"."departments" AS t1
-        LIMIT 0
+        LIMIT $1
       )
     FROM "public"."people" AS t0
     |}]

@@ -660,8 +660,8 @@ let%expect_test "null checks and multiple sort keys render in PostgreSQL" =
     ORDER BY
       t0."name" ASC,
       t0."id" DESC
-    LIMIT 3
-    OFFSET 1
+    LIMIT $2
+    OFFSET $3
     |}]
 ;;
 
@@ -683,8 +683,8 @@ let%expect_test "null checks and multiple sort keys render in SQLite" =
     ORDER BY
       t0."name" ASC,
       t0."id" DESC
-    LIMIT 3
-    OFFSET 1
+    LIMIT ?2
+    OFFSET ?3
     |}]
 ;;
 

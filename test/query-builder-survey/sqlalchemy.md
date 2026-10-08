@@ -979,7 +979,7 @@ SET
       (t2."user_id" = t0."id")
     ORDER BY
       t2."id" ASC
-    LIMIT 1
+    LIMIT $1
   )
 FROM "user_account" AS t1
 ```
@@ -1602,7 +1602,7 @@ SELECT
       (t1."user_id" = t0."id")
     ORDER BY
       t1."id" DESC
-    LIMIT 1
+    LIMIT $1
   )
 FROM "user_account" AS t0
 ```
@@ -2832,8 +2832,8 @@ SELECT
       (t1."user_id" = t0."id")
     ORDER BY
       t1."id" ASC
-    LIMIT 1
-  ), $1)
+    LIMIT $1
+  ), $2)
 FROM "user_account" AS t0
 ```
 
@@ -2949,7 +2949,7 @@ WHERE
 ORDER BY
   t0."name" ASC,
   t0."id" ASC
-LIMIT 20
+LIMIT $4
 ```
 
 ### SA-46. UPDATE со значением из связанного адреса
@@ -3240,5 +3240,5 @@ HAVING
 ORDER BY
   COUNT(t1."id") DESC,
   t0."id" ASC
-LIMIT 10
+LIMIT $3
 ```

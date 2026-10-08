@@ -1,0 +1,265 @@
+# Архитектура
+
+```text
+Generated/manual schema
+          |
+          v
+Typed DSL: Db_type -> Column -> Expr -> Condition -> Query builder
+                                                -> Projection -> Result_query
+          |
+          v
+Immutable semantic AST
+          |
+ normalize -> validate -> lower -> render
+          |
+          v
+Static plans, or a Dynamic callback compiled per input
+          |
+          v
+Runtime input -> typed bind values + selected projection plan
+          |
+          v
+Caqti Lwt adapter / PG'OCaml Lwt adapter
+```
+
+Для обратного направления `typed-sql-schema-caqti-lwt` читает
+PostgreSQL/SQLite metadata, а `typed-sql-schema-pgocaml-lwt` читает
+PostgreSQL metadata в dialect-neutral `Typed_sql_schema.Schema_ir`.
+Оба интроспектора используют общие catalog-запросы и преобразование
+метаданных; затем `Typed_sql_schema.Schema_codegen` выпускает обычный
+OCaml source с table/column descriptors и projection. Introspection и codegen
+не входят в query compiler и не добавляют зависимости ядра от connection.
+Discovery запускается отдельно, а сохранённый generated module компилируется
+при обычной сборке без обращения к базе. Коллизии нормализованных имён
+разрешаются детерминированными числовыми суффиксами.
+
+`Typed_sql_schema.Schema_snapshot` сериализует schema IR в JSON версии 2 и восстанавливает его
+без filesystem или database access. CLI `typed-sql-codegen` читает snapshot
+из файла или stdin и передаёт его обычному `Typed_sql_schema.Schema_codegen`. Порядок таблиц,
+колонок и constraints сохраняется; синтаксические ошибки и несовместимые
+версии возвращаются до генерации. Yojson остаётся деталью реализации.
+
+## Граница типов
+
+`Expr` и `Projection` сохраняют OCaml-типы во время построения DSL. Phantom-параметр
+запроса накапливает исключённые диалекты: пустой тип означает отсутствие
+ограничений, а `` `Not_sqlite `` исключает SQLite. Свидетель `Dialect.supports`
+связывает эти ограничения с набором диалектов скомпилированного `Statement.t`.
+`Dialect.portable` компилирует оба плана. Функции `Statement.sql` и
+`Statement.sql_exn` принимают верхнеуровневые селекторы `postgresql` и
+`sqlite`, поэтому
+PostgreSQL-only statement нельзя отрендерить для SQLite. Внутренний compiler
+получает type-erased semantic nodes только после того, как публичные функции
+проверили совместимость выражений. Source identity остаётся в AST для проверки
+принадлежности колонок, а SQL aliases назначаются только renderer. Обычная
+column descriptor отражает schema nullability: `Column.v` даёт обязательное
+значение, `Column.nullable_v` — `option`. Правая таблица `LEFT JOIN` имеет
+`Nullable_table_ref`; `Expr.nullable_column` возвращает один `option` даже для
+schema-nullable колонки.
+
+Основной surface для predicates — общий `Infix`, реэкспортирующий операторы
+`Expr.Infix` и `Condition.Infix`. Оператор с `$` создаёт константу текущего AST:
+при создании static statement или при текущем вызове dynamic callback. Оператор
+с точкой принимает expression, в том числе runtime-слот из
+`Statement.parameters`. Оба вида значения кодируются как bind values, поэтому
+строка SQL не строится из пользовательского значения.
+
+`Values` задаёт строки relation вместе с output columns. Структурная форма
+фиксируется `Values.Row`, а dynamic вариант принимает списки `Values.Cell`.
+Compiler проверяет ширину и database type каждой строки, а также отклоняет
+ссылки на внешние источники и агрегаты. Литеральные значения ячеек остаются
+bind parameters; relation доступна в `FROM`, `INNER JOIN` и `LEFT JOIN`.
+
+`Query.exists_expr` сохраняет коррелированный SELECT в semantic AST как
+не-NULL булево выражение. Его projection не участвует в результате: renderer
+выводит `EXISTS (SELECT 1 ...)`, а validator проверяет область видимости
+захваченных источников.
+
+`Insert.from_select` сохраняет завершённый SELECT как источник строк INSERT.
+Отдельный упорядоченный список целевых колонок проверяется на принадлежность
+таблице, уникальность и совпадение database types с projection источника.
+Варианты VALUES и SELECT взаимоисключаются. При SQLite UPSERT renderer добавляет
+`WHERE TRUE` к SELECT без фильтра для однозначного разбора `ON CONFLICT`.
+
+`Merge` поддерживает PostgreSQL 17+ и хранит один source, `ON` и упорядоченные
+ветви `WHEN MATCHED` / `WHEN NOT MATCHED`. Builder требует `USING` и `ON` до
+финализации; compiler проверяет непустые назначения, уникальность колонок и
+достижимость ветвей. Условия и UPDATE видят target и source, а INSERT и
+NOT MATCHED conditions — только source. Явное `AND TRUE` сохраняется при
+нормализации, поскольку отсутствие условия закрывает дальнейшие ветви того же
+вида. `Merge.command` возвращает affected rows, `Merge.returning` — typed query
+с cardinality `many`, включая source fields и значения target после INSERT /
+UPDATE либо до DELETE. `DO NOTHING` не создаёт возвращаемую строку.
+
+`Merge.using_cte` и `Merge.using_cte_relation` используют существующие handles;
+`Postgresql.Cte.returning` и `Postgresql.Cte.command` допускают MERGE как тело CTE.
+Определения сохраняют lexical scope и общий генератор SQL-имён. Data-modifying
+WITH допустим только у корневого statement; вложенный SELECT WITH может содержать
+только читающие определения. Recursive WITH непосредственно у MERGE отклоняется,
+но recursive SELECT внутри `USING` и рекурсивный источник из внешнего SELECT WITH
+допускаются. Compiler не перемещает определения между уровнями. Изменяющие CTE
+читают общий snapshot и обмениваются данными через RETURNING, поэтому порядок
+определений не задаёт последовательного наблюдения изменений таблиц. Все действия
+MERGE и его CTE выполняются одним атомарным statement через обычный адаптер;
+constraint или cardinality error не оставляет частичных изменений. Версия сервера
+не входит в dialect witness и остаётся документированным требованием приложения.
+
+`Statement.Dynamic` сохраняет callback вместо готовых планов. При
+каждом resolution callback получает input, после чего AST проходит тот же
+normalization, validation, lowering и rendering для dialect соединения.
+Получившиеся значения остаются bind parameters. Typed `Dialect.supports`
+ограничивает callback concrete диалектом или разрешает оба portable диалекта;
+несовместимый query или command не пройдёт проверку исключений в OCaml.
+Неподдерживаемый runtime dialect отклоняется до вызова callback.
+
+## API приложения, адаптеров и тестов
+
+Полный контракт приложения с комментариями API перечислен в
+`lib/typed_sql.mli`. Библиотека `typed-sql` содержит только facade
+`Typed_sql`, который реэкспортирует описанные в этой сигнатуре модули из
+внутренней `typed_sql_private`. Поэтому представления скрыты абстрактными
+типами, а остальным модулям реализации отдельные `.mli` не нужны.
+
+`typed_sql_private` устанавливается как техническая зависимость facade, но не
+входит в поддерживаемый пользовательский API. White-box тесты зависят от неё
+непосредственно через Dune. Внутри ядра функции вроде `Expr.node` и
+`Query.ast` вызываются напрямую.
+
+`Typed_sql` предоставляет DSL, `Statement`, SQL и ошибки. Его
+сигнатура не раскрывает internal constructors и AST. Например, white-box тест
+может вызвать `Typed_sql_private.Query.ast builder` или
+`Typed_sql_private.Command.create ast`, чтобы проверить compiler на намеренно
+некорректном command.
+
+`Typed_sql_schema` предоставляет metadata, snapshot и codegen отдельно от
+query builder. Общие catalog-запросы и helpers дамперов находятся в
+`typed-sql-schema.backend`, а driver-specific интроспекторы зависят от
+выбранного драйвера. Зависимости от схемных библиотек к `typed-sql` нет.
+
+`Projection` реализует `Base.Applicative.S2`: `return`, `map` с именованным `f`,
+`apply`, `both`, `all` и аппликативные операторы. `Projection.Let_syntax`
+поддерживает `let%map ... and ...`. Структура SELECT известна до декодирования,
+поэтому зависимый от результата `bind` у projection отсутствует.
+`Aggregate_projection.Let_syntax` поддерживает ту же сборку через `let%map` и
+`and`. Его `return` отсутствует, поскольку результат должен содержать агрегат.
+Принадлежность источника текущему запросу дополнительно проверяет compiler.
+
+Библиотека `typed-sql.backend` предоставляет отдельный контракт в
+`backend/typed_sql_backend.mli`. Только здесь находятся `Db_type.view`,
+`packed_value`, `Template`, `Shape` и доступ к декодерам. Конструкторы codec
+views и packed values объявлены `private`: адаптеры могут их разбирать, но не
+создавать. Варианты ошибок, dialect и affected rows остаются в API приложения.
+
+Коллекции из `Query.multiset` и `Projection.multiset_agg` занимают одно поле
+SQL-результата. Compiler кодирует строки позиционными JSON-массивами через
+`jsonb_agg` в PostgreSQL и `json_group_array` в SQLite. Внутренний result-only
+codec рекурсивно восстанавливает типизированные строки и применяет исходные
+`Projection.map`. Благодаря представлению codec как mapped `text` существующий
+backend contract не получает отдельной зависимости от JSON.
+
+Адаптеры интерпретируют результат через `Typed_sql_backend.Projection.Make`,
+предоставляя свой аппликатив и обработчик codec одного поля. SQL-выражения при
+этом им не нужны. `Typed_sql_backend.Template.map` позволяет преобразовать
+текст и bind slots в представление backend.
+
+Общая граница двух API — `Statement.t`. Backend выбирает план по dialect
+connection, применяет getters к текущему input и получает внутреннее execution
+значение с template, packed parameters и projection. Эти compiled-типы не
+входят в пользовательский фасад. Копирования AST и unchecked casts нет.
+
+Монадическая обёртка Lwt для PG'OCaml реализована через `Base.Monad.Make`.
+Она находится в адаптере; ядро остаётся независимым от эффекта выполнения.
+
+Внутренняя библиотека не гарантирует обратной совместимости и допускает обход
+инвариантов DSL. В ней доступны `Ast`, `Table_ref`, helpers выражений и
+projections, compiled constructors, а также `Normalizer`, `Validator`, `Lower`
+и `Renderer`. Перед прямым вызовом renderer тест должен обеспечить validation,
+normalization и lowering входного AST.
+
+`test/query_test.ml` зависит только от API приложения. `test/backend_test.ml`
+и `test/projection_test.ml` проверяют передачу скомпилированных запросов в
+backend, shape, параметры и декодеры. `test/private_api_test.ml` проверяет
+отдельные этапы и ошибки AST.
+Compile-fail tests подтверждают недоступность `Typed_sql.Query.Private` и
+внутренних constructors, абстракцию identifiers, различие phantom row types,
+nullable refs и обязательный scope DML. Дополнительные compile-fail tests
+запрещают доступ приложения к codec views, параметрам, декодерам и shape,
+изменение compiled record и создание private значений через backend API.
+Они также фиксируют, что SQLite witness не принимает `DEFAULT`, ungrouped
+PostgreSQL `HAVING` и PostgreSQL requirement внутри subquery.
+
+## Граница backend
+
+Пакет `typed-sql` не зависит от Caqti, Lwt и PG'OCaml. `Result_query` содержит
+typed projection plan, а `Command` представляет statement без строк результата.
+При создании `Statement` они становятся внутренними планами с template
+fragments, layout параметров, projection и shape. При `run` getters создают
+packed values текущего input. Caqti adapter интерпретирует descriptors в
+`Caqti.Template.Row_type`. PG'OCaml adapter кодирует параметры и декодирует
+строки через тот же `Db_type` контракт без unchecked casts.
+
+Prepared statement lifetime принадлежит adapter'у. Shape включает type identity
+parameters и projection, поэтому различает mapped codecs с одинаковым именем;
+он не включает значения параметров, connection, generative source IDs или
+generated aliases. PG'OCaml low-level API не сообщает affected rows, поэтому
+`run` для команды возвращает `Affected_rows.Unknown`.
+
+Caqti и PG'OCaml предоставляют один `run` для query cardinality и команд.
+Adapter проверяет dialect соединения до binding. Его opt-in observer измеряет
+подготовку Caqti request, database round trip и projection decoding; bind
+values в событие не попадают. Встроенный bounded profiler группирует события
+по имени, операции и fingerprint `Shape`, не добавляя состояние или эффекты в
+ядро.
+
+Transactions находятся в execution adapters. Callback получает то же
+connection value; `Ok` приводит к commit, `Error` — к rollback, исключение
+откатывается и затем пробрасывается дальше.
+
+## Строки и массивы PostgreSQL
+
+`Db_type.text` представляет `text` и `varchar` одним OCaml-типом `string`.
+Длина `varchar(n)` не входит в descriptor: PostgreSQL проверяет её при записи.
+`char(n)` (`bpchar`) тоже представляется как `string`, но PostgreSQL дополняет
+его пробелами и иначе обрабатывает конечные пробелы при сравнении.
+
+У PG'OCaml собственный тип для `integer[]` — `int32 option list`: `None`
+означает SQL `NULL` в отдельном элементе, например в
+`ARRAY[1, NULL, 3]::integer[]`. Он не означает пустой массив или `NULL`
+вместо всего значения колонки. В typed-sql оба адаптера используют общий
+codec `Db_type.Postgresql.array`, который сохраняет такие элементы в
+`Pg_array.t` вместе с размерностями и нижними границами. PG'OCaml adapter
+читает текстовое представление массива из результата; Caqti adapter передаёт
+его через `Caqti.Template.Row_type.string`.
+
+`Db_type.Postgresql.array_list` предназначен для одномерных массивов с нижней
+границей 1 и без `NULL`-элементов. При декодировании `NULL`-элемента,
+другой размерности или иной нижней границы он возвращает ошибку, а не удаляет
+элементы. Пустой массив декодируется в пустой список. Для nullable колонки
+внешний `None` означает SQL `NULL` вместо массива; у `Pg_array.t` `None`
+в списке элементов означает SQL `NULL` внутри массива.
+
+
+## Среднее и числовые преобразования
+
+`Expr.avg_int`, `Expr.avg_int64` и `Expr.avg_float` возвращают `float option`.
+Целочисленный вход явно преобразуется в floating-point перед `AVG`, поэтому
+PostgreSQL и SQLite используют один descriptor результата. Варианты
+`_nullable` игнорируют SQL `NULL` без дополнительного слоя `option`. Пустой
+вход и вход только из `NULL` дают `None`. `Postgresql.Numeric` сохраняет
+нативный точный результат `Decimal.t option`; `Numeric_projection` предоставляет
+тот же контракт для `Query.aggregate_one`.
+
+Именованные числовые `CAST` между `int`, `int64` и `float` сохраняют requirements
+входа. Преобразования с `numeric` в `Postgresql.Numeric` добавляют `Not_sqlite`.
+Descriptor результата соответствует целевому встроенному типу. Варианты
+`_nullable` сохраняют SQL `NULL`. Округление, переполнение и потеря точности
+определяются выбранной БД; DSL не унифицирует эти правила.
+
+`Update.with_target` предоставляет существующий target reference для
+корреляции без добавления SQL-источника. Коррелированный scalar subquery с
+`AVG` сохраняет доказательство cardinality; compiler проверяет source identity
+и вложенные агрегаты также под `CAST`. `Update.set_nullable_expr` явно
+разрешает присвоить nullable-выражение колонке `NOT NULL`. Выражение не
+изменяется: SQL `NULL` вызывает ошибку ограничения при выполнении через
+существующий канал ошибок адаптера. Для nullable-колонок используется
+`Update.set_expr`. Финализация по-прежнему требует `where` или `all_rows`.

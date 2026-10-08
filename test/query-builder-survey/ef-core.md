@@ -1402,7 +1402,7 @@ WHERE
 ORDER BY
   t0."Date" DESC,
   t0."PostId" DESC
-LIMIT 1
+LIMIT $2
 ```
 
 ### EF-23. Равенство nullable-значений
@@ -2354,7 +2354,7 @@ WHERE
 ORDER BY
   t0."Rating" DESC,
   t0."PostId" ASC
-LIMIT 10
+LIMIT $2
 ```
 
 ### EF-42. Максимальная дата публикации для блога
@@ -2668,8 +2668,8 @@ SELECT
 FROM "Blogs" AS t0
 ORDER BY
   t0."BlogId" ASC
-LIMIT 10
-OFFSET 5
+LIMIT $2
+OFFSET $3
 ```
 
 ### EF-48. CTE с рейтингом блога

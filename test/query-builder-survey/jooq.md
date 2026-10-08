@@ -185,8 +185,8 @@ HAVING
   (COUNT(*) > $2)
 ORDER BY
   t0."last_name" ASC
-LIMIT 2
-OFFSET 1
+LIMIT $3
+OFFSET $4
 ```
 
 ### JQ-02. Условный предикат и форма запроса
@@ -1553,7 +1553,7 @@ WHERE
       (t2."author_id" = t0."id")
     ORDER BY
       t2."id" DESC
-    LIMIT 1
+    LIMIT $1
   ))
 ```
 
@@ -2088,7 +2088,7 @@ SELECT
 FROM "book" AS t0
 ORDER BY
   t0."published_in" ASC
-FETCH FIRST 2 ROWS WITH TIES
+FETCH FIRST $1 ROWS WITH TIES
 ```
 
 Чтобы проверить семантику, две или более книги должны иметь одинаковый `PUBLISHED_IN` на границе страницы.
@@ -2998,7 +2998,7 @@ WHERE
 ORDER BY
   t0."published_in" ASC,
   t0."id" ASC
-LIMIT 20
+LIMIT $4
 ```
 
 ### JQ-42. Конкурентный выбор строк с SKIP LOCKED
@@ -3067,7 +3067,7 @@ WHERE
   (t0."published_in" < $1)
 ORDER BY
   t0."id" ASC
-LIMIT 5
+LIMIT $2
 FOR UPDATE SKIP LOCKED
 ```
 
@@ -4035,6 +4035,6 @@ HAVING
   (COUNT(*) > $2)
 ORDER BY
   t0."id" ASC
-LIMIT 10
-OFFSET 5
+LIMIT $3
+OFFSET $4
 ```

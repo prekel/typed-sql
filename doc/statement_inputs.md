@@ -1,16 +1,16 @@
-{0 Входные значения статического statement}
+# Входные значения статического statement
 
 Эта страница описывает фиксированную SQL-форму, созданную
-[Statement.with_parameters] с typed [~dialect]. Когда input меняет структуру
+`Statement.with_parameters` с typed `~dialect`. Когда input меняет структуру
 предиката, projection или число bind slots, используется
-[Statement.Dynamic]; см. {!page-dynamic_statements}.
+`Statement.Dynamic`; см. [описание динамических statements](dynamic_statements.md).
 
 У statement есть два разных времени жизни значений. OCaml-значение, переданное
-прямо в DSL через оператор с [$], [Expr.constant], [Insert.set] или
-[Update.set], захватывается один раз при создании [Statement.t]. Это константа
+прямо в DSL через оператор с `$`, `Expr.constant`, `Insert.set` или
+`Update.set`, захватывается один раз при создании `Statement.t`. Это константа
 statement:
 
-{[
+```ocaml
 let ada_after_ten =
   Statement.query_many ~dialect:Dialect.portable
       Query.(
@@ -18,22 +18,22 @@ let ada_after_ten =
         |> where (fun person ->
           Person.name person =$ "Ada" &&. (Person.id person >$ 10L))
         |> select Person.projection)
-]}
+```
 
-["Ada"] и [10L] остаются SQL bind values: renderer выдаёт placeholders, а не
-вставляет значения в SQL. Однако при разных вызовах [ada_after_ten] они уже не
+`"Ada"` и `10L` остаются SQL bind values: renderer выдаёт placeholders, а не
+вставляет значения в SQL. Однако при разных вызовах `ada_after_ten` они уже не
 меняются.
 
-Значение времени выполнения объявляется через аргумент [params] конструктора.
-Для объединения параметров рекомендуется [let%map.Parameters]
+Значение времени выполнения объявляется через аргумент `params` конструктора.
+Для объединения параметров рекомендуется `let%map.Parameters`
 без локального открытия модуля; последующие параметры в том же выражении
-добавляются через [and].
-[params.column] выводит [Db_type] из descriptor колонки, а [params.expr]
+добавляются через `and`.
+`params.column` выводит `Db_type` из descriptor колонки, а `params.expr`
 принимает его явно. В следующих вариантах один statement получает десять
-значений: восемь фильтров, [LIMIT] и [OFFSET]. Все варианты вызывают один
+значений: восемь фильтров, `LIMIT` и `OFFSET`. Все варианты вызывают один
 query-builder:
 
-{[
+```ocaml
 let build_query
       ~name
       ~min_id
@@ -60,28 +60,28 @@ let build_query
     |> limit_param maximum_rows
     |> offset_param start_at
     |> select Person.projection)
-]}
+```
 
 Getter сохраняется в скомпилированном statement и применяется к input каждого
 вызова. Повторное использование одного expression повторяет один и тот же bind
 slot. Форма SQL и число slots остаются статическими.
 
-{1 Диагностика SQL-параметров}
+## Диагностика SQL-параметров
 
-[Statement.inspect] возвращает SQL и отдельный список параметров в порядке
-placeholders. Без [~input] статический statement показывает позиции, имена и
-типы; с [~input] — также закодированные значения. Для [params.column] имя по
-умолчанию берётся из колонки, а [~name] переопределяет его. PostgreSQL
+`Statement.inspect` возвращает SQL и отдельный список параметров в порядке
+placeholders. Без `~input` статический statement показывает позиции, имена и
+типы; с `~input` — также закодированные значения. Для `params.column` имя по
+умолчанию берётся из колонки, а `~name` переопределяет его. PostgreSQL
 показывает тип SQL, SQLite при наличии значения — его storage class.
 
-Результат также содержит выбранный диалект, [shape] скомпилированного плана и
-[output]. Для query [output] перечисляет SQL-колонки, их типы и ожидаемую
+Результат также содержит выбранный диалект, `shape` скомпилированного плана и
+`output`. Для query `output` перечисляет SQL-колонки, их типы и ожидаемую
 кардинальность; имя есть только у прямой ссылки на колонку. Для command
-[output] указывает, что результат — число затронутых строк. Поле [tree] показывает структуру
-[Choose]/[Choose_dialect], отмечает выбранный путь и различает статические и
+`output` указывает, что результат — число затронутых строк. Поле `tree` показывает структуру
+`Choose`/`Choose_dialect`, отмечает выбранный путь и различает статические и
 динамические ветви. Невыбранные callbacks не запускаются.
 
-{[
+```ocaml
 let sql, inspection =
   Statement.inspect_exn ~dialect:Postgresql ~input find_people
 in
@@ -90,24 +90,24 @@ List.iter inspection.parameters ~f:(fun parameter ->
   Statement.sexp_of_parameter parameter
   |> Sexp.to_string_hum
   |> Stdlib.print_endline)
-]}
+```
 
 Значения остаются вне SQL и не являются SQL-литералами: текст диагностики
-нельзя подставлять вместо placeholders. [None] в поле [value] означает, что
-input не передан; [Some Null] — привязанный SQL [NULL]. Ошибка mapped codec
-возвращается как [Statement.Codec_error] с позицией и именем параметра.
-Для запроса, который можно вставить в [psql] или SQLite, используйте
-[Statement.debug_sql_exn] с [~input]; пример есть в
-{!page-development_workflow}.
+нельзя подставлять вместо placeholders. `None` в поле `value` означает, что
+input не передан; `Some Null` — привязанный SQL `NULL`. Ошибка mapped codec
+возвращается как `Statement.Codec_error` с позицией и именем параметра.
+Для запроса, который можно вставить в `psql` или SQLite, используйте
+`Statement.debug_sql_exn` с `~input`; пример есть в
+[руководстве по запросам во время разработки](development_workflow.md).
 
-{1 Вложенный input и необязательная пагинация PostgreSQL}
+## Вложенный input и необязательная пагинация PostgreSQL
 
-[Statement.with_parameters] собирает несколько statements с общими параметрами
+`Statement.with_parameters` собирает несколько statements с общими параметрами
 в одном лексическом блоке. Callback возвращает их кортежем, а каждый statement
-компилируется через те же [params]. Все они принимают один тип input; getters
+компилируется через те же `params`. Все они принимают один тип input; getters
 явно выбирают поля вложенного значения.
 
-{[
+```ocaml
 type filters =
   { min_age : int
   ; city : string
@@ -151,24 +151,24 @@ let page, total =
           |> select Person.projection)
     in
     page, total)
-]}
+```
 
-Оба statement принимают [input = filters paged]; [total] просто не читает
-поля пагинации. [None] в поле [limit] привязывается как SQL [NULL]: PostgreSQL
-выполняет [LIMIT NULL OFFSET 20] без верхней границы, пропуская первые 20 строк.
-Для nullable [offset] доступны [params.non_negative_int_opt] и
-[Postgresql.Query.offset_param_opt]; [None] соответствует нулевому offset.
-Отрицательный [Some] отклоняется при привязке. SQLite не принимает [NULL] в
-[LIMIT] или [OFFSET], поэтому эти операции доступны только в
-[Postgresql.Query].
+Оба statement принимают `input = filters paged`; `total` просто не читает
+поля пагинации. `None` в поле `limit` привязывается как SQL `NULL`: PostgreSQL
+выполняет `LIMIT NULL OFFSET 20` без верхней границы, пропуская первые 20 строк.
+Для nullable `offset` доступны `params.non_negative_int_opt` и
+`Postgresql.Query.offset_param_opt`; `None` соответствует нулевому offset.
+Отрицательный `Some` отклоняется при привязке. SQLite не принимает `NULL` в
+`LIMIT` или `OFFSET`, поэтому эти операции доступны только в
+`Postgresql.Query`.
 
-{1 Рекомендуемая структура модуля}
+## Рекомендуемая структура модуля
 
 Переиспользуемую операцию рекомендуется оформлять отдельным модулем. Вложенный
-[Input] владеет типом входа и его getters, а [statement] явно обозначает
+`Input` владеет типом входа и его getters, а `statement` явно обозначает
 готовую статическую операцию:
 
-{[
+```ocaml
 module Find_people = struct
   module Input = struct
     type t =
@@ -204,29 +204,29 @@ let result =
     ; min_id = 1L
     ; maximum_rows = 50
     }
-]}
+```
 
-Такой layout даёт тип [Find_people.Input.t], не выпускает сгенерированные имена
+Такой layout даёт тип `Find_people.Input.t`, не выпускает сгенерированные имена
 в окружающий модуль и оставляет рядом контракт входа и SQL-операцию. Имена
-[Input] и [statement] предпочтительнее сокращений [p] и [s]: они остаются
+`Input` и `statement` предпочтительнее сокращений `p` и `s`: они остаются
 понятными в сигнатурах, сообщениях компилятора и результатах поиска.
 
-Для генерации getters приложение добавляет [ppx_fields_conv] в зависимости и
+Для генерации getters приложение добавляет `ppx_fields_conv` в зависимости и
 включает PPX в Dune:
 
-{[
+```dune
 (preprocess
  (pps ppx_fields_conv))
-]}
+```
 
 Следующие разделы сравнивают этот рекомендуемый вариант с кортежами и record с
 ручными getters на одном десятипараметрическом statement.
 
-{1 Обычный кортеж}
+## Обычный кортеж
 
 В обычном кортеже позиция каждого из десяти элементов входит в контракт:
 
-{[
+```ocaml
 type input =
   string * int64 * int64 * string * int * int * string * bool * int * int
 
@@ -273,7 +273,7 @@ let result =
     ~conn
     find_people
     ("Ada", 1L, 100L, "ada@example.test", 18, 120, "London", true, 50, 0)
-]}
+```
 
 При десяти значениях позиционный вариант уже трудно читать и менять: добавление
 одного элемента требует исправить каждый pattern.
@@ -281,12 +281,12 @@ let result =
 Примеры именованных кортежей доступны в отдельной странице документации для OCaml
 5.5 и новее.
 
-{1 Record}
+## Record
 
 Record требует одно объявление полей, после чего каждый getter использует
 обычную projection через точку:
 
-{[
+```ocaml
 type input =
   { name : string
   ; min_id : int64
@@ -337,16 +337,16 @@ let result =
     ; maximum_rows = 50
     ; start_at = 0
     }
-]}
+```
 
-{1 Record с getters от ppx_fields_conv}
+## Record с getters от ppx_fields_conv
 
 Jane Street
-{{:https://github.com/janestreet/ppx_fields_conv}ppx_fields_conv} умеет
+[ppx_fields_conv](https://github.com/janestreet/ppx_fields_conv) умеет
 генерировать обычные getter-функции для каждого поля record. Он подключается в
-[preprocess] Dune и используется через [@@deriving fields ~getters]:
+`preprocess` Dune и используется через `@@deriving fields ~getters`:
 
-{[
+```ocaml
 module Find_people = struct
   module Input = struct
     type t =
@@ -400,16 +400,16 @@ let result =
     ; maximum_rows = 50
     ; start_at = 0
     }
-]}
+```
 
-Селектор [~getters] генерирует только функции вроде
-[Find_people.Input.name : Find_people.Input.t -> string]. Statement не зависит
+Селектор `~getters` генерирует только функции вроде
+`Find_people.Input.name : Find_people.Input.t -> string`. Statement не зависит
 от first-class field descriptors и не меняет свой API.
 
 При десяти параметрах оба record-варианта сохраняют явные имена и номинальный
-тип. Ручные lambdas [fun input -> input.field] проще для небольшого input;
-[ppx_fields_conv] убирает их в крупных records. Вложенный [Input] с
-[ppx_fields_conv] — рекомендуемый вариант для переиспользуемых и экспортируемых
+тип. Ручные lambdas `fun input -> input.field` проще для небольшого input;
+`ppx_fields_conv` убирает их в крупных records. Вложенный `Input` с
+`ppx_fields_conv` — рекомендуемый вариант для переиспользуемых и экспортируемых
 statements. Именованные кортежи полезны для локальной операции, когда отдельный
 record кажется лишним; примеры доступны в странице «Именованные кортежи» на
 OCaml 5.5+.

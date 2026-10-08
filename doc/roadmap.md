@@ -328,19 +328,6 @@ idempotent inserts, count queries, correlated flags и batch loading tags чер
   `Condition.t` в не-`NULL` `bool` сюда не входит: произвольный SQL-предикат
   может иметь значение `UNKNOWN`.
 
-- [ ] **Повторное использование фильтров страницы и count.** В
-  `typed-realworld` условия для списка статей и подсчёта повторяются при
-  построении обычного `Query` и `Query.Aggregate`. Проверить, можно ли задать
-  общий набор условий через публичный API без потери проверки типов и без
-  дублирования SQL-семантики. Подтвердить решение запросами RealWorld и
-  regression tests для одинаковых фильтров страницы и count.
-
-- [ ] **Коллекции в read model RealWorld.** Сравнить текущую пакетную догрузку
-  тегов и авторов комментариев с вариантами на основе `Query.multiset`, JOIN
-  и коррелированных projections. Для SQLite и PostgreSQL проверить одинаковый
-  результат, число запросов и планы выполнения. Менять запросы приложения
-  или расширять API только при подтверждённом упрощении или выигрыше.
-
 - [ ] Низкоуровневые `array_agg`, `json_agg` и `json_group_array` остаются будущими
   dialect API для случаев, когда приложению нужен сам database JSON или native
   PostgreSQL array.
@@ -651,9 +638,9 @@ lowering и rendering не повторяются. Runtime `LIMIT`/`OFFSET` по
 одинаковыми типами input и output; adapter выбирает нужную ветку по dialect
 connection.
 
-- [ ] Параметризовать `LIMIT` в `Statement.Dynamic`: сейчас `Query.limit`
-  сохраняет число как SQL-литерал. Динамическому statement нужен проверяемый
-  параметр привязки для лимита без перехода к `Statement.with_parameters`.
+- [x] Рендерить значения `LIMIT`, `OFFSET` и `FETCH ... WITH TIES` как
+  проверяемые bind-параметры во всех режимах `Statement`, сохраняя
+  типизированную проверку неотрицательности.
 
 Пример трансляции GraphQL в `test/graphql_translation_test.ml` использует
 только ограниченный набор полей и аргументов `posts`; это тестовый пример, а не

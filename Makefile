@@ -17,7 +17,7 @@ deps:
 .PHONY: deps_all
 deps_all:
 	opam pin add bisect_ppx https://github.com/aantron/bisect_ppx.git\#2d8dffbbfc0c431a37319d4d9a143836c9ec542e -yn
-	opam install --deps-only --with-test --with-doc --with-dev-setup $(PACKAGES) -y
+	opam install --deps-only --with-test --with-dev-setup $(PACKAGES) -y
 
 .PHONY: build
 build:
@@ -39,10 +39,6 @@ fmt:
 fmt-mdx:
 	opam exec -- python3 test/query-builder-survey/format_ocaml.py
 
-.PHONY: doc
-doc:
-	opam exec -- dune build --root . @doc
-
 .PHONY: package
 package: smoke
 	opam exec -- dune build --root . @install
@@ -58,7 +54,7 @@ smoke:
 	opam exec -- dune build --only-packages typed-sql,typed-sql-pgocaml-lwt,typed-sql-schema,typed-sql-schema-pgocaml-lwt @install @runtest
 
 .PHONY: check
-check: fmt build test coverage coverage-all coverage-mega doc package
+check: fmt build test coverage coverage-all coverage-mega package
 
 .PHONY: coverage coverage-all coverage-mega
 coverage:

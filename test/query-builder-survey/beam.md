@@ -272,8 +272,8 @@ SELECT
 FROM "Album" AS t0
 ORDER BY
   t0."Title" ASC
-LIMIT 10
-OFFSET 20
+LIMIT $1
+OFFSET $2
 ```
 
 
@@ -1140,7 +1140,7 @@ GROUP BY
   t0."CustomerId"
 ORDER BY
   COALESCE(SUM(t0."Total"), $2) DESC
-LIMIT 3
+LIMIT $3
 ```
 ### BE-16. Счётчик счетов с сохранением клиентов без счетов
 

@@ -248,8 +248,8 @@ SELECT
 FROM "person" AS t0
 ORDER BY
   t0."name" ASC
-LIMIT 10
-OFFSET 20
+LIMIT $1
+OFFSET $2
 ```
 
 ### EQ-04. INNER JOIN
@@ -1248,7 +1248,7 @@ SELECT
       (t1."author_id" = t0."id")
     ORDER BY
       t1."id" DESC
-    LIMIT 1
+    LIMIT $1
   )
 FROM "person" AS t0
 ```
@@ -1405,7 +1405,7 @@ SELECT
 FROM "person" AS t0
 ORDER BY
   t0."id" ASC
-LIMIT 5
+LIMIT $1
 FOR UPDATE SKIP LOCKED
 ```
 

@@ -711,8 +711,8 @@ let%test_module "PostgreSQL pagination shares input and binds NULL" =
         FROM "people" AS t0
         ORDER BY
           t0."id" ASC
-        LIMIT 10
-        OFFSET $1
+        LIMIT $1
+        OFFSET $2
         |}]
     ;;
 
