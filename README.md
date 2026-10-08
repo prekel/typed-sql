@@ -35,6 +35,59 @@ SQL со значениями для `psql` или SQLite и выполнить 
 `Statement.Dynamic`; пример с тремя таблицами находится в
 `graphql/test/demo.ml`.
 
+## Установка из GitHub
+
+Все семь пакетов находятся в одном репозитории. Их зависимости друг от друга
+требуют одинаковую версию, поэтому закрепляйте их на одном теге. Например,
+для установки всех пакетов из `v0.4.6`:
+
+<!-- $MDX skip -->
+```bash
+typed_sql_packages=(
+  typed-sql
+  typed-sql-caqti-lwt
+  typed-sql-pgocaml-lwt
+  typed-sql-graphql
+  typed-sql-schema
+  typed-sql-schema-caqti-lwt
+  typed-sql-schema-pgocaml-lwt
+)
+for package in "${typed_sql_packages[@]}"; do
+  opam pin add -yn "$package" 'git+https://github.com/prekel/typed-sql.git#v0.4.6'
+done
+opam install "${typed_sql_packages[@]}"
+```
+
+Если нужны только некоторые пакеты, оставьте в обоих списках их имена и
+зависимости из этого репозитория. Например, `typed-sql-graphql` требует
+`typed-sql`.
+
+Для перехода с `v0.4.6` на следующий опубликованный тег поменяйте значение
+`next_tag` и обновите все pin перед установкой. Ниже `v0.4.7` приведён как
+пример следующего тега:
+
+<!-- $MDX skip -->
+```bash
+typed_sql_packages=(
+  typed-sql
+  typed-sql-caqti-lwt
+  typed-sql-pgocaml-lwt
+  typed-sql-graphql
+  typed-sql-schema
+  typed-sql-schema-caqti-lwt
+  typed-sql-schema-pgocaml-lwt
+)
+next_tag=v0.4.7
+for package in "${typed_sql_packages[@]}"; do
+  opam pin add -yn "$package" "git+https://github.com/prekel/typed-sql.git#$next_tag"
+done
+opam upgrade "${typed_sql_packages[@]}"
+```
+
+`-n` откладывает установку до общего `opam install` или `opam upgrade`, а `-y`
+подтверждает замену существующего pin. Синтаксис Git URL с тегом после `#`
+описан в [справке opam pin](https://opam.ocaml.org/doc/man/opam-pin.html).
+
 ```ocaml
 open! Base
 open Typed_sql

@@ -1,6 +1,7 @@
 all: build
 
-PACKAGES = ./typed-sql.opam ./typed-sql-caqti-lwt.opam ./typed-sql-pgocaml-lwt.opam \
+PACKAGES = ./typed-sql.opam ./typed-sql-caqti-lwt.opam \
+	./typed-sql-pgocaml-lwt.opam ./typed-sql-graphql.opam \
 	./typed-sql-schema.opam ./typed-sql-schema-caqti-lwt.opam \
 	./typed-sql-schema-pgocaml-lwt.opam
 OCAML_VERSION ?= 5.1.1
@@ -50,6 +51,7 @@ smoke:
 	opam exec -- dune build --only-packages typed-sql,typed-sql-schema @install @runtest
 	opam exec -- dune build --only-packages typed-sql,typed-sql-caqti-lwt @install @runtest
 	opam exec -- dune build --only-packages typed-sql,typed-sql-pgocaml-lwt @install @runtest
+	opam exec -- dune build --only-packages typed-sql,typed-sql-caqti-lwt,typed-sql-graphql @install @runtest
 	opam exec -- dune build --only-packages typed-sql,typed-sql-schema,typed-sql-schema-caqti-lwt @install @runtest
 	opam exec -- dune build --only-packages typed-sql,typed-sql-pgocaml-lwt,typed-sql-schema,typed-sql-schema-pgocaml-lwt @install @runtest
 
