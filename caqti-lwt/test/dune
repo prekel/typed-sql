@@ -15,6 +15,26 @@
  (preprocess
   (pps ppx_let)))
 
+(library
+ (name typed_sql_postgresql_expect_tests)
+ (modules postgresql_expect_test)
+ (package typed-sql-caqti-lwt)
+ (libraries
+  base
+  caqti
+  caqti-driver-postgresql
+  caqti-lwt
+  caqti-lwt.unix
+  lwt.unix
+  typed-sql
+  typed-sql-caqti-lwt
+  uri)
+ (inline_tests
+  (enabled_if
+   (= %{env:TYPED_SQL_PG_EXPECT=0} 1)))
+ (preprocess
+  (pps ppx_expect ppx_let)))
+
 (test
  (name insert_select_test)
  (modules insert_select_test)

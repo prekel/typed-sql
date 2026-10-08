@@ -3,6 +3,7 @@
  (modules
   capability_test
   dialect_choice_test
+  debug_sql_test
   dynamic_statement_test
   insert_select_test
   merge_test

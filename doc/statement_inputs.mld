@@ -96,6 +96,9 @@ List.iter inspection.parameters ~f:(fun parameter ->
 нельзя подставлять вместо placeholders. [None] в поле [value] означает, что
 input не передан; [Some Null] — привязанный SQL [NULL]. Ошибка mapped codec
 возвращается как [Statement.Codec_error] с позицией и именем параметра.
+Для запроса, который можно вставить в [psql] или SQLite, используйте
+[Statement.debug_sql_exn] с [~input]; пример есть в
+{!page-development_workflow}.
 
 {1 Вложенный input и необязательная пагинация PostgreSQL}
 

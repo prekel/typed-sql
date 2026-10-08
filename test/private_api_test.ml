@@ -1391,6 +1391,12 @@ let%test_module "lowering capability traversal" =
 
     let bad_assignment = { assignment with A.value = A.Expression bad_expression }
 
+    let bad_relation : A.relation =
+      { (int_relation (source 0)) with query = A.Simple nested_select }
+    ;;
+
+    let bad_source : A.source = { source_id = 2; kind = A.Derived bad_relation }
+
     let unsupported_set operator =
       A.Select
         (A.Compound
@@ -1444,6 +1450,43 @@ let%test_module "lowering capability traversal" =
 
     let%test "ordered multiset traversal finds unsupported HAVING" =
       Lower.expression_has_unsupported_having ~dialect:Dialect.Sqlite bad_ordered_multiset
+    ;;
+
+    let%test "string aggregate value traversal finds unsupported HAVING" =
+      Lower.expression_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        (A.Aggregate
+           (A.String_agg { value = bad_expression; delimiter = parameter; order_by = [] }))
+    ;;
+
+    let%test "string aggregate delimiter traversal finds unsupported HAVING" =
+      Lower.expression_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        (A.Aggregate
+           (A.String_agg { value = parameter; delimiter = bad_expression; order_by = [] }))
+    ;;
+
+    let%test "string aggregate ordering traversal finds unsupported HAVING" =
+      Lower.expression_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        (A.Aggregate
+           (A.String_agg
+              { value = parameter
+              ; delimiter = parameter
+              ; order_by = [ { A.expr = bad_expression; direction = A.Asc } ]
+              }))
+    ;;
+
+    let%test "multiset field traversal finds unsupported HAVING" =
+      Lower.expression_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        (A.Aggregate
+           (A.Multiset_agg
+              { fields = [ bad_expression ]
+              ; field_types = [ Db_type.Pack Db_type.int ]
+              ; filter = None
+              ; order_by = []
+              }))
     ;;
 
     let%test "multiset subquery traversal finds unsupported HAVING" =
@@ -1531,6 +1574,119 @@ let%test_module "lowering capability traversal" =
         { select with projection = []; group_by = [ bad_expression ] }
     ;;
 
+    let%test "ORDER BY traversal finds unsupported HAVING" =
+      Lower.select_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        { select with
+          projection = []
+        ; order_by = [ { A.expr = bad_expression; direction = A.Asc } ]
+        }
+    ;;
+
+    let%test "derived root traversal finds unsupported HAVING" =
+      Lower.select_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        { select with projection = []; source = bad_source }
+    ;;
+
+    let%test "derived join traversal finds unsupported HAVING" =
+      Lower.select_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        { select with
+          projection = []
+        ; joins = [ { A.source = bad_source; operation = A.Cross } ]
+        }
+    ;;
+
+    let%test "source-free projection traversal finds unsupported HAVING" =
+      Lower.select_query_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        (A.Source_free { ctes = []; expression = bad_expression })
+    ;;
+
+    let%test "compound left branch traversal finds unsupported HAVING" =
+      Lower.select_query_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        (A.Compound
+           { ctes = []
+           ; operator = A.Union
+           ; left = A.Simple nested_select
+           ; right = A.Simple select
+           ; left_types = [ Db_type.Pack Db_type.int ]
+           ; right_types = [ Db_type.Pack Db_type.int ]
+           ; order_by = []
+           })
+    ;;
+
+    let%test "compound CTE traversal finds unsupported HAVING" =
+      let cte : A.cte =
+        { cte_id = 9
+        ; columns = []
+        ; column_types = []
+        ; result_types = []
+        ; materialization = None
+        ; body = A.Select_body (A.Simple nested_select)
+        }
+      in
+      Lower.select_query_has_unsupported_having
+        ~dialect:Dialect.Sqlite
+        (A.Compound
+           { ctes = [ cte ]
+           ; operator = A.Union
+           ; left = A.Simple select
+           ; right = A.Simple select
+           ; left_types = [ Db_type.Pack Db_type.int ]
+           ; right_types = [ Db_type.Pack Db_type.int ]
+           ; order_by = []
+           })
+    ;;
+
+    let%test "recursive anchor traversal finds unsupported HAVING" =
+      let cte =
+        { (recursive_cte ~cte_id:7 ~step:(int_relation (source 3))) with
+          body =
+            A.Recursive_body
+              { union = A.Recursive_union_all
+              ; anchor = bad_relation
+              ; step = int_relation (source 3)
+              }
+        }
+      in
+      Lower.cte_has_unsupported_having ~dialect:Dialect.Sqlite cte
+    ;;
+
+    let%test "returning command traversal finds unsupported HAVING" =
+      let cte : A.cte =
+        { cte_id = 8
+        ; columns = []
+        ; column_types = []
+        ; result_types = []
+        ; materialization = None
+        ; body =
+            A.Returning_body
+              { command = command A.Update [ bad_assignment ]; projection = [ column 0 ] }
+        }
+      in
+      Lower.cte_has_unsupported_having ~dialect:Dialect.Sqlite cte
+    ;;
+
+    let%test "SQLite capability scan rejects returning CTEs" =
+      let cte : A.cte =
+        { cte_id = 10
+        ; columns = []
+        ; column_types = []
+        ; result_types = []
+        ; materialization = None
+        ; body =
+            A.Returning_body
+              { command = command A.Insert [ assignment ]; projection = [ column 0 ] }
+        }
+      in
+      match Lower.sqlite_unsupported_cte cte with
+      | Some "data-modifying CTE" -> true
+      | Some _ | None -> false
+    ;;
+
     let%test "HAVING traversal finds unsupported HAVING" =
       Lower.select_has_unsupported_having
         ~dialect:Dialect.Sqlite
@@ -1580,6 +1736,15 @@ let%test_module "lowering capability traversal" =
         (Lower.result_query
            ~dialect:Dialect.Sqlite
            (A.Select (A.Simple { select with projection = [ numeric_aggregate ] })))
+    ;;
+
+    let%test "SQLite lowering rejects PostgreSQL numeric average" =
+      is_sqlite_unsupported
+        (Lower.result_query
+           ~dialect:Dialect.Sqlite
+           (A.Select
+              (A.Simple
+                 { select with projection = [ A.Aggregate (A.Avg_numeric (column 0)) ] })))
     ;;
 
     let%test "SQLite command lowering rejects unsupported numeric expressions" =

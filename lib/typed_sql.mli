@@ -2974,6 +2974,18 @@ module Statement : sig
         }
   [@@deriving sexp_of]
 
+  (** A failure while producing copyable diagnostic SQL. [Resolution_failure]
+      retains statement and codec errors; [Unrepresentable_literal] identifies
+      a bound value that cannot be written with the same SQL meaning. *)
+  type debug_sql_error =
+    | Resolution_failure of inspection_error
+    | Unrepresentable_literal of
+        { position : int
+        ; name : string option
+        ; reason : string
+        }
+  [@@deriving sexp_of]
+
   (** Raised by [sql_exn] for SQL rendering failures other than compilation. *)
   exception Sql_error of sql_error
 
@@ -2981,6 +2993,9 @@ module Statement : sig
       diagnostic value. Statement errors use [Sql_error], and dynamic
       compilation failures use [Definition_error]. *)
   exception Inspection_error of inspection_error
+
+  (** Raised by [debug_sql_exn]. *)
+  exception Debug_sql_error of debug_sql_error
 
   (** Parameter declarations and statement builders for one input type. The
       declarations share bind slots; combine declaration results
@@ -3241,4 +3256,22 @@ module Statement : sig
     -> ?input:'input
     -> ('input, 'output, 'supports) t
     -> string * inspection
+
+  (** Produce a semicolon-terminated SQL statement with the given [input]
+      rendered as dialect literals, ready to paste into psql or SQLite. This
+      exposes parameter values and is for development diagnostics only;
+      execution adapters continue to bind values separately. The selected
+      dynamic or input branch is resolved once. *)
+  val debug_sql
+    :  dialect:'supports sql_dialect
+    -> input:'input
+    -> ('input, 'output, 'supports) t
+    -> (string, debug_sql_error) Result.t
+
+  (** Like [debug_sql], raising [Debug_sql_error] on failure. *)
+  val debug_sql_exn
+    :  dialect:'supports sql_dialect
+    -> input:'input
+    -> ('input, 'output, 'supports) t
+    -> string
 end

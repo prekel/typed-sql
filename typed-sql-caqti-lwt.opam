@@ -23,6 +23,7 @@ depends: [
   "lwt"
   "base-unix"
   "caqti-driver-sqlite3" {with-test}
+  "ppx_expect" {with-test}
   "caqti-driver-postgresql"
   "uri"
   "odoc" {with-doc}

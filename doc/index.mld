@@ -70,6 +70,9 @@ DSL, compiler и Caqti описаны в {!page-architecture}. Решение с
 типизированным нарушениям ограничений и варианты будущего API собраны в
 {{:adr/0003-constraint-errors.md}ADR 0003}.
 
+Как получить SQL со значениями и выполнить запрос во время разработки,
+показано в {!page-development_workflow}.
+
 API запросов описан в [lib/typed_sql.mli], а API схемы — в
 [schema/typed_sql_schema.mli]. Для авторов execution adapters есть отдельная
 библиотека [typed-sql.backend] и контракт [backend/typed_sql_backend.mli].

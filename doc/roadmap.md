@@ -650,6 +650,18 @@ lowering и rendering не повторяются. Runtime `LIMIT`/`OFFSET` по
 `Statement.choose_dialect` объединяет статические PostgreSQL и SQLite ветки с
 одинаковыми типами input и output; adapter выбирает нужную ветку по dialect
 connection.
+
+- [ ] Параметризовать `LIMIT` в `Statement.Dynamic`: сейчас `Query.limit`
+  сохраняет число как SQL-литерал. Динамическому statement нужен проверяемый
+  параметр привязки для лимита без перехода к `Statement.with_parameters`.
+
+Пример трансляции GraphQL в `test/graphql_translation_test.ml` использует
+только ограниченный набор полей и аргументов `posts`; это тестовый пример, а не
+публичный GraphQL API. Он проверяет `first` в диапазоне 0–100 перед включением
+числа в SQL, а значения фильтров передаёт через bind parameters. Объявленные
+переменные типа `Int` и `String` проверяются даже тогда, когда конкретный
+запрос их не использует; отсутствие необязательной переменной означает `null`.
+
 Перед добавлением cache нужно отдельно измерить стоимость dynamic compilation
 и определить ограничение памяти и lifecycle projection closures.
 

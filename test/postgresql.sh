@@ -119,6 +119,7 @@ PGDATABASE=typed_sql_schema_fixture_test \
 PGDATABASE=typed_sql_schema_fixture_test \
   dune exec --root . schema-pgocaml-lwt/test/postgresql_schema_test.exe
 dune exec --root . caqti-lwt/test/postgresql_test.exe
+TYPED_SQL_PG_EXPECT=1 dune build --root . @runtest-typed_sql_postgresql_expect_tests
 dune exec --root . caqti-lwt/test/mega_coverage_server_test.exe
 dune exec --root . caqti-lwt/test/insert_select_test.exe -- --postgres
 dune exec --root . pgocaml-lwt/test/postgresql_test.exe

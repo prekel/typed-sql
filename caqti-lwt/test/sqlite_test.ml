@@ -407,6 +407,20 @@ let adapter_or_fail = function
   | Error error -> Lwt.fail_with (Typed_sql_caqti_lwt.error_to_string error)
 ;;
 
+let direct_string sql =
+  T.Request.create
+    T.Request.Direct
+    T.Request_type.Infix.(T.Row_type.unit -->! T.Row_type.string)
+    (fun _ -> T.Query.parse sql)
+;;
+
+let direct_int64 sql =
+  T.Request.create
+    T.Request.Direct
+    T.Request_type.Infix.(T.Row_type.unit -->! T.Row_type.int64)
+    (fun _ -> T.Query.parse sql)
+;;
+
 let equal_pair equal_left equal_right (left_a, left_b) (right_a, right_b) =
   equal_left left_a right_a && equal_right left_b right_b
 ;;
@@ -2479,6 +2493,36 @@ let test_average conn =
   exec "DROP TABLE average_blogs"
 ;;
 
+let test_debug_sql_text conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let statement =
+    Statement.query_one
+      ~dialect:Dialect.sqlite
+      (Query.select_one (Expr.constant Db_type.text "A\000B'\\C"))
+  in
+  let sql = Statement.debug_sql_exn ~dialect:Sqlite ~input:() statement in
+  let* bound = Adapter.run ~conn statement () >>= adapter_or_fail in
+  let* literal = Connection.find (direct_string sql) () |> caqti_or_fail in
+  if not (String.equal bound literal) then
+    failwith "SQLite text literal differs from its bound parameter";
+  Lwt.return_unit
+;;
+
+let test_debug_sql_min_int64 conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let statement =
+    Statement.query_one
+      ~dialect:Dialect.sqlite
+      (Query.select_one (Expr.constant Db_type.int64 Int64.min_value))
+  in
+  let sql = Statement.debug_sql_exn ~dialect:Sqlite ~input:() statement in
+  let* bound = Adapter.run ~conn statement () >>= adapter_or_fail in
+  let* literal = Connection.find (direct_int64 sql) () |> caqti_or_fail in
+  if not (Int64.equal bound literal) then
+    failwith "SQLite minimum int64 literal differs from its bound parameter";
+  Lwt.return_unit
+;;
+
 let main () =
   let* conn =
     Caqti_lwt_unix.connect (Uri.of_string "sqlite3::memory:") |> caqti_or_fail
@@ -2489,6 +2533,8 @@ let main () =
        let* () = test_average conn in
        let* () = dynamic_test conn in
        let* () = upsert_test conn in
+       let* () = test_debug_sql_text conn in
+       let* () = test_debug_sql_min_int64 conn in
        run conn)
     (fun () -> Connection.disconnect ())
 ;;

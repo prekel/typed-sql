@@ -121,8 +121,18 @@ type inspection_error =
       }
 [@@deriving sexp_of]
 
+type debug_sql_error =
+  | Resolution_failure of inspection_error
+  | Unrepresentable_literal of
+      { position : int
+      ; name : string option
+      ; reason : string
+      }
+[@@deriving sexp_of]
+
 exception Sql_error of sql_error
 exception Inspection_error of inspection_error
+exception Debug_sql_error of debug_sql_error
 
 let () =
   let binding_error_message_to_string = function
@@ -156,6 +166,11 @@ let () =
         (Stdlib.Printf.sprintf
            "Statement.Inspection_error %s"
            (Sexp.to_string_hum (sexp_of_inspection_error error)))
+    | Debug_sql_error error ->
+      Some
+        (Stdlib.Printf.sprintf
+           "Statement.Debug_sql_error %s"
+           (Sexp.to_string_hum (sexp_of_debug_sql_error error)))
     | _ -> None)
 ;;
 
@@ -849,6 +864,130 @@ let rec encode_diagnostic_value
     encode_diagnostic_value dialect repr value
 ;;
 
+let hex_of_string value =
+  let buffer = Buffer.create (String.length value * 2) in
+  String.iter value ~f:(fun char ->
+    Buffer.add_string buffer (Stdlib.Printf.sprintf "%02x" (Char.to_int char)));
+  Buffer.contents buffer
+;;
+
+let quote_postgresql value =
+  let buffer = Buffer.create (String.length value + 3) in
+  Buffer.add_string buffer "E'";
+  String.iter value ~f:(fun char ->
+    match char with
+    | '\'' -> Buffer.add_string buffer "''"
+    | '\\' -> Buffer.add_string buffer "\\\\"
+    | '\n' -> Buffer.add_string buffer "\\n"
+    | '\r' -> Buffer.add_string buffer "\\r"
+    | '\t' -> Buffer.add_string buffer "\\t"
+    | _ when Int.(Char.to_int char < 32 || Char.to_int char = 127) ->
+      Buffer.add_string buffer (Stdlib.Printf.sprintf "\\%03o" (Char.to_int char))
+    | _ -> Buffer.add_char buffer char);
+  Buffer.add_char buffer '\'';
+  Buffer.contents buffer
+;;
+
+let quote_sqlite value =
+  if
+    String.exists value ~f:(fun char ->
+      Int.(Char.to_int char < 32 || Char.to_int char = 127))
+  then
+    "CAST(X'" ^ hex_of_string value ^ "' AS TEXT)"
+  else
+    "'" ^ String.substr_replace_all value ~pattern:"'" ~with_:"''" ^ "'"
+;;
+
+let finite_sqlite_float value =
+  match Stdlib.float_of_string_opt value with
+  | None -> false
+  | Some value ->
+    (match Stdlib.classify_float value with
+     | FP_normal | FP_subnormal | FP_zero -> true
+     | FP_nan | FP_infinite -> false)
+;;
+
+let postgresql_float value =
+  match Stdlib.float_of_string_opt value with
+  | None -> value
+  | Some parsed ->
+    (match Stdlib.classify_float parsed with
+     | FP_nan -> "NaN"
+     | FP_infinite ->
+       if String.is_prefix value ~prefix:"-" then
+         "-Infinity"
+       else
+         "Infinity"
+     | FP_normal | FP_subnormal | FP_zero -> value)
+;;
+
+let literal_of_bound ~dialect ~position bound =
+  let (Db_type.Value (db_type, value)) = bound.packed_value in
+  let unsupported reason =
+    Error (Unrepresentable_literal { position; name = bound.name; reason })
+  in
+  let open Result.Let_syntax in
+  let%bind diagnostic, storage_class =
+    encode_diagnostic_value dialect db_type value
+    |> Result.map_error ~f:(fun message ->
+      Resolution_failure (Codec_error { position; name = bound.name; message }))
+  in
+  match dialect, diagnostic with
+  | Dialect.Postgresql, Null ->
+    if Db_type.needs_postgresql_cast db_type then
+      Ok "NULL"
+    else
+      Ok ("CAST(NULL AS " ^ Db_type.postgresql_type_name db_type ^ ")")
+  | Dialect.Sqlite, Null -> Ok "NULL"
+  | Dialect.Postgresql, Encoded value ->
+    if String.exists value ~f:(Char.equal '\000') then
+      unsupported "PostgreSQL text input cannot contain a NUL byte"
+    else (
+      let value =
+        if String.equal storage_class "REAL" then
+          postgresql_float value
+        else
+          value
+      in
+      if Db_type.needs_postgresql_cast db_type then
+        Ok (quote_postgresql value)
+      else
+        Ok
+          ("CAST("
+           ^ quote_postgresql value
+           ^ " AS "
+           ^ Db_type.postgresql_type_name db_type
+           ^ ")"))
+  | Dialect.Sqlite, Encoded value ->
+    (match storage_class with
+     | "INTEGER" ->
+       if String.equal value "-9223372036854775808" then
+         Ok "CAST('-9223372036854775808' AS INTEGER)"
+       else
+         Ok value
+     | "REAL" ->
+       if finite_sqlite_float value then
+         Ok
+           (if
+              String.exists value ~f:(function
+                | '.' | 'e' | 'E' -> true
+                | _ -> false)
+            then
+              value
+            else
+              value ^ ".0")
+       else
+         unsupported "SQLite cannot represent this non-finite floating-point value"
+     | "TEXT" -> Ok (quote_sqlite value)
+     | "BLOB" ->
+       if String.is_prefix value ~prefix:"\\x" then
+         Ok ("X'" ^ String.drop_prefix value 2 ^ "'")
+       else
+         unsupported "invalid hexadecimal BLOB encoding"
+     | "NULL" -> unsupported "a non-NULL value has the NULL storage class"
+     | storage_class -> unsupported ("unsupported SQLite storage class: " ^ storage_class))
+;;
+
 let parameter_info ~dialect ~position ~name ~db_type ~value ~storage_class =
   { position
   ; placeholder = placeholder dialect position
@@ -1057,4 +1196,54 @@ let inspect_exn ~dialect ?input statement =
   | Error (Statement_error (Compilation_error error)) -> raise (Definition_error error)
   | Error (Statement_error error) -> raise (Sql_error error)
   | Error (Codec_error _ as error) -> raise (Inspection_error error)
+;;
+
+let debug_sql
+  : type input output supports.
+    dialect:supports Dialect.Selected.t
+    -> input:input
+    -> (input, output, supports) t
+    -> (string, debug_sql_error) Result.t
+  =
+  fun ~dialect ~input statement ->
+  let concrete_dialect = Dialect.selected_dialect dialect in
+  let open Result.Let_syntax in
+  let%bind resolved =
+    resolve_details ~dialect:concrete_dialect input statement
+    |> Result.map_error ~f:(function
+      | Dialect_mismatch ->
+        Resolution_failure (Statement_error (Unsupported_dialect concrete_dialect))
+      | Binding error -> Resolution_failure (Statement_error (Invalid_parameter error))
+      | Compilation error ->
+        Resolution_failure (Statement_error (Compilation_error error)))
+  in
+  let template, bound_parameters =
+    match resolved with
+    | Resolved_query { compiled; parameters; _ } -> compiled.template, parameters
+    | Resolved_command { compiled; parameters } -> compiled.template, parameters
+  in
+  let%map literals =
+    List.mapi bound_parameters ~f:(fun index bound ->
+      literal_of_bound ~dialect:concrete_dialect ~position:(index + 1) bound)
+    |> Result.all
+  in
+  let literals = Array.of_list literals in
+  let sql =
+    Stdlib.Format.asprintf
+      "%a"
+      (Template.pp_with_param ~param:(fun formatter index ->
+         if Int.(index < 0 || index >= Array.length literals) then
+           failwith
+             "Statement.debug_sql invariant: template parameter index has no bound value"
+         else
+           Stdlib.Format.pp_print_string formatter literals.(index)))
+      template
+  in
+  sql ^ ";"
+;;
+
+let debug_sql_exn ~dialect ~input statement =
+  match debug_sql ~dialect ~input statement with
+  | Ok sql -> sql
+  | Error error -> raise (Debug_sql_error error)
 ;;

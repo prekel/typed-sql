@@ -3,6 +3,7 @@
  (mld_files
   index
   quickstart
+  development_workflow
   named_tuples
   statement_inputs
   dynamic_statements

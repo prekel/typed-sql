@@ -22,6 +22,10 @@ query-пакета и выбранного execution-адаптера. Подд�
 Полный набор интеграционных тестов пройден на PostgreSQL 15.19 и 18.6 через
 оба адаптера; версии 16 и 17 отдельно пока не проверялись.
 
+[Гайд для разработки](doc/development_workflow.mld) показывает, как получить
+SQL со значениями для `psql` или SQLite и выполнить statement из expect-теста
+или `dune utop`.
+
 ```ocaml
 open! Base
 open Typed_sql
