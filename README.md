@@ -26,6 +26,12 @@ query-пакета и выбранного execution-адаптера. Подд�
 SQL со значениями для `psql` или SQLite и выполнить statement из expect-теста
 или `dune utop`.
 
+Пакет `typed-sql-graphql` разбирает GraphQL-запрос в проверенное дерево полей
+с разрешёнными переменными и помогает собрать JSON-проекцию. Приложение
+проверяет имена по своей схеме и строит типизированный запрос через
+`Statement.Dynamic`; пример с тремя таблицами находится в
+`graphql/test/demo.ml`.
+
 ```ocaml
 open! Base
 open Typed_sql

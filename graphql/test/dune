@@ -1,0 +1,33 @@
+(library
+ (name typed_sql_graphql_test_support)
+ (package typed-sql-graphql)
+ (modules demo)
+ (libraries base typed-sql typed-sql-graphql yojson)
+ (preprocess
+  (pps ppx_let)))
+
+(library
+ (name typed_sql_graphql_expect_tests)
+ (package typed-sql-graphql)
+ (modules graphql_translation_test)
+ (libraries base typed-sql typed-sql-graphql typed_sql_graphql_test_support yojson)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect ppx_let)))
+
+(test
+ (name graphql_translation_sqlite_test)
+ (package typed-sql-graphql)
+ (modules graphql_translation_sqlite_test)
+ (libraries
+  base
+  caqti
+  caqti-driver-sqlite3
+  caqti-lwt
+  caqti-lwt.unix
+  lwt.unix
+  typed-sql
+  typed-sql-caqti-lwt
+  typed_sql_graphql_test_support
+  uri
+  yojson))
