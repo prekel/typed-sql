@@ -1,7 +1,8 @@
 open! Base
 
 (** Build typed SELECT, INSERT, UPDATE and DELETE statements without holding a
-    connection. Static [Statement.t] values compile their semantic AST once;
+    connection. Requires 64-bit OCaml with a 63-bit [int]. Static [Statement.t]
+    values compile their semantic AST once;
     dynamic statements build and compile one AST for each input. All OCaml
     values are encoded as SQL bind values. *)
 
@@ -14,6 +15,7 @@ module Identifier : sig
   (** A reason why a string cannot be used as an identifier. *)
   type error =
     [ `Empty (** The identifier contains no characters. *)
+    | `Too_long of int (** The identifier exceeds 63 bytes; carries its byte length. *)
     | `Contains_nul
       (** The identifier contains a NUL byte, which SQL quoting cannot preserve
           safely. *)
@@ -21,7 +23,8 @@ module Identifier : sig
   [@@deriving sexp_of]
 
   (** Validate an unquoted identifier. Quotes and other ordinary characters
-      are accepted and escaped later by the renderer. *)
+      are accepted and escaped later by the renderer. All identifiers are limited
+      to 63 bytes, including SQLite descriptors, to prevent PostgreSQL truncation. *)
   val of_string : string -> (t, error) Result.t
 
   (** Validate an unquoted identifier, raising [Invalid_argument] on failure. *)
@@ -44,7 +47,9 @@ end
 module Date : sig
   type t
 
-  (** Construct a valid proleptic Gregorian date. *)
+  (** Construct a valid proleptic Gregorian date in Ptime's year range
+      [0000..9999]. PostgreSQL has no year zero: the supported PostgreSQL
+      finite date range for this codec is [0001..9999]. *)
   val of_ymd : year:int -> month:int -> day:int -> t option
 
   (** Construct a date or raise [Invalid_argument] when its components are not
@@ -54,7 +59,9 @@ module Date : sig
   (** Return [(year, month, day)]. *)
   val to_ymd : t -> int * int * int
 
-  (** Parse the exact ISO 8601 form [YYYY-MM-DD]. *)
+  (** Parse the exact ISO 8601 form [YYYY-MM-DD]. PostgreSQL BC dates,
+      years greater than 9999, and [infinity]/[-infinity] are not representable
+      by this codec and are rejected on decoding. *)
   val of_string : string -> t option
 
   (** Format the exact ISO 8601 form [YYYY-MM-DD]. *)
@@ -104,7 +111,8 @@ module Interval : sig
   val microseconds : t -> int64
 
   (** Parse PostgreSQL's default [postgres] IntervalStyle text. Other
-      IntervalStyle settings require an application codec. *)
+      IntervalStyle settings require an application codec. Reject components
+      outside the ranges of [int] months/days or [int64] microseconds. *)
   val of_string : string -> (t, string) Result.t
 
   val to_string : t -> string
@@ -114,6 +122,9 @@ end
 module Pg_array : sig
   type 'a t
 
+  (** Reject negative dimensions, mismatched element counts, and dimensions
+      or bounds whose arithmetic overflows [int]. Empty arrays are canonicalized
+      to zero dimensions and zero lower bounds, as in PostgreSQL. *)
   val create
     :  dimensions:int list
     -> lower_bounds:int list
@@ -124,8 +135,10 @@ module Pg_array : sig
   val lower_bounds : 'a t -> int list
   val elements : 'a t -> 'a option list
 
-  (** Parse PostgreSQL array text with an element decoder. Quoted strings,
-      NULL elements, dimensions and explicit lower bounds are preserved. *)
+  (** Parse PostgreSQL array text with an element decoder. Quoted and escaped
+      strings and NULL elements are supported. Non-empty arrays preserve
+      dimensions and explicit lower bounds; empty arrays use the canonical
+      zero-dimensional representation. *)
   val of_string
     :  decode:(string -> ('a, string) Result.t)
     -> string
@@ -183,10 +196,14 @@ module Db_type : sig
   (** SQL boolean represented as an OCaml [bool]. *)
   val bool : bool t
 
-  (** SQL integer represented as an OCaml [int]. *)
+  (** Signed 32-bit SQL integer represented as an OCaml [int]. Adapters reject
+      values outside this range for parameters and results. Use [int64] for
+      wider integers. *)
   val int : int t
 
-  (** SQL integer represented as an OCaml [int64]. *)
+  (** Signed 64-bit SQL integer represented as an OCaml [int64]. Arithmetic
+      overflow remains database-dependent; SQLite can promote an intermediate
+      result to [REAL], including inside conditions. *)
   val int64 : int64 t
 
   (** SQL floating-point value represented as an OCaml [float]. *)
@@ -232,7 +249,8 @@ module Db_type : sig
   (** SQL binary data represented as mutable OCaml [bytes]. *)
   val bytes : bytes t
 
-  (** SQL date represented without a time of day or time zone. *)
+  (** SQL date represented without a time of day or time zone. PostgreSQL
+      values outside finite years [0001..9999] fail adapter decoding. *)
   val date : Date.t t
 
   (** SQL timestamp with time zone represented as a UTC [Ptime.t]. *)
@@ -241,7 +259,9 @@ module Db_type : sig
   (** SQL UUID represented as a validated [Uuid.t]. *)
   val uuid : Uuid.t t
 
-  (** Make a database representation nullable. *)
+  (** Make a non-null database representation nullable. Compilation rejects
+      representations that are already nullable: SQL [NULL] cannot distinguish
+      [None] from [Some None]. *)
   val option : 'a t -> 'a option t
 
   (** Define a domain type through an existing database representation.
@@ -260,11 +280,18 @@ module Db_type : sig
       nullable elements. *)
   module Postgresql : sig
     val named : schema:Identifier.t -> name:Identifier.t -> 'a t -> 'a t
+
+    (** Elements must have a non-null scalar representation. Compilation rejects
+        nested array descriptors and nullable element descriptors. Represent
+        multidimensional arrays using dimensions in one [Pg_array.t]. *)
     val array : 'a t -> 'a Pg_array.t t
 
     (** One-dimensional PostgreSQL arrays represented as lists without [NULL]
         elements. Decoding rejects other dimensions, nonstandard lower bounds,
-        and [NULL] elements; use [array] to preserve those properties. *)
+        and [NULL] elements; use [array] to preserve those properties. The canonical
+        zero-dimensional empty array decodes to [[]]. Element restrictions
+        are the same as for [array]. Its codec fingerprint differs from [array]
+        even when the SQL element type is the same. *)
     val array_list : 'a t -> 'a list t
 
     (** PostgreSQL text transport for array elements and custom codecs.
@@ -272,10 +299,18 @@ module Db_type : sig
         error. *)
     val encode_text : 'a t -> 'a -> (string, string) Result.t
 
+    (** Decode PostgreSQL text, including array elements. Date and timestamp
+        representations require ISO [DateStyle]; intervals require the
+        [postgres] [IntervalStyle]. Unsupported values return an error. *)
     val decode_text : 'a t -> string -> ('a, string) Result.t
+
     val json : Yojson.Safe.t t
     val jsonb : Yojson.Safe.t t
+
+    (** Timestamp without time zone; text decoding requires ISO [DateStyle]. *)
     val local_timestamp : Local_timestamp.t t
+
+    (** Interval text decoding requires [IntervalStyle = postgres]. *)
     val interval : Interval.t t
   end
 
@@ -394,7 +429,11 @@ module Condition : sig
   end
 end
 
-(** Typed scalar SQL expressions and comparisons. *)
+(** Typed scalar SQL expressions and comparisons. Compilation checks the SQL
+    identity of comparison operands, including [IN], [BETWEEN], and scalar
+    subqueries. Equal OCaml types do not make distinct named SQL types
+    compatible. Nullable wrappers and mapped codec identities do not change
+    SQL identity; mismatches report [Compile_error.Mismatched_sql_type]. *)
 module Expr : sig
   (** A typed scalar SQL expression. *)
   type ('a, +'requirements) t
@@ -421,12 +460,16 @@ module Expr : sig
       captures it at definition time; a dynamic statement captures it during
       the current callback invocation. It is sent as a bind value and never
       interpolated into rendered SQL. Runtime input in a static statement must
-      be introduced through [Parameters]. *)
+      be introduced through [Parameters]. Reusing the same constant expression
+      reuses its bind parameter. Separate calls do not share parameters, even
+      when their values are equal; compilation never compares or encodes values
+      to decide sharing. *)
   val constant : 'a Db_type.t -> 'a -> ('a, 'requirements) t
 
   (** Use [default] when the nullable expression evaluates to SQL [NULL].
       This includes a scalar subquery that returned no row. The result uses
-      [default]'s database type and decoder; SQL [COALESCE] does not distinguish
+      [default]'s database type and decoder; compilation checks compatible SQL
+      types. SQL [COALESCE] does not distinguish
       an absent scalar row from a row containing [NULL]. *)
   val coalesce
     :  ('a option, 'requirements) t
@@ -485,17 +528,20 @@ module Expr : sig
 
   (** Build a searched SQL [CASE]. Conditions are tested in list order. An
       empty branch list yields [else_] directly at execution. All branch
-      expressions have the same OCaml and database type. *)
+      expressions have the same OCaml type; the compiler checks that their SQL
+      types match and reports [Compile_error.Mismatched_sql_type] otherwise. *)
   val case
     :  ('requirements Condition.t * ('a, 'requirements) t) list
     -> else_:('a, 'requirements) t
     -> ('a, 'requirements) t
 
-  (** Convert text to lowercase using the database's portable scalar
-      function. *)
+  (** Convert text to lowercase using the database's native function. Unicode
+      handling depends on the database locale and extensions; built-in SQLite
+      only converts ASCII letters. *)
   val lower : (string, 'requirements) t -> (string, 'requirements) t
 
-  (** Convert text to uppercase. *)
+  (** Convert text to uppercase with the same database-dependent character
+      handling as [lower]. *)
   val upper : (string, 'requirements) t -> (string, 'requirements) t
 
   (** Return the number of characters in text. Lowering uses [CHAR_LENGTH] on
@@ -603,7 +649,8 @@ module Expr : sig
   (** Embed a one-column SELECT, returning [None] when it returns no row.
       Compilation requires [LIMIT 0/1] or an aggregate belonging to this SELECT
       without [GROUP BY]. No limit is added implicitly. For an already nullable
-      expression prefer [scalar_subquery_nullable] to avoid nested options. *)
+      expression use [scalar_subquery_nullable]; compilation rejects nested
+      option representations. *)
   val scalar_subquery : ('a, 'requirements) Scalar_query.t -> ('a option, 'requirements) t
 
   (** Embed a nullable one-column SELECT without adding another option layer.
@@ -613,27 +660,37 @@ module Expr : sig
     :  ('a option, 'requirements) Scalar_query.t
     -> ('a option, 'requirements) t
 
-  (** The transaction's current timestamp. Both supported dialects render the
-      standard SQL [CURRENT_TIMESTAMP] expression. *)
+  (** The database's native [CURRENT_TIMESTAMP]. PostgreSQL uses the transaction
+      start time; SQLite uses the current statement time with second precision. *)
   val current_timestamp : (Ptime.t, 'requirements) t
 
-  (** Type-safe arithmetic over SQL integers represented as OCaml [int]. *)
+  (** Type-safe arithmetic over SQL integers represented as OCaml [int].
+      Overflow behavior follows the database; SQLite may compute values wider
+      than signed 32-bit, which adapters reject when decoded as [Db_type.int].
+      Intermediate results used in conditions are not checked by decoding. *)
   module Int : sig
     module Infix : sig
       val ( +. ) : (int, 'r) t -> (int, 'r) t -> (int, 'r) t
       val ( -. ) : (int, 'r) t -> (int, 'r) t -> (int, 'r) t
       val ( *. ) : (int, 'r) t -> (int, 'r) t -> (int, 'r) t
-      val ( /. ) : (int, 'r) t -> (int, 'r) t -> (int, 'r) t
+
+      (** Division returns [None] for a zero divisor in both dialects. *)
+      val ( /. ) : (int, 'r) t -> (int, 'r) t -> (int option, 'r) t
     end
   end
 
-  (** Type-safe arithmetic over SQL integers represented as OCaml [int64]. *)
+  (** Type-safe arithmetic over SQL integers represented as OCaml [int64].
+      PostgreSQL rejects overflow; SQLite can promote intermediate results to
+      inexact [REAL]. Result decoding does not protect subsequent calculations
+      or comparisons from that loss of precision. *)
   module Int64 : sig
     module Infix : sig
       val ( +. ) : (int64, 'r) t -> (int64, 'r) t -> (int64, 'r) t
       val ( -. ) : (int64, 'r) t -> (int64, 'r) t -> (int64, 'r) t
       val ( *. ) : (int64, 'r) t -> (int64, 'r) t -> (int64, 'r) t
-      val ( /. ) : (int64, 'r) t -> (int64, 'r) t -> (int64, 'r) t
+
+      (** Division returns [None] for a zero divisor in both dialects. *)
+      val ( /. ) : (int64, 'r) t -> (int64, 'r) t -> (int64 option, 'r) t
     end
   end
 
@@ -643,7 +700,9 @@ module Expr : sig
       val ( +. ) : (float, 'r) t -> (float, 'r) t -> (float, 'r) t
       val ( -. ) : (float, 'r) t -> (float, 'r) t -> (float, 'r) t
       val ( *. ) : (float, 'r) t -> (float, 'r) t -> (float, 'r) t
-      val ( /. ) : (float, 'r) t -> (float, 'r) t -> (float, 'r) t
+
+      (** Division returns [None] for a zero divisor in both dialects. *)
+      val ( /. ) : (float, 'r) t -> (float, 'r) t -> (float option, 'r) t
     end
   end
 
@@ -688,7 +747,9 @@ module Expr : sig
     (** SQL greater-than-or-equal comparison with a current-AST OCaml constant. *)
     val ( >=$ ) : ('a, 'r) t -> 'a -> 'r Condition.t
 
-    (** SQL [LIKE] between text expressions. *)
+    (** Native SQL [LIKE] between text expressions. Case sensitivity and collation
+        follow the database configuration. Built-in SQLite normally ignores
+        ASCII case; PostgreSQL [LIKE] normally distinguishes it. *)
     val ( =~. ) : (string, 'r) t -> (string, 'r) t -> 'r Condition.t
 
     (** SQL [LIKE] with an OCaml pattern captured in the current AST. Wildcards
@@ -1094,7 +1155,9 @@ module Cte : sig
     -> ('row t, 'requirements) definition
 
   (** Define one recursive CTE. [anchor] cannot reference the new CTE;
-      [step] receives its sole typed self-reference. *)
+      [step] receives its sole typed self-reference. Compilation rejects local
+      recursive-term aggregates, including [HAVING] and [ORDER BY], and a
+      self-reference on the nullable side of a [LEFT JOIN]. *)
   val recursive
     :  union:recursion
     -> anchor:('row, 'requirements) Derived_table.t
@@ -1104,7 +1167,8 @@ module Cte : sig
   (** Define a recursive CTE from structurally described relations. [anchor]
       cannot reference the new CTE; [step] receives its sole typed
       self-reference. The anchor and step must have the same field structure;
-      the compiler also checks their database types. *)
+      the compiler also checks their database types and applies the same
+      recursive-term restrictions as [recursive]. *)
   val recursive_relation
     :  union:recursion
     -> anchor:('fields, 'nullable_fields, 'requirements) Derived_table.inferred
@@ -1522,7 +1586,9 @@ module Query : sig
     -> ('ctx * 'nullable_fields, 'grouping, 'cardinality, 'requirements) t
 
   (** Repeated calls combine predicates with SQL AND. Filtering preserves any
-      existing upper bound on result rows. *)
+      existing upper bound on result rows. Aggregates owned by this SELECT are
+      rejected, including inside correlated subqueries. Local aggregates of a
+      nested SELECT remain allowed. The same rule applies to JOIN predicates. *)
   val where
     :  ('ctx -> 'requirements Condition.t)
     -> ('ctx, 'grouping, 'cardinality, 'requirements) t
@@ -1556,7 +1622,11 @@ module Query : sig
     -> ('ctx, 'grouping, 'cardinality, 'requirements) t
 
   (** Append one [GROUP BY] expression. Repeated calls preserve call order and
-      any existing cardinality bound. *)
+      any existing cardinality bound. Aggregates owned by this SELECT are
+      rejected. Projection, [HAVING], and ordering may repeat the same grouped
+      expression, including [CASE] conditions. Bind parameters in repeated
+      expressions must share constant expressions or parameter slots; creating
+      equal constants again does not establish grouping identity. *)
   val group_by
     :  ('ctx -> ('value, 'requirements) Expr.t)
     -> ('ctx, 'grouping, 'cardinality, 'requirements) t
@@ -1571,7 +1641,8 @@ module Query : sig
     -> ('ctx, grouped, 'cardinality, 'requirements) t
 
   (** Append one ordering key. Repeated calls preserve call order and the
-      current cardinality bound. *)
+      current cardinality bound. Nullable keys place [NULL] last with [Asc]
+      and first with [Desc] on both supported dialects. *)
   val order_by
     :  ('ctx -> ('value, 'requirements) Expr.t)
     -> direction
@@ -1722,8 +1793,10 @@ module Insert : sig
 
     (** Append an expression assignment. The [existing] and [excluded]
         references are visible, including inside correlated subqueries.
-        Columns owned by another table descriptor and direct aggregate
-        expressions are rejected. *)
+        Compilation checks the assignment's SQL type. Columns owned by another
+        table descriptor and aggregates owned by this update are rejected,
+        including inside correlated subqueries. Local subquery aggregates are
+        allowed. *)
     val set_expr
       :  ('row, 'base, 'value) Column.t
       -> ('value, 'requirements) Expr.t
@@ -1747,7 +1820,9 @@ module Insert : sig
     (** Restrict the conflict update. Repeated calls combine with SQL AND.
         Without a predicate, every conflicting row is updated. FALSE or NULL
         skips the update and produces no RETURNING row. This predicate does
-        not filter successful inserts. *)
+        not filter successful inserts. Aggregates owned by this update are
+        rejected, including inside correlated subqueries; local subquery
+        aggregates remain allowed. *)
     val where
       :  'requirements Condition.t
       -> ('row, 'requirements) t
@@ -1766,8 +1841,10 @@ module Insert : sig
     -> ('row, 'requirements) t
     -> ('row, 'requirements) t
 
-  (** Assign a column from a typed expression. VALUES cannot reference the
-      target or excluded row; independent scalar subqueries are allowed. *)
+  (** Assign a column from a typed expression. Compilation checks its SQL type
+      against the column. VALUES cannot reference the target or excluded row,
+      and direct aggregates are rejected; independent scalar subqueries with
+      local aggregates are allowed. *)
   val set_expr
     :  ('row, 'base, 'value) Column.t
     -> ('value, 'requirements) Expr.t
@@ -1838,7 +1915,8 @@ module Insert : sig
       a row-count proof, so the result cardinality is [Cardinality.many]. Use
       [Statement.with_parameters] with [parameters.expect_one] or
       [parameters.expect_optional] when an application invariant expects fewer
-      rows. *)
+      rows. Aggregates owned by this INSERT are rejected, including inside
+      correlated subqueries; local subquery aggregates are allowed. *)
   val returning
     :  ('row Table_ref.t -> ('result, 'requirements) Projection.t)
     -> ('row, 'requirements) t
@@ -1868,8 +1946,10 @@ module Update : sig
     -> ('row, 'scope, 'requirements) t
     -> ('row, 'scope, 'requirements) t
 
-  (** Assign a column from a typed expression. The compiler rejects an
-      expression referring to another query source. *)
+  (** Assign a column from a typed expression. The compiler checks its SQL type
+      against the column and rejects references outside the visible scope.
+      Aggregates owned by this UPDATE are rejected, including inside correlated
+      subqueries; local subquery aggregates are allowed. *)
   val set_expr
     :  ('row, 'base, 'value) Column.t
     -> ('value, 'requirements) Expr.t
@@ -1962,7 +2042,9 @@ module Update : sig
     -> ('row, 'new_scope, 'requirements) t
 
   (** Add a row predicate and mark the UPDATE as scoped. Repeated calls combine
-      predicates with SQL [AND]. *)
+      predicates with SQL [AND]. Aggregates owned by this UPDATE are rejected,
+      including inside correlated subqueries; local subquery aggregates are
+      allowed. *)
   val where
     :  ('row Table_ref.t -> 'requirements Condition.t)
     -> ('row, 'scope, 'requirements) t
@@ -1977,7 +2059,9 @@ module Update : sig
 
   (** Finish a scoped UPDATE with a typed [RETURNING] projection. The result
       cardinality is [Cardinality.many], even when the predicate is expected to
-      identify a unique row. *)
+      identify a unique row. Aggregates owned by this UPDATE are rejected,
+      including inside correlated subqueries; local subquery aggregates are
+      allowed. *)
   val returning
     :  ('row Table_ref.t -> ('result, 'requirements) Projection.t)
     -> ('row, scoped, 'requirements) t
@@ -1999,7 +2083,9 @@ module Delete : sig
   val from : 'row Table.t -> ('row, unscoped, 'requirements) t
 
   (** Add a row predicate and mark the DELETE as scoped. Repeated calls combine
-      predicates with SQL [AND]. *)
+      predicates with SQL [AND]. Aggregates owned by this DELETE are rejected,
+      including inside correlated subqueries; local subquery aggregates are
+      allowed. *)
   val where
     :  ('row Table_ref.t -> 'requirements Condition.t)
     -> ('row, 'scope, 'requirements) t
@@ -2012,7 +2098,9 @@ module Delete : sig
   val command : ('row, scoped, 'requirements) t -> 'requirements Command.t
 
   (** Finish a scoped DELETE with a typed [RETURNING] projection. The result
-      cardinality is [Cardinality.many]. *)
+      cardinality is [Cardinality.many]. Aggregates owned by this DELETE are
+      rejected, including inside correlated subqueries; local subquery
+      aggregates are allowed. *)
   val returning
     :  ('row Table_ref.t -> ('result, 'requirements) Projection.t)
     -> ('row, scoped, 'requirements) t
@@ -2055,7 +2143,8 @@ module Merge : sig
 
     (** Append an expression with the target column's value type and
         nullability. UPDATE sees target and source; INSERT sees only source,
-        including references inside scalar subqueries. *)
+        including references inside scalar subqueries. Compilation checks the
+        assignment's SQL type independently of mapped codec identity. *)
     val set_expr
       :  ('row, 'base, 'value) Column.t
       -> ('value, 'requirements) Expr.t
@@ -2589,7 +2678,9 @@ module Postgresql : sig
 
   module Expr : sig
     (** Compare a scalar with an array using PostgreSQL [= ANY]. An empty array
-        matches no rows; [NULL] elements retain SQL three-valued semantics. *)
+        matches no rows; [NULL] elements retain SQL three-valued semantics.
+        Compilation checks that the scalar SQL type matches the array element
+        SQL type, independently of mapped codec identity. *)
     val equals_any
       :  ('a, ([> `Not_sqlite ] as 'requirements)) Expr.t
       -> ('a Pg_array.t, 'requirements) Expr.t
@@ -2603,11 +2694,77 @@ module Postgresql : sig
   end
 end
 
+(** Portable integrity errors reported by execution adapters. Object names are
+    diagnostic fields from the database, not identities inferred from a query. *)
+module Constraint_error : sig
+  type kind =
+    | Unique
+    | Foreign_key
+    | Not_null
+    | Check
+    | Restrict
+    | Exclusion
+    | Other (** An integrity violation without a more specific classification. *)
+
+  (** Any diagnostic field may be absent. In particular, SQLite usually does
+      not identify the violated foreign key. Messages and details may contain
+      database values; applications choose how to log or display them. *)
+  type t =
+    { kind : kind
+    ; message : string (** Driver diagnostic for logging, not for matching. *)
+    ; sqlstate : string option
+    ; constraint_name : string option
+    ; schema_name : string option
+    ; table_name : string option
+    ; column_name : string option
+    ; detail : string option
+    ; hint : string option
+    }
+
+  val create
+    :  ?sqlstate:string
+    -> ?constraint_name:string
+    -> ?schema_name:string
+    -> ?table_name:string
+    -> ?column_name:string
+    -> ?detail:string
+    -> ?hint:string
+    -> kind:kind
+    -> message:string
+    -> unit
+    -> t
+
+  (** All supplied filters must match exactly. A requested name that the driver
+      did not report returns [false]. Use schema/table filters when constraint
+      names can repeat. With no filters, every constraint error matches. *)
+  val matches
+    :  ?kind:kind
+    -> ?constraint_name:string
+    -> ?schema_name:string
+    -> ?table_name:string
+    -> ?column_name:string
+    -> t
+    -> bool
+
+  (** A human-readable category and message. Use structured fields to handle
+      errors; the formatted message is not a stable machine-readable code. *)
+  val to_string : t -> string
+end
+
 (** Errors returned by pure compilation. *)
 module Compile_error : sig
   (** A structural error found after query normalization and before SQL is
       exposed to an adapter. *)
   type t =
+    | Mismatched_sql_type of
+        { context : string
+        ; expected : string
+        ; actual : string
+        }
+    (** Operands or an assignment have incompatible SQL types despite their
+        compatible OCaml representations. Codec identity is not SQL identity. *)
+    | Invalid_db_type of string
+    (** A codec representation cannot preserve its OCaml values in SQL. *)
     | Empty_projection
     (** SELECT or RETURNING has no SQL expression. Applicative constants alone
           do not form a valid projection. *)

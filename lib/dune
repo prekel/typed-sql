@@ -1,9 +1,22 @@
+(rule
+ (target platform.checked)
+ (deps check_platform.sh)
+ (action
+  (progn
+   (run
+    sh
+    %{dep:check_platform.sh}
+    %{ocaml-config:word_size}
+    %{ocaml-config:int_size})
+   (write-file %{target} ""))))
+
 (library
  (name typed_sql_private)
  (public_name typed-sql.private)
  (modules
   (:standard \ typed_sql))
  (libraries base ptime yojson zarith)
+ (preprocessor_deps platform.checked)
  (instrumentation
   (backend bisect_ppx))
  (preprocess

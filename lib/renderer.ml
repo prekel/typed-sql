@@ -4,6 +4,7 @@ type state =
   { dialect : Dialect.t
   ; next_parameter : int
   ; parameters_rev : Ast.parameter list
+  ; value_indices : (Ast.parameter * int) list
   ; slot_indices : (int * int) list
   ; next_cte : int
   ; cte_names : (int * string) list
@@ -13,6 +14,7 @@ let initial_state =
   { dialect = Dialect.Postgresql
   ; next_parameter = 0
   ; parameters_rev = []
+  ; value_indices = []
   ; slot_indices = []
   ; next_cte = 0
   ; cte_names = []
@@ -91,12 +93,18 @@ let aliases_for_select ~parent_aliases (select : Ast.select) =
 let render_parameter parameter state =
   match parameter with
   | Ast.Value _ ->
-    let index = state.next_parameter in
-    ( Template.Param index
-    , { state with
-        next_parameter = index + 1
-      ; parameters_rev = parameter :: state.parameters_rev
-      } )
+    (* Sharing one constant expression means sharing its SQL parameter identity.
+       Never compare or encode values to decide placeholder reuse. *)
+    (match List.Assoc.find state.value_indices parameter ~equal:phys_equal with
+     | Some index -> Template.Param index, state
+     | None ->
+       let index = state.next_parameter in
+       ( Template.Param index
+       , { state with
+           next_parameter = index + 1
+         ; parameters_rev = parameter :: state.parameters_rev
+         ; value_indices = (parameter, index) :: state.value_indices
+         } ))
   | Ast.Slot { id; _ } ->
     (match List.Assoc.find state.slot_indices id ~equal:Int.equal with
      | Some index -> Template.Param index, state
@@ -106,6 +114,7 @@ let render_parameter parameter state =
        , { next_parameter = index + 1
          ; dialect = state.dialect
          ; parameters_rev = parameter :: state.parameters_rev
+         ; value_indices = state.value_indices
          ; slot_indices = (id, index) :: state.slot_indices
          ; next_cte = state.next_cte
          ; cte_names = state.cte_names
@@ -150,6 +159,13 @@ and condition_has_subquery = function
   | Ast.Not condition -> condition_has_subquery condition
 ;;
 
+let null_ordering ~dialect direction =
+  match dialect, direction with
+  | Dialect.Sqlite, Ast.Asc -> text " NULLS LAST"
+  | Dialect.Sqlite, Ast.Desc -> text " NULLS FIRST"
+  | Dialect.Postgresql, _ -> Template.Empty
+;;
+
 let rec render_expr ~aliases expression state =
   match expression with
   | Ast.Column { source_id; name; _ } ->
@@ -187,6 +203,11 @@ let rec render_expr ~aliases expression state =
   | Ast.Arithmetic (operator, left, right) ->
     let left, state = render_expr ~aliases left state in
     let right, state = render_expr ~aliases right state in
+    let right =
+      match operator with
+      | Ast.Divide -> concat [ text "NULLIF("; right; text ", 0)" ]
+      | Ast.Add | Ast.Subtract | Ast.Multiply -> right
+    in
     concat [ text "("; left; text (arithmetic_sql operator); right; text ")" ], state
   | Ast.String_function (function_, expression) ->
     let expression, state = render_expr ~aliases expression state in
@@ -706,7 +727,10 @@ and render_order_by ~aliases orders state =
       | Ast.Asc -> text " ASC"
       | Ast.Desc -> text " DESC"
     in
-    let current = concat [ expression; direction ] in
+    let current =
+      concat
+        [ expression; direction; null_ordering ~dialect:state.dialect order.direction ]
+    in
     (match rest with
      | [] -> current, state
      | _ ->
@@ -866,7 +890,13 @@ and render_select
     in
     let parts, state =
       match select.limit with
-      | None -> render_offset parts state
+      | None ->
+        let parts =
+          match state.dialect, select.offset with
+          | Dialect.Sqlite, Some _ -> concat [ parts; break " "; text "LIMIT -1" ]
+          | _ -> parts
+        in
+        render_offset parts state
       | Some (Ast.Limit pagination) ->
         let parts, state = render_limit parts state pagination in
         render_offset parts state
@@ -908,7 +938,7 @@ and set_operator = function
   | Ast.Except -> "EXCEPT"
   | Ast.Except_all -> "EXCEPT ALL"
 
-and render_set_order_by ~output_names ~left orders =
+and render_set_order_by ~dialect ~output_names ~left orders =
   match orders with
   | [] -> Template.Empty
   | _ ->
@@ -931,7 +961,8 @@ and render_set_order_by ~output_names ~left orders =
           | Ast.Asc -> text " ASC"
           | Ast.Desc -> text " DESC"
         in
-        concat [ quote_identifier field; direction ])
+        concat
+          [ quote_identifier field; direction; null_ordering ~dialect order.direction ])
     in
     let orders = separate orders ~by:(concat [ text ","; break " " ]) in
     concat [ break " "; text "ORDER BY"; nest (concat [ break " "; orders ]) ]
@@ -1030,7 +1061,11 @@ and render_select_query
           ; text (set_operator compound.operator)
           ; break " "
           ; right
-          ; render_set_order_by ~output_names ~left:compound.left compound.order_by
+          ; render_set_order_by
+              ~dialect:state.dialect
+              ~output_names
+              ~left:compound.left
+              compound.order_by
           ]
       , state )
     in
@@ -1178,7 +1213,7 @@ and render_insert_rows ~aliases ~columns rows state =
     let rest, state = render_insert_rows ~aliases ~columns rest state in
     concat [ row; text ","; break " "; rest ], state
 
-and aliases_for_command (command : Ast.command) =
+and aliases_for_command ?(returning_projection = []) (command : Ast.command) =
   match command.kind, command.from with
   | Ast.Merge merge, _ -> [ command.source.source_id, "t0"; merge.using.source_id, "t1" ]
   | Ast.Insert, _ ->
@@ -1198,6 +1233,7 @@ and aliases_for_command (command : Ast.command) =
         | Ast.Default -> false
         | Ast.Expression expression -> expression_has_subquery expression)
       || Option.exists command.where_ ~f:condition_has_subquery
+      || List.exists returning_projection ~f:expression_has_subquery
     in
     [ ( command.source.source_id
       , if has_subquery then
@@ -1205,7 +1241,16 @@ and aliases_for_command (command : Ast.command) =
         else
           "" )
     ]
-  | Ast.Delete, _ -> [ command.source.source_id, "" ]
+  | Ast.Delete, _ ->
+    [ ( command.source.source_id
+      , if
+          Option.exists command.where_ ~f:condition_has_subquery
+          || List.exists returning_projection ~f:expression_has_subquery
+        then
+          "t0"
+        else
+          "" )
+    ]
 
 and render_conflict_target target =
   List.map target ~f:(fun target -> quote_identifier target.Ast.target_column)
@@ -1275,9 +1320,9 @@ and render_from_sources ~aliases (sources : Ast.source list) state =
     let rest, state = render_from_sources ~aliases rest state in
     concat [ source; text " AS "; text alias; text ","; break " "; rest ], state
 
-and render_command_ast (command : Ast.command) state =
+and render_command_ast ?(returning_projection = []) (command : Ast.command) state =
   let render_body state =
-    let aliases = aliases_for_command command in
+    let aliases = aliases_for_command ~returning_projection command in
     match command.kind with
     | Ast.Merge merge ->
       let source, state = render_from_sources ~aliases [ merge.using ] state in
@@ -1383,7 +1428,16 @@ and render_command_ast (command : Ast.command) state =
       in
       where_clause ~aliases command.where_ parts state
     | Ast.Delete ->
-      let parts = concat [ text "DELETE FROM "; render_target_source command.source ] in
+      let alias = alias_for aliases command.source.source_id in
+      let target_alias =
+        if String.is_empty alias then
+          Template.Empty
+        else
+          concat [ text " AS "; text alias ]
+      in
+      let parts =
+        concat [ text "DELETE FROM "; render_target_source command.source; target_alias ]
+      in
       where_clause ~aliases command.where_ parts state
   in
   render_with command.ctes ~render_body state
@@ -1446,14 +1500,35 @@ and render_merge_branches ~aliases branches state =
     concat [ break " "; branch; rest ], state
 
 and render_returning (returning : Ast.returning) state =
-  let parts, state = render_command_ast returning.command state in
+  let parts, state =
+    render_command_ast ~returning_projection:returning.projection returning.command state
+  in
   let aliases =
     match state.dialect, returning.command.kind with
     | _, Ast.Merge _ -> aliases_for_command returning.command
-    | Dialect.Postgresql, Ast.Update -> aliases_for_command returning.command
-    | Dialect.Postgresql, (Ast.Insert | Ast.Delete)
+    | Dialect.Postgresql, (Ast.Update | Ast.Delete) ->
+      aliases_for_command ~returning_projection:returning.projection returning.command
+    | Dialect.Postgresql, Ast.Insert -> [ returning.command.source.source_id, "" ]
     | Dialect.Sqlite, (Ast.Insert | Ast.Update | Ast.Delete) ->
-      [ returning.command.source.source_id, "" ]
+      let alias =
+        if List.exists returning.projection ~f:expression_has_subquery then (
+          match
+            returning.command.source.kind
+          with
+          | Ast.Table table ->
+            "\""
+            ^ String.substr_replace_all
+                (Identifier.to_string table.table)
+                ~pattern:"\""
+                ~with_:"\"\""
+            ^ "\""
+          | _ ->
+            Stdlib.failwith
+              "typed-sql invariant violated: RETURNING target is not a table")
+        else
+          ""
+      in
+      [ returning.command.source.source_id, alias ]
   in
   let projection, state =
     render_expressions

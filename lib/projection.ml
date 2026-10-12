@@ -85,7 +85,11 @@ let rec decode_db_type
   | Db_type.Bool_type, `Bool value -> Ok value
   | Db_type.Bool_type, `Int 0 -> Ok false
   | Db_type.Bool_type, `Int 1 -> Ok true
-  | Db_type.Int_type, `Int value -> Ok value
+  | Db_type.Int_type, `Int value ->
+    if Option.is_some (Int32.of_int value) then
+      Ok value
+    else
+      json_error ~path "signed 32-bit integer" (Int.to_string value)
   | Db_type.Int_type, `Intlit value -> json_error ~path "int" value
   | Db_type.Int64_type, `Int value -> Ok (Int64.of_int value)
   | Db_type.Int64_type, `Intlit value ->

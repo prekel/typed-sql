@@ -287,3 +287,8 @@ let insert_once =
 
 `Insert.on_conflict_do_nothing` переносим между PostgreSQL и SQLite. Для
 нескольких связанных команд adapter предоставляет transaction helper.
+
+Категорию нарушения можно проверить через `Typed_sql_caqti_lwt.Error.is_constraint_violation`;
+PG'OCaml также предоставляет имена constraints и другие поля PostgreSQL.
+Примеры перевода в ошибки приложения и обработка отложенных проверок на
+`COMMIT` находятся в [руководстве по ошибкам](error_handling.md).

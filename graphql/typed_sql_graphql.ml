@@ -5,7 +5,10 @@ module Value = struct
   type t = Graphql.const_value
 
   let optional_int = function
-    | `Int value -> Ok (Some value)
+    | `Int value
+      when Int64.(of_int value >= -2_147_483_648L && of_int value <= 2_147_483_647L) ->
+      Ok (Some value)
+    | `Int _ -> Error "Int is outside the signed 32-bit range"
     | `Null -> Ok None
     | _ -> Error "expected Int"
   ;;
@@ -104,7 +107,7 @@ let check_definitions definitions variables =
 ;;
 
 let rec resolve_value ~definitions ~variables
-  : Graphql.value -> (Value.t, string) Result.t
+  : Graphql.value -> (Value.t option, string) Result.t
   = function
   | `Variable name ->
     let open Result.Let_syntax in
@@ -117,27 +120,28 @@ let rec resolve_value ~definitions ~variables
       | None -> Error ("undeclared variable: " ^ name)
     in
     (match List.Assoc.find variables name ~equal:String.equal with
-     | Some value -> check_variable_value definition value
-     | None -> Ok `Null)
-  | `Null -> Ok `Null
-  | `Int value -> Ok (`Int value)
-  | `Float value -> Ok (`Float value)
-  | `String value -> Ok (`String value)
-  | `Bool value -> Ok (`Bool value)
-  | `Enum value -> Ok (`Enum value)
+     | Some value -> Result.map (check_variable_value definition value) ~f:Option.some
+     | None -> Ok None)
+  | `Null -> Ok (Some `Null)
+  | `Int value ->
+    Result.map (Value.optional_int (`Int value)) ~f:(fun _ -> Some (`Int value))
+  | `Float value -> Ok (Some (`Float value))
+  | `String value -> Ok (Some (`String value))
+  | `Bool value -> Ok (Some (`Bool value))
+  | `Enum value -> Ok (Some (`Enum value))
   | `List values ->
     Result.map
       (map_result values ~f:(resolve_value ~definitions ~variables))
-      ~f:(fun values -> `List values)
+      ~f:(fun values -> Some (`List (List.map values ~f:(Option.value ~default:`Null))))
   | `Assoc fields ->
     let open Result.Let_syntax in
     let%bind () = unique_names (List.map fields ~f:fst) in
     let%map fields =
       map_result fields ~f:(fun (name, value) ->
         let%map value = resolve_value ~definitions ~variables value in
-        name, value)
+        Option.map value ~f:(fun value -> name, value))
     in
-    `Assoc fields
+    Some (`Assoc (List.filter_opt fields))
 ;;
 
 let rec parse_field ~definitions ~variables (field : Graphql.field) =
@@ -152,8 +156,9 @@ let rec parse_field ~definitions ~variables (field : Graphql.field) =
   let%bind arguments =
     map_result field.arguments ~f:(fun (name, value) ->
       let%map value = resolve_value ~definitions ~variables value in
-      name, value)
+      Option.map value ~f:(fun value -> name, value))
   in
+  let arguments = List.filter_opt arguments in
   let%map selections = parse_selections ~definitions ~variables field.selection_set in
   { Field.name = field.name
   ; response_name = Option.value field.alias ~default:field.name

@@ -65,6 +65,9 @@ module Statement = struct
     let module P = Typed_sql_private.Compile_error in
     let open Typed_sql.Compile_error in
     function
+    | P.Mismatched_sql_type { context; expected; actual } ->
+      Mismatched_sql_type { context; expected; actual }
+    | P.Invalid_db_type message -> Invalid_db_type message
     | P.Empty_projection -> Empty_projection
     | P.Empty_values_columns -> Empty_values_columns
     | P.Empty_values_rows -> Empty_values_rows

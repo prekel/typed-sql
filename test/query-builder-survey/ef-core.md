@@ -2392,7 +2392,7 @@ var result = await context.Blogs.Select(b => new {
         let+ projected_left = Projection.expr (Blog.id blog)
         and+ projected_right =
           Projection.expr
-            (Expr.scalar_subquery
+            (Expr.scalar_subquery_nullable
                Query.(
                  from Post.table
                  |> where (fun post -> Post.blog_id post =. Blog.id blog)
@@ -2400,8 +2400,7 @@ var result = await context.Blogs.Select(b => new {
                    Expr.max Db_type.Orderable.timestamp (Post.date post))))
         in
         projected_left, projected_right))
-val ef42 :
-  (unit, (int64 * Ptime.t option option) list, Dialect.both) Statement.t =
+val ef42 : (unit, (int64 * Ptime.t option) list, Dialect.both) Statement.t =
   <abstr>
 ```
 

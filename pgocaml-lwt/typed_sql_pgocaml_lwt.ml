@@ -33,7 +33,7 @@ module Default_pgocaml = PGOCaml_generic.Make (Thread)
 module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) = struct
   module Pgocaml = P
 
-  type constraint_kind =
+  type constraint_kind = Typed_sql.Constraint_error.kind =
     | Unique
     | Foreign_key
     | Not_null
@@ -55,12 +55,17 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
     | Constraint_violation of
         { kind : constraint_kind
         ; message : string
+        ; cause : exn
         }
     | Invalid_cache_capacity of int
     | Prepared_cache_closed
+    | Rollback_failed of
+        { error : error
+        ; rollback_error : error
+        }
     | Pgocaml of exn
 
-  let error_to_string = function
+  let rec error_to_string = function
     | Compile { dialect; error } ->
       Stdlib.Printf.sprintf
         "statement compilation failed for %s: %s"
@@ -85,21 +90,17 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
     | Decode message -> Stdlib.Printf.sprintf "row decoding failed: %s" message
     | Cardinality { expected; actual } ->
       Stdlib.Printf.sprintf "expected %s row(s), got %d" expected actual
-    | Constraint_violation { kind; message } ->
-      let kind =
-        match kind with
-        | Unique -> "unique"
-        | Foreign_key -> "foreign key"
-        | Not_null -> "not null"
-        | Check -> "check"
-        | Restrict -> "restrict"
-        | Exclusion -> "exclusion"
-        | Other -> "integrity"
-      in
-      Stdlib.Printf.sprintf "%s constraint violation: %s" kind message
+    | Constraint_violation { kind; message; _ } ->
+      Typed_sql.Constraint_error.create ~kind ~message ()
+      |> Typed_sql.Constraint_error.to_string
     | Invalid_cache_capacity capacity ->
       Stdlib.Printf.sprintf "prepared cache capacity must be positive, got %d" capacity
     | Prepared_cache_closed -> "prepared cache is closed"
+    | Rollback_failed { error; rollback_error } ->
+      Stdlib.Printf.sprintf
+        "%s; rollback failed: %s"
+        (error_to_string error)
+        (error_to_string rollback_error)
     | Pgocaml error -> Exn.to_string error
   ;;
 
@@ -131,10 +132,66 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
         | _ -> None
       in
       (match kind with
-       | Some kind -> Constraint_violation { kind; message }
+       | Some kind -> Constraint_violation { kind; message; cause = exn }
        | None -> Pgocaml exn)
     | exn -> Pgocaml exn
   ;;
+
+  module Error = struct
+    type t = error
+
+    let constraint_violation = function
+      | Constraint_violation { kind; message; cause } ->
+        let fields =
+          match cause with
+          | Pgocaml.PostgreSQL_Error (_, fields) -> fields
+          | _ -> []
+        in
+        let field key = List.Assoc.find fields key ~equal:Char.equal in
+        Some
+          (Typed_sql.Constraint_error.create
+             ~kind
+             ~message
+             ?sqlstate:(field 'C')
+             ?constraint_name:(field 'n')
+             ?schema_name:(field 's')
+             ?table_name:(field 't')
+             ?column_name:(field 'c')
+             ?detail:(field 'D')
+             ?hint:(field 'H')
+             ())
+      | _ -> None
+    ;;
+
+    let is_constraint_violation
+          ?kind
+          ?constraint_name
+          ?schema_name
+          ?table_name
+          ?column_name
+          error
+      =
+      Option.value_map
+        (constraint_violation error)
+        ~default:false
+        ~f:
+          (Typed_sql.Constraint_error.matches
+             ?kind
+             ?constraint_name
+             ?schema_name
+             ?table_name
+             ?column_name)
+    ;;
+
+    let rec cause = function
+      | Rollback_failed { error; _ } -> cause error
+      | Constraint_violation { cause; _ } | Pgocaml cause -> Some cause
+      | _ -> None
+    ;;
+
+    let to_string = error_to_string
+    let pp = pp_error
+  end
 
   let rec encode
     : type a. a Typed_sql_backend.Db_type.t -> a -> (string option, string) Result.t
@@ -142,7 +199,11 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
     fun db_type value ->
     match Typed_sql_backend.Db_type.view db_type with
     | Bool -> Ok (Some (Pgocaml.string_of_bool value))
-    | Int -> Ok (Some (Pgocaml.string_of_int value))
+    | Int ->
+      if Option.is_some (Int32.of_int value) then
+        Ok (Some (Pgocaml.string_of_int value))
+      else
+        Error "integer is outside the signed 32-bit range"
     | Int64 -> Ok (Some (Pgocaml.string_of_int64 value))
     | Float -> Ok (Some (Pgocaml.string_of_float value))
     | Numeric -> Ok (Some (Typed_sql_backend.Decimal.to_string value))
@@ -186,7 +247,13 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
         | Map _ )
       , None ) -> Error ("unexpected NULL for " ^ Typed_sql_backend.Db_type.name db_type)
     | Bool, Some value -> protect ~context:"bool" (fun () -> Pgocaml.bool_of_string value)
-    | Int, Some value -> protect ~context:"int" (fun () -> Pgocaml.int_of_string value)
+    | Int, Some value ->
+      let open Result.Let_syntax in
+      let%bind value = protect ~context:"int" (fun () -> Pgocaml.int_of_string value) in
+      if Option.is_some (Int32.of_int value) then
+        Ok value
+      else
+        Error "integer is outside the signed 32-bit range"
     | Int64, Some value ->
       protect ~context:"int64" (fun () -> Pgocaml.int64_of_string value)
     | Float, Some value ->
@@ -202,7 +269,10 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
     | Date, Some value ->
       (match Typed_sql.Date.of_string value with
        | Some value -> Ok (Typed_sql.Date.to_ptime value)
-       | None -> Error ("date: invalid ISO 8601 value " ^ value))
+       | None ->
+         Error
+           ("date: expected a finite ISO date in years 0000..9999; unsupported value "
+          ^ value))
     | Timestamp, Some value ->
       (match Ptime.of_rfc3339 value with
        | Ok (value, _, _) -> Ok value
@@ -380,7 +450,9 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
                in
                let* rows = Pgocaml.execute cache.conn ~name ~params () in
                Lwt.return (Ok rows))
-            (fun exn -> Lwt.return (Error (error_of_exn exn))))
+            (function
+              | Lwt.Canceled -> Lwt.fail Lwt.Canceled
+              | exn -> Lwt.return (Error (error_of_exn exn))))
     ;;
 
     let close cache =
@@ -397,7 +469,9 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
                  let* () = Pgocaml.close_statement cache.conn ~name:entry.name () in
                  cache.entries <- rest;
                  loop ())
-              (fun exn -> Lwt.return (Error (error_of_exn exn)))
+              (function
+                | Lwt.Canceled -> Lwt.fail Lwt.Canceled
+                | exn -> Lwt.return (Error (error_of_exn exn)))
         in
         loop ())
     ;;
@@ -417,7 +491,9 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
               let* () = Pgocaml.prepare conn ~query:sql ~types () in
               let* rows = Pgocaml.execute conn ~params () in
               Lwt.return (Ok rows))
-           (fun error -> Lwt.return (Error (error_of_exn error))))
+           (function
+             | Lwt.Canceled -> Lwt.fail Lwt.Canceled
+             | error -> Lwt.return (Error (error_of_exn error))))
   ;;
 
   let fetch_compiled ?prepared_cache ~conn compiled =
@@ -521,23 +597,53 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
 
   let transaction ~conn ~f =
     let open Lwt.Syntax in
-    Lwt.catch
-      (fun () ->
-         let* () = Pgocaml.begin_work conn in
+    let cancel_after_rollback () =
+      Lwt.catch
+        (fun () ->
+           let* () = Pgocaml.rollback conn in
+           Lwt.fail Lwt.Canceled)
+        (fun _ -> Lwt.fail Lwt.Canceled)
+    in
+    let rollback error =
+      Lwt.catch
+        (fun () ->
+           let* () = Pgocaml.rollback conn in
+           Lwt.return (Error error))
+        (function
+          | Lwt.Canceled -> Lwt.fail Lwt.Canceled
+          | exn ->
+            Lwt.return
+              (Error (Rollback_failed { error; rollback_error = error_of_exn exn })))
+    in
+    let* started =
+      Lwt.catch
+        (fun () ->
+           let* () = Pgocaml.begin_work conn in
+           Lwt.return (Ok ()))
+        (function
+          | Lwt.Canceled -> Lwt.fail Lwt.Canceled
+          | exn -> Lwt.return (Error (error_of_exn exn)))
+    in
+    match started with
+    | Error error -> Lwt.return (Error error)
+    | Ok () ->
+      let* result =
+        Lwt.catch
+          (fun () -> f conn)
+          (function
+            | Lwt.Canceled -> cancel_after_rollback ()
+            | exn -> Lwt.return (Error (error_of_exn exn)))
+      in
+      (match result with
+       | Error error -> rollback error
+       | Ok value ->
          Lwt.catch
            (fun () ->
-              let* result = f conn in
-              match result with
-              | Ok value ->
-                let* () = Pgocaml.commit conn in
-                Lwt.return (Ok value)
-              | Error error ->
-                let* () = Pgocaml.rollback conn in
-                Lwt.return (Error error))
-           (fun exn ->
-              let* () = Pgocaml.rollback conn in
-              Lwt.fail exn))
-      (fun exn -> Lwt.return (Error (error_of_exn exn)))
+              let* () = Pgocaml.commit conn in
+              Lwt.return (Ok value))
+           (function
+             | Lwt.Canceled -> cancel_after_rollback ()
+             | exn -> rollback (error_of_exn exn)))
   ;;
 end
 

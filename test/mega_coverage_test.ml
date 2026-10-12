@@ -794,7 +794,7 @@ let person_result_projection person =
           &&. (Expr.Int64.Infix.(Event.id event *. Expr.constant Db_type.int64 1L)
                =. Event.id event)
           &&. (Expr.Int64.Infix.(Event.id event /. Expr.constant Db_type.int64 1L)
-               =. Event.id event)
+               =. Expr.to_nullable (Event.id event))
           &&. (Event.id event <>. Expr.constant Db_type.int64 0L)
           &&. (Event.id event <>$ 0L)
           &&. (Event.id event <. Expr.constant Db_type.int64 100L)
@@ -1394,27 +1394,27 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
             "v"."column2" AS "label"
           FROM (VALUES
             (
-              $9,
-              $10
+              $5,
+              $6
             ),
             (
-              $11,
-              $12
+              $7,
+              $8
             )
           ) AS "v") AS t2
             ON (t0."field_1" = t2."id")
           WHERE
             (
-              (t0."field_1" > $13)
+              (t0."field_1" > $9)
               AND (
-                (CAST($14 AS bigint) IS NULL)
-                OR (t0."field_1" = $14)
+                (CAST($10 AS bigint) IS NULL)
+                OR (t0."field_1" = $10)
               )
             )
           ORDER BY
             t0."field_1" ASC
-          LIMIT $15
-          OFFSET $16
+          LIMIT $11
+          OFFSET $12
         ) AS s0
         UNION ALL
         SELECT *
@@ -1427,12 +1427,12 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
             "v"."column2" AS "label"
           FROM (VALUES
             (
-              $17,
-              $18
+              $13,
+              $14
             ),
             (
-              $19,
-              $20
+              $15,
+              $16
             )
           ) AS "v") AS t0
         ) AS s0
@@ -1519,7 +1519,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
           MAX(t0."nullable_numeric_value")
         FROM "mega_events" AS t0
         WHERE
-          (t0."id" > $21)
+          (t0."id" > $17)
       ),
       "c6" (
         "id",
@@ -1530,8 +1530,8 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
           "label"
         )
         VALUES
-          ($22, $23),
-          ($24, $25)
+          ($18, $19),
+          ($20, $21)
         ON CONFLICT DO NOTHING
         RETURNING
           "id",
@@ -1545,7 +1545,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
       ) AS (
         DELETE FROM "mega_expired"
         WHERE
-          ("score" < $26)
+          ("score" < $22)
         RETURNING
           "id",
           "person_id",
@@ -1561,7 +1561,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
         UPDATE "mega_archive" AS t0
         SET
           "score" = (t0."score" + t1."score"),
-          "label" = (t0."label" || $27)
+          "label" = (t0."label" || $23)
         FROM "c7" AS t1
         WHERE
           (t0."id" = t1."id")
@@ -1595,7 +1595,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
         )
         DO UPDATE
         SET
-          "label" = $28,
+          "label" = $24,
           "score" = excluded."score"
         WHERE
           (t0."score" = excluded."score")
@@ -1719,14 +1719,14 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
           t0."id",
           t0."person_id",
           t0."label",
-          $29
+          $25
         FROM "mega_events" AS t0
         UNION ALL
         SELECT
           t0."id",
           t0."person_id",
           t0."label",
-          (t1."field_4" + $30)
+          (t1."field_4" + $26)
         FROM "mega_events" AS t0
         INNER JOIN "c11" AS t1
           ON (t0."id" > t1."field_1")
@@ -1749,31 +1749,31 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
           (
             (t1."id" IS NOT NULL)
             AND (t2."field_2" IS NOT NULL)
-            AND (t0."score" > $31)
+            AND (t0."score" > $27)
           )
         GROUP BY
           t0."person_id"
         HAVING
           (
-            (COUNT(*) > $32)
-            AND (COUNT(*) < $33)
+            (COUNT(*) > $28)
+            AND (COUNT(*) < $29)
           )
         ORDER BY
           t0."person_id" DESC
-        OFFSET $34
-        FETCH FIRST $35 ROWS WITH TIES
+        OFFSET $30
+        FETCH FIRST $31 ROWS WITH TIES
       )
     UPDATE "public"."mega_people" AS t0
     SET
-      "active" = $36,
-      "nickname" = $37,
-      "bio" = $38,
+      "active" = $32,
+      "nickname" = $33,
+      "bio" = $34,
       "status" = DEFAULT,
-      "score" = (t0."score" + COALESCE(t4."total_score", $39)),
+      "score" = (t0."score" + COALESCE(t4."total_score", $35)),
       "name" = ((CASE
-        WHEN (t4."event_count" > $40) THEN UPPER(t0."name")
+        WHEN (t4."event_count" > $36) THEN UPPER(t0."name")
         ELSE LOWER(t0."name")
-      END) || $41)
+      END) || $37)
     FROM "mega_events" AS t1,
       (
         SELECT *
@@ -1792,12 +1792,12 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
             "v"."column2" AS "label"
           FROM (VALUES
             (
-              $42,
-              $43
+              $5,
+              $6
             ),
             (
-              $44,
-              $45
+              $7,
+              $8
             )
           ) AS "v") AS t6
             ON (t5."field_1" = t6."id")
@@ -1806,27 +1806,27 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
             "v"."column2" AS "label"
           FROM (VALUES
             (
-              $46,
-              $47
+              $5,
+              $6
             ),
             (
-              $48,
-              $49
+              $7,
+              $8
             )
           ) AS "v") AS t7
             ON (t5."field_1" = t7."id")
           WHERE
             (
-              (t5."field_1" > $50)
+              (t5."field_1" > $9)
               AND (
-                (CAST($14 AS bigint) IS NULL)
-                OR (t5."field_1" = $14)
+                (CAST($10 AS bigint) IS NULL)
+                OR (t5."field_1" = $10)
               )
             )
           ORDER BY
             t5."field_1" ASC
-          LIMIT $15
-          OFFSET $16
+          LIMIT $11
+          OFFSET $12
         ) AS s0
         UNION ALL
         SELECT *
@@ -1839,12 +1839,12 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
             "v"."column2" AS "label"
           FROM (VALUES
             (
-              $51,
-              $52
+              $13,
+              $14
             ),
             (
-              $53,
-              $54
+              $15,
+              $16
             )
           ) AS "v") AS t5
         ) AS s0
@@ -1861,35 +1861,35 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
     WHERE
       (
         (t0."id" = t4."person_id")
-        AND (CAST($55 AS boolean) IS NOT NULL)
-        AND (CAST($56 AS integer) IS NOT NULL)
-        AND (CAST($57 AS bigint) IS NOT NULL)
-        AND (CAST($58 AS double precision) IS NOT NULL)
-        AND (CAST($59 AS numeric) IS NOT NULL)
-        AND (CAST($60 AS text) IS NOT NULL)
-        AND (CAST($61 AS bytea) IS NOT NULL)
-        AND (CAST($62 AS date) IS NOT NULL)
-        AND (CAST($63 AS timestamp with time zone) IS NOT NULL)
-        AND (CAST($64 AS uuid) IS NOT NULL)
-        AND (CAST($65 AS text) IS NOT NULL)
+        AND (CAST($38 AS boolean) IS NOT NULL)
+        AND (CAST($39 AS integer) IS NOT NULL)
+        AND (CAST($40 AS bigint) IS NOT NULL)
+        AND (CAST($41 AS double precision) IS NOT NULL)
+        AND (CAST($42 AS numeric) IS NOT NULL)
+        AND (CAST($43 AS text) IS NOT NULL)
+        AND (CAST($44 AS bytea) IS NOT NULL)
+        AND (CAST($45 AS date) IS NOT NULL)
+        AND (CAST($46 AS timestamp with time zone) IS NOT NULL)
+        AND (CAST($47 AS uuid) IS NOT NULL)
+        AND (CAST($48 AS text) IS NOT NULL)
         AND (t1."person_id" = t0."id")
         AND (t2."id" = t0."id")
         AND (t3."field_1" = t0."id")
-        AND (t0."name" IS DISTINCT FROM $60)
+        AND (t0."name" IS DISTINCT FROM $43)
         AND ((EXISTS (
           SELECT
             1
           FROM "c2" AS t5
           WHERE
             (t5."field_1" = t0."id")
-        )) = $66)
+        )) = $49)
         AND ((EXISTS (
           SELECT
             1
           FROM "c11" AS t5
           WHERE
             (t5."field_2" = t0."id")
-        )) = $67)
+        )) = $50)
         AND ((EXISTS (
           SELECT
             1
@@ -1898,16 +1898,16 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
             (t5."person_id" = t0."id")
           ORDER BY
             t5."id" ASC
-          LIMIT $68
+          LIMIT $51
           FOR UPDATE OF t5 SKIP LOCKED
-        )) = $69)
+        )) = $52)
         AND ((EXISTS (
           SELECT
             1
           FROM "c3" AS t5
           WHERE
             (t5."id" = t0."id")
-        )) = $70)
+        )) = $53)
         AND ((EXISTS (
           SELECT
             1
@@ -1931,7 +1931,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
             FROM "public"."mega_people" AS t8
           ) AS t7
             ON (t5."field_1" = t7."field_1")
-        )) = $71)
+        )) = $54)
         AND ((EXISTS (
           SELECT
             1
@@ -1940,39 +1940,39 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
             ON (t5."id" = t6."id")
           WHERE
             (t5."person_id" = t0."id")
-        )) = $72)
+        )) = $55)
         AND ((EXISTS (
           SELECT
             1
           FROM "c5" AS t5
           WHERE
-            (t5."count_all" > $73)
-        )) = $74)
+            (t5."count_all" > $56)
+        )) = $57)
         AND ((EXISTS (
           SELECT
             1
           FROM "c6" AS t5
           WHERE
-            (t5."id" > $75)
-        )) = $76)
+            (t5."id" > $58)
+        )) = $59)
         AND (COALESCE((
           SELECT
             COUNT(*)
           FROM "mega_events" AS t5
           WHERE
             (t5."person_id" = t0."id")
-        ), $77) > $78)
+        ), $60) > $61)
         AND (t0."id" IN (
-          $79,
-          $80
+          $62,
+          $63
         ))
-        AND (t0."id" NOT IN ($81))
+        AND (t0."id" NOT IN ($64))
         AND (t0."name" IN (
-          $82,
-          $83
+          $65,
+          $66
         ))
-        AND (t0."name" NOT IN ($84))
-        AND (t0."score" BETWEEN $85 AND $86)
+        AND (t0."name" NOT IN ($67))
+        AND (t0."score" BETWEEN $68 AND $69)
         AND (NOT (t0."nickname" IS NULL))
         AND (NOT EXISTS (
           SELECT
@@ -1987,23 +1987,23 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
           FROM "mega_events" AS t5
           WHERE
             (t5."person_id" = t0."id")
-          LIMIT $87
+          LIMIT $70
         ))
         AND ((
           SELECT
             STRING_AGG(
               t5."nullable_label",
-              $88
+              $71
               ORDER BY t5."id" ASC
             )
           FROM "mega_events" AS t5
           WHERE
             (t5."person_id" = t0."id")
-        ) = $89)
-        AND (t0."id" = ANY(CAST($90 AS bigint[])))
-        AND (CAST(CAST($91 AS "pg_catalog"."timestamp") AS "pg_catalog"."timestamp") IS NOT NULL)
-        AND (CAST(CAST($92 AS "pg_catalog"."interval") AS "pg_catalog"."interval") IS NOT NULL)
-        AND ($93 = ANY(CAST($94 AS bigint[])))
+        ) = $72)
+        AND (t0."id" = ANY(CAST($73 AS bigint[])))
+        AND (CAST(CAST($74 AS "pg_catalog"."timestamp") AS "pg_catalog"."timestamp") IS NOT NULL)
+        AND (CAST(CAST($75 AS "pg_catalog"."interval") AS "pg_catalog"."interval") IS NOT NULL)
+        AND ($76 = ANY(CAST($77 AS bigint[])))
       )
     RETURNING
       t0."id",
@@ -2038,7 +2038,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
               (t5."person_id" = t0."id")
             ORDER BY
               t5."id" ASC
-            LIMIT $95
+            LIMIT $78
           ) AS m0
         )
         AS TEXT
@@ -2095,9 +2095,9 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                       WHERE
                         (
                           (t6."person_id" = t0."id")
-                          AND (t6."value" > $96)
+                          AND (t6."value" > $79)
                         )
-                    )) = $97)
+                    )) = $80)
                   )
                 ),
                 JSONB_BUILD_ARRAY()
@@ -2111,34 +2111,34 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
         SELECT
           COALESCE(SUM((CASE
             WHEN (
-              (t5."id" = (t5."id" + $98))
-              AND ((t5."id" - $99) = $100)
-              AND ((t5."id" * $101) = t5."id")
-              AND ((t5."id" / $102) = t5."id")
-              AND (t5."id" <> $103)
-              AND (t5."id" <> $104)
-              AND (t5."id" < $105)
-              AND (t5."id" <= $106)
-              AND (t5."id" >= $107)
-              AND (t5."id" <= $108)
-              AND (t5."id" >= $109)
+              (t5."id" = (t5."id" + $81))
+              AND ((t5."id" - $82) = $83)
+              AND ((t5."id" * $84) = t5."id")
+              AND ((t5."id" / NULLIF($85, 0)) = t5."id")
+              AND (t5."id" <> $86)
+              AND (t5."id" <> $87)
+              AND (t5."id" < $88)
+              AND (t5."id" <= $89)
+              AND (t5."id" >= $90)
+              AND (t5."id" <= $91)
+              AND (t5."id" >= $92)
               AND (t5."nullable_id" IS NULL)
               AND (t5."nullable_id" IS NOT NULL)
               AND (t5."id" IN (
-                $110,
-                $111
+                $93,
+                $94
               ))
-              AND (t5."id" NOT IN ($112))
-              AND (t5."id" IN ($113))
-              AND (t5."id" NOT IN ($114))
-              AND (t5."id" BETWEEN $115 AND $116)
+              AND (t5."id" NOT IN ($95))
+              AND (t5."id" IN ($96))
+              AND (t5."id" NOT IN ($97))
+              AND (t5."id" BETWEEN $98 AND $99)
               AND (t5."id" IN (
                 SELECT
                   t6."id"
                 FROM "mega_events" AS t6
                 WHERE
                   (t6."id" = t5."id")
-                LIMIT $117
+                LIMIT $100
               ))
               AND (t5."id" NOT IN (
                 SELECT
@@ -2146,7 +2146,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                 FROM "mega_events" AS t6
                 WHERE
                   (t6."id" = t5."id")
-                LIMIT $118
+                LIMIT $101
               ))
               AND (EXISTS (
                 SELECT
@@ -2162,28 +2162,28 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                 WHERE
                   (t6."person_id" = t5."person_id")
               ))
-              AND (t5."label" IS DISTINCT FROM $119)
-              AND (t5."label" LIKE $120)
-              AND (CHAR_LENGTH(t5."label") > $121)
+              AND (t5."label" IS DISTINCT FROM $102)
+              AND (t5."label" LIKE $103)
+              AND (CHAR_LENGTH(t5."label") > $104)
               AND ((
                 SELECT
                   t6."nullable_id"
                 FROM "mega_events" AS t6
                 WHERE
                   (t6."id" = t5."id")
-                LIMIT $122
+                LIMIT $105
               ) = t5."id")
-              AND (NOT (t5."id" > $123))
-              AND ((LOWER(t5."label") || $124) LIKE $125)
-              AND (COALESCE(t5."nullable_id", $126) > $127)
+              AND (NOT (t5."id" > $106))
+              AND ((LOWER(t5."label") || $107) LIKE $108)
+              AND (COALESCE(t5."nullable_id", $109) > $110)
               AND ((CASE
                 WHEN TRUE THEN t5."id"
-                ELSE $128
-              END) > $129)
+                ELSE $111
+              END) > $112)
               AND (CURRENT_TIMESTAMP = CURRENT_TIMESTAMP)
             ) THEN t5."value"
-            ELSE $130
-          END)), $131)
+            ELSE $113
+          END)), $114)
         FROM "mega_events" AS t5
       )
     |}];
@@ -2209,255 +2209,221 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
        ((position 8) (placeholder $8) (name ()) (db_type text)
         (dialect_type (text)) (value ((Encoded two))))
        ((position 9) (placeholder $9) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 10) (placeholder $10) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded one))))
-       ((position 11) (placeholder $11) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 2))))
-       ((position 12) (placeholder $12) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded two))))
-       ((position 13) (placeholder $13) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 14) (placeholder $14) (name (optional_mega_person_id))
+       ((position 10) (placeholder $10) (name (optional_mega_person_id))
         (db_type "option(int64)") (dialect_type (bigint)) (value (Null)))
-       ((position 15) (placeholder $15) (name (optional_input_rows_limit))
+       ((position 11) (placeholder $11) (name (optional_input_rows_limit))
         (db_type "option(int)") (dialect_type (integer)) (value ((Encoded 20))))
-       ((position 16) (placeholder $16) (name (input_rows_offset))
+       ((position 12) (placeholder $12) (name (input_rows_offset))
         (db_type "option(int)") (dialect_type (integer)) (value ((Encoded 1))))
-       ((position 17) (placeholder $17) (name ()) (db_type int64)
+       ((position 13) (placeholder $13) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 18) (placeholder $18) (name ()) (db_type text)
+       ((position 14) (placeholder $14) (name ()) (db_type text)
         (dialect_type (text)) (value ((Encoded one))))
-       ((position 19) (placeholder $19) (name ()) (db_type int64)
+       ((position 15) (placeholder $15) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 2))))
-       ((position 20) (placeholder $20) (name ()) (db_type text)
+       ((position 16) (placeholder $16) (name ()) (db_type text)
         (dialect_type (text)) (value ((Encoded two))))
-       ((position 21) (placeholder $21) (name ()) (db_type int64)
+       ((position 17) (placeholder $17) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 22) (placeholder $22) (name ()) (db_type int64)
+       ((position 18) (placeholder $18) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 101))))
-       ((position 23) (placeholder $23) (name ()) (db_type text)
+       ((position 19) (placeholder $19) (name ()) (db_type text)
         (dialect_type (text)) (value ((Encoded inserted))))
-       ((position 24) (placeholder $24) (name ()) (db_type int64)
+       ((position 20) (placeholder $20) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 102))))
-       ((position 25) (placeholder $25) (name ()) (db_type text)
+       ((position 21) (placeholder $21) (name ()) (db_type text)
         (dialect_type (text)) (value ((Encoded "also inserted"))))
-       ((position 26) (placeholder $26) (name ()) (db_type int)
+       ((position 22) (placeholder $22) (name ()) (db_type int)
         (dialect_type (integer)) (value ((Encoded 0))))
-       ((position 27) (placeholder $27) (name ()) (db_type text)
+       ((position 23) (placeholder $23) (name ()) (db_type text)
         (dialect_type (text)) (value ((Encoded " archived"))))
-       ((position 28) (placeholder $28) (name ()) (db_type text)
+       ((position 24) (placeholder $24) (name ()) (db_type text)
         (dialect_type (text)) (value ((Encoded expired))))
-       ((position 29) (placeholder $29) (name ()) (db_type int)
+       ((position 25) (placeholder $25) (name ()) (db_type int)
         (dialect_type (integer)) (value ((Encoded 0))))
-       ((position 30) (placeholder $30) (name ()) (db_type int)
+       ((position 26) (placeholder $26) (name ()) (db_type int)
         (dialect_type (integer)) (value ((Encoded 1))))
-       ((position 31) (placeholder $31) (name ()) (db_type int)
+       ((position 27) (placeholder $27) (name ()) (db_type int)
         (dialect_type (integer)) (value ((Encoded 0))))
-       ((position 32) (placeholder $32) (name ()) (db_type int64)
+       ((position 28) (placeholder $28) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 33) (placeholder $33) (name ()) (db_type int64)
+       ((position 29) (placeholder $29) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 100))))
-       ((position 34) (placeholder $34) (name ()) (db_type int)
+       ((position 30) (placeholder $30) (name ()) (db_type int)
         (dialect_type (integer)) (value ((Encoded 0))))
-       ((position 35) (placeholder $35) (name (input_rows_limit)) (db_type int)
+       ((position 31) (placeholder $31) (name (input_rows_limit)) (db_type int)
         (dialect_type (integer)) (value ((Encoded 20))))
-       ((position 36) (placeholder $36) (name ()) (db_type bool)
+       ((position 32) (placeholder $32) (name ()) (db_type bool)
         (dialect_type (boolean)) (value ((Encoded true))))
-       ((position 37) (placeholder $37) (name ()) (db_type "option(text)")
+       ((position 33) (placeholder $33) (name ()) (db_type "option(text)")
         (dialect_type (text)) (value (Null)))
-       ((position 38) (placeholder $38) (name ()) (db_type text)
+       ((position 34) (placeholder $34) (name ()) (db_type text)
         (dialect_type (text)) (value ((Encoded updated))))
-       ((position 39) (placeholder $39) (name ()) (db_type int64)
+       ((position 35) (placeholder $35) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 36) (placeholder $36) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 1))))
+       ((position 37) (placeholder $37) (name ()) (db_type text)
+        (dialect_type (text)) (value ((Encoded !))))
+       ((position 38) (placeholder $38) (name ()) (db_type bool)
+        (dialect_type (boolean)) (value ((Encoded true))))
+       ((position 39) (placeholder $39) (name ()) (db_type int)
+        (dialect_type (integer)) (value ((Encoded 1))))
        ((position 40) (placeholder $40) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 41) (placeholder $41) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded !))))
-       ((position 42) (placeholder $42) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 43) (placeholder $43) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded one))))
-       ((position 44) (placeholder $44) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 2))))
-       ((position 45) (placeholder $45) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded two))))
-       ((position 46) (placeholder $46) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 47) (placeholder $47) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded one))))
-       ((position 48) (placeholder $48) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 2))))
-       ((position 49) (placeholder $49) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded two))))
-       ((position 50) (placeholder $50) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 51) (placeholder $51) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 52) (placeholder $52) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded one))))
-       ((position 53) (placeholder $53) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 2))))
-       ((position 54) (placeholder $54) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded two))))
-       ((position 55) (placeholder $55) (name ()) (db_type bool)
-        (dialect_type (boolean)) (value ((Encoded true))))
-       ((position 56) (placeholder $56) (name ()) (db_type int)
-        (dialect_type (integer)) (value ((Encoded 1))))
-       ((position 57) (placeholder $57) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 58) (placeholder $58) (name ()) (db_type float)
+       ((position 41) (placeholder $41) (name ()) (db_type float)
         (dialect_type ("double precision")) (value ((Encoded 1.5))))
-       ((position 59) (placeholder $59) (name ()) (db_type numeric)
+       ((position 42) (placeholder $42) (name ()) (db_type numeric)
         (dialect_type (numeric)) (value ((Encoded 0.1234))))
-       ((position 60) (placeholder $60) (name (mega_label)) (db_type text)
+       ((position 43) (placeholder $43) (name (mega_label)) (db_type text)
         (dialect_type (text)) (value ((Encoded mega))))
-       ((position 61) (placeholder $61) (name ()) (db_type bytes)
+       ((position 44) (placeholder $44) (name ()) (db_type bytes)
         (dialect_type (bytea)) (value ((Encoded "\\x6d656761"))))
-       ((position 62) (placeholder $62) (name ()) (db_type date)
+       ((position 45) (placeholder $45) (name ()) (db_type date)
         (dialect_type (date)) (value ((Encoded 2026-09-30))))
-       ((position 63) (placeholder $63) (name ()) (db_type timestamp)
+       ((position 46) (placeholder $46) (name ()) (db_type timestamp)
         (dialect_type ("timestamp with time zone"))
         (value ((Encoded 1970-01-01T00:00:00-00:00))))
-       ((position 64) (placeholder $64) (name ()) (db_type uuid)
+       ((position 47) (placeholder $47) (name ()) (db_type uuid)
         (dialect_type (uuid))
         (value ((Encoded 550e8400-e29b-41d4-a716-446655440000))))
-       ((position 65) (placeholder $65) (name ()) (db_type "option(mega_text)")
+       ((position 48) (placeholder $48) (name ()) (db_type "option(mega_text)")
         (dialect_type (text)) (value ((Encoded mapped))))
-       ((position 66) (placeholder $66) (name ()) (db_type bool)
+       ((position 49) (placeholder $49) (name ()) (db_type bool)
         (dialect_type (boolean)) (value ((Encoded true))))
-       ((position 67) (placeholder $67) (name ()) (db_type bool)
+       ((position 50) (placeholder $50) (name ()) (db_type bool)
         (dialect_type (boolean)) (value ((Encoded true))))
-       ((position 68) (placeholder $68) (name ()) (db_type int)
+       ((position 51) (placeholder $51) (name ()) (db_type int)
         (dialect_type (integer)) (value ((Encoded 1))))
-       ((position 69) (placeholder $69) (name ()) (db_type bool)
+       ((position 52) (placeholder $52) (name ()) (db_type bool)
         (dialect_type (boolean)) (value ((Encoded true))))
-       ((position 70) (placeholder $70) (name ()) (db_type bool)
+       ((position 53) (placeholder $53) (name ()) (db_type bool)
         (dialect_type (boolean)) (value ((Encoded true))))
-       ((position 71) (placeholder $71) (name ()) (db_type bool)
+       ((position 54) (placeholder $54) (name ()) (db_type bool)
         (dialect_type (boolean)) (value ((Encoded true))))
-       ((position 72) (placeholder $72) (name ()) (db_type bool)
+       ((position 55) (placeholder $55) (name ()) (db_type bool)
         (dialect_type (boolean)) (value ((Encoded true))))
-       ((position 73) (placeholder $73) (name ()) (db_type int64)
+       ((position 56) (placeholder $56) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 74) (placeholder $74) (name ()) (db_type bool)
+       ((position 57) (placeholder $57) (name ()) (db_type bool)
         (dialect_type (boolean)) (value ((Encoded true))))
-       ((position 75) (placeholder $75) (name ()) (db_type int64)
+       ((position 58) (placeholder $58) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 76) (placeholder $76) (name ()) (db_type bool)
+       ((position 59) (placeholder $59) (name ()) (db_type bool)
         (dialect_type (boolean)) (value ((Encoded true))))
-       ((position 77) (placeholder $77) (name ()) (db_type int64)
+       ((position 60) (placeholder $60) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 78) (placeholder $78) (name ()) (db_type int64)
+       ((position 61) (placeholder $61) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 79) (placeholder $79) (name ()) (db_type int64)
+       ((position 62) (placeholder $62) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 80) (placeholder $80) (name ()) (db_type int64)
+       ((position 63) (placeholder $63) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 2))))
-       ((position 81) (placeholder $81) (name ()) (db_type int64)
+       ((position 64) (placeholder $64) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded -1))))
-       ((position 82) (placeholder $82) (name ()) (db_type text)
+       ((position 65) (placeholder $65) (name ()) (db_type text)
         (dialect_type (text)) (value ((Encoded Ada))))
-       ((position 83) (placeholder $83) (name ()) (db_type text)
+       ((position 66) (placeholder $66) (name ()) (db_type text)
         (dialect_type (text)) (value ((Encoded Edsger))))
-       ((position 84) (placeholder $84) (name ()) (db_type text)
+       ((position 67) (placeholder $67) (name ()) (db_type text)
         (dialect_type (text)) (value ((Encoded unknown))))
-       ((position 85) (placeholder $85) (name ()) (db_type int64)
+       ((position 68) (placeholder $68) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 86) (placeholder $86) (name ()) (db_type int64)
+       ((position 69) (placeholder $69) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 1000))))
-       ((position 87) (placeholder $87) (name ()) (db_type int)
+       ((position 70) (placeholder $70) (name ()) (db_type int)
         (dialect_type (integer)) (value ((Encoded 1))))
-       ((position 88) (placeholder $88) (name ()) (db_type text)
+       ((position 71) (placeholder $71) (name ()) (db_type text)
         (dialect_type (text)) (value ((Encoded ,))))
-       ((position 89) (placeholder $89) (name ()) (db_type "option(text)")
+       ((position 72) (placeholder $72) (name ()) (db_type "option(text)")
         (dialect_type (text)) (value ((Encoded optional))))
-       ((position 90) (placeholder $90) (name ()) (db_type "array_list(int64)")
+       ((position 73) (placeholder $73) (name ()) (db_type "array_list(int64)")
         (dialect_type (bigint[])) (value ((Encoded "{\"1\"}"))))
-       ((position 91) (placeholder $91) (name ())
+       ((position 74) (placeholder $74) (name ())
         (db_type "timestamp without time zone")
         (dialect_type ("\"pg_catalog\".\"timestamp\""))
         (value ((Encoded "2026-09-30 12:34:56.000789"))))
-       ((position 92) (placeholder $92) (name ()) (db_type interval)
+       ((position 75) (placeholder $75) (name ()) (db_type interval)
         (dialect_type ("\"pg_catalog\".\"interval\""))
         (value ((Encoded "14 mons 3 days 4:05:06.000007"))))
+       ((position 76) (placeholder $76) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 1))))
+       ((position 77) (placeholder $77) (name ()) (db_type "array(int64)")
+        (dialect_type (bigint[])) (value ((Encoded "[0:1]={\"1\",NULL}"))))
+       ((position 78) (placeholder $78) (name ()) (db_type int)
+        (dialect_type (integer)) (value ((Encoded 5))))
+       ((position 79) (placeholder $79) (name ()) (db_type int)
+        (dialect_type (integer)) (value ((Encoded 0))))
+       ((position 80) (placeholder $80) (name ()) (db_type bool)
+        (dialect_type (boolean)) (value ((Encoded true))))
+       ((position 81) (placeholder $81) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 1))))
+       ((position 82) (placeholder $82) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 1))))
+       ((position 83) (placeholder $83) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 9))))
+       ((position 84) (placeholder $84) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 1))))
+       ((position 85) (placeholder $85) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 1))))
+       ((position 86) (placeholder $86) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 87) (placeholder $87) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 88) (placeholder $88) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 100))))
+       ((position 89) (placeholder $89) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 100))))
+       ((position 90) (placeholder $90) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 91) (placeholder $91) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 100))))
+       ((position 92) (placeholder $92) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 0))))
        ((position 93) (placeholder $93) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 94) (placeholder $94) (name ()) (db_type "array(int64)")
-        (dialect_type (bigint[])) (value ((Encoded "[0:1]={\"1\",NULL}"))))
-       ((position 95) (placeholder $95) (name ()) (db_type int)
-        (dialect_type (integer)) (value ((Encoded 5))))
-       ((position 96) (placeholder $96) (name ()) (db_type int)
-        (dialect_type (integer)) (value ((Encoded 0))))
-       ((position 97) (placeholder $97) (name ()) (db_type bool)
-        (dialect_type (boolean)) (value ((Encoded true))))
+       ((position 94) (placeholder $94) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 2))))
+       ((position 95) (placeholder $95) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded -1))))
+       ((position 96) (placeholder $96) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 3))))
+       ((position 97) (placeholder $97) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 4))))
        ((position 98) (placeholder $98) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1))))
+        (dialect_type (bigint)) (value ((Encoded 0))))
        ((position 99) (placeholder $99) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 100) (placeholder $100) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 9))))
-       ((position 101) (placeholder $101) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 102) (placeholder $102) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 103) (placeholder $103) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 104) (placeholder $104) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 105) (placeholder $105) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 100))))
+       ((position 100) (placeholder $100) (name ()) (db_type int)
+        (dialect_type (integer)) (value ((Encoded 1))))
+       ((position 101) (placeholder $101) (name ()) (db_type int)
+        (dialect_type (integer)) (value ((Encoded 1))))
+       ((position 102) (placeholder $102) (name ()) (db_type text)
+        (dialect_type (text)) (value ((Encoded different))))
+       ((position 103) (placeholder $103) (name ()) (db_type text)
+        (dialect_type (text)) (value ((Encoded %v%))))
+       ((position 104) (placeholder $104) (name ()) (db_type int)
+        (dialect_type (integer)) (value ((Encoded 0))))
+       ((position 105) (placeholder $105) (name ()) (db_type int)
+        (dialect_type (integer)) (value ((Encoded 1))))
        ((position 106) (placeholder $106) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 100))))
-       ((position 107) (placeholder $107) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 108) (placeholder $108) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 100))))
+       ((position 107) (placeholder $107) (name ()) (db_type text)
+        (dialect_type (text)) (value ((Encoded x))))
+       ((position 108) (placeholder $108) (name ()) (db_type text)
+        (dialect_type (text)) (value ((Encoded %))))
        ((position 109) (placeholder $109) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
        ((position 110) (placeholder $110) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1))))
+        (dialect_type (bigint)) (value ((Encoded 0))))
        ((position 111) (placeholder $111) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 2))))
+        (dialect_type (bigint)) (value ((Encoded 0))))
        ((position 112) (placeholder $112) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded -1))))
-       ((position 113) (placeholder $113) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 3))))
+        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 113) (placeholder $113) (name ()) (db_type int)
+        (dialect_type (integer)) (value ((Encoded 0))))
        ((position 114) (placeholder $114) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 4))))
-       ((position 115) (placeholder $115) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 116) (placeholder $116) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 100))))
-       ((position 117) (placeholder $117) (name ()) (db_type int)
-        (dialect_type (integer)) (value ((Encoded 1))))
-       ((position 118) (placeholder $118) (name ()) (db_type int)
-        (dialect_type (integer)) (value ((Encoded 1))))
-       ((position 119) (placeholder $119) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded different))))
-       ((position 120) (placeholder $120) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded %v%))))
-       ((position 121) (placeholder $121) (name ()) (db_type int)
-        (dialect_type (integer)) (value ((Encoded 0))))
-       ((position 122) (placeholder $122) (name ()) (db_type int)
-        (dialect_type (integer)) (value ((Encoded 1))))
-       ((position 123) (placeholder $123) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 124) (placeholder $124) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded x))))
-       ((position 125) (placeholder $125) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded %))))
-       ((position 126) (placeholder $126) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 127) (placeholder $127) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 128) (placeholder $128) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 129) (placeholder $129) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 130) (placeholder $130) (name ()) (db_type int)
-        (dialect_type (integer)) (value ((Encoded 0))))
-       ((position 131) (placeholder $131) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))))
      (output
       (Query_output (cardinality Many)
@@ -2514,7 +2480,7 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
           WHERE
             (t1."person_id" = t0."id")
           ORDER BY
-            t1."id" ASC
+            t1."id" ASC NULLS LAST
           LIMIT ?1
         ) AS m0
       ),
@@ -2558,7 +2524,7 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
                   t1."external_id",
                   t1."mapped_label"
                 )
-                ORDER BY t1."id" ASC
+                ORDER BY t1."id" ASC NULLS LAST
               ) FILTER (
                 WHERE (
                   (t1."person_id" = t0."id")
@@ -2586,7 +2552,7 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
               (t1."id" = (t1."id" + ?4))
               AND ((t1."id" - ?5) = ?6)
               AND ((t1."id" * ?7) = t1."id")
-              AND ((t1."id" / ?8) = t1."id")
+              AND ((t1."id" / NULLIF(?8, 0)) = t1."id")
               AND (t1."id" <> ?9)
               AND (t1."id" <> ?10)
               AND (t1."id" < ?11)
@@ -3595,7 +3561,7 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
               (t5."id" = (t5."id" + CAST(E'1' AS bigint)))
               AND ((t5."id" - CAST(E'1' AS bigint)) = CAST(E'9' AS bigint))
               AND ((t5."id" * CAST(E'1' AS bigint)) = t5."id")
-              AND ((t5."id" / CAST(E'1' AS bigint)) = t5."id")
+              AND ((t5."id" / NULLIF(CAST(E'1' AS bigint), 0)) = t5."id")
               AND (t5."id" <> CAST(E'0' AS bigint))
               AND (t5."id" <> CAST(E'0' AS bigint))
               AND (t5."id" < CAST(E'100' AS bigint))
@@ -3706,7 +3672,7 @@ let%expect_test "SQLite mega query debug SQL substitutes input values" =
           WHERE
             (t1."person_id" = t0."id")
           ORDER BY
-            t1."id" ASC
+            t1."id" ASC NULLS LAST
           LIMIT 5
         ) AS m0
       ),
@@ -3750,7 +3716,7 @@ let%expect_test "SQLite mega query debug SQL substitutes input values" =
                   t1."external_id",
                   t1."mapped_label"
                 )
-                ORDER BY t1."id" ASC
+                ORDER BY t1."id" ASC NULLS LAST
               ) FILTER (
                 WHERE (
                   (t1."person_id" = t0."id")
@@ -3778,7 +3744,7 @@ let%expect_test "SQLite mega query debug SQL substitutes input values" =
               (t1."id" = (t1."id" + 1))
               AND ((t1."id" - 1) = 9)
               AND ((t1."id" * 1) = t1."id")
-              AND ((t1."id" / 1) = t1."id")
+              AND ((t1."id" / NULLIF(1, 0)) = t1."id")
               AND (t1."id" <> 0)
               AND (t1."id" <> 0)
               AND (t1."id" < 100)

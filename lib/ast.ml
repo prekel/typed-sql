@@ -222,6 +222,7 @@ and row_limit =
 and assignment =
   { source_id : int
   ; column : Identifier.t
+  ; target_type : Db_type.packed
   ; value : assignment_value
   }
 

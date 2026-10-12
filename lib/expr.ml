@@ -134,7 +134,7 @@ module type Arithmetic = sig
   val divide
     :  (value, 'requirements) t
     -> (value, 'requirements) t
-    -> (value, 'requirements) t
+    -> (value option, 'requirements) t
 
   module Infix : sig
     val ( +. )
@@ -155,7 +155,7 @@ module type Arithmetic = sig
     val ( /. )
       :  (value, 'requirements) t
       -> (value, 'requirements) t
-      -> (value, 'requirements) t
+      -> (value option, 'requirements) t
   end
 end
 
@@ -167,7 +167,12 @@ module Arithmetic (Value : sig
   let add left right = arithmetic Ast.Add left right
   let subtract left right = arithmetic Ast.Subtract left right
   let multiply left right = arithmetic Ast.Multiply left right
-  let divide left right = arithmetic Ast.Divide left right
+
+  let divide left right =
+    { node = Ast.Arithmetic (Ast.Divide, left.node, right.node)
+    ; db_type = Db_type.option left.db_type
+    }
+  ;;
 
   module Infix = struct
     let ( +. ) = add

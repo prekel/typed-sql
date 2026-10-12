@@ -1,7 +1,7 @@
 open! Base
 module T = Caqti.Template
 
-type constraint_kind =
+type constraint_kind = Typed_sql.Constraint_error.kind =
   | Unique
   | Foreign_key
   | Not_null
@@ -22,10 +22,15 @@ type error =
   | Constraint_violation of
       { kind : constraint_kind
       ; message : string
+      ; cause : Caqti.Error.t
+      }
+  | Rollback_failed of
+      { error : error
+      ; rollback_error : error
       }
   | Caqti of Caqti.Error.t
 
-let error_to_string = function
+let rec error_to_string = function
   | Compile { dialect; error } ->
     Stdlib.Printf.sprintf
       "statement compilation failed for %s: %s"
@@ -49,18 +54,14 @@ let error_to_string = function
      | None -> Stdlib.Printf.sprintf "parameter %s" message
      | Some name -> Stdlib.Printf.sprintf "parameter %s %s" name message)
   | Codec message -> Stdlib.Printf.sprintf "codec failed: %s" message
-  | Constraint_violation { kind; message } ->
-    let kind =
-      match kind with
-      | Unique -> "unique"
-      | Foreign_key -> "foreign key"
-      | Not_null -> "not null"
-      | Check -> "check"
-      | Restrict -> "restrict"
-      | Exclusion -> "exclusion"
-      | Other -> "integrity"
-    in
-    Stdlib.Printf.sprintf "%s constraint violation: %s" kind message
+  | Constraint_violation { kind; message; _ } ->
+    Typed_sql.Constraint_error.create ~kind ~message ()
+    |> Typed_sql.Constraint_error.to_string
+  | Rollback_failed { error; rollback_error } ->
+    Stdlib.Printf.sprintf
+      "%s; rollback failed: %s"
+      (error_to_string error)
+      (error_to_string rollback_error)
   | Caqti error -> Caqti.Error.show error
 ;;
 
@@ -70,12 +71,15 @@ let pp_error formatter error =
 
 module Profile = struct
   type operation =
+    | Resolve
     | Fetch
     | Fetch_one
     | Fetch_opt
     | Execute
 
   type failure =
+    | Compile
+    | Parameter
     | Encode
     | Database
     | Decode
@@ -108,6 +112,7 @@ module Profile = struct
   type observer = event -> unit
 
   let operation_to_string = function
+    | Resolve -> "resolve"
     | Fetch -> "fetch"
     | Fetch_one -> "fetch_one"
     | Fetch_opt -> "fetch_opt"
@@ -115,6 +120,7 @@ module Profile = struct
   ;;
 
   let operation_tag = function
+    | Resolve -> "r"
     | Fetch -> "f"
     | Fetch_one -> "1"
     | Fetch_opt -> "?"
@@ -366,15 +372,35 @@ type 'a caqti_codec =
       }
       -> 'a caqti_codec
 
-let rec caqti_codec : type a. a Typed_sql_backend.Db_type.t -> a caqti_codec =
-  fun db_type ->
+let rec caqti_codec
+  : type a. ?for_result:bool -> a Typed_sql_backend.Db_type.t -> a caqti_codec
+  =
+  fun ?(for_result = false) db_type ->
   match Typed_sql_backend.Db_type.view db_type with
   | Bool ->
     Caqti_codec
       { row_type = T.Row_type.bool; encode = Result.return; decode = Result.return }
   | Int ->
-    Caqti_codec
-      { row_type = T.Row_type.int; encode = Result.return; decode = Result.return }
+    if for_result then
+      Caqti_codec
+        { row_type = T.Row_type.int64
+        ; encode = (fun value -> Ok (Int64.of_int value))
+        ; decode =
+            (fun value ->
+              match Int64.to_int32 value with
+              | None -> Error "integer is outside the signed 32-bit range"
+              | Some value -> Ok (Int32.to_int_exn value))
+        }
+    else
+      Caqti_codec
+        { row_type = T.Row_type.int32
+        ; encode =
+            (fun value ->
+              match Int32.of_int value with
+              | None -> Error "integer is outside the signed 32-bit range"
+              | Some value -> Ok value)
+        ; decode = (fun value -> Ok (Int32.to_int_exn value))
+        }
   | Int64 ->
     Caqti_codec
       { row_type = T.Row_type.int64; encode = Result.return; decode = Result.return }
@@ -422,11 +448,11 @@ let rec caqti_codec : type a. a Typed_sql_backend.Db_type.t -> a caqti_codec =
       ; encode = Result.return
       ; decode = Result.return
       }
-  | Named { repr; _ } -> caqti_codec repr
+  | Named { repr; _ } -> caqti_codec ~for_result repr
   | Array { encode; decode } ->
     Caqti_codec { row_type = T.Row_type.string; encode; decode }
   | Option db_type ->
-    (match caqti_codec db_type with
+    (match caqti_codec ~for_result db_type with
      | Caqti_codec codec ->
        Caqti_codec
          { row_type = T.Row_type.option codec.row_type
@@ -440,7 +466,7 @@ let rec caqti_codec : type a. a Typed_sql_backend.Db_type.t -> a caqti_codec =
                | Some value -> Result.map (codec.decode value) ~f:Option.some)
          })
   | Map { repr; encode; decode; _ } ->
-    (match caqti_codec repr with
+    (match caqti_codec ~for_result repr with
      | Caqti_codec repr_codec ->
        Caqti_codec
          { row_type = repr_codec.row_type
@@ -521,7 +547,7 @@ module Projection_decoder = Typed_sql_backend.Projection.Make (struct
       end)
 
     let field db_type =
-      match caqti_codec db_type with
+      match caqti_codec ~for_result:true db_type with
       | Caqti_codec codec ->
         Projection_row
           { row_type = codec.row_type
@@ -556,7 +582,8 @@ let classify_caqti_error (error : Caqti.Error.t) =
     | _ -> None
   in
   match Option.bind cause ~f:constraint_kind with
-  | Some kind -> Constraint_violation { kind; message = Caqti.Error.show error }
+  | Some kind ->
+    Constraint_violation { kind; message = Caqti.Error.show error; cause = error }
   | None -> Caqti error
 ;;
 
@@ -564,10 +591,49 @@ let map_caqti_error result =
   Result.map_error result ~f:(fun error -> classify_caqti_error (error :> Caqti.Error.t))
 ;;
 
+module Error = struct
+  type t = error
+
+  let constraint_violation = function
+    | Constraint_violation { kind; message; _ } ->
+      Some (Typed_sql.Constraint_error.create ~kind ~message ())
+    | _ -> None
+  ;;
+
+  let is_constraint_violation
+        ?kind
+        ?constraint_name
+        ?schema_name
+        ?table_name
+        ?column_name
+        error
+    =
+    Option.value_map
+      (constraint_violation error)
+      ~default:false
+      ~f:
+        (Typed_sql.Constraint_error.matches
+           ?kind
+           ?constraint_name
+           ?schema_name
+           ?table_name
+           ?column_name)
+  ;;
+
+  let rec cause = function
+    | Rollback_failed { error; _ } -> cause error
+    | Constraint_violation { cause; _ } | Caqti cause -> Some cause
+    | _ -> None
+  ;;
+
+  let to_string = error_to_string
+  let pp = pp_error
+end
+
 type trace =
   { observer : Profile.observer
   ; name : string option
-  ; operation : Profile.operation
+  ; mutable operation : Profile.operation
   ; started : float
   ; mutable dialect : Typed_sql.Dialect.t option
   ; mutable fingerprint : string option
@@ -707,7 +773,7 @@ let run_fetch_compiled trace ~conn compiled =
   let module Connection = (val conn : Caqti_lwt.CONNECTION) in
   describe_query trace compiled;
   match
-    time_sync trace ~set:set_prepare (fun () ->
+    time_sync trace ~set:add_prepare (fun () ->
       pack_parameters (Typed_sql_backend.Compiled_query.parameters compiled))
   with
   | Error error -> complete trace ~outcome:(Failed Encode) ~row_count:None (Error error)
@@ -752,7 +818,7 @@ let run_fetch_one_compiled trace ~conn compiled =
   let module Connection = (val conn : Caqti_lwt.CONNECTION) in
   describe_query trace compiled;
   match
-    time_sync trace ~set:set_prepare (fun () ->
+    time_sync trace ~set:add_prepare (fun () ->
       pack_parameters (Typed_sql_backend.Compiled_query.parameters compiled))
   with
   | Error error -> complete trace ~outcome:(Failed Encode) ~row_count:None (Error error)
@@ -788,7 +854,7 @@ let run_fetch_opt_compiled trace ~conn compiled =
   let module Connection = (val conn : Caqti_lwt.CONNECTION) in
   describe_query trace compiled;
   match
-    time_sync trace ~set:set_prepare (fun () ->
+    time_sync trace ~set:add_prepare (fun () ->
       pack_parameters (Typed_sql_backend.Compiled_query.parameters compiled))
   with
   | Error error -> complete trace ~outcome:(Failed Encode) ~row_count:None (Error error)
@@ -826,7 +892,7 @@ let run_execute_compiled trace ~conn compiled =
   let module Connection = (val conn : Caqti_lwt.CONNECTION) in
   describe_command trace compiled;
   match
-    time_sync trace ~set:set_prepare (fun () ->
+    time_sync trace ~set:add_prepare (fun () ->
       pack_parameters (Typed_sql_backend.Compiled_command.parameters compiled))
   with
   | Error error -> complete trace ~outcome:(Failed Encode) ~row_count:None (Error error)
@@ -874,35 +940,54 @@ let run
   =
   fun ?observer ?name ~conn statement input ->
   let module Connection = (val conn : Caqti_lwt.CONNECTION) in
-  match dialect_of_caqti Connection.dialect with
-  | Error error -> Lwt.return (Error error)
-  | Ok dialect ->
-    (match Typed_sql_backend.Statement.resolve ~dialect input statement with
-     | Error (Typed_sql_backend.Statement.Compilation error) ->
-       Lwt.return (Error (Compile error))
-     | Error Typed_sql_backend.Statement.Dialect_mismatch ->
-       let expected =
-         match dialect with
-         | Typed_sql.Dialect.Postgresql -> Typed_sql.Dialect.Sqlite
-         | Typed_sql.Dialect.Sqlite -> Typed_sql.Dialect.Postgresql
-       in
-       Lwt.return (Error (Dialect_mismatch { expected; connection = dialect }))
-     | Error (Typed_sql_backend.Statement.Binding error) ->
-       Lwt.return (Error (Parameter error))
-     | Ok (Typed_sql_backend.Statement.Query_execution { cardinality; compiled }) ->
-       (match cardinality with
-        | Typed_sql_backend.Statement.Many ->
-          with_trace ?observer ?name Fetch (fun trace ->
-            run_fetch_compiled trace ~conn compiled)
-        | Typed_sql_backend.Statement.One ->
-          with_trace ?observer ?name Fetch_one (fun trace ->
-            run_fetch_one_compiled trace ~conn compiled)
-        | Typed_sql_backend.Statement.Optional ->
-          with_trace ?observer ?name Fetch_opt (fun trace ->
-            run_fetch_opt_compiled trace ~conn compiled))
-     | Ok (Typed_sql_backend.Statement.Command_execution compiled) ->
-       with_trace ?observer ?name Execute (fun trace ->
-         run_execute_compiled trace ~conn compiled))
+  with_trace ?observer ?name Resolve (fun trace ->
+    ((match dialect_of_caqti Connection.dialect with
+      | Error error ->
+        complete trace ~outcome:(Failed Dialect) ~row_count:None (Error error)
+      | Ok dialect ->
+        Option.iter trace ~f:(fun trace -> trace.dialect <- Some dialect);
+        (match
+           time_sync trace ~set:set_prepare (fun () ->
+             Typed_sql_backend.Statement.resolve ~dialect input statement)
+         with
+         | Error (Typed_sql_backend.Statement.Compilation error) ->
+           complete
+             trace
+             ~outcome:(Failed Compile)
+             ~row_count:None
+             (Error (Compile error))
+         | Error Typed_sql_backend.Statement.Dialect_mismatch ->
+           let expected =
+             match dialect with
+             | Typed_sql.Dialect.Postgresql -> Typed_sql.Dialect.Sqlite
+             | Typed_sql.Dialect.Sqlite -> Typed_sql.Dialect.Postgresql
+           in
+           complete
+             trace
+             ~outcome:(Failed Dialect)
+             ~row_count:None
+             (Error (Dialect_mismatch { expected; connection = dialect }))
+         | Error (Typed_sql_backend.Statement.Binding error) ->
+           complete
+             trace
+             ~outcome:(Failed Parameter)
+             ~row_count:None
+             (Error (Parameter error))
+         | Ok (Typed_sql_backend.Statement.Query_execution { cardinality; compiled }) ->
+           (match cardinality with
+            | Typed_sql_backend.Statement.Many ->
+              Option.iter trace ~f:(fun trace -> trace.operation <- Fetch);
+              run_fetch_compiled trace ~conn compiled
+            | Typed_sql_backend.Statement.One ->
+              Option.iter trace ~f:(fun trace -> trace.operation <- Fetch_one);
+              run_fetch_one_compiled trace ~conn compiled
+            | Typed_sql_backend.Statement.Optional ->
+              Option.iter trace ~f:(fun trace -> trace.operation <- Fetch_opt);
+              run_fetch_opt_compiled trace ~conn compiled)
+         | Ok (Typed_sql_backend.Statement.Command_execution compiled) ->
+           Option.iter trace ~f:(fun trace -> trace.operation <- Execute);
+           run_execute_compiled trace ~conn compiled))
+     : (output, error) Result.t Lwt.t))
 ;;
 
 let transaction ~conn ~f =
@@ -926,13 +1011,18 @@ let transaction ~conn ~f =
               Lwt.return
                 (match rolled_back with
                  | Ok () -> Error error
-                 | Error rollback_error -> Error rollback_error))
+                 | Error rollback_error ->
+                   Error (Rollback_failed { error; rollback_error })))
          | Error error ->
            let* rolled_back = map_transaction_error (Connection.rollback ()) in
            (match rolled_back with
             | Ok () -> Lwt.return (Error error)
-            | Error rollback_error -> Lwt.return (Error rollback_error)))
+            | Error rollback_error ->
+              Lwt.return (Error (Rollback_failed { error; rollback_error }))))
       (fun exn ->
-         let* _ = Connection.rollback () in
-         Lwt.fail exn)
+         Lwt.catch
+           (fun () ->
+              let* _ = Connection.rollback () in
+              Lwt.fail exn)
+           (fun _ -> Lwt.fail exn))
 ;;

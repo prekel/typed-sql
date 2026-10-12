@@ -41,6 +41,7 @@ module Assignments = struct
     List.map assignments ~f:(fun (Assignment (column, value)) ->
       { Ast.source_id = Column.source_id_for reference column
       ; column = Column.name column
+      ; target_type = Db_type.Pack (Column.db_type column)
       ; value
       })
   ;;

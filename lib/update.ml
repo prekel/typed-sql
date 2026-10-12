@@ -28,6 +28,7 @@ let set_expr column expression update =
   let assignment =
     { Ast.source_id = Table_ref.source_id update.reference
     ; column = Column.name column
+    ; target_type = Db_type.Pack (Column.db_type column)
     ; value = Ast.Expression (Expr.node expression)
     }
   in
@@ -45,6 +46,7 @@ let default column update =
   let assignment =
     { Ast.source_id = Table_ref.source_id update.reference
     ; column = Column.name column
+    ; target_type = Db_type.Pack (Column.db_type column)
     ; value = Ast.Default
     }
   in

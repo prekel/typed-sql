@@ -343,7 +343,7 @@ let of_string source =
   let%bind fields = object_fields "$" json in
   let%bind () = known_fields "$" [ "version"; "tables" ] fields in
   let%bind version = field "$" fields "version" int in
-  if not Int.(version = 1 || version = 2) then
+  if not Int.(version = 2) then
     fail "$.version" ("unsupported snapshot version: " ^ Int.to_string version)
   else (
     let%map tables = field "$" fields "tables" (list table) in

@@ -5,12 +5,15 @@ type t = string [@@deriving sexp_of]
 type error =
   [ `Empty
   | `Contains_nul
+  | `Too_long of int
   ]
 [@@deriving sexp_of]
 
 let error_to_string = function
   | `Empty -> "SQL identifier must not be empty"
   | `Contains_nul -> "SQL identifier must not contain a NUL byte"
+  | `Too_long length ->
+    "SQL identifier must be at most 63 bytes, got " ^ Int.to_string length
 ;;
 
 let of_string value =
@@ -18,6 +21,8 @@ let of_string value =
     Error `Empty
   else if String.exists value ~f:(Char.equal '\000') then
     Error `Contains_nul
+  else if Int.(String.length value > 63) then
+    Error (`Too_long (String.length value))
   else
     Ok value
 ;;

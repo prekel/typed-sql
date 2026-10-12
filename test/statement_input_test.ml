@@ -556,7 +556,7 @@ let%test_module "page and total statements share runtime filters" =
             AND (t0."city" = ?2)
           )
         ORDER BY
-          t0."id" ASC
+          t0."id" ASC NULLS LAST
         LIMIT ?3
         OFFSET ?4
         |}]

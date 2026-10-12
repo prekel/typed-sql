@@ -146,7 +146,7 @@ let rec fingerprint : type a. a t -> string = function
     ^ fingerprint repr
     ^ ")"
   | Array_type element -> "array(" ^ fingerprint element ^ ")"
-  | Array_list_type element -> "array(" ^ fingerprint element ^ ")"
+  | Array_list_type element -> "array_list(" ^ fingerprint element ^ ")"
   | Option_type typ -> "option(" ^ fingerprint typ ^ ")"
   | Map_type { repr; id; _ } -> "map#" ^ Int.to_string id ^ "(" ^ fingerprint repr ^ ")"
   | Json_result_type { fields; _ } ->
@@ -187,6 +187,42 @@ let rec unsupported_multiset_type
   | Uuid_type -> None
 ;;
 
+let rec nullable : type a. a t -> bool = function
+  | Option_type _ -> true
+  | Named_type { repr; _ } -> nullable repr
+  | Map_type { repr; _ } -> nullable repr
+  | _ -> false
+;;
+
+let rec array_representation : type a. a t -> bool = function
+  | Array_type _ | Array_list_type _ -> true
+  | Named_type { repr; _ } -> array_representation repr
+  | Map_type { repr; _ } -> array_representation repr
+  | Option_type repr -> array_representation repr
+  | _ -> false
+;;
+
+let rec invalid_type : type a. a t -> string option = function
+  | Option_type inner when nullable inner ->
+    Some "nested optional codecs cannot distinguish SQL NULL values"
+  | Array_type inner when array_representation inner ->
+    Some "nested array codecs require one Pg_array with scalar elements"
+  | Array_list_type inner when array_representation inner ->
+    Some "nested array codecs require one Pg_array with scalar elements"
+  | Array_type inner when nullable inner ->
+    Some "array elements already have one nullable layer"
+  | Array_list_type inner when nullable inner ->
+    Some "array elements already have one nullable layer"
+  | Named_type { repr; _ } -> invalid_type repr
+  | Map_type { repr; _ } -> invalid_type repr
+  | Option_type inner -> invalid_type inner
+  | Array_type inner -> invalid_type inner
+  | Array_list_type inner -> invalid_type inner
+  | Json_result_type { fields; _ } ->
+    List.find_map fields ~f:(fun (Pack field) -> invalid_type field)
+  | _ -> None
+;;
+
 let array_list_to_pg_array elements =
   Pg_array.create
     ~dimensions:[ List.length elements ]
@@ -196,6 +232,7 @@ let array_list_to_pg_array elements =
 
 let array_list_of_pg_array value =
   match Pg_array.dimensions value, Pg_array.lower_bounds value with
+  | [], [] -> Ok []
   | [ _ ], [ 1 ] ->
     Result.all
       (List.map (Pg_array.elements value) ~f:(function
@@ -206,37 +243,44 @@ let array_list_of_pg_array value =
 
 let rec pg_text_encode : type a. a t -> a -> (string, string) Result.t =
   fun typ value ->
-  match typ with
-  | Bool_type -> Ok (Bool.to_string value)
-  | Int_type -> Ok (Int.to_string value)
-  | Int64_type -> Ok (Int64.to_string value)
-  | Float_type -> Ok (Stdlib.Printf.sprintf "%.17g" value)
-  | Numeric_type -> Ok (Decimal.to_string value)
-  | Text_type -> Ok value
-  | Bytes_type ->
-    let buffer = Buffer.create (2 + (Bytes.length value * 2)) in
-    Buffer.add_string buffer "\\x";
-    for index = 0 to Bytes.length value - 1 do
-      Buffer.add_string
-        buffer
-        (Stdlib.Printf.sprintf "%02x" (Char.to_int (Bytes.get value index)))
-    done;
-    Ok (Buffer.contents buffer)
-  | Date_type -> Ok (Date.to_string value)
-  | Timestamp_type -> Ok (Ptime.to_rfc3339 value)
-  | Uuid_type -> Ok (Uuid.to_string value)
-  | Named_type { repr; _ } -> pg_text_encode repr value
-  | Array_type element -> Pg_array.to_string ~encode:(pg_text_encode element) value
-  | Array_list_type element ->
-    let open Result.Let_syntax in
-    let%bind array = array_list_to_pg_array value in
-    Pg_array.to_string ~encode:(pg_text_encode element) array
-  | Option_type _ -> Error "array elements use a single nullable layer"
-  | Map_type { repr; encode; _ } ->
-    let open Result.Let_syntax in
-    let%bind represented = encode value in
-    pg_text_encode repr represented
-  | Json_result_type _ -> Error "multiset values are result-only"
+  match invalid_type typ with
+  | Some message -> Error message
+  | None ->
+    (match typ with
+     | Bool_type -> Ok (Bool.to_string value)
+     | Int_type ->
+       if Option.is_some (Int32.of_int value) then
+         Ok (Int.to_string value)
+       else
+         Error "integer is outside the signed 32-bit range"
+     | Int64_type -> Ok (Int64.to_string value)
+     | Float_type -> Ok (Stdlib.Printf.sprintf "%.17g" value)
+     | Numeric_type -> Ok (Decimal.to_string value)
+     | Text_type -> Ok value
+     | Bytes_type ->
+       let buffer = Buffer.create (2 + (Bytes.length value * 2)) in
+       Buffer.add_string buffer "\\x";
+       for index = 0 to Bytes.length value - 1 do
+         Buffer.add_string
+           buffer
+           (Stdlib.Printf.sprintf "%02x" (Char.to_int (Bytes.get value index)))
+       done;
+       Ok (Buffer.contents buffer)
+     | Date_type -> Ok (Date.to_string value)
+     | Timestamp_type -> Ok (Ptime.to_rfc3339 value)
+     | Uuid_type -> Ok (Uuid.to_string value)
+     | Named_type { repr; _ } -> pg_text_encode repr value
+     | Array_type element -> Pg_array.to_string ~encode:(pg_text_encode element) value
+     | Array_list_type element ->
+       let open Result.Let_syntax in
+       let%bind array = array_list_to_pg_array value in
+       Pg_array.to_string ~encode:(pg_text_encode element) array
+     | Option_type _ -> Error "array elements use a single nullable layer"
+     | Map_type { repr; encode; _ } ->
+       let open Result.Let_syntax in
+       let%bind represented = encode value in
+       pg_text_encode repr represented
+     | Json_result_type _ -> Error "multiset values are result-only")
 ;;
 
 let rec pg_text_decode : type a. a t -> string -> (a, string) Result.t =
@@ -246,56 +290,65 @@ let rec pg_text_decode : type a. a t -> string -> (a, string) Result.t =
     | Some value -> Ok value
     | None -> Error message
   in
-  match typ with
-  | Bool_type ->
-    (match String.lowercase source with
-     | "t" | "true" -> Ok true
-     | "f" | "false" -> Ok false
-     | _ -> Error "invalid boolean array element")
-  | Int_type -> required (Int.of_string_opt source) "invalid integer"
-  | Int64_type -> required (Int64.of_string_opt source) "invalid int64"
-  | Float_type -> required (Float.of_string_opt source) "invalid float"
-  | Numeric_type -> required (Decimal.of_string source) "invalid numeric"
-  | Text_type -> Ok source
-  | Bytes_type ->
-    if String.is_prefix source ~prefix:"\\x" then (
-      let hex = String.drop_prefix source 2 in
-      if Int.(String.length hex % 2 <> 0) then
-        Error "invalid bytea"
-      else (
-        let bytes = Bytes.create (String.length hex / 2) in
-        let rec loop index =
-          if Int.(index = Bytes.length bytes) then
-            Ok bytes
-          else (
-            let pair = String.sub hex ~pos:(index * 2) ~len:2 in
-            match Int.of_string_opt ("0x" ^ pair) with
-            | None -> Error "invalid bytea"
-            | Some value ->
-              Bytes.set bytes index (Char.of_int_exn value);
-              loop (index + 1))
-        in
-        loop 0))
-    else
-      Error "unsupported bytea array output"
-  | Date_type -> required (Date.of_string source) "invalid date"
-  | Timestamp_type ->
-    (match Ptime.of_rfc3339 source with
-     | Ok (value, _, _) -> Ok value
-     | Error _ -> Error "invalid timestamptz")
-  | Uuid_type -> required (Uuid.of_string source) "invalid UUID"
-  | Named_type { repr; _ } -> pg_text_decode repr source
-  | Array_type element -> Pg_array.of_string ~decode:(pg_text_decode element) source
-  | Array_list_type element ->
-    let open Result.Let_syntax in
-    let%bind array = Pg_array.of_string ~decode:(pg_text_decode element) source in
-    array_list_of_pg_array array
-  | Option_type _ -> Error "array elements use a single nullable layer"
-  | Map_type { repr; decode; _ } ->
-    let open Result.Let_syntax in
-    let%bind repr = pg_text_decode repr source in
-    decode repr
-  | Json_result_type _ -> Error "multiset values are result-only"
+  match invalid_type typ with
+  | Some message -> Error message
+  | None ->
+    (match typ with
+     | Bool_type ->
+       (match String.lowercase source with
+        | "t" | "true" -> Ok true
+        | "f" | "false" -> Ok false
+        | _ -> Error "invalid boolean array element")
+     | Int_type ->
+       let open Result.Let_syntax in
+       let%bind value = required (Int.of_string_opt source) "invalid integer" in
+       if Option.is_some (Int32.of_int value) then
+         Ok value
+       else
+         Error "integer is outside the signed 32-bit range"
+     | Int64_type -> required (Int64.of_string_opt source) "invalid int64"
+     | Float_type -> required (Float.of_string_opt source) "invalid float"
+     | Numeric_type -> required (Decimal.of_string source) "invalid numeric"
+     | Text_type -> Ok source
+     | Bytes_type ->
+       if String.is_prefix source ~prefix:"\\x" then (
+         let hex = String.drop_prefix source 2 in
+         if Int.(String.length hex % 2 <> 0) then
+           Error "invalid bytea"
+         else (
+           let bytes = Bytes.create (String.length hex / 2) in
+           let rec loop index =
+             if Int.(index = Bytes.length bytes) then
+               Ok bytes
+             else (
+               let pair = String.sub hex ~pos:(index * 2) ~len:2 in
+               match Int.of_string_opt ("0x" ^ pair) with
+               | None -> Error "invalid bytea"
+               | Some value ->
+                 Bytes.set bytes index (Char.of_int_exn value);
+                 loop (index + 1))
+           in
+           loop 0))
+       else
+         Error "unsupported bytea array output"
+     | Date_type -> required (Date.of_string source) "invalid date"
+     | Timestamp_type ->
+       (match Ptime.of_rfc3339 source with
+        | Ok (value, _, _) -> Ok value
+        | Error _ -> Error "invalid timestamptz")
+     | Uuid_type -> required (Uuid.of_string source) "invalid UUID"
+     | Named_type { repr; _ } -> pg_text_decode repr source
+     | Array_type element -> Pg_array.of_string ~decode:(pg_text_decode element) source
+     | Array_list_type element ->
+       let open Result.Let_syntax in
+       let%bind array = Pg_array.of_string ~decode:(pg_text_decode element) source in
+       array_list_of_pg_array array
+     | Option_type _ -> Error "array elements use a single nullable layer"
+     | Map_type { repr; decode; _ } ->
+       let open Result.Let_syntax in
+       let%bind repr = pg_text_decode repr source in
+       decode repr
+     | Json_result_type _ -> Error "multiset values are result-only")
 ;;
 
 module Postgresql = struct
@@ -388,6 +441,29 @@ let rec postgresql_type_name : type a. a t -> string = function
   | Option_type inner -> postgresql_type_name inner
   | Map_type { repr; _ } -> postgresql_type_name repr
   | Json_result_type _ -> "jsonb"
+;;
+
+(* SQL identity excludes nullable layers and OCaml codec identity. *)
+let rec sql_type_name : type a. a t -> string = function
+  | Option_type inner -> sql_type_name inner
+  | Map_type { repr; _ } -> sql_type_name repr
+  | Array_type inner -> sql_type_name inner ^ "[]"
+  | Array_list_type inner -> sql_type_name inner ^ "[]"
+  | Named_type { schema; name; _ } as typ ->
+    if String.equal (Identifier.to_string schema) "pg_catalog" then (
+      match
+        Identifier.to_string name
+      with
+      | "bool" -> "boolean"
+      | "int4" -> "integer"
+      | "int8" -> "bigint"
+      | "float8" -> "double precision"
+      | "timestamptz" -> "timestamp with time zone"
+      | ("text" | "bytea" | "date" | "numeric" | "uuid" | "jsonb") as name -> name
+      | _ -> postgresql_type_name typ)
+    else
+      postgresql_type_name typ
+  | typ -> postgresql_type_name typ
 ;;
 
 let rec needs_postgresql_cast : type a. a t -> bool = function

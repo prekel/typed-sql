@@ -205,15 +205,31 @@ generated aliases. PG'OCaml low-level API не сообщает affected rows, �
 `run` для команды возвращает `Affected_rows.Unknown`.
 
 Caqti и PG'OCaml предоставляют один `run` для query cardinality и команд.
-Adapter проверяет dialect соединения до binding. Его opt-in observer измеряет
-подготовку Caqti request, database round trip и projection decoding; bind
-values в событие не попадают. Встроенный bounded profiler группирует события
-по имени, операции и fingerprint `Shape`, не добавляя состояние или эффекты в
-ядро.
+Adapter проверяет dialect соединения до binding. Opt-in observer Caqti измеряет
+разрешение statement, подготовку request, database round trip и projection
+decoding; bind values в событие не попадают. Встроенный bounded profiler
+группирует события по имени, операции и fingerprint `Shape`, не добавляя
+состояние или эффекты в ядро. Ошибки до определения операции выполнения получают операцию `Resolve`:
+несовместимый или неподдерживаемый dialect даёт `Failed Dialect`, ошибка
+компиляции — `Failed Compile`, ошибка binding — `Failed Parameter`.
+`prepare` включает разрешение statement и binding, а для dynamic statements —
+также построение DSL и компиляцию внутри `run`. Построение DSL до вызова `run`
+не входит в измерение. Каждый наблюдаемый вызов даёт одно событие.
+PG'OCaml adapter сохраняет `Lwt.Canceled` как отмену promise при выполнении,
+работе с prepared cache и завершении транзакции.
+
+Portable-деление `Expr.Int.Infix.( /. )`, `Expr.Int64.Infix.( /. )` и
+`Expr.Float.Infix.( /. )` возвращает nullable-выражение. Делитель оборачивается
+в `NULLIF(..., 0)`, поэтому нулевой делитель возвращает `None` в обоих dialects.
+Для продолжения вычислений с non-null результатом можно явно применить
+`Expr.coalesce` и выбрать значение по умолчанию.
 
 Transactions находятся в execution adapters. Callback получает то же
-connection value; `Ok` приводит к commit, `Error` — к rollback, исключение
-откатывается и затем пробрасывается дальше.
+connection value; `Ok` приводит к commit, `Error` — к rollback. Caqti после
+rollback повторно выбрасывает исключение callback; PG'OCaml преобразует обычное
+исключение в adapter error перед rollback. Ошибка commit также приводит к
+попытке rollback, а `Rollback_failed` сохраняет оба сбоя. Отмена `Lwt.Canceled`
+остаётся отменой, даже если cleanup завершился ошибкой.
 
 ## Строки и массивы PostgreSQL
 
@@ -237,7 +253,6 @@ codec `Db_type.Postgresql.array`, который сохраняет такие �
 элементы. Пустой массив декодируется в пустой список. Для nullable колонки
 внешний `None` означает SQL `NULL` вместо массива; у `Pg_array.t` `None`
 в списке элементов означает SQL `NULL` внутри массива.
-
 
 ## Среднее и числовые преобразования
 
@@ -263,3 +278,74 @@ Descriptor результата соответствует целевому вс
 изменяется: SQL `NULL` вызывает ошибку ограничения при выполнении через
 существующий канал ошибок адаптера. Для nullable-колонок используется
 `Update.set_expr`. Финализация по-прежнему требует `where` или `all_rows`.
+
+## Границы переносимости
+
+`Db_type.int` соответствует signed 32-bit SQL `integer`. Адаптеры проверяют
+диапазон параметров и результатов, включая SQLite; для больших значений
+используется `Db_type.int64`. Переполнение арифметики определяется БД:
+PostgreSQL сообщает ошибку, SQLite может вычислить промежуточный `REAL`.
+Caqti SQLite отклоняет такой результат при декодировании в `int64`, но это
+не унифицирует последующие вычисления или сравнения над промежуточным значением.
+
+SQL `NULL` не различает `None` и `Some None`, поэтому компиляция отклоняет
+вложенные nullable codecs. Для nullable scalar subquery используется
+`Expr.scalar_subquery_nullable`. Вложенные array descriptors и nullable
+элементные descriptors также отклоняются. Многомерность и nullable элементы
+представляются одним `Pg_array.t`; все пустые массивы канонизируются в массив
+нулевого ранга, как в PostgreSQL.
+
+Nullable-сортировка использует порядок PostgreSQL: `ASC` помещает `NULL`
+последним, `DESC` — первым. SQLite получает явные `NULLS LAST`/`NULLS FIRST`.
+
+`LIKE`, `LOWER` и `UPPER` используют нативные функции БД. Регистр, Unicode
+и collation зависят от настроек сервера и расширений; встроенный SQLite
+обрабатывает регистр только для ASCII. Portable API гарантирует доступность
+операции и тип результата, но не одинаковую обработку всех строк.
+
+`Expr.current_timestamp` использует нативный `CURRENT_TIMESTAMP`. В PostgreSQL
+это время начала транзакции, в SQLite — время исполнения statement с точностью
+до секунды. Для одного времени на всю переносимую транзакцию приложение
+вычисляет его заранее и передаёт параметром.
+
+Текстовые temporal codecs PG'OCaml, PostgreSQL-драйвера Caqti и общий
+`Db_type.Postgresql.decode_text` требуют ISO `DateStyle`, в том числе для
+элементов массивов и `Local_timestamp`. Адаптеры не меняют `DateStyle`
+существующего connection; иной формат вывода пока не поддерживается.
+`Interval` требует `IntervalStyle = postgres`.
+
+SQL-descriptors проверяются compiler: одинаковое OCaml-представление не делает
+два PostgreSQL enum-типа совместимыми. Сравнения, `CASE`, `COALESCE` и
+присваивания возвращают `Compile_error.Mismatched_sql_type` при несовпадении
+SQL-типов. Nullable-обёртки и identity mapped codec не меняют SQL identity.
+Статические statements сообщают ошибку через `Statement.Definition_error`,
+динамические — через существующий канал `Compilation_error`.
+
+Все SQL identifiers ограничены 63 байтами исходного имени, включая descriptors
+SQLite. Это общий контракт библиотеки, предотвращающий молчаливое обрезание
+имён PostgreSQL. Для UTF-8 считается число байт, а не символов; экранирование
+кавычек при рендеринге не входит в лимит. `Identifier.of_string` возвращает
+`Too_long` с фактической длиной; вариант `_exn` выбрасывает `Invalid_argument`.
+
+`Date.t` сохраняет календарные даты в диапазоне Ptime: годы 0000–9999.
+PostgreSQL не имеет года 0000, поэтому совместимый диапазон — 0001–9999.
+Допустимые в PostgreSQL даты до н. э., годы после 9999 и `infinity`/`-infinity`
+этим codec не представляются: чтение возвращает ошибку декодирования адаптера,
+а не усечённую дату. Полный диапазон PostgreSQL этим типом не обещается.
+
+## Проверка агрегатов и повторные выражения
+
+Compiler отклоняет агрегаты, принадлежащие текущему SELECT, в `WHERE`,
+`JOIN ON` и `GROUP BY`; DML-агрегаты запрещены в `UPDATE SET`,
+`UPDATE`/`DELETE WHERE`, `RETURNING` и conflict-update `SET/WHERE`.
+В `INSERT VALUES` прямые агрегаты запрещены в каждой строке. Принадлежность
+проверяется и внутри коррелированных подзапросов: вложенный SELECT не скрывает
+агрегат, аргументы которого относятся только к внешним строкам. Локальные
+агрегаты подзапросов остаются допустимыми.
+
+Повторная projection, `HAVING` или `ORDER BY` может использовать выражение из
+`GROUP BY`, включая `CASE` с теми же условиями. Constant expressions и parameter
+slots должны быть общими между повторениями: renderer использует один placeholder
+для повторного использования параметра. Отдельные вызовы `Expr.constant` с
+равными значениями создают разные параметры и не доказывают grouping identity.
+Compiler не сравнивает значения и не вызывает codecs для установления равенства.

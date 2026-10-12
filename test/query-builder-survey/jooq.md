@@ -2858,14 +2858,14 @@ val jq39 : (unit, Affected_rows.t, Dialect.both) Statement.t = <abstr>
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql jq39);;
-DELETE FROM "book"
+DELETE FROM "book" AS t0
 WHERE
   (EXISTS (
     SELECT
       1
     FROM "author" AS t1
     WHERE
-      (t1."id" = "author_id")
+      (t1."id" = t0."author_id")
   ))
 ```
 

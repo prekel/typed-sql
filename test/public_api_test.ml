@@ -681,8 +681,8 @@ let%expect_test "null checks and multiple sort keys render in SQLite" =
         AND (t0."id" > ?1)
       )
     ORDER BY
-      t0."name" ASC,
-      t0."id" DESC
+      t0."name" ASC NULLS LAST,
+      t0."id" DESC NULLS FIRST
     LIMIT ?2
     OFFSET ?3
     |}]

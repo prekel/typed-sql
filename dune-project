@@ -4,7 +4,7 @@
 
 (name typed-sql)
 
-(version 0.4.6)
+(version 0.4.7)
 
 (generate_opam_files true)
 
@@ -21,7 +21,7 @@
  (name typed-sql)
  (synopsis "Typed relational query DSL for OCaml")
  (description
-  "A backend-independent OCaml DSL for typed relational statements with static and dynamic compilation.")
+  "A backend-independent OCaml DSL for typed relational statements with static and dynamic compilation. Requires 64-bit OCaml with 63-bit int.")
  (depends
   (ocaml (>= 4.14.1))
   base
@@ -39,6 +39,7 @@
   (ocamlformat (and (= 0.29.0) :with-dev-setup))
   (ocaml-lsp-server :with-dev-setup)
   (utop :with-dev-setup))
+ (conflicts ocaml-option-32bit)
  (tags
   (database sql query dsl postgresql sqlite)))
 

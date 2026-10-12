@@ -517,7 +517,7 @@ let%expect_test "UNION ALL wraps branches with local ordering and limits" =
       WHERE
         (t0."id" > ?1)
       ORDER BY
-        t0."id" DESC
+        t0."id" DESC NULLS FIRST
       LIMIT ?2
     ) AS s0
     UNION ALL
@@ -530,7 +530,7 @@ let%expect_test "UNION ALL wraps branches with local ordering and limits" =
       WHERE
         (t0."id" < ?3)
       ORDER BY
-        t0."id" ASC
+        t0."id" ASC NULLS LAST
       LIMIT ?4
     ) AS s0
     |}]
@@ -723,7 +723,7 @@ let%expect_test "ordered UNION renders final ORDER BY in SQLite" =
       FROM "public"."people" AS t0
     ) AS s0
     ORDER BY
-      "id" ASC
+      "id" ASC NULLS LAST
     |}]
 ;;
 
@@ -848,8 +848,19 @@ let%expect_test "set operations reject different database-type vectors" =
     |> Compiler.compile_portable ~dialect:Dialect.Postgresql
   |> function
     | Ok _ -> failwith "set operation unexpectedly accepted different codecs"
-    | Error error -> Stdlib.print_endline (Compile_error.to_string error) );
-  [%expect {| set operation left types [int64] do not match right types [map#0(int64)] |}]
+    | Error
+        (Compile_error.Mismatched_set_projection { expected; actual = [ mapped ] } as
+         error) ->
+      assert (List.equal String.equal expected [ "int64" ]);
+      assert (String.is_prefix mapped ~prefix:"map#");
+      assert (String.is_suffix mapped ~suffix:"(int64)");
+      (* Mapping IDs depend on other tests; the diagnostic preserves codec identity. *)
+      Compile_error.to_string error
+      |> String.substr_replace_all ~pattern:mapped ~with_:"map#<codec>(int64)"
+      |> Stdlib.print_endline
+    | Error error -> failwith (Compile_error.to_string error) );
+  [%expect
+    {| set operation left types [int64] do not match right types [map#<codec>(int64)] |}]
 ;;
 
 let%test_unit "derived relation descriptors are validated before rendering" =
@@ -1594,8 +1605,8 @@ let%test_module "structural recursive CTEs" =
           t0."field_4"
         FROM "c0" AS t0
         ORDER BY
-          t0."field_4" ASC,
-          t0."field_1" ASC
+          t0."field_4" ASC NULLS LAST,
+          t0."field_1" ASC NULLS LAST
         |}]
     ;;
 

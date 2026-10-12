@@ -149,10 +149,10 @@ module Schema_snapshot : sig
       filesystem access is performed. *)
   val to_string : Schema_ir.t -> string
 
-  (** Decode one JSON document. All fields are required; duplicate and unknown
-      fields, invalid identifiers, incorrect JSON types and unsupported versions
-      are rejected. This validates the snapshot structure, not database
-      constraints or whether the generator supports its SQL types. *)
+  (** Decode one version 2 JSON document. All fields are required; duplicate
+      and unknown fields, invalid identifiers, incorrect JSON types and
+      unsupported versions are rejected. This validates the snapshot structure,
+      not database constraints or whether the generator supports its SQL types. *)
   val of_string : string -> (Schema_ir.t, error) Result.t
 
   (** Explain the error with a JSON field path, or [$] for a syntax error. *)
@@ -174,7 +174,9 @@ module Schema_codegen : sig
 
   (** Parse ordered generator rules. Each rule has [priority], [sql_type],
       [column], and [module] fields; at least one filter must be present.
-      Filters are full-match regular expressions. *)
+      Filters are full-match regular expressions. The owning column name is
+      retained when matching array element types, so a column-specific rule
+      can select an element codec without replacing the array representation. *)
   val rules_of_string : string -> (rule list, string) Result.t
 
   (** Explain why descriptor source could not be generated. *)

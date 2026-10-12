@@ -194,17 +194,17 @@ let%expect_test "portable casts postgresql" =
     {|
     SELECT
       CAST($1 AS bigint),
-      CAST($2 AS bigint),
-      CAST($3 AS double precision),
-      CAST($4 AS double precision),
-      CAST($5 AS integer),
-      CAST($6 AS integer),
-      CAST($7 AS double precision),
-      CAST($8 AS double precision),
-      CAST($9 AS integer),
-      CAST($10 AS integer),
-      CAST($11 AS bigint),
-      CAST($12 AS bigint)
+      CAST($1 AS bigint),
+      CAST($1 AS double precision),
+      CAST($1 AS double precision),
+      CAST($2 AS integer),
+      CAST($2 AS integer),
+      CAST($2 AS double precision),
+      CAST($2 AS double precision),
+      CAST($3 AS integer),
+      CAST($3 AS integer),
+      CAST($3 AS bigint),
+      CAST($3 AS bigint)
     FROM "ratings" AS t0
     |}]
 ;;
@@ -216,17 +216,17 @@ let%expect_test "portable casts sqlite" =
     {|
     SELECT
       CAST(?1 AS INTEGER),
+      CAST(?1 AS INTEGER),
+      CAST(?1 AS REAL),
+      CAST(?1 AS REAL),
       CAST(?2 AS INTEGER),
-      CAST(?3 AS REAL),
-      CAST(?4 AS REAL),
-      CAST(?5 AS INTEGER),
-      CAST(?6 AS INTEGER),
-      CAST(?7 AS REAL),
-      CAST(?8 AS REAL),
-      CAST(?9 AS INTEGER),
-      CAST(?10 AS INTEGER),
-      CAST(?11 AS INTEGER),
-      CAST(?12 AS INTEGER)
+      CAST(?2 AS INTEGER),
+      CAST(?2 AS REAL),
+      CAST(?2 AS REAL),
+      CAST(?3 AS INTEGER),
+      CAST(?3 AS INTEGER),
+      CAST(?3 AS INTEGER),
+      CAST(?3 AS INTEGER)
     FROM "ratings" AS t0
     |}]
 ;;
@@ -269,17 +269,17 @@ let%expect_test "numeric casts postgresql" =
     {|
     SELECT
       CAST($1 AS numeric),
+      CAST($1 AS numeric),
+      CAST($2 AS numeric),
       CAST($2 AS numeric),
       CAST($3 AS numeric),
-      CAST($4 AS numeric),
-      CAST($5 AS numeric),
-      CAST($6 AS numeric),
-      CAST($7 AS integer),
-      CAST($8 AS integer),
-      CAST($9 AS bigint),
-      CAST($10 AS bigint),
-      CAST($11 AS double precision),
-      CAST($12 AS double precision)
+      CAST($3 AS numeric),
+      CAST($4 AS integer),
+      CAST($4 AS integer),
+      CAST($4 AS bigint),
+      CAST($4 AS bigint),
+      CAST($4 AS double precision),
+      CAST($4 AS double precision)
     FROM "ratings" AS t0
     |}]
 ;;

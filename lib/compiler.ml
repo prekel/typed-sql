@@ -65,6 +65,12 @@ let compile_query_plan ~dialect query =
   let open Result.Let_syntax in
   let%bind () = Validator.result_query ast in
   let%bind () =
+    Result.all_unit
+      (List.map
+         (Projection.types (Result_query.projection query))
+         ~f:Validator.validate_db_type)
+  in
+  let%bind () =
     if Result_query.requires_exactly_one query then (
       match
         ast

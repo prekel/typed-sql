@@ -2168,7 +2168,7 @@ val sqlalchemy34 : (unit, Affected_rows.t, Dialect.both) Statement.t =
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql sqlalchemy34);;
-DELETE FROM "address"
+DELETE FROM "address" AS t0
 WHERE
   (EXISTS (
     SELECT
@@ -2176,7 +2176,7 @@ WHERE
     FROM "user_account" AS t1
     WHERE
       (
-        (t1."id" = "user_id")
+        (t1."id" = t0."user_id")
         AND (t1."name" = $1)
       )
   ))

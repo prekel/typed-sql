@@ -66,6 +66,7 @@ let select : A.select =
 let assignment : A.assignment =
   { source_id = 0
   ; column = Identifier.of_string_exn "id"
+  ; target_type = Db_type.Pack Db_type.int
   ; value = A.Expression (A.Param (A.Value (Db_type.Value (Db_type.int, 7))))
   }
 ;;
@@ -2258,4 +2259,64 @@ let%test_module "numeric dialect invariants" =
 let%test "numeric source discovery traverses nested aggregates under CAST" =
   let expression = A.Cast (A.Numeric, A.Float, A.Aggregate (A.Avg_numeric (column 7))) in
   List.equal Int.equal (Aggregate_scope.expression_sources expression) [ 7 ]
+;;
+
+let%test_module "SQL type validation of internal query shapes" =
+  (module struct
+    let json_type : int list Db_type.t =
+      Db_type.json_result
+        ~fields:[ Db_type.Pack Db_type.int ]
+        ~decode_json:(fun ~path:_ _ -> Ok [])
+    ;;
+
+    let compile expression =
+      let projection = Projection.expr (Expr.create expression json_type) in
+      Result_query.create_select
+        (A.Simple { select with projection = [ expression ] })
+        projection
+      |> Compiler.compile ~dialect:Dialect.Postgresql
+    ;;
+
+    let%test "multiset subqueries retain JSONB SQL identity" =
+      let nested =
+        A.Multiset_subquery
+          { query = A.Simple { select with source = source 1; projection = [ column 1 ] }
+          ; field_types = [ Db_type.Pack Db_type.int ]
+          }
+      in
+      Result.is_ok (compile (A.Coalesce (nested, nested)))
+    ;;
+
+    let%test "multiset aggregates retain JSONB SQL identity" =
+      let aggregate =
+        A.Aggregate
+          (A.Multiset_agg
+             { fields = [ column 0 ]
+             ; field_types = [ Db_type.Pack Db_type.int ]
+             ; filter = None
+             ; order_by = []
+             })
+      in
+      Result.is_ok (compile (A.Coalesce (aggregate, aggregate)))
+    ;;
+
+    let%test "malformed scalar result width fails before SQL rendering" =
+      let value = A.Param (A.Value (Db_type.Value (Db_type.int, 1))) in
+      let scalar =
+        A.Scalar_subquery
+          { select with
+            projection = [ value; value ]
+          ; limit = Some (A.Limit (A.Literal 1))
+          }
+      in
+      let expression = A.Case ([ A.True, scalar ], value) in
+      let projection = Projection.expr (Expr.create expression Db_type.int) in
+      let query =
+        Result_query.create_select (A.Source_free { ctes = []; expression }) projection
+      in
+      match Compiler.compile ~dialect:Dialect.Postgresql query with
+      | Error Compile_error.Empty_projection -> true
+      | _ -> false
+    ;;
+  end)
 ;;

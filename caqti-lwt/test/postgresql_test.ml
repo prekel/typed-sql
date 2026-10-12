@@ -555,17 +555,21 @@ let run_goldens ~postgresql conn =
   let* arithmetic = fetch conn Q.arithmetic_query in
   let expected_arithmetic =
     List.map [ 1L; 2L; 3L; 4L ] ~f:(fun id ->
-      ( [ Int64.(id + 1L); Int64.(id - 2L); Int64.(id * 3L); Int64.(id / 4L) ]
-      , [ 13; 10; 36; 3 ]
-      , [ 13.; 10.; 36.; 3. ] ))
+      ( List.map
+          [ Int64.(id + 1L); Int64.(id - 2L); Int64.(id * 3L); Int64.(id / 4L) ]
+          ~f:Option.some
+      , List.map [ 13; 10; 36; 3 ] ~f:Option.some
+      , List.map [ 13.; 10.; 36.; 3. ] ~f:Option.some ))
   in
   assert_rows
     ~name:"typed arithmetic golden"
     ~equal:(fun (a, b, c) (d, e, f) ->
-      List.equal Int64.equal a d && List.equal Int.equal b e && List.equal Float.equal c f)
+      List.equal (Option.equal Int64.equal) a d
+      && List.equal (Option.equal Int.equal) b e
+      && List.equal (Option.equal Float.equal) c f)
     expected_arithmetic
     (List.sort arithmetic ~compare:(fun (a, _, _) (b, _, _) ->
-       Int64.compare (List.hd_exn a) (List.hd_exn b)));
+       Option.compare Int64.compare (List.hd_exn a) (List.hd_exn b)));
   let* joined = fetch conn Q.inner_join_query in
   assert_rows
     ~name:"inner JOIN golden"
@@ -668,9 +672,8 @@ let run_goldens ~postgresql conn =
   let* correlated = fetch conn Q.correlated_sales_total_query in
   assert_rows
     ~name:"correlated scalar aggregate golden"
-    ~equal:(fun (a, b) (c, d) ->
-      String.equal a c && Option.equal (Option.equal Int64.equal) b d)
-    [ "Ada", Some (Some 2L); "Edsger", None; "Grace", Some (Some 1L); "Linus", None ]
+    ~equal:(fun (a, b) (c, d) -> String.equal a c && Option.equal Int64.equal b d)
+    [ "Ada", Some 2L; "Edsger", None; "Grace", Some 1L; "Linus", None ]
     (List.sort correlated ~compare:(fun (a, _) (b, _) -> String.compare a b));
   let* () =
     check_golden
@@ -2041,6 +2044,118 @@ let test_average conn =
   exec "DROP TABLE average_blogs"
 ;;
 
+let test_division conn =
+  let check typ divide numerator divisor equal expected =
+    let statement =
+      Statement.query_one
+        ~dialect:Dialect.portable
+        (Query.select_one
+           (divide (Expr.constant typ numerator) (Expr.constant typ divisor)))
+    in
+    let* result = Typed_sql_caqti_lwt.run ~conn statement () >>= adapter_or_fail in
+    assert (Option.equal equal result expected);
+    Lwt.return_unit
+  in
+  let* () = check Db_type.int Expr.Int.Infix.( /. ) 1 0 Int.equal None in
+  let* () = check Db_type.int64 Expr.Int64.Infix.( /. ) 1L 0L Int64.equal None in
+  let* () = check Db_type.float Expr.Float.Infix.( /. ) 1. 0. Float.equal None in
+  check Db_type.int Expr.Int.Infix.( /. ) 7 2 Int.equal (Some 3)
+;;
+
+let test_grouped_case conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let table : unit Table.t = Table.v_exn "case_buckets" in
+  let id = Column.v_exn table "id" Db_type.int64 in
+  let* () =
+    Connection.exec (direct "CREATE TABLE case_buckets (id BIGINT NOT NULL)") ()
+    |> or_fail
+  in
+  let* () =
+    Connection.exec (direct "INSERT INTO case_buckets VALUES (-1),(1),(2)") () |> or_fail
+  in
+  let threshold = Expr.constant Db_type.int64 0L in
+  let yes = Expr.constant Db_type.text "positive" in
+  let no = Expr.constant Db_type.text "other" in
+  let bucket row = Expr.case [ Expr.column row id >. threshold, yes ] ~else_:no in
+  let statement =
+    Statement.query_many
+      ~dialect:Dialect.portable
+      Query.(
+        from table
+        |> group_by bucket
+        |> having (fun row -> bucket row <>$ "never")
+        |> order_by bucket `Asc
+        |> select (fun row ->
+          Projection.both (Projection.expr (bucket row)) (Projection.expr Expr.count_all)))
+  in
+  let* rows = Adapter.run ~conn statement () >>= adapter_or_fail in
+  assert (
+    List.equal
+      (fun (a, n) (b, m) -> String.equal a b && Int64.equal n m)
+      rows
+      [ "other", 1L; "positive", 2L ]);
+  Lwt.return_unit
+;;
+
+module Date_boundary = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "caqti_date_boundaries"
+  let value = Column.v_exn table "value" Db_type.date
+
+  let statement =
+    Statement.expect_one
+      ~dialect:Dialect.postgresql
+      Query.(from table |> select (fun row -> Projection.expr (Expr.column row value)))
+  ;;
+
+  let insert =
+    T.Request.create
+      T.Request.Direct
+      T.Request_type.Infix.(T.Row_type.string -->. T.Row_type.unit)
+      (fun _ ->
+         T.Query.(
+           concat
+             [ lit "INSERT INTO caqti_date_boundaries VALUES (CAST("
+             ; param 0
+             ; lit " AS date))"
+             ]))
+  ;;
+
+  let set conn sql_value =
+    let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+    let* () =
+      Connection.exec (direct "DELETE FROM caqti_date_boundaries") () |> or_fail
+    in
+    Connection.exec insert sql_value |> or_fail
+  ;;
+
+  let unsupported conn sql_value =
+    let* () = set conn sql_value in
+    let* result = Adapter.run ~conn statement () in
+    (match result with
+     | Error (Adapter.Caqti (`Decode_rejected _)) -> ()
+     | Error error ->
+       failwith ("expected a date decoding error: " ^ Adapter.error_to_string error)
+     | Ok _ -> failwith "unsupported PostgreSQL date decoded as a finite date");
+    Lwt.return_unit
+  ;;
+
+  let finite conn sql_value =
+    let* () = set conn sql_value in
+    let* value = Adapter.run ~conn statement () >>= adapter_or_fail in
+    assert (String.equal (Date.to_string value) sql_value);
+    Lwt.return_unit
+  ;;
+
+  let test_bc conn = unsupported conn "0001-01-01 BC"
+  let test_large_year conn = unsupported conn "10000-01-01"
+  let test_positive_infinity conn = unsupported conn "infinity"
+  let test_negative_infinity conn = unsupported conn "-infinity"
+  let test_lower_bound conn = finite conn "0001-01-01"
+  let test_upper_bound conn = finite conn "9999-12-31"
+end
+
 let main () =
   let* () =
     with_connection "postgresql://" (fun conn ->
@@ -2052,11 +2167,27 @@ let main () =
       let* () = test_fetch_with_ties conn in
       let* () = test_row_locking conn in
       let* () = test_caqti_prepared conn in
+      let* () = test_grouped_case conn in
+      let* () = test_division conn in
+      let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+      let* () =
+        Connection.exec
+          (direct "CREATE TABLE caqti_date_boundaries (value DATE NOT NULL)")
+          ()
+        |> or_fail
+      in
+      let* () = Date_boundary.test_bc conn in
+      let* () = Date_boundary.test_large_year conn in
+      let* () = Date_boundary.test_positive_infinity conn in
+      let* () = Date_boundary.test_negative_infinity conn in
+      let* () = Date_boundary.test_lower_bound conn in
+      let* () = Date_boundary.test_upper_bound conn in
       let* () = postgres_only conn in
       run_goldens ~postgresql:true conn)
   in
   with_connection "sqlite3::memory:" (fun conn ->
     let* () = run ~postgresql:false conn in
+    let* () = test_division conn in
     run_goldens ~postgresql:false conn)
 ;;
 

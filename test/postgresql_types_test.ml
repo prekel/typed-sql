@@ -131,7 +131,7 @@ let%test "array text handles empty and one-dimensional arrays" =
   let decode text = Ok text in
   match Pg_array.of_string ~decode "{}", Pg_array.of_string ~decode "{a,NULL,b}" with
   | Ok empty, Ok populated ->
-    List.equal Int.equal (Pg_array.dimensions empty) [ 0 ]
+    List.is_empty (Pg_array.dimensions empty)
     && List.is_empty (Pg_array.elements empty)
     && List.equal
          (Option.equal String.equal)
@@ -477,4 +477,123 @@ let%test "multiset checks the representation of named fields" =
   | Error (Compile_error.Unsupported_multiset_field_type { type_name; _ }) ->
     String.equal type_name "bytes"
   | Error _ | Ok _ -> false
+;;
+
+let%test "interval rejects overflowing time" =
+  bad (Interval.of_string "2562047788015215:00:00")
+;;
+
+let%test "interval rejects accumulated time overflow" =
+  bad (Interval.of_string "2562047788:00:54.775807 00:00:00.000001")
+;;
+
+let%test "interval rejects year multiplication overflow" =
+  bad (Interval.of_string (Int.to_string Int.max_value ^ " years"))
+;;
+
+let%test "interval rejects accumulated months overflow" =
+  bad (Interval.of_string (Int.to_string Int.max_value ^ " mons 1 mon"))
+;;
+
+let%test "interval rejects accumulated days overflow" =
+  bad (Interval.of_string (Int.to_string Int.min_value ^ " days -1 day"))
+;;
+
+let%test "interval rejects ago negation overflow" =
+  bad (Interval.of_string "-2562047788:00:54.775808 ago")
+;;
+
+let%test "interval round-trips minimum and maximum microseconds" =
+  List.for_all [ Int64.min_value; Int64.max_value ] ~f:(fun microseconds ->
+    let original = Interval.create ~months:0 ~days:0 ~microseconds in
+    match Interval.of_string (Interval.to_string original) with
+    | Error _ -> false
+    | Ok parsed -> Int64.equal (Interval.microseconds parsed) microseconds)
+;;
+
+let%test "array constructor rejects upper bound overflow" =
+  bad
+    (Pg_array.create
+       ~dimensions:[ 2 ]
+       ~lower_bounds:[ Int.max_value ]
+       ~elements:[ Some 1; Some 2 ])
+;;
+
+let%test "array constructor rejects empty bound underflow" =
+  bad (Pg_array.create ~dimensions:[ 0 ] ~lower_bounds:[ Int.min_value ] ~elements:[])
+;;
+
+let%test "array upper bound at max_int round-trips" =
+  match
+    Pg_array.create
+      ~dimensions:[ 1 ]
+      ~lower_bounds:[ Int.max_value ]
+      ~elements:[ Some "x" ]
+  with
+  | Error _ -> false
+  | Ok array ->
+    let open Result.Let_syntax in
+    let round_trip =
+      let%bind source = Pg_array.to_string ~encode:(fun x -> Ok x) array in
+      Pg_array.of_string ~decode:(fun x -> Ok x) source
+    in
+    (match round_trip with
+     | Error _ -> false
+     | Ok parsed -> List.equal Int.equal (Pg_array.lower_bounds parsed) [ Int.max_value ])
+;;
+
+let%test "empty arrays have a canonical zero-rank round-trip" =
+  List.for_all
+    [ [], []; [ 0 ], [ 1 ]; [ 2; 0 ], [ 1; 1 ] ]
+    ~f:(fun (dimensions, lower_bounds) ->
+      let open Result.Let_syntax in
+      let parsed =
+        let%bind original = Pg_array.create ~dimensions ~lower_bounds ~elements:[] in
+        let%bind text = Pg_array.to_string ~encode:(fun value -> Ok value) original in
+        Pg_array.of_string ~decode:(fun value -> Ok value) text
+      in
+      match parsed with
+      | Error _ -> false
+      | Ok value ->
+        List.is_empty (Pg_array.dimensions value)
+        && List.is_empty (Pg_array.lower_bounds value))
+;;
+
+let%test "array parser rejects an unescaped opening brace in a scalar" =
+  Result.is_error (Pg_array.of_string ~decode:(fun value -> Ok value) "{a{b}")
+;;
+
+let%test "array parser preserves unquoted escapes" =
+  match Pg_array.of_string ~decode:(fun value -> Ok value) {|{a\{b,a\,b,\NULL,\ }|} with
+  | Error _ -> false
+  | Ok value ->
+    List.equal
+      (Option.equal String.equal)
+      (Pg_array.elements value)
+      [ Some "a{b"; Some "a,b"; Some "NULL"; Some " " ]
+;;
+
+let%test "int codecs reject values outside PostgreSQL integer range" =
+  Result.is_error (Db_type.Postgresql.encode_text Db_type.int 2_147_483_648)
+  && Result.is_error (Db_type.Postgresql.decode_text Db_type.int "2147483648")
+;;
+
+let%test "invalid optional codec compositions reject text encoding" =
+  Result.is_error
+    (Db_type.Postgresql.encode_text
+       (Db_type.option (Db_type.option Db_type.int))
+       (Some None))
+;;
+
+let%test "invalid optional codec compositions reject text decoding" =
+  Result.is_error
+    (Db_type.Postgresql.decode_text (Db_type.option (Db_type.option Db_type.int)) "NULL")
+;;
+
+let%test "unterminated unquoted array escape is rejected" =
+  Result.is_error (Pg_array.of_string ~decode:Result.return "{value\\")
+;;
+
+let%test "unescaped quote inside unquoted array element is rejected" =
+  Result.is_error (Pg_array.of_string ~decode:Result.return "{value\"}")
 ;;

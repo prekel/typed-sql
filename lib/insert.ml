@@ -107,6 +107,7 @@ let set_expr column expression insert =
   let assignment =
     { Ast.source_id = Table_ref.source_id insert.reference
     ; column = Column.name column
+    ; target_type = Db_type.Pack (Column.db_type column)
     ; value = Ast.Expression (Expr.node expression)
     }
   in
@@ -132,6 +133,7 @@ let default column insert =
   let assignment =
     { Ast.source_id = Table_ref.source_id insert.reference
     ; column = Column.name column
+    ; target_type = Db_type.Pack (Column.db_type column)
     ; value = Ast.Default
     }
   in
@@ -202,6 +204,7 @@ let do_update make_update conflict =
     List.map update.assignments ~f:(fun (Conflict_update.Assignment (column, value)) ->
       { Ast.source_id = Column.source_id_for insert.reference column
       ; column = Column.name column
+      ; target_type = Db_type.Pack (Column.db_type column)
       ; value
       })
   in

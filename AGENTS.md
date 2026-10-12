@@ -63,8 +63,9 @@
   dialect renderer. Пользовательские значения всегда остаются bind parameters.
 - Semantic AST хранит source identity, но не SQL aliases. Compiler назначает
   aliases и parameter indices детерминированно.
-- Совместимость типов выражений проверяется при построении DSL. Принадлежность
-  column source текущему запросу дополнительно проверяется compiler.
+- Совместимость OCaml-типов выражений проверяется при построении DSL.
+  Совместимость SQL-descriptors и принадлежность column source текущему
+  запросу проверяются compiler и возвращаются через Compile_error.
 - Не используй `Obj.magic`, unchecked casts или строковую конкатенацию для
   обхода типовой модели.
 - Compiler и Caqti dialect callback должны быть чистыми. Shape не включает

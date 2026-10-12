@@ -261,8 +261,14 @@ let test_sqlstates conn =
     (fun (code, kind) ->
        let* result = Adapter.run ~conn (trigger code) () in
        (match result with
-        | Error (Adapter.Constraint_violation { kind = actual; _ })
-          when equal_kind kind actual -> ()
+        | Error (Adapter.Constraint_violation { kind = actual; _ } as error)
+          when equal_kind kind actual ->
+          assert (Adapter.Error.is_constraint_violation ~kind error);
+          assert (
+            not
+              (Adapter.Error.is_constraint_violation
+                 ~constraint_name:"unreported_name"
+                 error))
         | Error error -> failwith (Adapter.error_to_string error)
         | Ok _ -> failwith "PG'OCaml did not classify SQLSTATE");
        Lwt.return_unit)
@@ -477,10 +483,110 @@ let test_transactions conn =
       Lwt.return (Ok ()))
   in
   (match commit_error with
-   | Error (Adapter.Constraint_violation { kind = Adapter.Foreign_key; _ }) -> ()
+   | Error error
+     when Adapter.Error.is_constraint_violation
+            ~kind:Constraint_error.Foreign_key
+            ~constraint_name:"pgocaml_deferred_child_id_fkey"
+            ~table_name:"pgocaml_deferred_child"
+            error -> ()
    | Error error -> failwith (Adapter.error_to_string error)
    | Ok () -> failwith "PG'OCaml committed a deferred foreign-key violation");
   let* _ = Adapter.run ~conn (count 2L) () >>= or_fail in
+  Lwt.return_unit
+;;
+
+let test_constraint_error_helpers conn =
+  let table : unit Table.t = Table.v_exn "pgocaml_error_helpers" in
+  let email = Column.v_exn table "email" Db_type.text in
+  let* () =
+    exec_sql
+      conn
+      "CREATE TABLE pgocaml_error_helpers (email TEXT CONSTRAINT users_email_key UNIQUE)"
+  in
+  let insert =
+    Statement.command
+      ~dialect:Dialect.postgresql
+      Insert.(into table |> set email "ada@example.com" |> command)
+  in
+  let* _ = Adapter.run ~conn insert () >>= or_fail in
+  let* duplicate = Adapter.run ~conn insert () in
+  (match duplicate with
+   | Error error ->
+     assert (
+       Adapter.Error.is_constraint_violation
+         ~kind:Constraint_error.Unique
+         ~schema_name:"public"
+         ~table_name:"pgocaml_error_helpers"
+         ~constraint_name:"users_email_key"
+         error);
+     assert (
+       not (Adapter.Error.is_constraint_violation ~constraint_name:"other_unique" error));
+     assert (
+       not
+         (Adapter.Error.is_constraint_violation ~kind:Constraint_error.Foreign_key error));
+     (match Adapter.Error.constraint_violation error with
+      | Some { sqlstate = Some "23505"; detail = Some _; _ } -> ()
+      | _ -> failwith "PostgreSQL diagnostic fields were lost");
+     (match error, Adapter.Error.cause error with
+      | Adapter.Constraint_violation { cause; _ }, Some original ->
+        assert (phys_equal cause original)
+      | _ -> failwith "original PostgreSQL exception was lost");
+     assert (String.equal (Adapter.Error.to_string error) (Adapter.error_to_string error));
+     assert (
+       String.equal
+         (Stdlib.Format.asprintf "%a" Adapter.Error.pp error)
+         (Adapter.error_to_string error))
+   | Ok _ -> failwith "duplicate email was accepted");
+  let missing_table : unit Table.t = Table.v_exn "pgocaml_error_helpers_missing" in
+  let id = Column.v_exn missing_table "id" Db_type.int64 in
+  let query =
+    Statement.query_many
+      ~dialect:Dialect.postgresql
+      Query.(
+        from missing_table |> select (fun row -> Projection.expr (Expr.column row id)))
+  in
+  let* missing = Adapter.run ~conn query () in
+  (match missing with
+   | Error error ->
+     assert (Option.is_some (Adapter.Error.cause error));
+     assert (Option.is_none (Adapter.Error.constraint_violation error));
+     assert (not (Adapter.Error.is_constraint_violation error))
+   | Ok _ -> failwith "missing table query was accepted");
+  let local = Adapter.Encode "invalid input" in
+  assert (Option.is_none (Adapter.Error.cause local));
+  assert (not (Adapter.Error.is_constraint_violation local));
+  Lwt.return_unit
+;;
+
+let test_reported_constraint_fields conn =
+  let* result =
+    Adapter.transaction ~conn ~f:(fun conn ->
+      let* () =
+        exec_sql
+          conn
+          "DO $$ BEGIN RAISE EXCEPTION 'reported check failure' USING ERRCODE = '23514', SCHEMA = 'audit', TABLE = 'events', COLUMN = 'status', CONSTRAINT = 'status_check', DETAIL = 'invalid status', HINT = 'choose an allowed status'; END $$"
+      in
+      Lwt.return (Ok ()))
+  in
+  (match result with
+   | Error error ->
+     assert (
+       Adapter.Error.is_constraint_violation
+         ~kind:Constraint_error.Check
+         ~constraint_name:"status_check"
+         ~schema_name:"audit"
+         ~table_name:"events"
+         ~column_name:"status"
+         error);
+     (match Adapter.Error.constraint_violation error with
+      | Some
+          { sqlstate = Some "23514"
+          ; detail = Some "invalid status"
+          ; hint = Some "choose an allowed status"
+          ; _
+          } -> ()
+      | _ -> failwith "PostgreSQL detail or hint was lost")
+   | Ok () -> failwith "reported constraint error was accepted");
   Lwt.return_unit
 ;;
 
@@ -754,6 +860,165 @@ let test_array_lookup conn =
   Lwt.return_unit
 ;;
 
+module Cancelling_pgocaml = struct
+  include Pgocaml
+
+  let prepare _ ~query:_ ?name:_ ?types:_ () = Lwt.return_unit
+  let execute _ ?name:_ ?portal:_ ~params:_ () = fst (Lwt.task ())
+  let close_statement _ ?name:_ () = Lwt.return_unit
+end
+
+module Cancelling_adapter = Adapter.Make (Cancelling_pgocaml)
+
+let check_cancelled promise =
+  Lwt.catch
+    (fun () ->
+       let* _ = promise in
+       Lwt.fail_with "PG'OCaml adapter swallowed cancellation")
+    (function
+      | Lwt.Canceled -> Lwt.return_unit
+      | exn -> Lwt.fail exn)
+;;
+
+let test_uncached_cancellation conn =
+  let statement =
+    Statement.query_one
+      ~dialect:Dialect.postgresql
+      (Query.select_one (Expr.constant Db_type.int 1))
+  in
+  let promise = Cancelling_adapter.run ~conn statement () in
+  Lwt.cancel promise;
+  check_cancelled promise
+;;
+
+let test_cached_cancellation conn =
+  let cache =
+    Cancelling_adapter.Prepared_cache.create ~conn ()
+    |> Result.map_error ~f:Cancelling_adapter.error_to_string
+    |> Result.ok_or_failwith
+  in
+  let statement =
+    Statement.query_one
+      ~dialect:Dialect.postgresql
+      (Query.select_one (Expr.constant Db_type.int 1))
+  in
+  Lwt.finalize
+    (fun () ->
+       let promise = Cancelling_adapter.Prepared_cache.run cache statement () in
+       Lwt.cancel promise;
+       check_cancelled promise)
+    (fun () ->
+       Lwt.map
+         (fun result -> ignore (result : (unit, Cancelling_adapter.error) Result.t))
+         (Cancelling_adapter.Prepared_cache.close cache))
+;;
+
+let test_transaction_cancellation conn =
+  check_cancelled (Adapter.transaction ~conn ~f:(fun _ -> Lwt.fail Lwt.Canceled))
+;;
+
+module Broken_rollback_pgocaml = struct
+  include Pgocaml
+
+  let begin_work ?isolation:_ ?access:_ ?deferrable:_ _ = Lwt.return_unit
+
+  let commit _ =
+    Lwt.fail (Pgocaml.PostgreSQL_Error ("forced commit failure", [ 'C', "23503" ]))
+  ;;
+
+  let rollback _ = Lwt.fail_with "forced rollback failure"
+end
+
+module Broken_rollback_adapter = Adapter.Make (Broken_rollback_pgocaml)
+
+let test_rollback_error_retains_both_failures conn =
+  let module A = Broken_rollback_adapter in
+  let* result =
+    A.transaction ~conn ~f:(fun _ -> Lwt.return (Error (A.Encode "original failure")))
+  in
+  (match result with
+   | Error
+       (A.Rollback_failed
+          { error = A.Encode "original failure"; rollback_error = A.Pgocaml _ } as error)
+     ->
+     assert (not (A.Error.is_constraint_violation error));
+     assert (String.is_substring (A.Error.to_string error) ~substring:"original failure");
+     assert (
+       String.is_substring (A.Error.to_string error) ~substring:"forced rollback failure")
+   | _ -> failwith "rollback failure hid the original failure");
+  Lwt.return_unit
+;;
+
+let test_commit_error_retains_rollback_failure conn =
+  let module A = Broken_rollback_adapter in
+  let* result = A.transaction ~conn ~f:(fun _ -> Lwt.return (Ok ())) in
+  (match result with
+   | Error
+       (A.Rollback_failed
+          { error = A.Constraint_violation { kind = Foreign_key; _ }
+          ; rollback_error = A.Pgocaml _
+          } as error) ->
+     assert (
+       not (A.Error.is_constraint_violation ~kind:Constraint_error.Foreign_key error));
+     (match A.Error.cause error with
+      | Some (Pgocaml.PostgreSQL_Error ("forced commit failure", _)) -> ()
+      | _ -> failwith "commit driver error was lost")
+   | _ -> failwith "rollback failure hid the commit failure");
+  Lwt.return_unit
+;;
+
+let test_cancellation_with_failed_rollback conn =
+  check_cancelled
+    (Broken_rollback_adapter.transaction ~conn ~f:(fun _ -> Lwt.fail Lwt.Canceled))
+;;
+
+module Date_boundary = struct
+  type row
+
+  let table : row Table.t = Table.v_exn "date_boundaries"
+  let value = Column.v_exn table "value" Db_type.date
+end
+
+let date_boundary_statement =
+  Statement.expect_one
+    ~dialect:Dialect.postgresql
+    Query.(
+      from Date_boundary.table
+      |> limit_one
+      |> select (fun row -> Projection.expr (Expr.column row Date_boundary.value)))
+;;
+
+let check_unsupported_date conn sql_value =
+  let* () = exec_sql conn "DELETE FROM date_boundaries" in
+  let* () =
+    exec_sql conn ("INSERT INTO date_boundaries VALUES (DATE '" ^ sql_value ^ "')")
+  in
+  let* result = Adapter.run ~conn date_boundary_statement () in
+  (match result with
+   | Error (Adapter.Decode message) ->
+     assert (String.is_substring message ~substring:"finite ISO date");
+     assert (String.is_substring message ~substring:"unsupported value")
+   | Error error -> failwith (Adapter.error_to_string error)
+   | Ok _ -> failwith "unsupported PostgreSQL date decoded as a finite Ptime date");
+  Lwt.return_unit
+;;
+
+let test_bc_date conn = check_unsupported_date conn "0001-01-01 BC"
+let test_large_year_date conn = check_unsupported_date conn "10000-01-01"
+let test_positive_infinite_date conn = check_unsupported_date conn "infinity"
+let test_negative_infinite_date conn = check_unsupported_date conn "-infinity"
+
+let test_finite_date_bounds conn =
+  let* () = exec_sql conn "DELETE FROM date_boundaries" in
+  let* () = exec_sql conn "INSERT INTO date_boundaries VALUES (DATE '0001-01-01')" in
+  let* lower = Adapter.run ~conn date_boundary_statement () >>= or_fail in
+  assert (String.equal (Date.to_string lower) "0001-01-01");
+  let* () = exec_sql conn "UPDATE date_boundaries SET value = DATE '9999-12-31'" in
+  let* upper = Adapter.run ~conn date_boundary_statement () >>= or_fail in
+  assert (String.equal (Date.to_string upper) "9999-12-31");
+  Lwt.return_unit
+;;
+
 let main () =
   let* conn = Pgocaml.connect () in
   Lwt.finalize
@@ -771,9 +1036,23 @@ let main () =
        let* value = Adapter.run ~conn query () >>= or_fail in
        if not Int64.(value = 1L) then
          failwith "PG'OCaml query returned wrong value";
+       let* () = test_uncached_cancellation conn in
+       let* () = test_cached_cancellation conn in
+       let* () = test_transaction_cancellation conn in
+       let* () = test_rollback_error_retains_both_failures conn in
+       let* () = test_commit_error_retains_rollback_failure conn in
+       let* () = test_cancellation_with_failed_rollback conn in
+       let* () = exec_sql conn "CREATE TABLE date_boundaries (value DATE NOT NULL)" in
+       let* () = test_bc_date conn in
+       let* () = test_large_year_date conn in
+       let* () = test_positive_infinite_date conn in
+       let* () = test_negative_infinite_date conn in
+       let* () = test_finite_date_bounds conn in
        let* () = test_codecs conn in
        let* () = test_rich_types conn in
        let* () = test_transactions conn in
+       let* () = test_constraint_error_helpers conn in
+       let* () = test_reported_constraint_fields conn in
        let* () = test_array_lookup conn in
        let* () = test_queries conn in
        let* () = test_sqlstates conn in

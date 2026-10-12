@@ -1,14 +1,16 @@
 open! Base
 
 (** Execute compiled typed SQL through PG'OCaml using Lwt. Parameters are sent
-    separately from SQL, and result rows are decoded from the query projection. *)
+    separately from SQL, and result rows are decoded from the query projection.
+    Connections must use ISO [DateStyle] for date and timestamp results,
+    including array elements. The adapter does not change session settings. *)
 
 (** The concrete PG'OCaml implementation used by this adapter. *)
 module Pgocaml : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t
 
 (** An error produced while binding, encoding, executing, or decoding a
     statement. *)
-type constraint_kind =
+type constraint_kind = Typed_sql.Constraint_error.kind =
   | Unique
   | Foreign_key
   | Not_null
@@ -37,10 +39,19 @@ type error =
   | Constraint_violation of
       { kind : constraint_kind
       ; message : string
-      } (** PostgreSQL reported an integrity-constraint SQLSTATE. *)
+      ; cause : exn
+      }
+  (** PostgreSQL reported an integrity-constraint SQLSTATE; [cause] retains
+            the original exception and all protocol diagnostic fields. *)
   | Invalid_cache_capacity of int
   (** [Prepared_cache.create] requires a positive capacity. *)
   | Prepared_cache_closed (** A closed prepared cache cannot execute more statements. *)
+  | Rollback_failed of
+      { error : error
+      ; rollback_error : error
+      }
+  (** Rollback failed after an earlier failure. Both errors are retained;
+      handle this as a transaction failure, not as a recoverable constraint. *)
   | Pgocaml of exn
   (** PG'OCaml raised an exception while communicating with PostgreSQL. *)
 
@@ -49,6 +60,34 @@ val error_to_string : error -> string
 
 (** Format an error using [error_to_string]. *)
 val pp_error : Formatter.t -> error -> unit
+
+(** Helpers for mapping adapter failures to application errors. *)
+module Error : sig
+  type t = error
+
+  (** Return the portable classification and available diagnostic fields.
+      Non-constraint failures and [Rollback_failed] return [None]. *)
+  val constraint_violation : t -> Typed_sql.Constraint_error.t option
+
+  (** Match only constraint errors. Missing diagnostic names never satisfy a
+      name filter. With no filters, any constraint violation matches. *)
+  val is_constraint_violation
+    :  ?kind:Typed_sql.Constraint_error.kind
+    -> ?constraint_name:string
+    -> ?schema_name:string
+    -> ?table_name:string
+    -> ?column_name:string
+    -> t
+    -> bool
+
+  (** The original driver error, also retained for classified violations.
+      For [Rollback_failed], return the first failure's driver cause; the
+      rollback error remains available in the variant. *)
+  val cause : t -> exn option
+
+  val to_string : t -> string
+  val pp : Formatter.t -> t -> unit
+end
 
 (** Resolve one input and execute a statement. Dynamic statements are built
     and compiled before database access. *)
@@ -86,7 +125,10 @@ module Prepared_cache : sig
 end
 
 (** Run [f] in a PostgreSQL transaction. [Ok] commits and [Error] rolls back.
-    Raised PostgreSQL errors are classified after rollback. *)
+    Ordinary callback exceptions are classified as adapter errors before
+    rollback. A failed commit is also followed by rollback; [Rollback_failed]
+    retains both failures. [Lwt.Canceled] remains cancellation, even if the
+    rollback attempt after cancellation fails. *)
 val transaction
   :  conn:'connection Pgocaml.t
   -> f:('connection Pgocaml.t -> ('a, error) Result.t Lwt.t)
@@ -99,7 +141,7 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
   module Pgocaml :
     PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t and type 'a t = 'a P.t
 
-  type constraint_kind =
+  type constraint_kind = Typed_sql.Constraint_error.kind =
     | Unique
     | Foreign_key
     | Not_null
@@ -121,13 +163,48 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
     | Constraint_violation of
         { kind : constraint_kind
         ; message : string
+        ; cause : exn
         }
     | Invalid_cache_capacity of int
     | Prepared_cache_closed
+    | Rollback_failed of
+        { error : error
+        ; rollback_error : error
+        }
+    (** Rollback failed after an earlier failure. Both errors are retained;
+      handle this as a transaction failure, not as a recoverable constraint. *)
     | Pgocaml of exn
 
   val error_to_string : error -> string
   val pp_error : Formatter.t -> error -> unit
+
+  (** Helpers for mapping adapter failures to application errors. *)
+  module Error : sig
+    type t = error
+
+    (** Return the portable classification and available diagnostic fields.
+        Non-constraint failures and [Rollback_failed] return [None]. *)
+    val constraint_violation : t -> Typed_sql.Constraint_error.t option
+
+    (** Match only constraint errors. Missing diagnostic names never satisfy a
+        name filter. With no filters, any constraint violation matches. *)
+    val is_constraint_violation
+      :  ?kind:Typed_sql.Constraint_error.kind
+      -> ?constraint_name:string
+      -> ?schema_name:string
+      -> ?table_name:string
+      -> ?column_name:string
+      -> t
+      -> bool
+
+    (** The original driver error, also retained for classified violations.
+      For [Rollback_failed], return the first failure's driver cause; the
+      rollback error remains available in the variant. *)
+    val cause : t -> exn option
+
+    val to_string : t -> string
+    val pp : Formatter.t -> t -> unit
+  end
 
   val run
     :  conn:'connection Pgocaml.t
@@ -153,6 +230,8 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
     val close : 'connection t -> (unit, error) Result.t Lwt.t
   end
 
+  (** Same transaction, exception, and cancellation contract as [transaction]
+      above, using the supplied PG'OCaml module. *)
   val transaction
     :  conn:'connection Pgocaml.t
     -> f:('connection Pgocaml.t -> ('a, error) Result.t Lwt.t)

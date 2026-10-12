@@ -67,7 +67,7 @@ let%test_module "GraphQL SQL rendering" =
           t0."title"
         FROM "posts" AS t0
         ORDER BY
-          t0."id" ASC
+          t0."id" ASC NULLS LAST
         LIMIT ?1
         |}]
     ;;
@@ -179,7 +179,7 @@ let%test_module "GraphQL SQL rendering" =
             ))
           )
         ORDER BY
-          t0."id" DESC
+          t0."id" DESC NULLS FIRST
         LIMIT ?6
         |}]
     ;;
@@ -227,7 +227,7 @@ let%test_module "GraphQL SQL rendering" =
               )
           ))
         ORDER BY
-          t0."id" ASC
+          t0."id" ASC NULLS LAST
         LIMIT ?2
         |}]
     ;;
@@ -275,7 +275,7 @@ let%test_module "GraphQL SQL rendering" =
               )
           ))
         ORDER BY
-          t0."id" ASC
+          t0."id" ASC NULLS LAST
         LIMIT ?2
         |}]
     ;;
@@ -353,7 +353,7 @@ let%test_module "GraphQL request validation" =
         ~message:"expected String"
     ;;
 
-    let%test "missing nullable variable resolves to null" =
+    let%test "missing nullable variable leaves the optional application argument absent" =
       match
         parse_request
           ~query:"query Posts($name: String) { posts(authorName: $name) { id } }"
@@ -396,6 +396,97 @@ let%test_module "GraphQL request validation" =
         ~query:"mutation { posts { id } }"
         ~variables:[]
         ~message:"only query operations are supported"
+    ;;
+  end)
+;;
+
+let%test_module "GraphQL Int range" =
+  (module struct
+    let parse value =
+      Gql.Request.parse
+        ~query:"query Q($value: Int!) { items(value: $value) { id } }"
+        ~variables:[ "value", `Int value ]
+    ;;
+
+    let%test "accepts signed 32-bit boundaries" =
+      List.for_all [ -2_147_483_648; 2_147_483_647 ] ~f:(fun value ->
+        Result.is_ok (parse value))
+    ;;
+
+    let%test "rejects values above the maximum" = Result.is_error (parse 2_147_483_648)
+    let%test "rejects values below the minimum" = Result.is_error (parse (-2_147_483_649))
+
+    let%test "rejects out-of-range literals" =
+      Result.is_error
+        (Gql.Request.parse ~query:"{ items(value: 2147483648) { id } }" ~variables:[])
+    ;;
+  end)
+;;
+
+let%test_module "nullable variable presence" =
+  (module struct
+    let parse query variables =
+      Gql.Request.parse ~query ~variables |> Result.ok_or_failwith
+    ;;
+
+    let query = "query Q($value: String) { items(filter: $value) { id } }"
+
+    let%test "omitted nullable variable omits its argument" =
+      List.is_empty (parse query []).root.arguments
+    ;;
+
+    let%test "explicit variable null keeps its argument" =
+      match (parse query [ "value", `Null ]).root.arguments with
+      | [ ("filter", `Null) ] -> true
+      | _ -> false
+    ;;
+
+    let%test "literal null keeps its argument" =
+      match (parse "{ items(filter: null) { id } }" []).root.arguments with
+      | [ ("filter", `Null) ] -> true
+      | _ -> false
+    ;;
+
+    let%test "omitted nullable variable omits a nested input field" =
+      let query =
+        "query Q($value: String) { items(filter: {outer: {value: $value, keep: 1}}) { id } }"
+      in
+      match (parse query []).root.arguments with
+      | [ ("filter", `Assoc [ ("outer", `Assoc [ ("keep", `Int 1) ]) ]) ] -> true
+      | _ -> false
+    ;;
+
+    let%test "explicit null keeps a nested input field" =
+      let query = "query Q($value: String) { items(filter: {value: $value}) { id } }" in
+      match (parse query [ "value", `Null ]).root.arguments with
+      | [ ("filter", `Assoc [ ("value", `Null) ]) ] -> true
+      | _ -> false
+    ;;
+
+    let%test "omission preserves list positions" =
+      let query =
+        "query Q($value: String) { items(filter: [\"before\", $value, {value: $value}, \"after\"]) { id } }"
+      in
+      match (parse query []).root.arguments with
+      | [ ("filter", `List [ `String "before"; `Null; `Assoc []; `String "after" ]) ] ->
+        true
+      | _ -> false
+    ;;
+
+    let%test "omission applies to selected child fields" =
+      let request =
+        parse "query Q($value: Int) { items { child(filter: $value) { id } } }" []
+      in
+      match request.root.selections with
+      | [ child ] -> List.is_empty child.arguments
+      | _ -> false
+    ;;
+
+    let%test "missing required variable remains an error" =
+      Result.is_error
+        (Gql.Request.parse
+           ~query:"query Q($value: String!) { items(filter: $value) { id } }"
+           ~variables:[])
     ;;
   end)
 ;;

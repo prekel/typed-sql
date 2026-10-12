@@ -135,13 +135,13 @@ expect_failure 1 'invalid JSON' - <<'JSON'
 {
 JSON
 expect_failure 1 'unsupported snapshot version' - <<'JSON'
-{"version": 3, "tables": []}
+{"version": 1, "tables": []}
 JSON
 expect_failure 1 'table empty has no columns' - <<'JSON'
-{"version":1,"tables":[{"schema":null,"name":"empty","columns":[],"foreign_keys":[],"unique_constraints":[]}]}
+{"version":2,"tables":[{"schema":null,"name":"empty","columns":[],"foreign_keys":[],"unique_constraints":[]}]}
 JSON
 expect_failure 1 'unsupported type custom for items.value' - <<'JSON'
-{"version":1,"tables":[{"schema":null,"name":"items","columns":[{"name":"value","db_type":{"kind":"unsupported","database_type":"custom"},"nullable":false,"default":null,"generated":false,"primary_key_position":null}],"foreign_keys":[],"unique_constraints":[]}]}
+{"version":2,"tables":[{"schema":null,"name":"items","columns":[{"name":"value","db_type":{"kind":"unsupported","database_type":"custom"},"nullable":false,"default":null,"generated":false,"primary_key_position":null}],"foreign_keys":[],"unique_constraints":[]}]}
 JSON
 expect_failure 1 'typed-sql-codegen:' --type-rules "$test_dir/missing.json" schema_fixture.json
 "$codegen" --help > "$test_dir/help"

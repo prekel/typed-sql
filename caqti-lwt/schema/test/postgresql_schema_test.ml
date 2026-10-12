@@ -139,11 +139,110 @@ let test_rich_types conn =
   Lwt.return_unit
 ;;
 
+let test_repeated_constraint_names conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let statements =
+    [ "CREATE TABLE repeated_parent (id INTEGER CONSTRAINT repeated_pk PRIMARY KEY, code INTEGER CONSTRAINT repeated_unique UNIQUE)"
+    ; "CREATE TABLE repeated_other_parent (other_id INTEGER PRIMARY KEY, other_code INTEGER UNIQUE)"
+    ; "CREATE TABLE repeated_child_a (local_id INTEGER, local_code INTEGER, CONSTRAINT repeated_pk FOREIGN KEY (local_id) REFERENCES repeated_parent(id), CONSTRAINT repeated_unique FOREIGN KEY (local_code) REFERENCES repeated_parent(code))"
+    ; "CREATE TABLE repeated_child_b (foreign_id INTEGER, foreign_code INTEGER, CONSTRAINT repeated_pk FOREIGN KEY (foreign_id) REFERENCES repeated_other_parent(other_id), CONSTRAINT repeated_unique FOREIGN KEY (foreign_code) REFERENCES repeated_other_parent(other_code))"
+    ]
+  in
+  let* () =
+    Lwt_list.iter_s (fun sql -> Connection.exec (direct sql) () |> or_fail) statements
+  in
+  let* schema = Typed_sql_schema_caqti_lwt.introspect ~conn >>= schema_or_fail in
+  let table name =
+    List.find_exn (Schema_ir.tables schema) ~f:(fun table ->
+      String.equal (Identifier.to_string (Schema_ir.table_name table)) name)
+  in
+  let names = List.map ~f:Identifier.to_string in
+  let parent = table "repeated_parent" in
+  assert (Int.(List.length (Schema_ir.columns parent) = 2));
+  let primary_keys =
+    List.filter_map (Schema_ir.columns parent) ~f:(fun column ->
+      Option.map (Schema_ir.column_primary_key_position column) ~f:(fun position ->
+        Identifier.to_string (Schema_ir.column_name column), position))
+  in
+  assert (
+    List.equal
+      (fun (a, x) (b, y) -> String.equal a b && Int.equal x y)
+      primary_keys
+      [ "id", 1 ]);
+  (match Schema_ir.unique_constraints parent with
+   | [ unique ] ->
+     assert (
+       List.equal
+         String.equal
+         (names (Schema_ir.unique_constraint_columns unique))
+         [ "code" ])
+   | _ -> failwith "duplicate constraint names changed UNIQUE introspection");
+  let check_child name expected =
+    let child = table name in
+    assert (
+      List.for_all (Schema_ir.columns child) ~f:(fun column ->
+        Option.is_none (Schema_ir.column_primary_key_position column)));
+    let actual =
+      List.map (Schema_ir.foreign_keys child) ~f:(fun key ->
+        ( names (Schema_ir.foreign_key_columns key)
+        , Identifier.to_string (Schema_ir.foreign_key_referenced_table key)
+        , names (Schema_ir.foreign_key_referenced_columns key) ))
+    in
+    assert (
+      List.equal
+        (fun (a, t, b) (c, u, d) ->
+           List.equal String.equal a c && String.equal t u && List.equal String.equal b d)
+        actual
+        expected)
+  in
+  check_child
+    "repeated_child_a"
+    [ [ "local_id" ], "repeated_parent", [ "id" ]
+    ; [ "local_code" ], "repeated_parent", [ "code" ]
+    ];
+  check_child
+    "repeated_child_b"
+    [ [ "foreign_id" ], "repeated_other_parent", [ "other_id" ]
+    ; [ "foreign_code" ], "repeated_other_parent", [ "other_code" ]
+    ];
+  Lwt.return_unit
+;;
+
+let test_standalone_unique_index conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let sqls =
+    [ "CREATE TABLE standalone_unique (a TEXT, b TEXT)"
+    ; "CREATE UNIQUE INDEX standalone_full ON standalone_unique (a) INCLUDE (b)"
+    ; "CREATE UNIQUE INDEX standalone_partial ON standalone_unique (b) WHERE a IS NOT NULL"
+    ; "CREATE UNIQUE INDEX standalone_expression ON standalone_unique (lower(a))"
+    ]
+  in
+  let* () =
+    Lwt_list.iter_s (fun sql -> Connection.exec (direct sql) () |> or_fail) sqls
+  in
+  let* schema = Typed_sql_schema_caqti_lwt.introspect ~conn >>= schema_or_fail in
+  let table =
+    List.find_exn (Schema_ir.tables schema) ~f:(fun table ->
+      String.equal (Identifier.to_string (Schema_ir.table_name table)) "standalone_unique")
+  in
+  (match Schema_ir.unique_constraints table with
+   | [ unique ] ->
+     assert (
+       List.equal
+         String.equal
+         (List.map (Schema_ir.unique_constraint_columns unique) ~f:Identifier.to_string)
+         [ "a" ])
+   | _ -> failwith "standalone unique index was not introspected accurately");
+  Lwt.return_unit
+;;
+
 let main () =
   let* conn = Caqti_lwt_unix.connect (Uri.of_string "postgresql://") |> or_fail in
   let module Connection = (val conn : Caqti_lwt.CONNECTION) in
   Lwt.finalize
     (fun () ->
+       let* () = test_standalone_unique_index conn in
+       let* () = test_repeated_constraint_names conn in
        let* () = test_constraints conn in
        test_rich_types conn)
     (fun () -> Connection.disconnect ())

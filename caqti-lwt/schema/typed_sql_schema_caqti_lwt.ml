@@ -85,6 +85,7 @@ SELECT NULL,
 FROM sqlite_schema AS m
 JOIN pragma_table_xinfo(m.name) AS x
 WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%'
+AND x.hidden <> 1
 ORDER BY m.name, x.cid|}
 ;;
 
@@ -118,6 +119,11 @@ WHERE m.type = 'table'
 AND m.name NOT LIKE 'sqlite_%'
 AND il."unique" = 1
 AND il.origin <> 'pk'
+AND il.partial = 0
+AND NOT EXISTS (
+  SELECT 1 FROM pragma_index_info(il.name) AS expression
+  WHERE expression.name IS NULL
+)
 ORDER BY m.name, il.name, ii.seqno|}
 ;;
 

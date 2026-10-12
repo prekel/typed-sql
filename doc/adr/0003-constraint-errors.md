@@ -5,6 +5,8 @@
 - Основа экспериментальной ветки: `b1f46a1` (`Release v0.4.5`)
 - Эксперимент: ветка `experiment/typed-constraint-errors`, коммит `4bcdb71`
 - Связанное решение: [ADR 0001](0001-static-statement-api.md)
+- Следующая итерация: [ADR 0004](0004-runtime-errors.md) — простые ошибки
+  выполнения без типовых эффектов и transaction DSL.
 
 ## Контекст и решение
 

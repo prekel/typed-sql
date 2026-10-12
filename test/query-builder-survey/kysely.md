@@ -3509,7 +3509,7 @@ val kysely49 : (int, (int64 * string) list, Dialect.both) Statement.t =
 
 ```ocaml
 # let () = Stdlib.print_endline (Statement.sql_exn ~dialect:Postgresql kysely49);;
-DELETE FROM "pet"
+DELETE FROM "pet" AS t0
 WHERE
   (EXISTS (
     SELECT
@@ -3517,13 +3517,13 @@ WHERE
     FROM "person" AS t1
     WHERE
       (
-        (t1."id" = "owner_id")
+        (t1."id" = t0."owner_id")
         AND (t1."age" < $1)
       )
   ))
 RETURNING
-  "id",
-  "name"
+  t0."id",
+  t0."name"
 ```
 ### KY-50. MERGE из таблицы импорта
 

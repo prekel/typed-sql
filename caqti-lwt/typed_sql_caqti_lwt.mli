@@ -2,10 +2,12 @@ open! Base
 
 (** Execute compiled typed SQL through a Caqti Lwt connection. The adapter
     selects the SQL dialect from the connection and preserves bound parameters
-    and projection decoding from [Typed_sql]. *)
+    and projection decoding from [Typed_sql]. PostgreSQL date and timestamp
+    text decoding requires ISO [DateStyle], including array elements and
+    [Typed_sql.Local_timestamp] codecs. The adapter does not change [DateStyle]. *)
 
 (** An error produced before or during execution. *)
-type constraint_kind =
+type constraint_kind = Typed_sql.Constraint_error.kind =
   | Unique
   | Foreign_key
   | Not_null
@@ -32,9 +34,17 @@ type error =
   | Constraint_violation of
       { kind : constraint_kind
       ; message : string
+      ; cause : Caqti.Error.t
       }
   (** The database rejected a declared integrity constraint. [message] retains
-      the backend diagnostic for logging. *)
+      the backend diagnostic for logging and [cause] preserves the original
+      driver error. *)
+  | Rollback_failed of
+      { error : error
+      ; rollback_error : error
+      }
+  (** Rollback failed after an earlier failure. Both errors are retained;
+      handle this as a transaction failure, not as a recoverable constraint. *)
   | Caqti of Caqti.Error.t
   (** Caqti or its driver rejected the request or database operation. *)
 
@@ -44,17 +54,52 @@ val error_to_string : error -> string
 (** Format an error using [error_to_string]. *)
 val pp_error : Formatter.t -> error -> unit
 
+(** Helpers for mapping adapter failures to application errors. *)
+module Error : sig
+  type t = error
+
+  (** Return the portable classification and available diagnostic fields.
+      Caqti exposes categories through its generic API; database object names
+      and SQLSTATE are left absent. Use [cause] for driver-specific diagnostics.
+      Non-constraint failures and [Rollback_failed] return [None]. *)
+  val constraint_violation : t -> Typed_sql.Constraint_error.t option
+
+  (** Match only constraint errors. Missing diagnostic names never satisfy a
+      name filter. With no filters, any constraint violation matches. *)
+  val is_constraint_violation
+    :  ?kind:Typed_sql.Constraint_error.kind
+    -> ?constraint_name:string
+    -> ?schema_name:string
+    -> ?table_name:string
+    -> ?column_name:string
+    -> t
+    -> bool
+
+  (** The original driver error, also retained for classified violations.
+      For [Rollback_failed], return the first failure's driver cause; the
+      rollback error remains available in the variant. *)
+  val cause : t -> Caqti.Error.t option
+
+  val to_string : t -> string
+  val pp : Formatter.t -> t -> unit
+end
+
 (** Measurements emitted for typed statement executions. Times are wall-clock
-    seconds spent inside this adapter and exclude construction of the input DSL
-    value. Events never contain SQL parameter values. *)
+    seconds spent inside this adapter, including dynamic DSL construction and
+    compilation during statement resolution. DSL construction before [run] is
+    excluded. Events never contain SQL parameter values; each observed call
+    emits one event, including resolution failures. *)
 module Profile : sig
   type operation =
+    | Resolve (** Failed before the execution operation could be resolved. *)
     | Fetch
     | Fetch_one
     | Fetch_opt
     | Execute
 
   type failure =
+    | Compile (** Dynamic statement compilation failed during resolution. *)
+    | Parameter (** Runtime input binding failed during resolution. *)
     | Encode
     | Database
     | Decode
@@ -68,6 +113,8 @@ module Profile : sig
 
   type durations =
     { prepare : float option
+      (** Statement resolution, binding, parameter encoding and request preparation,
+          including dynamic callbacks and compilation. *)
     ; database : float option
     ; decode : float option
     ; total : float
@@ -156,7 +203,9 @@ val run
 
 (** Run [f] inside one transaction on [conn]. [Ok] commits and [Error] rolls
     back. A failed commit is also followed by rollback before its error is
-    returned. An exception rolls back and is re-raised after cleanup. *)
+    returned. [Rollback_failed] retains both failures when rollback also fails.
+    An exception rolls back and is re-raised after cleanup, including
+    [Lwt.Canceled], even if cleanup fails. *)
 val transaction
   :  conn:Caqti_lwt.connection
   -> f:(Caqti_lwt.connection -> ('a, error) Result.t Lwt.t)

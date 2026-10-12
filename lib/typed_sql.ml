@@ -137,5 +137,6 @@ module Postgresql = struct
   module Cte = Typed_sql_private.Cte.Postgresql
 end
 
+module Constraint_error = Typed_sql_private.Constraint_error
 module Compile_error = Typed_sql_private.Compile_error
 module Affected_rows = Typed_sql_private.Affected_rows

@@ -387,7 +387,7 @@ let collect_types rules schema =
           seen
         else
           seen @ [ typ ]
-      | Schema_ir.Array element -> add ~column:None seen element
+      | Schema_ir.Array element -> add ~column seen element
       | _ -> seen)
   in
   List.fold (Schema_ir.tables schema) ~init:[] ~f:(fun seen table ->
@@ -441,7 +441,7 @@ let rec type_source ~rules ~types ~column typ =
      | Uuid -> Ok ("Typed_sql_codegen.Uuid.t", "Typed_sql_codegen.Db_type.uuid")
      | Array element ->
        let open Result.Let_syntax in
-       let%map ocaml_type, descriptor = type_source ~rules ~types ~column:None element in
+       let%map ocaml_type, descriptor = type_source ~rules ~types ~column element in
        ( ocaml_type ^ " Typed_sql_codegen.Pg_array.t"
        , "Typed_sql_codegen.Db_type.Postgresql.array (" ^ descriptor ^ ")" )
      | Enum _ | Domain _ ->

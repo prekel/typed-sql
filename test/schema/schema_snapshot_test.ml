@@ -200,8 +200,7 @@ let%test_unit "structured PostgreSQL types survive snapshot round trip" =
     |> Result.ok_or_failwith
   in
   assert (String.is_substring generated ~substring:"module Type_public_mood");
-  assert (String.is_substring generated ~substring:"module Type_public_host");
-  assert (List.is_empty (Schema_ir.tables (decode {|{"version":1,"tables":[]}|})))
+  assert (String.is_substring generated ~substring:"module Type_public_host")
 ;;
 
 let%test_unit "type rules choose priority, column and built-in overrides" =
@@ -483,23 +482,23 @@ let%test_module "snapshot diagnostic paths" =
     ;;
 
     let%expect_test "unsupported version path" =
-      print_error {|{"version":3,"tables":[]}|};
-      [%expect {| $.version: unsupported snapshot version: 3 |}]
+      print_error {|{"version":1,"tables":[]}|};
+      [%expect {| $.version: unsupported snapshot version: 1 |}]
     ;;
 
     let%expect_test "snapshot reports a duplicate version field" =
-      print_error {|{"version":1,"tables":[],"version":1}|};
+      print_error {|{"version":2,"tables":[],"version":2}|};
       [%expect {| $.version: duplicate field |}]
     ;;
 
     let%expect_test "snapshot reports a missing tables field" =
-      print_error {|{"version":1}|};
+      print_error {|{"version":2}|};
       [%expect {| $.tables: missing field |}]
     ;;
 
     let%expect_test "snapshot reports an invalid table name path" =
       print_error
-        {|{"version":1,"tables":[{"schema":null,"name":"","columns":[],"foreign_keys":[],"unique_constraints":[]}]}|};
+        {|{"version":2,"tables":[{"schema":null,"name":"","columns":[],"foreign_keys":[],"unique_constraints":[]}]}|};
       [%expect {| $.tables[0].name: SQL identifier must not be empty |}]
     ;;
   end)
@@ -530,7 +529,7 @@ let%test_unit "invalid JSON, identifiers, version and type tags are rejected" =
     ]
     ~f:(fun (pattern, with_) ->
       assert_rejected (String.substr_replace_all source ~pattern ~with_));
-  let restored = decode {|{"tables":[],"version":1}|} in
+  let restored = decode {|{"tables":[],"version":2}|} in
   assert (List.is_empty (Schema_ir.tables restored))
 ;;
 
@@ -576,4 +575,47 @@ let%test_unit
     | _ -> failwith "unexpected fixture JSON"
   in
   List.iter (mutations json) ~f:(fun json -> assert_rejected (Yojson.Safe.to_string json))
+;;
+
+let%test "column-scoped rule selects an array element codec" =
+  let rules =
+    Schema_codegen.rules_of_string
+      {|{"version":1,"rules":[{"priority":0,"sql_type":"public[.]custom","column":"objects[.]values","module":"App.Custom"}]}|}
+    |> Result.ok_or_failwith
+  in
+  let schema =
+    Schema_ir.v
+      [ Schema_ir.table
+          ~name:(identifier "objects")
+          ~columns:
+            [ Schema_ir.column
+                ~name:(identifier "values")
+                ~db_type:
+                  (Array
+                     (Named { schema = identifier "public"; name = identifier "custom" }))
+                ~nullable:false
+                ()
+            ]
+          ()
+      ]
+  in
+  match Schema_codegen.generate ~rules schema with
+  | Error _ -> false
+  | Ok source ->
+    String.is_substring
+      source
+      ~substring:"Typed_sql_codegen.Db_type.Postgresql.array (App.Custom.db_type)"
+;;
+
+let%expect_test "snapshot reports the path of a too-long identifier" =
+  let name = String.make 64 'x' in
+  let source =
+    Stdlib.Printf.sprintf
+      {|{"version":2,"tables":[{"schema":null,"name":"%s","columns":[],"foreign_keys":[],"unique_constraints":[]}]}|}
+      name
+  in
+  (match Schema_snapshot.of_string source with
+   | Error error -> Stdlib.print_endline (Schema_snapshot.error_to_string error)
+   | Ok _ -> failwith "long identifier accepted in schema snapshot");
+  [%expect {| $.tables[0].name: SQL identifier must be at most 63 bytes, got 64 |}]
 ;;

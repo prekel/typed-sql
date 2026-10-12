@@ -207,7 +207,7 @@ let%test_module "portable query rendering" =
             AND (t0."id" > ?2)
           )
         ORDER BY
-          t0."id" DESC
+          t0."id" DESC NULLS FIRST
         LIMIT ?3
         OFFSET ?4
         |}]
@@ -276,7 +276,7 @@ let%test_module "portable query rendering" =
               WHERE
                 (t1."person_id" = t0."id")
               ORDER BY
-                t1."name" ASC
+                t1."name" ASC NULLS LAST
               LIMIT ?1
             ) AS m0
           )
@@ -325,7 +325,7 @@ let%test_module "portable query rendering" =
                 t0."person_id",
                 t0."name"
               )
-              ORDER BY t0."name" DESC
+              ORDER BY t0."name" DESC NULLS FIRST
             ) FILTER (
               WHERE (t0."person_id" > ?1)
             ),
@@ -408,7 +408,7 @@ let%test_module "portable query rendering" =
                   ) AS m0
                 ))
               )
-              ORDER BY t0."id" ASC
+              ORDER BY t0."id" ASC NULLS LAST
             ),
             JSON_ARRAY()
           )
@@ -486,7 +486,7 @@ let%test_module "set operation output ordering" =
           FROM "public"."people" AS t0
         ) AS s0
         ORDER BY
-          "id" ASC
+          "id" ASC NULLS LAST
         |}]
     ;;
 
@@ -1802,25 +1802,25 @@ let arithmetic_query =
       let float = Expr.constant Db_type.float 12.0 in
       let int64_values =
         let open Expr.Int64.Infix in
-        [ int64 +. Expr.constant Db_type.int64 1L
-        ; int64 -. Expr.constant Db_type.int64 2L
-        ; int64 *. Expr.constant Db_type.int64 3L
+        [ Expr.to_nullable (int64 +. Expr.constant Db_type.int64 1L)
+        ; Expr.to_nullable (int64 -. Expr.constant Db_type.int64 2L)
+        ; Expr.to_nullable (int64 *. Expr.constant Db_type.int64 3L)
         ; int64 /. Expr.constant Db_type.int64 4L
         ]
       in
       let int_values =
         let open Expr.Int.Infix in
-        [ int_ +. Expr.constant Db_type.int 1
-        ; int_ -. Expr.constant Db_type.int 2
-        ; int_ *. Expr.constant Db_type.int 3
+        [ Expr.to_nullable (int_ +. Expr.constant Db_type.int 1)
+        ; Expr.to_nullable (int_ -. Expr.constant Db_type.int 2)
+        ; Expr.to_nullable (int_ *. Expr.constant Db_type.int 3)
         ; int_ /. Expr.constant Db_type.int 4
         ]
       in
       let float_values =
         let open Expr.Float.Infix in
-        [ float +. Expr.constant Db_type.float 1.0
-        ; float -. Expr.constant Db_type.float 2.0
-        ; float *. Expr.constant Db_type.float 3.0
+        [ Expr.to_nullable (float +. Expr.constant Db_type.float 1.0)
+        ; Expr.to_nullable (float -. Expr.constant Db_type.float 2.0)
+        ; Expr.to_nullable (float *. Expr.constant Db_type.float 3.0)
         ; float /. Expr.constant Db_type.float 4.0
         ]
       in
@@ -1843,15 +1843,15 @@ let%expect_test "typed arithmetic renders in PostgreSQL" =
       (t0."id" + $1),
       (t0."id" - $2),
       (t0."id" * $3),
-      (t0."id" / $4),
+      (t0."id" / NULLIF($4, 0)),
       ($5 + $6),
-      ($7 - $8),
-      ($9 * $10),
-      ($11 / $12),
-      ($13 + $14),
-      ($15 - $16),
-      ($17 * $18),
-      ($19 / $20)
+      ($5 - $7),
+      ($5 * $8),
+      ($5 / NULLIF($9, 0)),
+      ($10 + $11),
+      ($10 - $12),
+      ($10 * $13),
+      ($10 / NULLIF($14, 0))
     FROM "public"."people" AS t0
     |}]
 ;;
@@ -1867,15 +1867,15 @@ let%expect_test "typed arithmetic renders in SQLite" =
       (t0."id" + ?1),
       (t0."id" - ?2),
       (t0."id" * ?3),
-      (t0."id" / ?4),
+      (t0."id" / NULLIF(?4, 0)),
       (?5 + ?6),
-      (?7 - ?8),
-      (?9 * ?10),
-      (?11 / ?12),
-      (?13 + ?14),
-      (?15 - ?16),
-      (?17 * ?18),
-      (?19 / ?20)
+      (?5 - ?7),
+      (?5 * ?8),
+      (?5 / NULLIF(?9, 0)),
+      (?10 + ?11),
+      (?10 - ?12),
+      (?10 * ?13),
+      (?10 / NULLIF(?14, 0))
     FROM "public"."people" AS t0
     |}]
 ;;
@@ -2011,7 +2011,7 @@ let%expect_test "grouped aggregates render in SQLite" =
     HAVING
       (COUNT(*) > ?1)
     ORDER BY
-      t0."name" ASC
+      t0."name" ASC NULLS LAST
     |}]
 ;;
 
@@ -2055,7 +2055,7 @@ let correlated_sales_total_query =
           |> where (fun sale -> Sale.person_id sale =. Person.id person)
           |> select_scalar (fun sale -> Expr.sum_int (Sale.quantity sale)))
       in
-      Projection.pair (Person.name person) (Expr.scalar_subquery total)))
+      Projection.pair (Person.name person) (Expr.scalar_subquery_nullable total)))
 ;;
 
 let%expect_test "aggregate_one summarizes filtered rows in PostgreSQL" =
@@ -2546,7 +2546,7 @@ let%expect_test "lowered GROUP BY expression is portable to SQLite" =
     GROUP BY
       LOWER(t0."name")
     ORDER BY
-      LOWER(t0."name") ASC
+      LOWER(t0."name") ASC NULLS LAST
     |}]
 ;;
 
@@ -3483,4 +3483,38 @@ let%test "multiset with a derived source and join renders in both dialects" =
     String.is_substring (Compiled_query.sql postgresql) ~substring:"LATERAL"
     && not (String.is_substring (Compiled_query.sql sqlite) ~substring:"LATERAL")
   | Error _, _ | _, Error _ -> false
+;;
+
+let%test_module "OFFSET without LIMIT" =
+  (module struct
+    let query =
+      Query.(
+        from Person.table
+        |> offset 1
+        |> select (fun row -> Projection.expr (Person.id row)))
+    ;;
+
+    let%expect_test "PostgreSQL" =
+      Stdlib.print_endline (Compiled_query.sql (compile_exn Dialect.Postgresql query));
+      [%expect
+        {|
+        SELECT
+          t0."id"
+        FROM "public"."people" AS t0
+        OFFSET $1
+      |}]
+    ;;
+
+    let%expect_test "SQLite" =
+      Stdlib.print_endline (Compiled_query.sql (compile_exn Dialect.Sqlite query));
+      [%expect
+        {|
+        SELECT
+          t0."id"
+        FROM "public"."people" AS t0
+        LIMIT -1
+        OFFSET ?1
+      |}]
+    ;;
+  end)
 ;;

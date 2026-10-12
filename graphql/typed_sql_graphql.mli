@@ -5,7 +5,10 @@ open! Base
 module Value : sig
   type t = Graphql_parser.const_value
 
+  (** Accept [Null] or an [Int] in the signed 32-bit GraphQL range.
+      Out-of-range values and other value types return an error. *)
   val optional_int : t -> (int option, string) Result.t
+
   val optional_string : t -> (string option, string) Result.t
   val enum : t -> (string, string) Result.t
 end
@@ -29,7 +32,11 @@ module Request : sig
   (** Accept one query operation with one root field. Variables may have Int
       or String types; defaults, fragments, directives, mutations and
       subscriptions are rejected. Duplicate argument and response names are
-      rejected at each level. *)
+      rejected at each level. An omitted nullable variable omits its argument or
+      input-object field; an explicit null remains present. In a list, an omitted
+      nullable variable occupies a null element without changing list positions.
+      Int variables and literals must be in the signed 32-bit range, including
+      literals nested in lists and input objects. *)
   val parse : query:string -> variables:(string * Value.t) list -> (t, string) Result.t
 end
 

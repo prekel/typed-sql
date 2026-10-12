@@ -1,6 +1,6 @@
 # Дорожная карта
 
-Состояние проекта на 30 сентября 2026 года. Документ сопоставляет текущую
+Состояние проекта на 12 октября 2026 года. Документ сопоставляет текущую
 реализацию с исходным [first_plan.md](first_plan.md), фиксирует завершённый
 релизный срез и перечисляет следующую работу. Приложение RealWorld будет жить в
 отдельном репозитории и использовать `typed-sql` вместе с `../typed-endpoint`.
@@ -50,9 +50,11 @@ constructors, codec views, packed parameters, renderer helpers и decoder IR.
 Aggregate validator запрещает aggregates в `WHERE`, `JOIN ON` и `GROUP BY`,
 nested aggregates и non-grouped expressions. Portable `HAVING` доступен после
 `GROUP BY`. PostgreSQL-вариант без `GROUP BY` строится явным
-`Postgresql.Query.having` и требует PostgreSQL уже в типе statement. Точное составное выражение из
-columns, arithmetic и portable string functions можно повторить в projection и
-`ORDER BY` после `GROUP BY`.
+`Postgresql.Query.having` и требует PostgreSQL уже в типе statement. Точное
+составное выражение из columns, arithmetic, portable string functions и `CASE` можно повторить в
+projection, `HAVING` и `ORDER BY` после `GROUP BY`. Bind-параметры в повторных
+выражениях должны происходить из тех же `Expr.constant` или parameter slots;
+заново созданные равные константы не считаются тем же параметром.
 
 Scalar subquery возвращает `option`: отсутствие строки не может быть decoded
 как значение non-null column. Встраивание требует `LIMIT 0`/`LIMIT 1` либо
@@ -191,8 +193,8 @@ SQLite `DATE` больше не отображается на неточный t
 
 - SQLite metadata через `sqlite_schema`, `pragma_table_xinfo`,
   `pragma_foreign_key_list`, `pragma_index_list` и `pragma_index_info`;
-- PostgreSQL metadata через `information_schema` с исключением system schemas и
-  views.
+- PostgreSQL metadata через `information_schema` и `pg_catalog` с исключением
+  system schemas и views.
 
 SQLite introspection различает rowid alias `INTEGER PRIMARY KEY` и primary key,
 который всё ещё допускает `NULL`; implicit FK без списка referenced columns
@@ -718,6 +720,64 @@ reconnect и eviction. Решение по core API и рассмотренны�
 - [x] Сверить [SA-40](../test/query-builder-survey/sqlalchemy.md#sa-40-update-returning-как-источник-cte)
   с уже доступным `Postgresql.Cte.returning`: карточка содержит проверяемый
   typed-sql пример и актуальную оценку без дубликата API.
+
+## Найденные дефекты
+
+`[x]` отмечает проверенное исправление или явно согласованное уточнение
+контракта. Для нативных функций БД закрытие означает изменение требования,
+а не унификацию поведения. Ограничения описаны в
+[архитектуре](architecture.md#границы-переносимости) и публичных `.mli`.
+
+- [x] **Уточнить семантику `CURRENT_TIMESTAMP`.** Сохранено нативное поведение:
+  начало транзакции в PostgreSQL и время statement с секундной точностью в
+  SQLite. Для единого времени приложение передаёт заранее вычисленный параметр.
+- [ ] **Сделать PostgreSQL temporal codecs независимыми от `DateStyle`.** Пока
+  текстовые codecs требуют ISO `DateStyle`, включая массивы; это ограничение
+  документировано, но независимое декодирование не реализовано.
+- [x] **Уточнить регистрозависимость `LIKE`.** Сохранено нативное сравнение БД:
+  встроенный SQLite обычно игнорирует ASCII-регистр, PostgreSQL различает его.
+  Одинаковая регистрозависимость не входит в portable-контракт.
+- [x] **Уточнить `LOWER`/`UPPER` для Unicode.** Сохранены нативные функции БД;
+  результат зависит от locale и расширений, встроенный SQLite меняет только
+  ASCII-регистр. Одинаковое преобразование Unicode не обещается.
+- [ ] **Согласовать поведение при переполнении `int64`.** PostgreSQL выдаёт
+  ошибку, а SQLite может преобразовать арифметический результат в неточный
+  `REAL`. Ошибка декодирования конечного результата не защищает промежуточные
+  вычисления и сравнения; compiler или renderer должны исключить потерю точности.
+- [x] **Сохранять отсутствие nullable GraphQL-переменной.** Пропущенная переменная
+  исключает аргумент или поле input object; явный `null` сохраняется. В списках
+  пропущенная переменная занимает `null`-позицию без сдвига остальных элементов.
+- [x] **Отклонять агрегаты в `UPDATE SET`.** Агрегаты текущего UPDATE-уровня
+  отклоняются до SQL, в том числе внутри коррелированных подзапросов; локальные
+  агрегаты подзапросов разрешены.
+- [x] **Отклонять агрегаты в DML `WHERE`.** Условия `UPDATE` и `DELETE` проверяются
+  с учётом принадлежности агрегатов текущему уровню.
+- [x] **Отклонять агрегаты в DML `RETURNING`.** Проверка действует для `INSERT`,
+  `UPDATE`, `DELETE` и `MERGE`, сохраняя локальные агрегаты подзапросов.
+- [x] **Проверять совместимость SQL-дескрипторов при сравнении.** Проверяются
+  SQL identity операндов, включая `IN`, `BETWEEN`, `ANY` и scalar subqueries;
+  identity mapped codecs и nullable-обёртки не меняют SQL identity.
+- [x] **Проверять типы ветвей `CASE` и `COALESCE`.** Несовместимые SQL-типы
+  возвращают `Compile_error.Mismatched_sql_type`.
+- [x] **Проверять тип `UPDATE set_expr` относительно целевой колонки.** Descriptor
+  колонки сохраняется в AST; проверка действует также для INSERT, conflict
+  update и MERGE assignments.
+- [x] **Считать идентичные `CASE` выражения сгруппированными.** Сравниваются
+  структура и условия; повторные выражения с общими constant expressions или
+  parameter slots используют те же placeholders. Заново созданные равные
+  константы не устанавливают grouping identity.
+- [x] **Обрабатывать длинные PostgreSQL identifiers явно.** Общий контракт
+  ограничивает исходные имена 63 байтами, включая SQLite descriptors;
+  `Identifier.of_string` возвращает `Too_long` с фактической длиной.
+- [x] **Явно отклонять непредставимые PostgreSQL `DATE`.** Сохранён конечный
+  диапазон 0001–9999 для PostgreSQL; BC-даты, большие годы и бесконечности
+  возвращают ошибку декодирования. Проверены оба execution adapters.
+- [x] **Отклонять скрытые агрегаты SELECT и conflict update.** Анализ `WHERE`,
+  `JOIN ON`, `GROUP BY` и `ON CONFLICT DO UPDATE SET/WHERE` учитывает источники
+  текущего уровня, не запрещая локальные агрегаты вложенных SELECT.
+- [x] **Отклонять прямые агрегаты в `INSERT VALUES`.** Проверяется каждая строка,
+  включая последующие строки multi-row INSERT; локальные scalar subqueries
+  с агрегатами остаются допустимыми.
 
 ## Definition of done текущего релизного среза
 

@@ -2,6 +2,9 @@
  (name typed_sql_expect_tests)
  (modules
   capability_test
+  constraint_error_test
+  boundary_regression_test
+  sql_validation_regression_test
   dialect_choice_test
   debug_sql_test
   dynamic_statement_test
@@ -84,3 +87,9 @@
  (name property_test)
  (modules property_test)
  (libraries base qcheck typed-sql typed_sql_test_support))
+
+(rule
+ (alias runtest)
+ (deps platform_test.sh ../lib/check_platform.sh)
+ (action
+  (run sh %{dep:platform_test.sh} %{dep:../lib/check_platform.sh})))

@@ -154,12 +154,114 @@ let test_schema conn =
   Lwt.return_unit
 ;;
 
+let test_unique_index conn ~name ~index_sql ~expected =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let* () =
+    Connection.exec (direct ("CREATE TABLE " ^ name ^ " (a TEXT, b TEXT)")) ()
+    |> caqti_or_fail
+  in
+  let* () = Connection.exec (direct index_sql) () |> caqti_or_fail in
+  let* schema = Typed_sql_schema_caqti_lwt.introspect ~conn >>= adapter_or_fail in
+  let table =
+    List.find_exn (Schema_ir.tables schema) ~f:(fun table ->
+      String.equal (Identifier.to_string (Schema_ir.table_name table)) name)
+  in
+  let columns =
+    List.map (Schema_ir.unique_constraints table) ~f:(fun unique ->
+      List.map (Schema_ir.unique_constraint_columns unique) ~f:Identifier.to_string)
+  in
+  if not (List.equal (List.equal String.equal) columns expected) then
+    failwith "SQLite introspected an incorrect unconditional unique constraint";
+  Lwt.return_unit
+;;
+
+let test_expression_index conn =
+  test_unique_index
+    conn
+    ~name:"expression_index"
+    ~index_sql:"CREATE UNIQUE INDEX expression_unique ON expression_index (lower(a))"
+    ~expected:[]
+;;
+
+let test_mixed_expression_index conn =
+  test_unique_index
+    conn
+    ~name:"mixed_index"
+    ~index_sql:"CREATE UNIQUE INDEX mixed_unique ON mixed_index (a, lower(b))"
+    ~expected:[]
+;;
+
+let test_partial_index conn =
+  test_unique_index
+    conn
+    ~name:"partial_index"
+    ~index_sql:
+      "CREATE UNIQUE INDEX partial_unique ON partial_index (a) WHERE b IS NOT NULL"
+    ~expected:[]
+;;
+
+let test_full_index conn =
+  test_unique_index
+    conn
+    ~name:"full_index"
+    ~index_sql:"CREATE UNIQUE INDEX full_unique ON full_index (a, b)"
+    ~expected:[ [ "a"; "b" ] ]
+;;
+
+let test_time_type conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let* () =
+    Connection.exec (direct "CREATE TABLE time_only (value TIME)") () |> caqti_or_fail
+  in
+  let* schema = Typed_sql_schema_caqti_lwt.introspect ~conn >>= adapter_or_fail in
+  let table =
+    List.find_exn (Schema_ir.tables schema) ~f:(fun table ->
+      String.equal (Identifier.to_string (Schema_ir.table_name table)) "time_only")
+  in
+  (match Schema_ir.columns table with
+   | [ column ] ->
+     (match Schema_ir.column_db_type column with
+      | Unsupported "TIME" -> ()
+      | _ -> failwith "TIME received a timestamp codec")
+   | _ -> failwith "TIME introspection returned incorrect columns");
+  Connection.exec (direct "DROP TABLE time_only") () |> caqti_or_fail
+;;
+
+let test_virtual_hidden_columns conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let* () =
+    Connection.exec (direct "CREATE VIRTUAL TABLE virtual_hidden USING fts5(body)") ()
+    |> caqti_or_fail
+  in
+  let* schema = Typed_sql_schema_caqti_lwt.introspect ~conn >>= adapter_or_fail in
+  let table =
+    List.find_exn (Schema_ir.tables schema) ~f:(fun table ->
+      String.equal (Identifier.to_string (Schema_ir.table_name table)) "virtual_hidden")
+  in
+  assert (
+    List.equal
+      String.equal
+      (List.map (Schema_ir.columns table) ~f:(fun column ->
+         Identifier.to_string (Schema_ir.column_name column)))
+      [ "body" ]);
+  Connection.exec (direct "DROP TABLE virtual_hidden") () |> caqti_or_fail
+;;
+
 let main () =
   let* conn =
     Caqti_lwt_unix.connect (Uri.of_string "sqlite3::memory:") |> caqti_or_fail
   in
   let module Connection = (val conn : Caqti_lwt.CONNECTION) in
-  Lwt.finalize (fun () -> test_schema conn) (fun () -> Connection.disconnect ())
+  Lwt.finalize
+    (fun () ->
+       let* () = test_time_type conn in
+       let* () = test_virtual_hidden_columns conn in
+       let* () = test_expression_index conn in
+       let* () = test_mixed_expression_index conn in
+       let* () = test_partial_index conn in
+       let* () = test_full_index conn in
+       test_schema conn)
+    (fun () -> Connection.disconnect ())
 ;;
 
 let () = Lwt_main.run (main ())

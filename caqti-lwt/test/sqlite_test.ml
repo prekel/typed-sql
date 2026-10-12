@@ -4,6 +4,8 @@ open Infix
 module T = Caqti.Template
 module Adapter = Typed_sql_caqti_lwt
 
+type T.Dialect.t += Unsupported_for_test
+
 module Typed_sql_caqti_lwt = struct
   include Adapter
 
@@ -1277,7 +1279,18 @@ let run conn =
   if Option.is_none compiled_row then
     failwith "expect_optional returned no row";
   let postgresql = Statement.query_many ~dialect:Dialect.postgresql query in
-  let* mismatch = Typed_sql_caqti_lwt.run ~conn postgresql () in
+  observed := None;
+  let* mismatch = Typed_sql_caqti_lwt.run ~observer ~conn postgresql () in
+  (match !observed with
+   | Some
+       { operation = Adapter.Profile.Resolve
+       ; outcome = Failed Dialect
+       ; dialect = Some Dialect.Sqlite
+       ; fingerprint = None
+       ; row_count = None
+       ; _
+       } -> ()
+   | _ -> failwith "dialect mismatch emitted no resolution failure");
   (match mismatch with
    | Error
        (Typed_sql_caqti_lwt.Dialect_mismatch
@@ -2523,6 +2536,455 @@ let test_debug_sql_min_int64 conn =
   Lwt.return_unit
 ;;
 
+let test_unsupported_dialect_observer conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let module Unsupported = struct
+    include Connection
+
+    let dialect = Unsupported_for_test
+  end
+  in
+  let events = ref [] in
+  let statement =
+    Statement.query_one
+      ~dialect:Dialect.portable
+      (Query.select_one (Expr.constant Db_type.int 1))
+  in
+  let* result =
+    Adapter.run
+      ~observer:(fun event -> events := event :: !events)
+      ~conn:(module Unsupported)
+      statement
+      ()
+  in
+  (match result with
+   | Error (Adapter.Unsupported_dialect _) -> ()
+   | _ -> failwith "unsupported dialect was executed");
+  (match !events with
+   | [ { operation = Adapter.Profile.Resolve
+       ; outcome = Failed Dialect
+       ; dialect = None
+       ; fingerprint = None
+       ; row_count = None
+       ; _
+       }
+     ] -> ()
+   | _ -> failwith "unsupported dialect emitted an incorrect event");
+  Lwt.return_unit
+;;
+
+let test_offset_without_limit conn =
+  let table : unit Table.t = Table.v_exn "offset_rows" in
+  let id = Column.v_exn table "id" Db_type.int in
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let* () =
+    Connection.exec (direct "CREATE TABLE offset_rows (id INTEGER NOT NULL)") ()
+    |> caqti_or_fail
+  in
+  let* () =
+    Connection.exec (direct "INSERT INTO offset_rows VALUES (1), (2), (3)") ()
+    |> caqti_or_fail
+  in
+  let statement =
+    Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+      let%map.Parameters offset_value =
+        params.non_negative_int ~name:"offset" ~get:Fn.id
+      in
+      params.query_many
+        Query.(
+          from table
+          |> order_by (fun row -> Expr.column row id) `Asc
+          |> offset_param offset_value
+          |> select (fun row -> Projection.expr (Expr.column row id))))
+  in
+  let* rows = Adapter.run ~conn statement 1 >>= adapter_or_fail in
+  if not (List.equal Int.equal rows [ 2; 3 ]) then
+    failwith "OFFSET without LIMIT returned incorrect rows";
+  let literal =
+    Statement.query_many
+      ~dialect:Dialect.portable
+      Query.(
+        from table
+        |> order_by (fun row -> Expr.column row id) `Asc
+        |> offset 2
+        |> select (fun row -> Projection.expr (Expr.column row id)))
+  in
+  let* rows = Adapter.run ~conn literal () >>= adapter_or_fail in
+  if not (List.equal Int.equal rows [ 3 ]) then
+    failwith "literal OFFSET returned incorrect rows";
+  Lwt.return_unit
+;;
+
+let test_division conn =
+  let divide typ divide numerator divisor =
+    let statement =
+      Statement.query_one
+        ~dialect:Dialect.portable
+        (Query.select_one
+           (divide (Expr.constant typ numerator) (Expr.constant typ divisor)))
+    in
+    Adapter.run ~conn statement () >>= adapter_or_fail
+  in
+  let* int_zero = divide Db_type.int Expr.Int.Infix.( /. ) 1 0 in
+  assert (Option.is_none int_zero);
+  let* int_quotient = divide Db_type.int Expr.Int.Infix.( /. ) 7 2 in
+  assert (Option.equal Int.equal int_quotient (Some 3));
+  let* int64_zero = divide Db_type.int64 Expr.Int64.Infix.( /. ) 1L 0L in
+  assert (Option.is_none int64_zero);
+  let* float_zero = divide Db_type.float Expr.Float.Infix.( /. ) 1. 0. in
+  assert (Option.is_none float_zero);
+  Lwt.return_unit
+;;
+
+let test_dml_correlation conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let exec sql = Connection.exec (direct sql) () |> caqti_or_fail in
+  let parent_table : unit Table.t = Table.v_exn "correlation_parent" in
+  let id = Column.v_exn parent_table "id" Db_type.int64 in
+  let value = Column.v_exn parent_table "value" Db_type.int64 in
+  let child : string Table.t = Table.v_exn "correlation_child" in
+  let child_id = Column.v_exn child "id" Db_type.int64 in
+  let parent_id = Column.v_exn child "parent_id" Db_type.int64 in
+  let* () =
+    exec
+      "CREATE TABLE correlation_parent (id INTEGER PRIMARY KEY, value INTEGER NOT NULL)"
+  in
+  let* () =
+    exec
+      "CREATE TABLE correlation_child (id INTEGER PRIMARY KEY, parent_id INTEGER NOT NULL)"
+  in
+  let* () = exec "INSERT INTO correlation_parent VALUES (1,0), (2,0)" in
+  let* () = exec "INSERT INTO correlation_child VALUES (9,1)" in
+  let correlated parent =
+    Query.(
+      from child
+      |> where (fun row -> Expr.column row parent_id =. Expr.column parent id)
+      |> limit_one
+      |> select_scalar (fun row -> Expr.column row child_id))
+  in
+  let returning =
+    Update.(
+      table parent_table
+      |> set value 7L
+      |> all_rows
+      |> returning (fun parent ->
+        Projection.both
+          (Projection.expr (Expr.column parent id))
+          (Projection.expr (Expr.scalar_subquery (correlated parent)))))
+  in
+  let* rows =
+    Adapter.run ~conn (Statement.query_many ~dialect:Dialect.portable returning) ()
+    >>= adapter_or_fail
+  in
+  assert (
+    List.equal
+      (fun (a, b) (c, d) -> Int64.equal a c && Option.equal Int64.equal b d)
+      rows
+      [ 1L, Some 9L; 2L, None ]);
+  let delete =
+    Delete.(
+      from parent_table
+      |> where (fun parent ->
+        Query.exists
+          Query.(
+            from child
+            |> where (fun row -> Expr.column row parent_id =. Expr.column parent id)))
+      |> command)
+  in
+  let* _ =
+    Adapter.run ~conn (Statement.command ~dialect:Dialect.portable delete) ()
+    >>= adapter_or_fail
+  in
+  let* survivors =
+    Adapter.run
+      ~conn
+      (Statement.query_many
+         ~dialect:Dialect.portable
+         Query.(
+           from parent_table |> select (fun row -> Projection.expr (Expr.column row id))))
+      ()
+    >>= adapter_or_fail
+  in
+  assert (List.equal Int64.equal survivors [ 2L ]);
+  Lwt.return_unit
+;;
+
+let test_nullable_ordering conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let table : unit Table.t = Table.v_exn "nullable_order" in
+  let value = Column.nullable_v_exn table "value" Db_type.int in
+  let* () =
+    Connection.exec (direct "CREATE TABLE nullable_order (value INTEGER)") ()
+    |> caqti_or_fail
+  in
+  let* () =
+    Connection.exec (direct "INSERT INTO nullable_order VALUES (NULL),(2),(1)") ()
+    |> caqti_or_fail
+  in
+  let query direction =
+    Statement.query_many
+      ~dialect:Dialect.portable
+      Query.(
+        from table
+        |> order_by (fun row -> Expr.column row value) direction
+        |> select (fun row -> Projection.expr (Expr.column row value)))
+  in
+  let* ascending = Adapter.run ~conn (query `Asc) () >>= adapter_or_fail in
+  assert (List.equal (Option.equal Int.equal) ascending [ Some 1; Some 2; None ]);
+  let* descending = Adapter.run ~conn (query `Desc) () >>= adapter_or_fail in
+  assert (List.equal (Option.equal Int.equal) descending [ None; Some 2; Some 1 ]);
+  Lwt.return_unit
+;;
+
+let test_int_range conn =
+  let statement =
+    Statement.query_one
+      ~dialect:Dialect.portable
+      (Query.select_one (Expr.constant Db_type.int 2_147_483_648))
+  in
+  let* rejected = Adapter.run ~conn statement () in
+  (match rejected with
+   | Error (Adapter.Codec _) -> ()
+   | _ -> failwith "out-of-range integer was encoded");
+  let table : unit Table.t = Table.v_exn "wide_integer" in
+  let column = Column.v_exn table "value" Db_type.int in
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let* () =
+    Connection.exec (direct "CREATE TABLE wide_integer (value INTEGER)") ()
+    |> caqti_or_fail
+  in
+  let* () =
+    Connection.exec (direct "INSERT INTO wide_integer VALUES (9223372036854775807)") ()
+    |> caqti_or_fail
+  in
+  let statement =
+    Statement.query_many
+      ~dialect:Dialect.portable
+      Query.(from table |> select (fun row -> Projection.expr (Expr.column row column)))
+  in
+  let* rejected = Adapter.run ~conn statement () in
+  (match rejected with
+   | Error (Adapter.Codec _) -> ()
+   | _ -> failwith "out-of-range integer was decoded");
+  let* () = Connection.exec (direct "DELETE FROM wide_integer") () |> caqti_or_fail in
+  let* () =
+    Connection.exec (direct "INSERT INTO wide_integer VALUES (2147483648)") ()
+    |> caqti_or_fail
+  in
+  let multiset =
+    Statement.query_many
+      ~dialect:Dialect.portable
+      Query.(
+        from table
+        |> select (fun _ ->
+          Query.multiset
+            Query.(
+              from table |> select (fun row -> Projection.expr (Expr.column row column)))))
+  in
+  let* rejected = Adapter.run ~conn multiset () in
+  (match rejected with
+   | Error (Adapter.Codec _) -> ()
+   | _ -> failwith "out-of-range integer was decoded inside a multiset");
+  Lwt.return_unit
+;;
+
+let test_constraint_error_helpers conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let table : unit Table.t = Table.v_exn "constraint_helper_users" in
+  let email = Column.v_exn table "email" Db_type.text in
+  let* () =
+    Connection.exec
+      (direct
+         "CREATE TABLE constraint_helper_users (email TEXT CONSTRAINT users_email_key UNIQUE)")
+      ()
+    |> caqti_or_fail
+  in
+  let insert =
+    Statement.command
+      ~dialect:Dialect.portable
+      Insert.(into table |> set email "ada@example.com" |> command)
+  in
+  let* _ = Adapter.run ~conn insert () >>= adapter_or_fail in
+  let* duplicate = Adapter.run ~conn insert () in
+  (match duplicate with
+   | Error error ->
+     assert (Adapter.Error.is_constraint_violation error);
+     assert (Adapter.Error.is_constraint_violation ~kind:Constraint_error.Unique error);
+     assert (
+       not
+         (Adapter.Error.is_constraint_violation ~kind:Constraint_error.Foreign_key error));
+     assert (
+       not
+         (Adapter.Error.is_constraint_violation ~constraint_name:"users_email_key" error));
+     (match Adapter.Error.constraint_violation error with
+      | Some details ->
+        assert (Option.is_none details.constraint_name);
+        assert (Option.is_none details.table_name)
+      | None -> failwith "constraint details were lost");
+     (match Adapter.Error.cause error with
+      | Some ((`Request_failed _ | `Response_failed _) as cause) ->
+        assert (
+          String.equal
+            (Caqti.Error.show cause)
+            (Option.value_exn (Adapter.Error.constraint_violation error)).message)
+      | _ -> failwith "original driver error was lost");
+     assert (String.equal (Adapter.Error.to_string error) (Adapter.error_to_string error));
+     assert (
+       String.equal
+         (Stdlib.Format.asprintf "%a" Adapter.Error.pp error)
+         (Adapter.error_to_string error))
+   | Ok _ -> failwith "duplicate email was accepted");
+  Lwt.return_unit
+;;
+
+let test_non_constraint_error_helpers conn =
+  let table : unit Table.t = Table.v_exn "constraint_helper_missing" in
+  let column = Column.v_exn table "id" Db_type.int64 in
+  let query =
+    Statement.query_many
+      ~dialect:Dialect.portable
+      Query.(from table |> select (fun row -> Projection.expr (Expr.column row column)))
+  in
+  let* result = Adapter.run ~conn query () in
+  (match result with
+   | Error error ->
+     assert (Option.is_some (Adapter.Error.cause error));
+     assert (Option.is_none (Adapter.Error.constraint_violation error));
+     assert (not (Adapter.Error.is_constraint_violation error))
+   | Ok _ -> failwith "missing table query was accepted");
+  let local = Adapter.Codec "invalid input" in
+  assert (Option.is_none (Adapter.Error.cause local));
+  assert (Option.is_none (Adapter.Error.constraint_violation local));
+  assert (not (Adapter.Error.is_constraint_violation local));
+  Lwt.return_unit
+;;
+
+let test_rollback_error_retains_both_failures conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let rollback_cause =
+    Caqti.Error.request_failed
+      ~uri:(Uri.of_string "sqlite3::memory:")
+      ~query:"ROLLBACK"
+      (Caqti.Error.Msg "forced rollback failure")
+  in
+  let module Broken_rollback = struct
+    include Connection
+
+    let start () = Lwt.return (Ok ())
+    let rollback () = Lwt.return (Error rollback_cause)
+  end
+  in
+  let* result =
+    Adapter.transaction
+      ~conn:(module Broken_rollback)
+      ~f:(fun _ -> Lwt.return (Error (Adapter.Codec "original failure")))
+  in
+  (match result with
+   | Error
+       (Adapter.Rollback_failed
+          { error = Adapter.Codec "original failure"; rollback_error = Adapter.Caqti _ }
+        as error) ->
+     assert (not (Adapter.Error.is_constraint_violation error));
+     assert (
+       String.is_substring (Adapter.Error.to_string error) ~substring:"original failure");
+     assert (
+       String.is_substring
+         (Adapter.Error.to_string error)
+         ~substring:"forced rollback failure")
+   | _ -> failwith "rollback failure hid the original failure");
+  Lwt.return_unit
+;;
+
+let test_commit_error_retains_rollback_failure conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let cause query =
+    Caqti.Error.request_failed
+      ~uri:(Uri.of_string "sqlite3::memory:")
+      ~query
+      (Caqti.Error.Msg ("forced " ^ query ^ " failure"))
+  in
+  let commit_cause = cause "COMMIT" in
+  let rollback_cause = cause "ROLLBACK" in
+  let module Broken_commit = struct
+    include Connection
+
+    let start () = Lwt.return (Ok ())
+    let commit () = Lwt.return (Error commit_cause)
+    let rollback () = Lwt.return (Error rollback_cause)
+  end
+  in
+  let* result =
+    Adapter.transaction ~conn:(module Broken_commit) ~f:(fun _ -> Lwt.return (Ok ()))
+  in
+  (match result with
+   | Error
+       (Adapter.Rollback_failed
+          { error = Adapter.Caqti _; rollback_error = Adapter.Caqti _ } as error) ->
+     (match Adapter.Error.cause error with
+      | Some cause -> assert (phys_equal cause commit_cause)
+      | None -> failwith "commit driver error was lost")
+   | _ -> failwith "rollback failure hid the commit failure");
+  Lwt.return_unit
+;;
+
+let test_cancellation_with_failed_rollback conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let module Broken_rollback = struct
+    include Connection
+
+    let start () = Lwt.return (Ok ())
+    let rollback () = Lwt.fail_with "forced rollback failure"
+  end
+  in
+  Lwt.catch
+    (fun () ->
+       let* _ =
+         Adapter.transaction
+           ~conn:(module Broken_rollback)
+           ~f:(fun _ -> Lwt.fail Lwt.Canceled)
+       in
+       Lwt.fail_with "cancelled transaction returned an ordinary result")
+    (function
+      | Lwt.Canceled -> Lwt.return_unit
+      | exn -> Lwt.fail exn)
+;;
+
+let test_grouped_case conn =
+  let module Connection = (val conn : Caqti_lwt.CONNECTION) in
+  let table : unit Table.t = Table.v_exn "case_buckets" in
+  let id = Column.v_exn table "id" Db_type.int64 in
+  let* () =
+    Connection.exec (direct "CREATE TABLE case_buckets (id BIGINT NOT NULL)") ()
+    |> caqti_or_fail
+  in
+  let* () =
+    Connection.exec (direct "INSERT INTO case_buckets VALUES (-1),(1),(2)") ()
+    |> caqti_or_fail
+  in
+  let threshold = Expr.constant Db_type.int64 0L in
+  let yes = Expr.constant Db_type.text "positive" in
+  let no = Expr.constant Db_type.text "other" in
+  let bucket row = Expr.case [ Expr.column row id >. threshold, yes ] ~else_:no in
+  let statement =
+    Statement.query_many
+      ~dialect:Dialect.portable
+      Query.(
+        from table
+        |> group_by bucket
+        |> having (fun row -> bucket row <>$ "never")
+        |> order_by bucket `Asc
+        |> select (fun row ->
+          Projection.both (Projection.expr (bucket row)) (Projection.expr Expr.count_all)))
+  in
+  let* rows = Adapter.run ~conn statement () >>= adapter_or_fail in
+  assert (
+    List.equal
+      (fun (a, n) (b, m) -> String.equal a b && Int64.equal n m)
+      rows
+      [ "other", 1L; "positive", 2L ]);
+  Lwt.return_unit
+;;
+
 let main () =
   let* conn =
     Caqti_lwt_unix.connect (Uri.of_string "sqlite3::memory:") |> caqti_or_fail
@@ -2530,6 +2992,18 @@ let main () =
   let module Connection = (val conn : Caqti_lwt.CONNECTION) in
   Lwt.finalize
     (fun () ->
+       let* () = test_cancellation_with_failed_rollback conn in
+       let* () = test_rollback_error_retains_both_failures conn in
+       let* () = test_commit_error_retains_rollback_failure conn in
+       let* () = test_constraint_error_helpers conn in
+       let* () = test_non_constraint_error_helpers conn in
+       let* () = test_grouped_case conn in
+       let* () = test_dml_correlation conn in
+       let* () = test_nullable_ordering conn in
+       let* () = test_int_range conn in
+       let* () = test_unsupported_dialect_observer conn in
+       let* () = test_offset_without_limit conn in
+       let* () = test_division conn in
        let* () = test_average conn in
        let* () = dynamic_test conn in
        let* () = upsert_test conn in

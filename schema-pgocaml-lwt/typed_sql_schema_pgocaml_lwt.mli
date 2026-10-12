@@ -9,6 +9,9 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
 
   val error_to_string : error -> string
 
+  (** Read application tables and constraints. Ordinary unique column indexes
+      are included; partial and expression indexes are omitted, and INCLUDE
+      columns are not unique keys. Unknown types remain unsupported. *)
   val introspect
     :  conn:'connection P.t
     -> (Typed_sql_schema.Schema_ir.t, error) Result.t Lwt.t
@@ -22,6 +25,8 @@ type error =
 
 val error_to_string : error -> string
 
+(** Read application tables and constraints with the same index and SQL-type
+    handling as [Make.introspect]. *)
 val introspect
   :  conn:'connection Typed_sql_pgocaml_lwt.Pgocaml.t
   -> (Typed_sql_schema.Schema_ir.t, error) Result.t Lwt.t

@@ -43,6 +43,9 @@ JOIN information_schema.key_column_usage AS kcu
   ON kcu.constraint_catalog = tc.constraint_catalog
  AND kcu.constraint_schema = tc.constraint_schema
  AND kcu.constraint_name = tc.constraint_name
+ AND kcu.table_catalog = tc.table_catalog
+ AND kcu.table_schema = tc.table_schema
+ AND kcu.table_name = tc.table_name
 WHERE tc.constraint_type = 'PRIMARY KEY'
 ) AS pk
 ON pk.table_schema = c.table_schema
@@ -71,48 +74,51 @@ JOIN pg_catalog.pg_namespace AS n ON n.oid = t.typnamespace|}
 
 let postgresql_foreign_keys =
   {|
-SELECT tc.table_schema,
-     tc.table_name,
-     tc.constraint_name,
-     kcu.ordinal_position,
-     kcu.column_name,
-     ukcu.table_schema,
-     ukcu.table_name,
-     ukcu.column_name
-FROM information_schema.table_constraints AS tc
-JOIN information_schema.key_column_usage AS kcu
-ON kcu.constraint_catalog = tc.constraint_catalog
- AND kcu.constraint_schema = tc.constraint_schema
- AND kcu.constraint_name = tc.constraint_name
-JOIN information_schema.referential_constraints AS rc
-ON rc.constraint_catalog = tc.constraint_catalog
- AND rc.constraint_schema = tc.constraint_schema
- AND rc.constraint_name = tc.constraint_name
-JOIN information_schema.key_column_usage AS ukcu
-ON ukcu.constraint_catalog = rc.unique_constraint_catalog
- AND ukcu.constraint_schema = rc.unique_constraint_schema
- AND ukcu.constraint_name = rc.unique_constraint_name
- AND ukcu.ordinal_position = kcu.position_in_unique_constraint
-WHERE tc.constraint_type = 'FOREIGN KEY'
-AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
-ORDER BY tc.table_schema, tc.table_name, tc.constraint_name, kcu.ordinal_position|}
+SELECT ns.nspname,
+     rel.relname,
+     con.conname,
+     key.ordinality::integer,
+     col.attname,
+     target_ns.nspname,
+     target.relname,
+     target_col.attname
+FROM pg_catalog.pg_constraint AS con
+JOIN pg_catalog.pg_class AS rel ON rel.oid = con.conrelid
+JOIN pg_catalog.pg_namespace AS ns ON ns.oid = rel.relnamespace
+JOIN pg_catalog.pg_class AS target ON target.oid = con.confrelid
+JOIN pg_catalog.pg_namespace AS target_ns ON target_ns.oid = target.relnamespace
+JOIN LATERAL unnest(con.conkey, con.confkey) WITH ORDINALITY
+  AS key(attnum, target_attnum, ordinality) ON true
+JOIN pg_catalog.pg_attribute AS col
+ON col.attrelid = con.conrelid AND col.attnum = key.attnum
+JOIN pg_catalog.pg_attribute AS target_col
+ON target_col.attrelid = con.confrelid AND target_col.attnum = key.target_attnum
+WHERE con.contype = 'f'
+AND ns.nspname NOT IN ('pg_catalog', 'information_schema')
+AND rel.relkind IN ('r', 'p')
+ORDER BY ns.nspname, rel.relname, con.conname, key.ordinality|}
 ;;
 
 let postgresql_uniques =
   {|
-SELECT tc.table_schema,
-     tc.table_name,
-     tc.constraint_name,
-     kcu.ordinal_position,
-     kcu.column_name
-FROM information_schema.table_constraints AS tc
-JOIN information_schema.key_column_usage AS kcu
-ON kcu.constraint_catalog = tc.constraint_catalog
- AND kcu.constraint_schema = tc.constraint_schema
- AND kcu.constraint_name = tc.constraint_name
-WHERE tc.constraint_type = 'UNIQUE'
-AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
-ORDER BY tc.table_schema, tc.table_name, tc.constraint_name, kcu.ordinal_position|}
+SELECT ns.nspname,
+     rel.relname,
+     idx.relname,
+     key.ordinality::integer,
+     col.attname
+FROM pg_catalog.pg_index AS i
+JOIN pg_catalog.pg_class AS rel ON rel.oid = i.indrelid
+JOIN pg_catalog.pg_namespace AS ns ON ns.oid = rel.relnamespace
+JOIN pg_catalog.pg_class AS idx ON idx.oid = i.indexrelid
+JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS key(attnum, ordinality)
+  ON key.ordinality <= i.indnkeyatts
+JOIN pg_catalog.pg_attribute AS col
+  ON col.attrelid = i.indrelid AND col.attnum = key.attnum
+WHERE i.indisunique AND NOT i.indisprimary AND i.indisvalid
+AND i.indpred IS NULL AND i.indexprs IS NULL
+AND rel.relkind IN ('r', 'p')
+AND ns.nspname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY ns.nspname, rel.relname, idx.relname, key.ordinality|}
 ;;
 
 let identifier ~context value =
@@ -136,8 +142,10 @@ let sqlite_db_type type_name =
     Bytes
   else if contains type_name "BOOL" then
     Bool
-  else if contains type_name "TIME" then
+  else if contains type_name "TIMESTAMP" || contains type_name "DATETIME" then
     Timestamp
+  else if contains type_name "TIME" then
+    Unsupported type_name
   else if contains type_name "DATE" then
     Date
   else if contains type_name "UUID" then

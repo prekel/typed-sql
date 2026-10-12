@@ -318,3 +318,50 @@ let%test_unit "CAST shapes exclude values and source ids but retain target types
   assert (B.Shape.equal first (make Expr.cast_int_to_float 9));
   assert (not (B.Shape.equal first (make Expr.cast_int_to_int64 1)))
 ;;
+
+let%test "array and list array result codecs have distinct shapes" =
+  let shape db_type =
+    let table : unit Table.t = Table.v_exn "arrays" in
+    let column = Column.v_exn table "value" db_type in
+    let statement =
+      Statement.query_many
+        ~dialect:Dialect.postgresql
+        Query.(from table |> select (fun row -> Projection.expr (Expr.column row column)))
+    in
+    match B.Statement.resolve ~dialect:Dialect.Postgresql () statement with
+    | Ok (B.Statement.Query_execution { compiled; _ }) -> B.Compiled_query.shape compiled
+    | Error _ -> failwith "array statement did not resolve"
+  in
+  not
+    (B.Shape.equal
+       (shape (Db_type.Postgresql.array Db_type.int))
+       (shape (Db_type.Postgresql.array_list Db_type.int)))
+;;
+
+let%test "backend resolution preserves structured SQL type mismatch" =
+  let named name =
+    Db_type.Postgresql.named
+      ~schema:(Identifier.of_string_exn "public")
+      ~name:(Identifier.of_string_exn name)
+      Db_type.text
+  in
+  let left = Expr.constant (named "left_status") "ready" in
+  let right = Expr.constant (named "right_status") "ready" in
+  let table : unit Table.t = Table.v_exn "status_values" in
+  let statement =
+    Statement.Dynamic.query_many ~dialect:Dialect.postgresql (fun () ->
+      Query.(
+        from table
+        |> where (fun _ -> left =. right)
+        |> select (fun _ -> Projection.expr left)))
+  in
+  match B.Statement.resolve ~dialect:Dialect.Postgresql () statement with
+  | Error
+      (B.Statement.Compilation
+         { error = Compile_error.Mismatched_sql_type { context; expected; actual }; _ })
+    ->
+    String.equal context "comparison"
+    && String.equal expected "\"public\".\"left_status\""
+    && String.equal actual "\"public\".\"right_status\""
+  | _ -> false
+;;

@@ -39,7 +39,7 @@ SQL со значениями для `psql` или SQLite и выполнить 
 
 Все семь пакетов находятся в одном репозитории. Их зависимости друг от друга
 требуют одинаковую версию, поэтому закрепляйте их на одном теге. Например,
-для установки всех пакетов из `v0.4.6`:
+для установки всех пакетов из `v0.4.7`:
 
 <!-- $MDX skip -->
 ```bash
@@ -53,7 +53,7 @@ typed_sql_packages=(
   typed-sql-schema-pgocaml-lwt
 )
 for package in "${typed_sql_packages[@]}"; do
-  opam pin add -yn "$package" 'git+https://github.com/prekel/typed-sql.git#v0.4.6'
+  opam pin add -yn "$package" 'git+https://github.com/prekel/typed-sql.git#v0.4.7'
 done
 opam install "${typed_sql_packages[@]}"
 ```
@@ -62,8 +62,8 @@ opam install "${typed_sql_packages[@]}"
 зависимости из этого репозитория. Например, `typed-sql-graphql` требует
 `typed-sql`.
 
-Для перехода с `v0.4.6` на следующий опубликованный тег поменяйте значение
-`next_tag` и обновите все pin перед установкой. Ниже `v0.4.7` приведён как
+Для перехода с `v0.4.7` на следующий опубликованный тег поменяйте значение
+`next_tag` и обновите все pin перед установкой. Ниже `v0.4.8` приведён как
 пример следующего тега:
 
 <!-- $MDX skip -->
@@ -77,7 +77,7 @@ typed_sql_packages=(
   typed-sql-schema-caqti-lwt
   typed-sql-schema-pgocaml-lwt
 )
-next_tag=v0.4.7
+next_tag=v0.4.8
 for package in "${typed_sql_packages[@]}"; do
   opam pin add -yn "$package" "git+https://github.com/prekel/typed-sql.git#$next_tag"
 done
@@ -733,9 +733,13 @@ timestamp без часового пояса и остальные именов�
 [doc/schema_snapshot.md](doc/schema_snapshot.md). Неизвестный тип без правила
 вызывает ошибку генерации.
 
-Встроенный codec `Local_timestamp` ожидает PostgreSQL `DateStyle` с ISO-выводом,
-а `Interval` — стандартный `IntervalStyle = postgres`. Для других настроек
+Чтение PostgreSQL дат и timestamps через оба адаптера, включая элементы
+массивов и `Local_timestamp`, требует `DateStyle` с ISO-выводом.
+`Interval` требует стандартный `IntervalStyle = postgres`. Для других настроек
 формата используйте пользовательский codec через те же правила.
+
+Границы арифметики, сортировки, temporal и string operations описаны в
+[архитектуре](doc/architecture.md#границы-переносимости).
 
 API запросов находится в [`lib/typed_sql.mli`](lib/typed_sql.mli), а API
 генерации — в [`schema/typed_sql_schema.mli`](schema/typed_sql_schema.mli).
@@ -763,8 +767,11 @@ OCaml-примеры и показанный SQL этого README провер�
 функции: проверка не открывает соединение с БД. Shell-команды помечены
 `MDX skip` и выполняются пользователем отдельно.
 
-Минимальная поддерживаемая версия — OCaml 4.14.1. По умолчанию проект
-создаёт локальный switch OCaml 5.1.1:
+Требуется 64-битный OCaml версии 4.14.1 или новее с 63-битным `int`.
+Сборка проверяет разрядность компилятора и отклоняет неподдерживаемую
+конфигурацию. PostgreSQL `integer` и GraphQL `Int` сохраняют свой 32-битный
+диапазон; для PostgreSQL `bigint` используется `Db_type.int64`.
+По умолчанию проект создаёт локальный switch OCaml 5.1.1:
 
 <!-- $MDX skip -->
 ```sh

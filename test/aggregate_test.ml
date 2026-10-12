@@ -392,6 +392,15 @@ let check_scalar_subquery dialect scalar =
   ignore (compile_sql dialect query)
 ;;
 
+let check_scalar_subquery_nullable dialect scalar =
+  let query =
+    Query.(
+      from Item.table
+      |> select (fun _ -> Projection.expr (Expr.scalar_subquery_nullable scalar)))
+  in
+  ignore (compile_sql dialect query)
+;;
+
 let%test_unit "portable scalar aggregates prove their row bound" =
   check_scalar_subquery
     Dialect.sqlite
@@ -401,21 +410,21 @@ let%test_unit "portable scalar aggregates prove their row bound" =
     Query.(
       from Item.table
       |> select_scalar (fun item -> Expr.count_distinct (Item.int_value item)));
-  check_scalar_subquery
+  check_scalar_subquery_nullable
     Dialect.sqlite
     Query.(
       from Item.table |> select_scalar (fun item -> Expr.sum_int (Item.int_value item)));
-  check_scalar_subquery
+  check_scalar_subquery_nullable
     Dialect.sqlite
     Query.(
       from Item.table
       |> select_scalar (fun item -> Expr.sum_float (Item.float_value item)));
-  check_scalar_subquery
+  check_scalar_subquery_nullable
     Dialect.sqlite
     Query.(
       from Item.table
       |> select_scalar (fun item -> Expr.min Db_type.Orderable.int (Item.int_value item)));
-  check_scalar_subquery
+  check_scalar_subquery_nullable
     Dialect.sqlite
     Query.(
       from Item.table
@@ -423,24 +432,24 @@ let%test_unit "portable scalar aggregates prove their row bound" =
 ;;
 
 let%test_unit "PostgreSQL numeric scalar aggregates prove their row bound" =
-  check_scalar_subquery
+  check_scalar_subquery_nullable
     Dialect.postgresql
     Query.(
       from Item.table
       |> select_scalar (fun item -> Postgresql.Numeric.sum_int64 (Item.int64_value item)));
-  check_scalar_subquery
+  check_scalar_subquery_nullable
     Dialect.postgresql
     Query.(
       from Item.table
       |> select_scalar (fun item ->
         Postgresql.Numeric.sum_numeric (Item.numeric_value item)));
-  check_scalar_subquery
+  check_scalar_subquery_nullable
     Dialect.postgresql
     Query.(
       from Item.table
       |> select_scalar (fun item ->
         Postgresql.Numeric.min_numeric (Item.numeric_value item)));
-  check_scalar_subquery
+  check_scalar_subquery_nullable
     Dialect.postgresql
     Query.(
       from Item.table

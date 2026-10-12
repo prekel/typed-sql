@@ -16,6 +16,12 @@ let create ~dimensions ~lower_bounds ~elements =
     || List.exists dimensions ~f:(fun size -> Int.(size < 0))
   then
     Error "invalid array dimensions"
+  else if
+    not
+      (List.for_all2_exn dimensions lower_bounds ~f:(fun dimension lower ->
+         Z.fits_int Z.(of_int lower + of_int dimension - one)))
+  then
+    Error "array bounds overflow"
   else (
     let count =
       List.fold dimensions ~init:(Some 1) ~f:(fun count size ->
@@ -32,7 +38,11 @@ let create ~dimensions ~lower_bounds ~elements =
         Int.equal count (List.length elements)
         || (List.is_empty dimensions && List.is_empty elements)
       then
-        Ok { dimensions; lower_bounds; elements }
+        Ok
+          (if List.is_empty elements then
+             { dimensions = []; lower_bounds = []; elements = [] }
+           else
+             { dimensions; lower_bounds; elements })
       else
         Error "array dimensions do not match element count")
 ;;
@@ -129,17 +139,39 @@ let of_string ~decode source =
       Int.incr index;
       Result.map (quoted ()) ~f:(fun value -> Scalar (Some value))
     | _ ->
-      let start = !index in
-      while
-        Option.value_map (peek ()) ~default:false ~f:(fun character ->
-          not (Char.equal character ',' || Char.equal character '}'))
-      do
-        Int.incr index
-      done;
-      let value = String.sub source ~pos:start ~len:(!index - start) |> String.strip in
+      let rec scan acc escaped =
+        match peek () with
+        | None | Some (',' | '}') -> Ok (List.rev acc, escaped)
+        | Some ('{' | '"') -> Error "invalid unquoted array element"
+        | Some '\\' ->
+          Int.incr index;
+          (match peek () with
+           | None -> Error "unterminated array escape"
+           | Some character ->
+             Int.incr index;
+             scan ((character, true) :: acc) true)
+        | Some character ->
+          Int.incr index;
+          scan ((character, false) :: acc) escaped
+      in
+      let open Result.Let_syntax in
+      let%bind characters, escaped = scan [] false in
+      let trim =
+        List.drop_while ~f:(fun (character, protected) ->
+          (not protected) && Char.is_whitespace character)
+      in
+      let value =
+        characters
+        |> trim
+        |> List.rev
+        |> trim
+        |> List.rev
+        |> List.map ~f:fst
+        |> String.of_char_list
+      in
       if String.is_empty value then
         Error "empty unquoted array element"
-      else if String.Caseless.equal value "NULL" then
+      else if (not escaped) && String.Caseless.equal value "NULL" then
         Ok (Scalar None)
       else
         Ok (Scalar (Some value))
@@ -210,9 +242,15 @@ let of_string ~decode source =
     else
       List.map declared_bounds ~f:fst
   in
-  let expected = List.map declared_bounds ~f:(fun (lower, upper) -> upper - lower + 1) in
+  let expected =
+    List.map declared_bounds ~f:(fun (lower, upper) ->
+      Z.(of_int upper - of_int lower + one))
+  in
   let%bind () =
-    if List.is_empty declared_bounds || List.equal Int.equal expected dimensions then
+    if
+      List.is_empty declared_bounds
+      || List.equal Z.equal expected (List.map dimensions ~f:Z.of_int)
+    then
       Ok ()
     else
       Error "array bounds do not match elements"
@@ -262,7 +300,7 @@ let to_string ~encode value =
   let body, _ = render value.dimensions encoded in
   let bounds =
     List.map2_exn value.dimensions value.lower_bounds ~f:(fun size lower ->
-      Stdlib.Printf.sprintf "[%d:%d]" lower (lower + size - 1))
+      Stdlib.Printf.sprintf "[%d:%d]" lower (lower + (size - 1)))
     |> String.concat
   in
   Ok
