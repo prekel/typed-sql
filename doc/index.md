@@ -66,6 +66,11 @@ CTE доступны только через `Postgresql.Cte`: `Postgresql.Cte.r
 [разделе о динамических statements](dynamic_statements.md). Границы между DSL,
 compiler и Caqti описаны в [обзоре архитектуры](architecture.md).
 
+Планы развития собраны в [дорожной карте проекта](roadmap.md). Отдельная
+[дорожная карта PPX](ppx_roadmap.md) описывает план совместимости с
+`pgocaml_ppx`, проверку SQL по snapshot без БД во время компиляции и постепенную
+миграцию quotations на query builder.
+
 Решение сделать `Statement` единственным API выполнения и отвергнутые варианты
 записаны в [ADR 0001](adr/0001-static-statement-api.md). Выбранные рамки и
 открытые вопросы Raw SQL escape hatch записаны в

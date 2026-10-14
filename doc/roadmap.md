@@ -619,7 +619,12 @@ PostgreSQL-возможностями. Portable approximation с другой с
   Выбранные рамки и открытые решения записаны в
   [ADR 0002](adr/0002-raw-sql-escape-hatch.md);
 - [ ] Оптимизировать построение больших condition/order lists только по benchmark;
-- [ ] Проектировать PPX после проверки ручного API внешним RealWorld-приложением.
+- [ ] Проектировать PPX для сокращения ручного DSL-кода после проверки API
+  внешним RealWorld-приложением.
+- [ ] Разработать отдельный offline PPX, совместимый с `pgocaml_ppx`, для
+  постепенной миграции SQL quotations на query builder. Этапы, границы
+  совместимости и требования к metadata описаны в
+  [дорожной карте PPX](ppx_roadmap.md).
 
 #### Статические параметры и server-side prepare
 
