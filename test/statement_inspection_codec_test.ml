@@ -54,3 +54,97 @@ let%expect_test "codec inspection error has a structured sexp" =
   |> print_s;
   [%expect {| (Codec_error (position 1) (name (label)) (message "empty value")) |}]
 ;;
+
+let%test "mapped input parameter remains unknown without input" =
+  match Statement.inspect ~dialect:Sqlite (statement ()) with
+  | Ok
+      ( _
+      , { parameters =
+            [ { name = Some "label"
+              ; db_type = "upper_text"
+              ; value = None
+              ; dialect_type = None
+              ; _
+              }
+            ]
+        ; _
+        } ) -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test_module "mapped constants without input" =
+  (module struct
+    let constant ~dialect value =
+      Statement.query_one ~dialect (Query.select_one (Expr.constant (mapped ()) value))
+    ;;
+
+    let%test "PostgreSQL constant uses the encoded value" =
+      match
+        Statement.inspect ~dialect:Postgresql (constant ~dialect:Dialect.portable "Ada")
+      with
+      | Ok
+          ( _
+          , { parameters =
+                [ { name = None
+                  ; db_type = "upper_text"
+                  ; dialect_type = Some "text"
+                  ; value = Some (Statement.Encoded "ADA")
+                  ; _
+                  }
+                ]
+            ; _
+            } ) -> true
+      | Ok _ | Error _ -> false
+    ;;
+
+    let%test "SQLite constant reports encoded storage" =
+      match
+        Statement.inspect ~dialect:Sqlite (constant ~dialect:Dialect.portable "Ada")
+      with
+      | Ok
+          ( _
+          , { parameters =
+                [ { name = None
+                  ; db_type = "upper_text"
+                  ; dialect_type = Some "TEXT"
+                  ; value = Some (Statement.Encoded "ADA")
+                  ; _
+                  }
+                ]
+            ; _
+            } ) -> true
+      | Ok _ | Error _ -> false
+    ;;
+
+    let%test "constant codec error retains its position and anonymous name" =
+      match Statement.inspect ~dialect:Sqlite (constant ~dialect:Dialect.portable "") with
+      | Error
+          (Statement.Codec_error { position = 1; name = None; message = "empty value" })
+        -> true
+      | Ok _ | Error _ -> false
+    ;;
+
+    let%test "inspect_exn raises the constant codec error" =
+      match
+        Statement.inspect_exn ~dialect:Sqlite (constant ~dialect:Dialect.portable "")
+      with
+      | exception
+          Statement.Inspection_error
+            (Statement.Codec_error { position = 1; name = None; message = "empty value" })
+        -> true
+      | _ -> false
+    ;;
+
+    let%test "dialect choice encodes only the selected branch" =
+      let statement =
+        Statement.choose_dialect
+          ~postgresql:(constant ~dialect:Dialect.postgresql "")
+          ~sqlite:(constant ~dialect:Dialect.sqlite "Ada")
+      in
+      match Statement.inspect ~dialect:Sqlite statement with
+      | Ok (_, { parameters = [ { value = Some (Statement.Encoded "ADA"); _ } ]; _ }) ->
+        true
+      | Ok _ | Error _ -> false
+    ;;
+  end)
+;;

@@ -1001,34 +1001,6 @@ let parameter_info ~dialect ~position ~name ~db_type ~value ~storage_class =
   }
 ;;
 
-let unbound_parameter_info ~dialect ~slots ~position parameter =
-  match parameter with
-  | Ast.Value (Db_type.Value (db_type, _)) ->
-    Ok
-      (parameter_info
-         ~dialect
-         ~position
-         ~name:None
-         ~db_type
-         ~value:None
-         ~storage_class:None)
-  | Ast.Slot { id; db_type = Db_type.Pack db_type } ->
-    (match find_slot id slots with
-     | None ->
-       Error
-         (Statement_error
-            (Invalid_parameter { name = None; message = Unknown_parameter_slot }))
-     | Some (Slot slot) ->
-       Ok
-         (parameter_info
-            ~dialect
-            ~position
-            ~name:slot.name
-            ~db_type
-            ~value:None
-            ~storage_class:None))
-;;
-
 let bound_parameter_info ~dialect ~position bound =
   let (Db_type.Value (db_type, value)) = bound.packed_value in
   let open Result.Let_syntax in
@@ -1044,6 +1016,27 @@ let bound_parameter_info ~dialect ~position bound =
     ~db_type
     ~value:(Some value)
     ~storage_class:(Some storage_class)
+;;
+
+let parameter_info_without_input ~dialect ~slots ~position parameter =
+  match parameter with
+  | Ast.Value packed_value ->
+    bound_parameter_info ~dialect ~position { packed_value; name = None }
+  | Ast.Slot { id; db_type = Db_type.Pack db_type } ->
+    (match find_slot id slots with
+     | None ->
+       Error
+         (Statement_error
+            (Invalid_parameter { name = None; message = Unknown_parameter_slot }))
+     | Some (Slot slot) ->
+       Ok
+         (parameter_info
+            ~dialect
+            ~position
+            ~name:slot.name
+            ~db_type
+            ~value:None
+            ~storage_class:None))
 ;;
 
 let row_cardinality : type row output. (row, output) cardinality -> row_cardinality =
@@ -1092,7 +1085,7 @@ let rec inspect_without_input
     let open Result.Let_syntax in
     let%map parameters =
       List.mapi ast_parameters ~f:(fun index parameter ->
-        unbound_parameter_info
+        parameter_info_without_input
           ~dialect:concrete_dialect
           ~slots
           ~position:(index + 1)

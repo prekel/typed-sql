@@ -3400,9 +3400,12 @@ module Statement : sig
   (** Return SQL and diagnostics separately, without inserting values into SQL.
       Diagnostics describe the selected plan's output, shape and statement
       choices. Without [input], static statements expose parameter types and
-      names only; dynamic statements and input-selected branches require
-      [input]. With [input], getters run once and mapped codecs produce
-      diagnostic values. [params.column] uses the column name unless [name]
+      names, plus encoded values for constants, including literal pagination;
+      input parameters have no value and their getters are not evaluated.
+      Dynamic statements and input-selected branches require [input]. With
+      [input], getters run once and all parameter values are encoded. Mapped
+      codecs run for known values even without [input]; encoding failures
+      return [Codec_error]. [params.column] uses the column name unless [name]
       was supplied. *)
   val inspect
     :  dialect:'supports sql_dialect

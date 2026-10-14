@@ -14,7 +14,7 @@ let constant_parameter ~dialect db_type value =
       ~dialect:Dialect.portable
       (Query.select_one (Expr.constant db_type value))
   in
-  Statement.inspect_exn ~dialect ~input:() statement |> fun (_, inspection) ->
+  Statement.inspect_exn ~dialect statement |> fun (_, inspection) ->
   List.hd_exn inspection.parameters
 ;;
 
@@ -53,6 +53,54 @@ let%test_module "statement parameter inspection" =
     ;;
 
     let input = { id = 7L; name = Some "Ada" }
+
+    let paginated_statement =
+      Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
+        let%map.Parameters name = params.column Person.name_column ~get:Fn.id in
+        params.query_many
+          Query.(
+            from Person.table
+            |> where (fun person -> Person.name person =. name)
+            |> limit_one
+            |> offset 2
+            |> select (fun person -> Projection.expr (Person.id person))))
+    ;;
+
+    let%expect_test "PostgreSQL constants and pagination without input" =
+      let inspected = Statement.inspect_exn ~dialect:Postgresql paginated_statement in
+      assert (
+        String.equal
+          (fst inspected)
+          (Statement.sql_exn ~dialect:Postgresql paginated_statement));
+      print_parameters inspected;
+      [%expect
+        {|
+        (((position 1) (placeholder $1) (name (name)) (db_type text)
+          (dialect_type (text)) (value ()))
+         ((position 2) (placeholder $2) (name ()) (db_type int)
+          (dialect_type (integer)) (value ((Encoded 1))))
+         ((position 3) (placeholder $3) (name ()) (db_type int)
+          (dialect_type (integer)) (value ((Encoded 2)))))
+        |}]
+    ;;
+
+    let%expect_test "SQLite constants and pagination without input" =
+      let inspected = Statement.inspect_exn ~dialect:Sqlite paginated_statement in
+      assert (
+        String.equal
+          (fst inspected)
+          (Statement.sql_exn ~dialect:Sqlite paginated_statement));
+      print_parameters inspected;
+      [%expect
+        {|
+        (((position 1) (placeholder ?1) (name (name)) (db_type text)
+          (dialect_type ()) (value ()))
+         ((position 2) (placeholder ?2) (name ()) (db_type int)
+          (dialect_type (INTEGER)) (value ((Encoded 1))))
+         ((position 3) (placeholder ?3) (name ()) (db_type int)
+          (dialect_type (INTEGER)) (value ((Encoded 2)))))
+        |}]
+    ;;
 
     let%expect_test "PostgreSQL metadata without input" =
       Statement.inspect_exn ~dialect:Postgresql statement |> print_parameters;
@@ -241,7 +289,7 @@ let%test_module "statement parameter inspection" =
       | Statement.Query_output _ | Statement.Command_output -> false
     ;;
 
-    let%test "command metadata is available without input" =
+    let%test "command constant value is available without input" =
       let command =
         Statement.command
           ~dialect:Dialect.portable
@@ -250,7 +298,7 @@ let%test_module "statement parameter inspection" =
       in
       let _, inspection = Statement.inspect_exn ~dialect:Postgresql command in
       match inspection.parameters with
-      | [ { placeholder = "$1"; value = None; _ } ] -> true
+      | [ { placeholder = "$1"; value = Some (Statement.Encoded "7"); _ } ] -> true
       | _ -> false
     ;;
 
@@ -290,6 +338,7 @@ let%test_module "statement parameter inspection" =
               from Person.table
               |> where (fun person ->
                 Person.id person =. id &&. (Person.id person >=. id))
+              |> limit_one
               |> select (fun person -> Projection.expr (Person.id person))))
       in
       ignore (Statement.inspect_exn ~dialect:Postgresql statement);
@@ -412,15 +461,25 @@ let%test "computed output has no source column name" =
   | Statement.Query_output _ | Statement.Command_output -> false
 ;;
 
-let%test "anonymous constant metadata omits its value without input" =
+let%test "constant inspection agrees with supplied input" =
   let statement =
     Statement.query_one
       ~dialect:Dialect.portable
       (Query.select_one (Expr.constant Db_type.text "Ada"))
   in
-  let _, inspection = Statement.inspect_exn ~dialect:Postgresql statement in
-  match inspection.parameters with
-  | [ { value = None; db_type = "text"; _ } ] -> true
+  let sql, inspection = Statement.inspect_exn ~dialect:Postgresql statement in
+  let bound_sql, bound_inspection =
+    Statement.inspect_exn ~dialect:Postgresql ~input:() statement
+  in
+  String.equal sql bound_sql
+  && Sexp.equal
+       (Statement.sexp_of_inspection inspection)
+       (Statement.sexp_of_inspection bound_inspection)
+;;
+
+let%test "constant SQL NULL is known without input" =
+  match constant_parameter ~dialect:Sqlite (Db_type.option Db_type.text) None with
+  | { value = Some Statement.Null; dialect_type = Some "NULL"; _ } -> true
   | _ -> false
 ;;
 
@@ -561,8 +620,8 @@ let%test "dialect-selected statements inspect their own SQL" =
     , sqlite_inspection.parameters
     , bound_sqlite_inspection.parameters )
   with
-  | ( [ { placeholder = "$1"; _ } ]
-    , [ { placeholder = "?1"; _ } ]
+  | ( [ { placeholder = "$1"; value = Some (Statement.Encoded "1"); _ } ]
+    , [ { placeholder = "?1"; value = Some (Statement.Encoded "2"); _ } ]
     , [ { value = Some (Statement.Encoded "2"); _ } ] ) -> true
   | _ -> false
 ;;
