@@ -9,6 +9,108 @@ let decode source =
   |> Result.ok_or_failwith
 ;;
 
+let%test_module "exact PostgreSQL column types" =
+  (module struct
+    let native name = identifier "pg_catalog", identifier name
+
+    let schema =
+      Schema_ir.v
+        [ Schema_ir.table
+            ~schema:(identifier "public")
+            ~name:(identifier "integers")
+            ~columns:
+              (List.map
+                 [ "small", "int2"; "normal", "int4" ]
+                 ~f:(fun (name, native_name) ->
+                   Schema_ir.column
+                     ~name:(identifier name)
+                     ~db_type:Int
+                     ~nullable:false
+                     ~postgresql_type:(native native_name)
+                     ()))
+            ()
+        ]
+    ;;
+
+    let%test_unit "version 3 preserves int2 and int4 without changing descriptors" =
+      let restored = decode (Schema_snapshot.to_string schema) in
+      let columns = Schema_ir.columns (List.hd_exn (Schema_ir.tables restored)) in
+      assert (
+        List.equal
+          (Option.equal (fun (a, b) (c, d) ->
+             Identifier.equal a c && Identifier.equal b d))
+          (List.map columns ~f:Schema_ir.column_postgresql_type)
+          [ Some (native "int2"); Some (native "int4") ]);
+      assert (
+        List.for_all columns ~f:(fun column ->
+          match Schema_ir.column_db_type column with
+          | Int -> true
+          | _ -> false));
+      let generate value =
+        Schema_codegen.generate value
+        |> Result.map_error ~f:Schema_codegen.error_to_string
+        |> Result.ok_or_failwith
+      in
+      assert (String.equal (generate schema) (generate restored))
+    ;;
+
+    let legacy_json () =
+      match Yojson.Safe.from_string (Schema_snapshot.to_string schema) with
+      | `Assoc fields ->
+        let rec strip : Yojson.Safe.t -> Yojson.Safe.t = function
+          | `Assoc fields ->
+            `Assoc
+              (List.filter_map fields ~f:(fun (name, value) ->
+                 if String.equal name "postgresql_type" then
+                   None
+                 else
+                   Some (name, strip value)))
+          | `List values -> `List (List.map values ~f:strip)
+          | json -> json
+        in
+        strip (`Assoc (List.Assoc.add fields ~equal:String.equal "version" (`Int 2)))
+      | _ -> failwith "snapshot root invariant violated"
+    ;;
+
+    let%test_unit "version 2 remains readable and has no invented native types" =
+      let restored = decode (Yojson.Safe.to_string (legacy_json ())) in
+      assert (
+        List.for_all
+          (Schema_ir.columns (List.hd_exn (Schema_ir.tables restored)))
+          ~f:(fun column -> Option.is_none (Schema_ir.column_postgresql_type column)));
+      let generate value =
+        Schema_codegen.generate value
+        |> Result.map_error ~f:Schema_codegen.error_to_string
+        |> Result.ok_or_failwith
+      in
+      assert (String.equal (generate schema) (generate restored))
+    ;;
+
+    let%expect_test "missing exact metadata field is invalid in version 3" =
+      let source =
+        Yojson.Safe.to_string (legacy_json ())
+        |> String.substr_replace_all ~pattern:"\"version\":2" ~with_:"\"version\":3"
+      in
+      (match Schema_snapshot.of_string source with
+       | Error error -> Stdlib.print_endline (Schema_snapshot.error_to_string error)
+       | Ok _ -> failwith "version 3 must require the metadata field");
+      [%expect {| $.tables[0].columns[0].postgresql_type: missing field |}]
+    ;;
+
+    let%expect_test "native type identifiers are validated" =
+      let source =
+        Schema_snapshot.to_string schema
+        |> String.substr_replace_all ~pattern:"\"name\": \"int2\"" ~with_:"\"name\": \"\""
+      in
+      (match Schema_snapshot.of_string source with
+       | Error error -> Stdlib.print_endline (Schema_snapshot.error_to_string error)
+       | Ok _ -> failwith "expected invalid native type identifier");
+      [%expect
+        {| $.tables[0].columns[0].postgresql_type.name: SQL identifier must not be empty |}]
+    ;;
+  end)
+;;
+
 let types =
   [ Schema_ir.Bool; Int; Int64; Float; Numeric; Text; Bytes; Date; Timestamp; Uuid ]
 ;;
@@ -19,6 +121,11 @@ let schema =
       Schema_ir.column
         ~name:(identifier ("field" ^ Int.to_string index))
         ~db_type
+        ?postgresql_type:
+          (if Int.equal index 0 then
+             Some (identifier "pg_catalog", identifier "bool")
+           else
+             None)
         ~nullable:true
         ~default:"'quote \" / \\ / \n / Привет'"
         ~generated:true
@@ -187,7 +294,7 @@ let%test_unit "structured PostgreSQL types survive snapshot round trip" =
       ]
   in
   let source = Schema_snapshot.to_string schema in
-  assert (String.is_substring source ~substring:"\"version\": 2");
+  assert (String.is_substring source ~substring:"\"version\": 3");
   assert (String.equal source (Schema_snapshot.to_string (decode source)));
   let rules =
     Schema_codegen.rules_of_string
@@ -426,10 +533,10 @@ let%test "one domain module serves repeated columns and ignores column-only base
 
 let%expect_test "empty snapshot format" =
   Stdlib.print_string (Schema_snapshot.to_string (Schema_ir.v []));
-  [%expect {| { "version": 2, "tables": [] } |}]
+  [%expect {| { "version": 3, "tables": [] } |}]
 ;;
 
-let%expect_test "version 2 table and column wire format" =
+let%expect_test "version 3 table and column wire format" =
   let schema =
     Schema_ir.v
       [ Schema_ir.table
@@ -450,7 +557,7 @@ let%expect_test "version 2 table and column wire format" =
   [%expect
     {|
     {
-      "version": 2,
+      "version": 3,
       "tables": [
         {
           "schema": "public",
@@ -462,7 +569,8 @@ let%expect_test "version 2 table and column wire format" =
               "nullable": false,
               "default": null,
               "generated": false,
-              "primary_key_position": 1
+              "primary_key_position": 1,
+              "postgresql_type": null
             }
           ],
           "foreign_keys": [],

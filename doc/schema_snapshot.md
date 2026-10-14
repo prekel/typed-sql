@@ -5,13 +5,15 @@
 Эти операции чистые. Файл хранит metadata схемы, а не строки из таблиц или
 параметры подключения.
 
-Поддерживается только версия 2 с корневыми полями `version` и `tables`.
-Снимки версии 1 и неизвестных версий reader отклоняет. Все описанные ниже
-поля обязательны; отсутствие optional-значения представлено `null`.
+Writer выпускает версию 3 с корневыми полями `version` и `tables`. Reader
+принимает версии 2 и 3; снимки версии 1 и неизвестных версий отклоняет.
+Все поля соответствующей версии обязательны; отсутствие optional-значения
+представлено `null`. Версия 2 не содержит `postgresql_type`: при чтении оно
+остаётся отсутствующим, а повторная запись создаёт версию 3 с `null`.
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "tables": [
     {
       "schema": "public",
@@ -23,7 +25,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": 1
+          "primary_key_position": 1,
+          "postgresql_type": { "schema": "pg_catalog", "name": "int8" }
         }
       ],
       "foreign_keys": [],
@@ -49,6 +52,16 @@
 `varchar(n)` и размер `char(n)` в snapshot не сохраняются. PostgreSQL продолжает
 проверять длину при записи; `char(n)` также сохраняет серверную семантику
 дополнения пробелами и их сравнения.
+
+`postgresql_type` хранит точную пару PostgreSQL catalog identifiers `schema`
+и `name` либо `null`. Оба PostgreSQL-дампера сохраняют её для каждой колонки;
+SQLite и вручную созданные descriptors по умолчанию её не задают. Например,
+`smallint` и `integer` имеют одинаковый `db_type.kind = "int"`, но разные
+native names `int2` и `int4`. Для enum/domain/array здесь сохраняется имя самого
+типа колонки; точные native types вложенных элементов или domain bases этим
+полем не задаются. Codegen использует прежний portable `db_type`; offline PPX
+требует точный тип выбранных колонок и параметров. Snapshot валидирует
+identifiers, но не проверяет соответствие native имени portable descriptor.
 
 В `foreign_keys` каждый объект содержит `columns` — список имён колонок,
 `referenced_schema` — строку или `null`, `referenced_table` — строку и

@@ -158,6 +158,7 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
               (let open Result.Let_syntax in
                let%bind uniques = uniques in
                S.make_schema
+                 ~postgresql_type:(S.postgresql_column_type types)
                  ~db_type:(S.postgresql_type_mapper types)
                  columns
                  foreign_keys

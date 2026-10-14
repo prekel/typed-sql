@@ -40,6 +40,7 @@ type column =
   ; default : string option
   ; generated : bool
   ; primary_key_position : int option
+  ; postgresql_type : (Identifier.t * Identifier.t) option
   }
 
 type foreign_key =
@@ -66,9 +67,17 @@ type t = table list
 
 let v tables = tables
 
-let column ~name ~db_type ~nullable ?default ?(generated = false) ?primary_key_position ()
+let column
+      ~name
+      ~db_type
+      ~nullable
+      ?default
+      ?(generated = false)
+      ?primary_key_position
+      ?postgresql_type
+      ()
   =
-  { name; db_type; nullable; default; generated; primary_key_position }
+  { name; db_type; nullable; default; generated; primary_key_position; postgresql_type }
 ;;
 
 let foreign_key ~columns ?referenced_schema ~referenced_table ~referenced_columns () =
@@ -89,6 +98,7 @@ let foreign_keys (table : table) = table.foreign_keys
 let unique_constraints (table : table) = table.unique_constraints
 let column_name (column : column) = column.name
 let column_db_type (column : column) = column.db_type
+let column_postgresql_type (column : column) = column.postgresql_type
 let column_nullable (column : column) = column.nullable
 let column_default (column : column) = column.default
 let column_generated (column : column) = column.generated

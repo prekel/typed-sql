@@ -33,8 +33,8 @@ Discovery запускается отдельно, а сохранённый gen
 при обычной сборке без обращения к базе. Коллизии нормализованных имён
 разрешаются детерминированными числовыми суффиксами.
 
-`Typed_sql_schema.Schema_snapshot` сериализует schema IR в JSON версии 2 и восстанавливает его
-без filesystem или database access. CLI `typed-sql-codegen` читает snapshot
+`Typed_sql_schema.Schema_snapshot` сериализует schema IR в JSON версии 3 с точными PostgreSQL-именами типов
+колонок и читает версии 2 и 3 без filesystem или database access. CLI `typed-sql-codegen` читает snapshot
 из файла или stdin и передаёт его обычному `Typed_sql_schema.Schema_codegen`. Порядок таблиц,
 колонок и constraints сохраняется; синтаксические ошибки и несовместимые
 версии возвращаются до генерации. Yojson остаётся деталью реализации.

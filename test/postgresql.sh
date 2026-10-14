@@ -123,6 +123,13 @@ TYPED_SQL_PG_EXPECT=1 dune build --root . @runtest-typed_sql_postgresql_expect_t
 dune exec --root . caqti-lwt/test/mega_coverage_server_test.exe
 dune exec --root . caqti-lwt/test/insert_select_test.exe -- --postgres
 dune exec --root . pgocaml-lwt/test/postgresql_test.exe
+"$pg_bindir/createdb" typed_sql_ppx_test
+PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/postgresql_test.exe
+PGDATABASE=typed_sql_ppx_test dune exec --root . caqti-lwt/schema/typed_sql_schema_dump.exe > "$workdir/ppx_caqti_schema.json"
+PGDATABASE=typed_sql_ppx_test dune exec --root . schema-pgocaml-lwt/typed_sql_pgocaml_schema_dump.exe > "$workdir/ppx_pgocaml_schema.json"
+diff -u "$workdir/ppx_caqti_schema.json" "$workdir/ppx_pgocaml_schema.json"
+grep -Fq '"name": "int2"' "$workdir/ppx_caqti_schema.json"
+grep -Fq '"name": "int4"' "$workdir/ppx_caqti_schema.json"
 if [[ "$server_version" -ge 170000 ]]; then
   dune exec --root . caqti-lwt/test/merge_test.exe
   dune exec --root . pgocaml-lwt/test/merge_test.exe

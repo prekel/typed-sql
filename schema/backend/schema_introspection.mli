@@ -23,8 +23,15 @@ val postgresql_uniques : string
 val sqlite_db_type : string -> Typed_sql_schema.Schema_ir.db_type
 val postgresql_type_mapper : raw_type list -> string -> Typed_sql_schema.Schema_ir.db_type
 
+(** Resolve the exact catalog name without losing portable type distinctions. *)
+val postgresql_column_type
+  :  raw_type list
+  -> string
+  -> (Typed_sql.Identifier.t * Typed_sql.Identifier.t) option
+
 val make_schema
-  :  db_type:(string -> Typed_sql_schema.Schema_ir.db_type)
+  :  ?postgresql_type:(string -> (Typed_sql.Identifier.t * Typed_sql.Identifier.t) option)
+  -> db_type:(string -> Typed_sql_schema.Schema_ir.db_type)
   -> raw_column list
   -> raw_foreign_key list
   -> raw_unique list

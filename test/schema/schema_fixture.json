@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "tables": [
     {
       "schema": "public",
@@ -11,7 +11,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "int8" }
         }
       ],
       "foreign_keys": [],
@@ -27,7 +28,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "timestamp" }
         },
         {
           "name": "float_value",
@@ -35,7 +37,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "timestamp" }
         },
         {
           "name": "duration",
@@ -43,7 +46,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "interval" }
         },
         {
           "name": "payload",
@@ -51,7 +55,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "json" }
         },
         {
           "name": "payload_binary",
@@ -59,7 +64,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "jsonb" }
         },
         {
           "name": "mood",
@@ -72,7 +78,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "public", "name": "mood" }
         },
         {
           "name": "result_status",
@@ -85,7 +92,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "public", "name": "result_status" }
         },
         {
           "name": "username",
@@ -98,7 +106,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "public", "name": "username" }
         },
         {
           "name": "host",
@@ -115,7 +124,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "public", "name": "host" }
         },
         {
           "name": "inet_value",
@@ -127,7 +137,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "inet" }
         },
         {
           "name": "small_value",
@@ -135,7 +146,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "int4" }
         },
         {
           "name": "numbers",
@@ -143,7 +155,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "_int4" }
         },
         {
           "name": "rational_value",
@@ -156,7 +169,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "public", "name": "rational" }
         },
         {
           "name": "geometry_value",
@@ -169,7 +183,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "public", "name": "geometry" }
         }
       ],
       "foreign_keys": [],
@@ -185,7 +200,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "int8" }
         }
       ],
       "foreign_keys": [],
@@ -201,7 +217,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "int8" }
         }
       ],
       "foreign_keys": [],
@@ -217,7 +234,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "int8" }
         },
         {
           "name": "id-column",
@@ -225,7 +243,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "int4" }
         },
         {
           "name": "display-name",
@@ -233,7 +252,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "text" }
         },
         {
           "name": "display_name",
@@ -241,7 +261,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "text" }
         },
         {
           "name": "display.name",
@@ -249,7 +270,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "text" }
         },
         {
           "name": "table",
@@ -257,7 +279,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "bool" }
         },
         {
           "name": "published-on",
@@ -265,7 +288,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "date" }
         },
         {
           "name": "created-at",
@@ -273,7 +297,11 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "timestamptz"
+          }
         },
         {
           "name": "external-id",
@@ -281,7 +309,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "uuid" }
         },
         {
           "name": "reference",
@@ -289,7 +318,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "text" }
         },
         {
           "name": "return",
@@ -297,7 +327,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "text" }
         },
         {
           "name": "land",
@@ -305,7 +336,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "text" }
         },
         {
           "name": "_",
@@ -313,7 +345,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "text" }
         },
         {
           "name": "map",
@@ -321,7 +354,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "text" }
         },
         {
           "name": "total",
@@ -329,7 +363,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "numeric" }
         }
       ],
       "foreign_keys": [],
@@ -345,7 +380,8 @@
           "nullable": false,
           "default": null,
           "generated": false,
-          "primary_key_position": null
+          "primary_key_position": null,
+          "postgresql_type": { "schema": "pg_catalog", "name": "int8" }
         }
       ],
       "foreign_keys": [],

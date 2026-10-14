@@ -215,8 +215,8 @@ downstream test генерирует `.ml`, компилирует его и с�
 OCaml keywords и одиночный `_`, а ссылки на библиотечные модули использует через
 свой alias, поэтому table и column names не могут их перекрыть.
 
-`Schema_snapshot` сохраняет весь schema IR в JSON версии 2 с сохранением
-порядка и metadata. CLI `typed-sql-codegen schema.json` или
+`Schema_snapshot` сохраняет весь schema IR в JSON версии 3 с точными PostgreSQL-типами колонок, сохраняя
+порядок и metadata. Reader также принимает версию 2. CLI `typed-sql-codegen schema.json` или
 `typed-sql-codegen -` генерирует OCaml без БД. Downstream-тест проходит весь
 путь IR → JSON → CLI → компиляция и использование generated descriptors.
 Формат описан в [schema_snapshot.md](schema_snapshot.md).
@@ -621,7 +621,10 @@ PostgreSQL-возможностями. Portable approximation с другой с
 - [ ] Оптимизировать построение больших condition/order lists только по benchmark;
 - [ ] Проектировать PPX для сокращения ручного DSL-кода после проверки API
   внешним RealWorld-приложением.
-- [ ] Разработать отдельный offline PPX, совместимый с `pgocaml_ppx`, для
+- [x] Выпустить экспериментальный offline SELECT PPX: одна таблица, WHERE
+  по параметрам, ORDER BY, tuples/objects и scalar-типы PG’OCaml. Подключение
+  и ограничения описаны в [руководстве PPX](ppx.md).
+- [ ] Расширять offline PPX, совместимый с `pgocaml_ppx`, для
   постепенной миграции SQL quotations на query builder. Этапы, границы
   совместимости и требования к metadata описаны в
   [дорожной карте PPX](ppx_roadmap.md).

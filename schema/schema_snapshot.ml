@@ -197,7 +197,22 @@ let rec db_type =
   }
 ;;
 
-let column =
+let postgresql_type =
+  { encode =
+      (fun (schema, name) ->
+        `Assoc [ "schema", identifier.encode schema; "name", identifier.encode name ])
+  ; decode =
+      (fun path json ->
+        let open Result.Let_syntax in
+        let%bind fields = object_fields path json in
+        let%bind () = known_fields path [ "schema"; "name" ] fields in
+        let%bind schema = field path fields "schema" identifier in
+        let%map name = field path fields "name" identifier in
+        schema, name)
+  }
+;;
+
+let column version =
   { encode =
       (fun (value : Schema_ir.column) ->
         `Assoc
@@ -207,6 +222,7 @@ let column =
           ; "default", (option string).encode value.default
           ; "generated", bool.encode value.generated
           ; "primary_key_position", (option int).encode value.primary_key_position
+          ; "postgresql_type", (option postgresql_type).encode value.postgresql_type
           ])
   ; decode =
       (fun path json ->
@@ -215,13 +231,18 @@ let column =
         let%bind () =
           known_fields
             path
-            [ "name"
-            ; "db_type"
-            ; "nullable"
-            ; "default"
-            ; "generated"
-            ; "primary_key_position"
-            ]
+            ([ "name"
+             ; "db_type"
+             ; "nullable"
+             ; "default"
+             ; "generated"
+             ; "primary_key_position"
+             ]
+             @
+             if Int.(version = 3) then
+               [ "postgresql_type" ]
+             else
+               [])
             fields
         in
         let%bind name = field path fields "name" identifier in
@@ -229,8 +250,14 @@ let column =
         let%bind nullable = field path fields "nullable" bool in
         let%bind default = field path fields "default" (option string) in
         let%bind generated = field path fields "generated" bool in
-        let%map primary_key_position =
+        let%bind primary_key_position =
           field path fields "primary_key_position" (option int)
+        in
+        let%map postgresql_type =
+          if Int.(version = 3) then
+            field path fields "postgresql_type" (option postgresql_type)
+          else
+            Ok None
         in
         Schema_ir.column
           ~name
@@ -239,6 +266,7 @@ let column =
           ?default
           ~generated
           ?primary_key_position
+          ?postgresql_type
           ())
   }
 ;;
@@ -297,13 +325,13 @@ let unique_constraint =
   }
 ;;
 
-let table =
+let table version =
   { encode =
       (fun (value : Schema_ir.table) ->
         `Assoc
           [ "schema", (option identifier).encode value.schema
           ; "name", identifier.encode value.name
-          ; "columns", (list column).encode value.columns
+          ; "columns", (list (column version)).encode value.columns
           ; "foreign_keys", (list foreign_key).encode value.foreign_keys
           ; "unique_constraints", (list unique_constraint).encode value.unique_constraints
           ])
@@ -319,7 +347,7 @@ let table =
         in
         let%bind schema = field path fields "schema" (option identifier) in
         let%bind name = field path fields "name" identifier in
-        let%bind columns = field path fields "columns" (list column) in
+        let%bind columns = field path fields "columns" (list (column version)) in
         let%bind foreign_keys = field path fields "foreign_keys" (list foreign_key) in
         let%map unique_constraints =
           field path fields "unique_constraints" (list unique_constraint)
@@ -329,7 +357,8 @@ let table =
 ;;
 
 let to_string schema =
-  `Assoc [ "version", `Int 2; "tables", (list table).encode (Schema_ir.tables schema) ]
+  `Assoc
+    [ "version", `Int 3; "tables", (list (table 3)).encode (Schema_ir.tables schema) ]
   |> Yojson.Safe.pretty_to_string ~std:true
   |> fun json -> json ^ "\n"
 ;;
@@ -343,9 +372,9 @@ let of_string source =
   let%bind fields = object_fields "$" json in
   let%bind () = known_fields "$" [ "version"; "tables" ] fields in
   let%bind version = field "$" fields "version" int in
-  if not Int.(version = 2) then
+  if not Int.(version = 2 || version = 3) then
     fail "$.version" ("unsupported snapshot version: " ^ Int.to_string version)
   else (
-    let%map tables = field "$" fields "tables" (list table) in
+    let%map tables = field "$" fields "tables" (list (table version)) in
     Schema_ir.v tables)
 ;;

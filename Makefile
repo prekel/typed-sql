@@ -3,7 +3,8 @@ all: build
 PACKAGES = ./typed-sql.opam ./typed-sql-caqti-lwt.opam \
 	./typed-sql-pgocaml-lwt.opam ./typed-sql-graphql.opam \
 	./typed-sql-schema.opam ./typed-sql-schema-caqti-lwt.opam \
-	./typed-sql-schema-pgocaml-lwt.opam
+	./typed-sql-schema-pgocaml-lwt.opam \
+	./typed-sql-pgocaml-ppx.opam
 OCAML_VERSION ?= 5.1.1
 
 .PHONY: create_switch
@@ -54,6 +55,8 @@ smoke:
 	opam exec -- dune build --only-packages typed-sql,typed-sql-caqti-lwt,typed-sql-graphql @install @runtest
 	opam exec -- dune build --only-packages typed-sql,typed-sql-schema,typed-sql-schema-caqti-lwt @install @runtest
 	opam exec -- dune build --only-packages typed-sql,typed-sql-pgocaml-lwt,typed-sql-schema,typed-sql-schema-pgocaml-lwt @install @runtest
+
+	opam exec -- dune build --only-packages typed-sql,typed-sql-schema,typed-sql-pgocaml-ppx @install @runtest
 
 .PHONY: check
 check: fmt build test coverage coverage-all coverage-mega package

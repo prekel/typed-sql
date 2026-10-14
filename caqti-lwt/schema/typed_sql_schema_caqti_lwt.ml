@@ -127,7 +127,15 @@ AND NOT EXISTS (
 ORDER BY m.name, il.name, ii.seqno|}
 ;;
 
-let introspect_with ~conn ~columns_sql ~foreign_keys_sql ~uniques_sql ~db_type =
+let introspect_with
+      ?postgresql_type
+      ~conn
+      ~columns_sql
+      ~foreign_keys_sql
+      ~uniques_sql
+      ~db_type
+      ()
+  =
   let module Connection = (val conn : Caqti_lwt.CONNECTION) in
   let open Lwt.Syntax in
   let* columns = Connection.collect_list (request column_row_type columns_sql) () in
@@ -144,7 +152,7 @@ let introspect_with ~conn ~columns_sql ~foreign_keys_sql ~uniques_sql ~db_type =
        Lwt.return
          (let open Result.Let_syntax in
           let%bind uniques = map_caqti_error uniques in
-          S.make_schema ~db_type columns foreign_keys uniques
+          S.make_schema ?postgresql_type ~db_type columns foreign_keys uniques
           |> Result.map_error ~f:(function S.Schema message -> Schema message)))
 ;;
 
@@ -158,6 +166,7 @@ let introspect ~conn =
       ~foreign_keys_sql:sqlite_foreign_keys
       ~uniques_sql:sqlite_uniques
       ~db_type:S.sqlite_db_type
+      ()
   | T.Dialect.Pgsql _ ->
     let open Lwt.Syntax in
     let* types = Connection.collect_list (request type_row_type S.postgresql_types) () in
@@ -165,11 +174,13 @@ let introspect ~conn =
      | Error error -> Lwt.return (Error error)
      | Ok types ->
        introspect_with
+         ~postgresql_type:(S.postgresql_column_type types)
          ~conn
          ~columns_sql:S.postgresql_columns
          ~foreign_keys_sql:S.postgresql_foreign_keys
          ~uniques_sql:S.postgresql_uniques
-         ~db_type:(S.postgresql_type_mapper types))
+         ~db_type:(S.postgresql_type_mapper types)
+         ())
   | T.Dialect.Mysql _ -> Lwt.return (Error (Unsupported_dialect "mysql"))
   | T.Dialect.Unknown _ -> Lwt.return (Error (Unsupported_dialect "unknown"))
   | _ -> Lwt.return (Error (Unsupported_dialect "unregistered"))

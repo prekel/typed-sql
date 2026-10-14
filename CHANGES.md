@@ -2,8 +2,25 @@
 
 ## В разработке
 
+### Исправлено
+
+- Offline PPX разрешает относительный путь к schema snapshot сначала от
+  каталога исходника, затем от текущего каталога процесса, по правилам
+  `ppx_blob` начиная с 0.8.0. Это поддерживает Dune sandbox и Merlin/ocamllsp;
+  абсолютные пути используются напрямую, I/O выполняется без `file_exists`.
+
+### Добавлено
+
+- Экспериментальный `typed-sql-pgocaml-ppx`: offline SELECT одной таблицы по
+  snapshot, WHERE с scalar/optional параметрами, ORDER BY, tuples/objects и
+  quoted strings из upstream PR #80. Базовые scalar-типы сохраняют контракт
+  PG’OCaml; неподдержанные SQL и codecs дают compile-time diagnostic.
+
 ### Изменено
 
+- Snapshot writer выпускает версию 3 с точными PostgreSQL-типами колонок;
+  reader принимает версии 2 и 3. Оба PostgreSQL-дампера сохраняют новые metadata.
+  Представления DSL codegen остаются прежними; PPX требует точных native types.
 - `Statement.inspect` и `inspect_exn` без input показывают закодированные
   значения констант, включая литеральные `LIMIT` и `OFFSET`. Параметры из
   input сохраняют неизвестное значение без вызова getters; ошибки кодирования

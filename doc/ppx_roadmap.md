@@ -1,7 +1,11 @@
 # Дорожная карта PPX, совместимого с pgocaml_ppx
 
-Состояние на 14 октября 2026 года. Все этапы ниже запланированы; пакет
-`typed-sql-pgocaml-ppx` пока не реализован. Общая работа над DSL описана в
+Состояние на 14 октября 2026 года. Реализован экспериментальный
+`typed-sql-pgocaml-ppx`: SELECT одной таблицы с WHERE по равенству параметрам,
+AND, ORDER BY, tuples/objects и базовыми scalar-типами PG’OCaml. Подключение и
+точные ограничения описаны в [руководстве PPX](ppx.md). Отмеченные пункты
+проверены offline fixtures и PostgreSQL-тестами; остальные остаются планом.
+Общая работа над DSL описана в
 [дорожной карте проекта](roadmap.md).
 
 ## Цель и границы совместимости
@@ -15,7 +19,7 @@
 результатов, модуль `PGOCaml`, соединения и способ выполнения сохраняются.
 Обновление snapshot после миграций остаётся отдельным действием.
 
-Первая версия поддерживает явно перечисленное подмножество PostgreSQL SQL.
+Текущая версия поддерживает явно перечисленное подмножество PostgreSQL SQL.
 Полная замена любого приложения с `pgocaml_ppx` — долгосрочная цель; её нельзя
 обещать на основании совместимого синтаксиса. Неизвестная конструкция,
 неподдержанный тип или неоднозначный вывод типов завершают компиляцию с
@@ -35,7 +39,7 @@ API внешним RealWorld-приложением.
 
 ## Архитектура и metadata
 
-Планируется отдельный пакет `typed-sql-pgocaml-ppx`. Работа с PostgreSQL SQL,
+Реализован отдельный пакет `typed-sql-pgocaml-ppx`. Работа с PostgreSQL SQL,
 `ppxlib` и генерацией совместимого кода находится за пределами `lib/`;
 backend-independent ядро не получает новых зависимостей от драйвера или Lwt.
 
@@ -52,8 +56,9 @@ backend-independent ядро не получает новых зависимос
 Обычный PPX работает до typechecking приложения и не может получить metadata
 из произвольных OCaml-значений descriptors.
 
-Текущего [snapshot версии 2](schema_snapshot.md) недостаточно для точной
-совместимости. PostgreSQL-интроспекция объединяет `int2` и `int4` в `Int`,
+[Snapshot версии 3](schema_snapshot.md) сохраняет точное PostgreSQL-имя типа
+каждой колонки. Версия 2 по-прежнему читается для codegen, но не содержит этих
+metadata. Portable PostgreSQL-интроспекция объединяет `int2` и `int4` в `Int`,
 `float4` и `float8` в `Float`, а `text`, `varchar` и `bpchar` в `Text`.
 Совместимость требует сохранять точные PostgreSQL-типы, даже если они имеют
 одинаковое переносимое представление в DSL. Вывод типов выражений также
@@ -91,22 +96,25 @@ copyright notices, происхождение и применимая
 
 ### 1. Зафиксировать контракт совместимости
 
-- [ ] Составить матрицу синтаксиса и flags относительно upstream 4.4.0:
+- [x] Зафиксировать матрицу поддержанного синтаксиса и flags в руководстве:
+  поддержанные scalar quotations и явные diagnostics для остальных возможностей.
+- [ ] Расширить проверяемый контракт до всего синтаксиса upstream 4.4.0:
   tuples, objects, `$name`, `$?name`, `${...}`, list-подстановки, converters,
   `nullable-results`, `show`, source comments и параметры подключения.
-- [ ] Перенести и адаптировать
+- [x] Перенести и адаптировать
   [upstream PR #80](https://github.com/darioteixeira/pgocaml/pull/80): поддержку
   OCaml quoted strings `{|...|}` и `{sql|...|sql}` при разборе аргументов PPX.
   Добавить regression fixtures для многострочного SQL, обоих видов quotations
   (`pgsql` и `pgsql.object`), обычных строк и подстановок внутри quoted strings.
-- [ ] Зафиксировать OCaml-типы, порядок и имена полей, порядок строк, runtime
-  exceptions и работу prepared statements на небольших downstream fixtures.
-- [ ] Описать судьбу каждого flag: поддержка или явный diagnostic. В первой
+- [x] Зафиксировать для поддержанного SELECT OCaml-типы, output names, порядок
+  строк, NULL и работу prepared statements в downstream fixtures.
+- [ ] Расширить эти fixtures вместе с поддержкой остального SQL и converters.
+- [x] Описать судьбу каждого flag: поддержка или явный diagnostic. В первой
   версии отклонять compile-time `execute` и flags подключения к БД.
-- [ ] Зафиксировать возможности SQL parser на quotations с комментариями,
-  quoted identifiers, строками и dollar quoting; выбрать parser для
-  минимального подмножества с сохранением позиций ошибок.
-- [ ] При заимствовании кода выделить файлы с лицензией и указать tag/commit
+- [x] Реализовать небольшой parser SELECT с комментариями, quoted identifiers
+  и byte offsets diagnostics; грамматика полностью проверяет входной SQL.
+- [ ] Расширить parser до SQL expressions/literals и PostgreSQL dollar quoting.
+- [x] При заимствовании кода выделить файлы с лицензией и указать tag/commit
   upstream, чтобы изменения можно было сверять с исходной реализацией.
 
 Критерий завершения: для каждого проверяемого элемента контракта есть fixture
@@ -114,35 +122,39 @@ copyright notices, происхождение и применимая
 
 ### 2. Подготовить общий источник схемы
 
-- [ ] Добавить точные PostgreSQL-типы в metadata интроспекции и snapshot,
-  включая различия `int2`/`int4` и сведения об enum/domain/array.
-- [ ] Зафиксировать новую версию snapshot и поведение reader/codegen для
+- [x] Сохранять точное имя native type каждой колонки, включая `int2`/`int4`
+  и имена enum/domain/array; оба дампера создают одинаковый snapshot.
+- [ ] Сохранять точные native types domain bases и array elements для их
+  будущего вывода типов, сверх существующих portable nested descriptors.
+- [x] Зафиксировать новую версию snapshot и поведение reader/codegen для
   старых файлов. Потерянные сведения нельзя восстанавливать догадкой;
   совместимый PPX должен требовать достаточно полный snapshot.
-- [ ] Сохранить единый источник для PPX и генератора DSL descriptors, с
+- [x] Сохранить единый источник для PPX и генератора DSL descriptors, с
   отдельным выбором OCaml-представлений для каждого потребителя.
-- [ ] Описать настройку schema file и разрешение неквалифицированных имён.
+- [x] Описать настройку schema file и разрешение неквалифицированных имён.
   Одинаковые имена в разных схемах не должны разрешаться случайным порядком.
-- [ ] Описать Dune dependencies: изменение snapshot или converter config
-  пересобирает quotations. Файлы metadata не содержат credentials.
+- [x] Описать и проверить пересборку Dune при изменении snapshot. Файлы
+  metadata не содержат credentials.
+- [ ] Добавить converter config в dependencies после реализации converters.
 
 Критерий завершения: round-trip snapshot сохраняет необходимые точные типы,
 а PPX и codegen читают одну схему без доступа к БД.
 
 ### 3. Выпустить минимальный offline PPX
 
-- [ ] Поддержать SELECT из одной таблицы: columns, projection aliases, `*`,
-  WHERE с boolean/comparison expressions, ORDER BY, LIMIT и OFFSET.
+- [x] Поддержать SELECT одной таблицы, columns/projection aliases, `*`, WHERE
+  `column = parameter`, AND со скобками и ORDER BY исходным колонкам.
+- [ ] Добавить остальные boolean/comparison expressions, LIMIT и OFFSET.
 - [ ] Поддержать базовые INSERT/UPDATE/DELETE по одной таблице, включая
   RETURNING; operators и statements вне заявленного подмножества отклонять.
-- [ ] Сохранить scalar/optional подстановки и `${...}`, вывод типов
+- [x] Сохранить scalar/optional подстановки и `${...}`, вывод типов
   параметров по контексту запроса, tuples, objects и порядок строк.
-- [ ] Сохранить nullability прямых колонок и flag `nullable-results`.
-  Выражения без подтверждённого upstream происхождения колонки возвращать с
-  соответствующим `option`; неоднозначность типа не скрывать выбором codec.
-- [ ] Сохранить PG’OCaml serializers/decoders для поддержанных типов.
+- [x] Сохранить nullability прямых колонок и flag `nullable-results`.
+- [ ] Добавить nullability вычисляемых expressions при расширении projection;
+  отсутствие подтверждённого column origin учитывать по upstream-контракту.
+- [x] Сохранить PG’OCaml serializers/decoders для поддержанных типов.
   Неподдержанные converters и flags сопровождать отдельными diagnostics.
-- [ ] Добавить пакет через `dune-project` и руководство подключения с
+- [x] Добавить пакет через `dune-project` и руководство подключения с
   точным перечнем поддержанного SQL и примером изменения Dune.
 
 Критерий завершения: downstream fixtures собираются без доступной БД,
@@ -155,7 +167,8 @@ copyright notices, происхождение и применимая
   casts, CASE, подзапросы, CTE и set operations.
 - [ ] Расширять правила PostgreSQL type inference вместе с поддержкой
   операторов, функций и implicit coercions; неоднозначные случаи отклонять.
-- [ ] Добавить native arrays и list-подстановки как разные возможности.
+- [ ] Добавить enum/domain codecs, native arrays и list-подстановки как
+  отдельные возможности.
   Для lists проверить пустой список, несколько длин и порядок placeholders.
 - [ ] Поддержать custom converters, `show`/`show=...` и source comments с
   отдельной проверкой совместимости.
@@ -187,19 +200,28 @@ compile-fail fixtures, сравнение типов и выполнения с 
 
 ## Проверки и критерии выпуска
 
-- [ ] Compile-time fixtures запускаются с недоступным PostgreSQL; переменные
+- [ ] Поддержать PG’OCaml 4.3.0 и PostgreSQL 15 как минимальную совместимую
+  связку: проверить сборку PPX и generated-кода, scalar codecs, bind parameters,
+  NULL, prepared cache и одинаковые snapshots обоих дамперов. Текущий пакет
+  требует PG’OCaml 4.4.0; PostgreSQL-проверки выполнены на 18.6. После проверки
+  связки 4.3.0/15 снизить нижнюю границу `pgocaml` в `dune-project` до 4.3.0,
+  сохранив regression-проверки на 4.4.0 и PostgreSQL 18.
+- [x] Compile-time fixtures запускаются с недоступным PostgreSQL; переменные
   окружения `PG*` не включают скрытый online fallback. Отсутствующий snapshot
   даёт diagnostic.
-- [ ] Сравнение с upstream проверяет OCaml-типы параметров/результата, включая
-  `option`, tuples, object methods, enum/domain и converters.
-- [ ] Compile-fail сценарии покрывают неизвестные таблицы и колонки,
-  неоднозначные references, несовместимые типы и неподдержанные SQL/flags.
-- [ ] Небольшие отдельные expect snapshots проверяют diagnostics и
-  сгенерированный код; bind values никогда не интерполируются в SQL.
-- [ ] Отдельные PostgreSQL-тесты сравнивают результаты, NULL, порядок строк,
-  RETURNING, повторное выполнение и list-подстановки с upstream. Они не
-  становятся условием обычной компиляции приложения.
-- [ ] Проверки Dune подтверждают пересборку после изменения metadata и
+- [x] Fixtures фиксируют OCaml-типы upstream для параметров/результата, включая
+  `option`, tuples и object methods поддержанного SELECT.
+- [ ] Расширить сравнение на enum/domain, converters и остальной SQL.
+- [x] Compile-fail сценарии покрывают неизвестные таблицы и колонки,
+  неверные source references, несовместимые типы и неподдержанные SQL/flags.
+- [x] Небольшие отдельные expect snapshots проверяют diagnostics и
+  bind SQL; offline assertions проверяют результаты генерации. Значения
+  никогда не интерполируются в SQL.
+- [x] Отдельные PostgreSQL-тесты сравнивают результаты, NULL, порядок строк,
+  WHERE и повторное выполнение в рамках зафиксированного upstream-контракта.
+  Они не становятся условием обычной компиляции приложения.
+- [ ] Расширить PostgreSQL-проверки на RETURNING, list-подстановки и остальной SQL.
+- [x] Проверки Dune подтверждают пересборку после изменения metadata и
   воспроизводимость генерации при неизменном input.
 
 Обычные offline проверки не требуют внешнего сервиса. Проверки соответствия

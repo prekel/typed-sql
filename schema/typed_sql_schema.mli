@@ -57,6 +57,7 @@ module Schema_ir : sig
     -> ?default:string
     -> ?generated:bool
     -> ?primary_key_position:int
+    -> ?postgresql_type:Identifier.t * Identifier.t
     -> unit
     -> column
 
@@ -107,6 +108,12 @@ module Schema_ir : sig
   (** Return the portable or preserved unsupported database type. *)
   val column_db_type : column -> db_type
 
+  (** Exact PostgreSQL [(schema, type_name)] when introspection supplied it.
+      Unlike [column_db_type], this distinguishes [int2] from [int4]. Older
+      snapshots and SQLite columns return [None]; missing metadata must not
+      be reconstructed from the portable representation. *)
+  val column_postgresql_type : column -> (Identifier.t * Identifier.t) option
+
   (** Report whether reads use an option codec. *)
   val column_nullable : column -> bool
 
@@ -143,13 +150,14 @@ module Schema_snapshot : sig
   (** A malformed document or unsupported snapshot version. *)
   type error
 
-  (** Encode version 2 JSON with a fixed field order, indentation and a final
+  (** Encode version 3 JSON with a fixed field order, indentation and a final
       newline. All schema list orders and opaque default/type strings are
       preserved. Optional metadata is written as JSON [null]. No database or
       filesystem access is performed. *)
   val to_string : Schema_ir.t -> string
 
-  (** Decode one version 2 JSON document. All fields are required; duplicate
+  (** Decode a version 2 or 3 JSON document. Version 2 has no exact PostgreSQL
+      type metadata. All fields for the declared version are required; duplicate
       and unknown fields, invalid identifiers, incorrect JSON types and
       unsupported versions are rejected. This validates the snapshot structure,
       not database constraints or whether the generator supports its SQL types. *)

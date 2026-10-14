@@ -5,7 +5,34 @@ let identifier = Identifier.of_string_exn
 let public_schema = identifier "public"
 
 let column name db_type =
-  Schema_ir.column ~name:(identifier name) ~db_type ~nullable:false ()
+  let pg_catalog = identifier "pg_catalog" in
+  let schema, native_name =
+    match db_type with
+    | Schema_ir.Bool -> pg_catalog, "bool"
+    | Int -> pg_catalog, "int4"
+    | Int64 -> pg_catalog, "int8"
+    | Float -> pg_catalog, "float8"
+    | Numeric -> pg_catalog, "numeric"
+    | Text -> pg_catalog, "text"
+    | Bytes -> pg_catalog, "bytea"
+    | Date -> pg_catalog, "date"
+    | Timestamp -> pg_catalog, "timestamptz"
+    | Timestamp_without_timezone -> pg_catalog, "timestamp"
+    | Interval -> pg_catalog, "interval"
+    | Json -> pg_catalog, "json"
+    | Jsonb -> pg_catalog, "jsonb"
+    | Uuid -> pg_catalog, "uuid"
+    | Enum { schema; name; _ } | Domain { schema; name; _ } | Named { schema; name } ->
+      schema, Identifier.to_string name
+    | Array Int -> pg_catalog, "_int4"
+    | Array _ | Unsupported _ -> failwith "fixture has an unsupported native type"
+  in
+  Schema_ir.column
+    ~name:(identifier name)
+    ~db_type
+    ~nullable:false
+    ~postgresql_type:(schema, identifier native_name)
+    ()
 ;;
 
 let schema =

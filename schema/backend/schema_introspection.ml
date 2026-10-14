@@ -321,7 +321,14 @@ let belongs_to_table ~schema ~table (row_schema, row_table, _, _) =
   Option.equal String.equal schema row_schema && String.equal table row_table
 ;;
 
-let make_schema ~db_type columns foreign_keys uniques =
+let postgresql_column_type rows oid =
+  Option.bind (Int.of_string_opt oid) ~f:(fun oid ->
+    List.find rows ~f:(fun (row_oid, _, _, _) -> Int.equal oid row_oid)
+    |> Option.map ~f:(fun (_, schema, name, _) ->
+      Typed_sql.Identifier.of_string_exn schema, Typed_sql.Identifier.of_string_exn name))
+;;
+
+let make_schema ?(postgresql_type = fun _ -> None) ~db_type columns foreign_keys uniques =
   let open Result.Let_syntax in
   let primary_keys = primary_key_columns columns in
   let column_groups =
@@ -353,6 +360,7 @@ let make_schema ~db_type columns foreign_keys uniques =
                Typed_sql_schema.Schema_ir.column
                  ~name
                  ~db_type:(db_type database_type)
+                 ?postgresql_type:(postgresql_type database_type)
                  ~nullable
                  ?default
                  ~generated

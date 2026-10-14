@@ -157,3 +157,19 @@
   (pgocaml (>= 4.3.0)))
  (tags
   (database sql schema pgocaml lwt postgresql)))
+
+(package
+ (name typed-sql-pgocaml-ppx)
+ (synopsis "Offline schema-checked PG'OCaml SELECT quotations")
+ (description
+  "An experimental PG'OCaml-compatible SELECT PPX using typed-sql schema snapshots instead of compile-time database access.")
+ (license LGPL-2.0-or-later)
+ (depends
+  (ocaml (>= 4.14.1))
+  (typed-sql-schema (= :version))
+  base
+  (ppxlib (>= 0.35.0))
+  ppx_let
+  (pgocaml (>= 4.4.0))
+  (ppx_expect :with-test))
+ (tags (database sql pgocaml ppx postgresql)))

@@ -1,0 +1,64 @@
+(library
+ (name typed_sql_pgocaml_ppx_tests)
+ (package typed-sql-pgocaml-ppx)
+ (modules frontend_test quotation_test)
+ (libraries base pgocaml typed-sql-schema typed-sql-pgocaml-ppx)
+ (inline_tests)
+ (preprocessor_deps schema.json)
+ (preprocess
+  (pps
+   ppx_expect
+   ppx_let
+   typed-sql-pgocaml-ppx
+   --
+   --typed-sql-schema
+   schema.json)))
+
+(executable
+ (name ppx_driver)
+ (modules ppx_driver)
+ (libraries ppxlib typed-sql-pgocaml-ppx))
+
+(executable
+ (name postgresql_test)
+ (modules postgresql_test)
+ (libraries base pgocaml)
+ (preprocessor_deps schema.json)
+ (preprocess
+  (pps typed-sql-pgocaml-ppx -- --typed-sql-schema schema.json)))
+
+(rule
+ (alias runtest)
+ (package typed-sql-pgocaml-ppx)
+ (deps
+  compile_fail_test.sh
+  schema.json
+  (glob_files compile_fail/*.ml))
+ (action
+  (run
+   bash
+   %{dep:compile_fail_test.sh}
+   %{exe:ppx_driver.exe}
+   %{bin:ocamlfind})))
+
+(rule
+ (alias runtest)
+ (package typed-sql-pgocaml-ppx)
+ (deps rebuild_test.sh rebuild_schema.json)
+ (action
+  (run
+   bash
+   %{dep:rebuild_test.sh}
+   %{exe:ppx_driver.exe}
+   %{dep:rebuild_schema.json})))
+
+(rule
+ (alias runtest)
+ (package typed-sql-pgocaml-ppx)
+ (deps editor_path_test.sh rebuild_schema.json)
+ (action
+  (run
+   bash
+   %{dep:editor_path_test.sh}
+   %{exe:ppx_driver.exe}
+   %{dep:rebuild_schema.json})))

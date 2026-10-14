@@ -1,0 +1,360 @@
+{
+  "version": 3,
+  "tables": [
+    {
+      "schema": "public",
+      "name": "people",
+      "columns": [
+        {
+          "name": "small_value",
+          "db_type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "int2"
+          }
+        },
+        {
+          "name": "id",
+          "db_type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "int4"
+          }
+        },
+        {
+          "name": "big_value",
+          "db_type": {
+            "kind": "int64"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "int8"
+          }
+        },
+        {
+          "name": "real_value",
+          "db_type": {
+            "kind": "float"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "float4"
+          }
+        },
+        {
+          "name": "double_value",
+          "db_type": {
+            "kind": "float"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "float8"
+          }
+        },
+        {
+          "name": "name",
+          "db_type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "text"
+          }
+        },
+        {
+          "name": "note",
+          "db_type": {
+            "kind": "text"
+          },
+          "nullable": true,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "varchar"
+          }
+        },
+        {
+          "name": "fixed_value",
+          "db_type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "bpchar"
+          }
+        },
+        {
+          "name": "active",
+          "db_type": {
+            "kind": "bool"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "bool"
+          }
+        },
+        {
+          "name": "data",
+          "db_type": {
+            "kind": "bytes"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "bytea"
+          }
+        },
+        {
+          "name": "amount",
+          "db_type": {
+            "kind": "numeric"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "numeric"
+          }
+        },
+        {
+          "name": "day",
+          "db_type": {
+            "kind": "date"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "date"
+          }
+        },
+        {
+          "name": "clock",
+          "db_type": {
+            "kind": "named",
+            "schema": "pg_catalog",
+            "name": "time"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "time"
+          }
+        },
+        {
+          "name": "local_time",
+          "db_type": {
+            "kind": "timestamp_without_timezone"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "timestamp"
+          }
+        },
+        {
+          "name": "instant",
+          "db_type": {
+            "kind": "timestamp"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "timestamptz"
+          }
+        },
+        {
+          "name": "duration",
+          "db_type": {
+            "kind": "interval"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "interval"
+          }
+        },
+        {
+          "name": "document",
+          "db_type": {
+            "kind": "json"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "json"
+          }
+        },
+        {
+          "name": "binary_document",
+          "db_type": {
+            "kind": "jsonb"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "jsonb"
+          }
+        },
+        {
+          "name": "external_id",
+          "db_type": {
+            "kind": "uuid"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "uuid"
+          }
+        }
+      ],
+      "foreign_keys": [],
+      "unique_constraints": []
+    },
+    {
+      "schema": "public",
+      "name": "unsupported",
+      "columns": [
+        {
+          "name": "numbers",
+          "db_type": {
+            "kind": "named",
+            "schema": "pg_catalog",
+            "name": "_int4"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_int4"
+          }
+        }
+      ],
+      "foreign_keys": [],
+      "unique_constraints": []
+    },
+    {
+      "schema": "public",
+      "name": "legacy",
+      "columns": [
+        {
+          "name": "id",
+          "db_type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": null
+        }
+      ],
+      "foreign_keys": [],
+      "unique_constraints": []
+    },
+    {
+      "schema": "public",
+      "name": "quoted",
+      "columns": [
+        {
+          "name": "odd\"name",
+          "db_type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "text"
+          }
+        },
+        {
+          "name": "method",
+          "db_type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "text"
+          }
+        }
+      ],
+      "foreign_keys": [],
+      "unique_constraints": []
+    }
+  ]
+}
