@@ -11,6 +11,13 @@
 
 ### Добавлено
 
+- Offline PG’OCaml PPX: NOT/AND/OR, comparisons, IS NULL, LIKE/ILIKE,
+  BETWEEN, фиксированный IN, ANY/ALL, literals в WHERE и LIMIT/OFFSET.
+  Enum/domain и одномерные native arrays поддержанных scalar-типов сохраняют
+  представления PG’OCaml. SQL имеет только статическую форму; динамические
+  `$@list` отложены и дают отдельный diagnostic.
+- Snapshot v3 расширен необязательными nested native types и attribute NOT NULL.
+  Reader сохраняет поддержку прежних v2/v3; portable DSL codegen не меняется.
 - Offline PG’OCaml PPX поддерживает INSERT/UPDATE/DELETE одной таблицы,
   RETURNING, несколько VALUES, DEFAULT и ON CONFLICT с DO NOTHING/DO UPDATE,
   EXCLUDED и WHERE. Команды без RETURNING возвращают unit; результаты

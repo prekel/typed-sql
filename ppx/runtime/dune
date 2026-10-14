@@ -1,0 +1,6 @@
+(library
+ (name typed_sql_pgocaml_runtime)
+ (public_name typed-sql-pgocaml-ppx.runtime)
+ (libraries base)
+ (preprocess
+  (pps ppx_let)))

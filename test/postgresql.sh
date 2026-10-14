@@ -126,6 +126,15 @@ dune exec --root . pgocaml-lwt/test/postgresql_test.exe
 "$pg_bindir/createdb" typed_sql_ppx_test
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/postgresql_test.exe
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/dml_postgresql_test.exe
+PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/extended_postgresql_test.exe
+if [[ -n "${TYPED_SQL_UPSTREAM_PPX:-}" ]]; then
+  dune build --root . ppx/test/ppx_driver.exe ppx/runtime/typed_sql_pgocaml_runtime.cma
+  PGDATABASE=typed_sql_ppx_test bash ppx/test/upstream_contract_test.sh \
+    "$TYPED_SQL_UPSTREAM_PPX" \
+    "$PWD/_build/default/ppx/test/ppx_driver.exe" \
+    "$PWD/_build/default/ppx/runtime/typed_sql_pgocaml_runtime.cma" \
+    "$PWD/_build/default/ppx/runtime/.typed_sql_pgocaml_runtime.objs/byte/typed_sql_pgocaml_runtime.cmi"
+fi
 PGDATABASE=typed_sql_ppx_test dune exec --root . caqti-lwt/schema/typed_sql_schema_dump.exe > "$workdir/ppx_caqti_schema.json"
 PGDATABASE=typed_sql_ppx_test dune exec --root . schema-pgocaml-lwt/typed_sql_pgocaml_schema_dump.exe > "$workdir/ppx_pgocaml_schema.json"
 diff -u "$workdir/ppx_caqti_schema.json" "$workdir/ppx_pgocaml_schema.json"

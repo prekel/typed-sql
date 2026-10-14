@@ -12,6 +12,7 @@ type raw_foreign_key =
   * (int * string * string option * (string * string option))
 
 type raw_unique = string option * string * string option * (int * string)
+type raw_attribute = string * string * string * bool
 type raw_type = int * string * string * (string * int * int * string)
 
 let postgresql_columns =
@@ -54,6 +55,16 @@ ON pk.table_schema = c.table_schema
 WHERE c.table_schema NOT IN ('pg_catalog', 'information_schema')
 AND tables.table_type = 'BASE TABLE'
 ORDER BY c.table_schema, c.table_name, c.ordinal_position|}
+;;
+
+let postgresql_attributes =
+  {|SELECT ns.nspname, rel.relname, a.attname, a.attnotnull
+FROM pg_catalog.pg_attribute AS a
+JOIN pg_catalog.pg_class AS rel ON rel.oid = a.attrelid
+JOIN pg_catalog.pg_namespace AS ns ON ns.oid = rel.relnamespace
+WHERE rel.relkind IN ('r', 'p') AND a.attnum > 0 AND NOT a.attisdropped
+AND ns.nspname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY ns.nspname, rel.relname, a.attnum|}
 ;;
 
 let postgresql_types =
@@ -328,7 +339,79 @@ let postgresql_column_type rows oid =
       Typed_sql.Identifier.of_string_exn schema, Typed_sql.Identifier.of_string_exn name))
 ;;
 
-let make_schema ?(postgresql_type = fun _ -> None) ~db_type columns foreign_keys uniques =
+let postgresql_type_info rows oid =
+  let open Result.Let_syntax in
+  let rec resolve seen oid =
+    if List.mem seen oid ~equal:Int.equal then
+      Error (Schema "cyclic native type metadata")
+    else (
+      match
+        List.find rows ~f:(fun (id, _, _, _) -> Int.equal id oid)
+      with
+      | None -> Error (Schema ("missing native type OID " ^ Int.to_string oid))
+      | Some (_, schema, name, (kind, base, element, labels)) ->
+        let%bind schema = identifier ~context:"native type schema" schema in
+        let%bind name = identifier ~context:"native type name" name in
+        let next = oid :: seen in
+        let%map kind =
+          match kind with
+          | "d" ->
+            let%map base = resolve next base in
+            Typed_sql_schema.Schema_ir.Native_domain base
+          | "e" ->
+            let%bind json =
+              Result.try_with (fun () -> Yojson.Safe.from_string labels)
+              |> Result.map_error ~f:(fun _ -> Schema "invalid enum labels JSON")
+            in
+            (match json with
+             | `List labels ->
+               let%map labels =
+                 List.map labels ~f:(function
+                   | `String value -> Ok value
+                   | _ -> Error (Schema "invalid enum label"))
+                 |> Result.all
+               in
+               Typed_sql_schema.Schema_ir.Native_enum labels
+             | _ -> Error (Schema "enum labels must be an array"))
+          | "b"
+            when String.is_prefix (Typed_sql.Identifier.to_string name) ~prefix:"_"
+                 && Int.(element <> 0) ->
+            let%map element = resolve next element in
+            Typed_sql_schema.Schema_ir.Native_array element
+          | "b" when String.equal (Typed_sql.Identifier.to_string schema) "pg_catalog" ->
+            Ok Typed_sql_schema.Schema_ir.Native_scalar
+          | _ -> Ok Typed_sql_schema.Schema_ir.Native_opaque
+        in
+        { Typed_sql_schema.Schema_ir.schema; name; kind })
+  in
+  match Int.of_string_opt oid with
+  | None -> Error (Schema "invalid native type OID")
+  | Some oid ->
+    let%map info = resolve [] oid in
+    Some info
+;;
+
+let postgresql_attribute_not_null rows schema table column =
+  List.find_map rows ~f:(fun (actual_schema, actual_table, actual_column, not_null) ->
+    if
+      Option.value_map schema ~default:false ~f:(String.equal actual_schema)
+      && String.equal table actual_table
+      && String.equal column actual_column
+    then
+      Some not_null
+    else
+      None)
+;;
+
+let make_schema
+      ?(postgresql_type = fun _ -> None)
+      ?(postgresql_type_info = fun _ -> Ok None)
+      ?(postgresql_attribute_not_null = fun _ _ _ -> None)
+      ~db_type
+      columns
+      foreign_keys
+      uniques
+  =
   let open Result.Let_syntax in
   let primary_keys = primary_key_columns columns in
   let column_groups =
@@ -356,11 +439,20 @@ let make_schema ?(postgresql_type = fun _ -> None) ~db_type columns foreign_keys
                  , (database_type, nullable, default, (generated, primary_key_position))
                  )
                ->
+               let attribute_not_null =
+                 postgresql_attribute_not_null
+                   (Option.map schema ~f:Typed_sql.Identifier.to_string)
+                   table
+                   name
+               in
+               let%bind native_info = postgresql_type_info database_type in
                let%map name = identifier ~context:"column name" name in
                Typed_sql_schema.Schema_ir.column
                  ~name
                  ~db_type:(db_type database_type)
                  ?postgresql_type:(postgresql_type database_type)
+                 ?postgresql_type_info:native_info
+                 ?postgresql_attribute_not_null:attribute_not_null
                  ~nullable
                  ?default
                  ~generated

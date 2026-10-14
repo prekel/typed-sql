@@ -112,6 +112,17 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
     | fields -> wrong_width 7 fields
   ;;
 
+  let decode_attribute = function
+    | [ schema; table; column; not_null ] ->
+      let open Result.Let_syntax in
+      let%bind schema = required "attribute schema" schema in
+      let%bind table = required "attribute table" table in
+      let%bind column = required "attribute column" column in
+      let%map not_null = boolean "attribute not-null" not_null in
+      schema, table, column, not_null
+    | fields -> wrong_width 4 fields
+  ;;
+
   let fetch conn ~name ~decode sql =
     let open Lwt.Syntax in
     Lwt.catch
@@ -131,39 +142,48 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
     match types with
     | Error error -> Lwt.return (Error error)
     | Ok types ->
-      let* columns =
-        fetch conn ~name:"columns" ~decode:decode_column S.postgresql_columns
+      let* attributes =
+        fetch conn ~name:"attributes" ~decode:decode_attribute S.postgresql_attributes
       in
-      (match columns with
+      (match attributes with
        | Error error -> Lwt.return (Error error)
-       | Ok columns ->
-         let* foreign_keys =
-           fetch
-             conn
-             ~name:"foreign keys"
-             ~decode:decode_foreign_key
-             S.postgresql_foreign_keys
+       | Ok attributes ->
+         let* columns =
+           fetch conn ~name:"columns" ~decode:decode_column S.postgresql_columns
          in
-         (match foreign_keys with
+         (match columns with
           | Error error -> Lwt.return (Error error)
-          | Ok foreign_keys ->
-            let* uniques =
+          | Ok columns ->
+            let* foreign_keys =
               fetch
                 conn
-                ~name:"unique constraints"
-                ~decode:decode_unique
-                S.postgresql_uniques
+                ~name:"foreign keys"
+                ~decode:decode_foreign_key
+                S.postgresql_foreign_keys
             in
-            Lwt.return
-              (let open Result.Let_syntax in
-               let%bind uniques = uniques in
-               S.make_schema
-                 ~postgresql_type:(S.postgresql_column_type types)
-                 ~db_type:(S.postgresql_type_mapper types)
-                 columns
-                 foreign_keys
-                 uniques
-               |> Result.map_error ~f:(function S.Schema message -> Schema message))))
+            (match foreign_keys with
+             | Error error -> Lwt.return (Error error)
+             | Ok foreign_keys ->
+               let* uniques =
+                 fetch
+                   conn
+                   ~name:"unique constraints"
+                   ~decode:decode_unique
+                   S.postgresql_uniques
+               in
+               Lwt.return
+                 (let open Result.Let_syntax in
+                  let%bind uniques = uniques in
+                  S.make_schema
+                    ~postgresql_type:(S.postgresql_column_type types)
+                    ~postgresql_type_info:(S.postgresql_type_info types)
+                    ~postgresql_attribute_not_null:
+                      (S.postgresql_attribute_not_null attributes)
+                    ~db_type:(S.postgresql_type_mapper types)
+                    columns
+                    foreign_keys
+                    uniques
+                  |> Result.map_error ~f:(function S.Schema message -> Schema message)))))
   ;;
 end
 

@@ -12,6 +12,8 @@ commit `4462561`. Pattern адаптирован к AST текущего `ppxlib
 тесты сохраняют отдельные проверки обычных и delimited strings.
 
 SQL parser и разрешение metadata написаны для ограниченного offline SELECT
-и DML, включая обычный ON CONFLICT.
+и DML, включая обычный ON CONFLICT. Структурные codecs, native metadata и
+helpers одномерных arrays написаны для этого проекта; runtime-сборка SQL
+и динамические list-подстановки upstream не переносятся.
 Этот пакет не включает online-интроспекцию upstream и не обращается к БД при
 компиляции. Поддержанное подмножество описано в [руководстве](../doc/ppx.md).

@@ -4,13 +4,13 @@ module I = Typed_sql_schema.Identifier
 
 type field =
   { name : string
-  ; codec : string
+  ; codec : Codec.t
   ; nullable : bool
   }
 
-type parameter =
+type parameter = Predicate_plan.parameter =
   { value : Sql.parameter
-  ; codec : string
+  ; codec : Codec.t
   }
 
 type result =
@@ -32,31 +32,7 @@ let fields plan =
 let fail offset message = Error { Sql.offset; message }
 
 let codec ~offset column =
-  match S.column_postgresql_type column with
-  | None ->
-    fail
-      offset
-      ("missing exact PostgreSQL type for column "
-       ^ I.to_string (S.column_name column)
-       ^ "; refresh the schema snapshot")
-  | Some (schema, name) ->
-    let schema = I.to_string schema in
-    let name = I.to_string name in
-    if not (String.equal schema "pg_catalog") then
-      fail offset ("unsupported PostgreSQL type: " ^ schema ^ "." ^ name)
-    else (
-      match
-        name
-      with
-      | "bool" -> Ok "bool"
-      | "int2" -> Ok "int16"
-      | "int4" -> Ok "int32"
-      | "int8" -> Ok "int64"
-      | "float4" | "float8" -> Ok "float"
-      | "text" | "varchar" | "bpchar" | "numeric" | "json" | "jsonb" -> Ok "string"
-      | "bytea" | "date" | "time" | "timestamp" | "timestamptz" | "interval" | "uuid" ->
-        Ok name
-      | _ -> fail offset ("unsupported PostgreSQL type: " ^ schema ^ "." ^ name))
+  Result.map (Native_type.of_column ~offset column) ~f:Native_type.codec
 ;;
 
 let create schema (query : Sql.t) =
@@ -125,23 +101,12 @@ let create schema (query : Sql.t) =
     { value; codec }
   in
   let conditions ~excluded values =
-    List.map values ~f:(fun ((reference : Sql.reference), value) ->
-      let%bind column =
+    Predicate_plan.create
+      ~resolve:(fun (reference : Sql.reference) ->
         match reference.names with
         | "excluded" :: _ when excluded -> resolve_excluded reference
-        | _ -> resolve reference
-      in
-      let%bind () =
-        match S.column_postgresql_type column with
-        | Some (schema, name)
-          when String.equal (I.to_string schema) "pg_catalog"
-               && String.equal (I.to_string name) "json" ->
-          fail reference.offset "PostgreSQL json has no equality operator; use jsonb"
-        | _ -> Ok ()
-      in
-      let%map codec = codec ~offset:reference.offset column in
-      { value; codec })
-    |> Result.all
+        | _ -> resolve reference)
+      values
   in
   let write (reference : Sql.reference) value =
     let%bind column = resolve reference in
@@ -258,10 +223,25 @@ let create schema (query : Sql.t) =
   in
   let%bind predicates = conditions ~excluded:false query.conditions in
   let field ~offset ?name column =
+    let%bind () =
+      match
+        ( S.column_postgresql_type_info column
+        , S.column_postgresql_attribute_not_null column )
+      with
+      | Some { kind = Native_domain _; _ }, None ->
+        fail
+          offset
+          "missing PostgreSQL attribute nullability for domain column; refresh the schema snapshot"
+      | _ -> Ok ()
+    in
     let%map codec = codec ~offset column in
     { name = Option.value name ~default:(I.to_string (S.column_name column))
     ; codec
-    ; nullable = S.column_nullable column
+    ; nullable =
+        Option.value_map
+          (S.column_postgresql_attribute_not_null column)
+          ~default:(S.column_nullable column)
+          ~f:not
     }
   in
   let%bind fields =
@@ -291,18 +271,27 @@ let create schema (query : Sql.t) =
   let%bind () =
     List.map query.order ~f:(fun reference ->
       let%bind column = resolve reference in
-      match S.column_postgresql_type column with
-      | Some (schema, name)
-        when String.equal (I.to_string schema) "pg_catalog"
-             && String.equal (I.to_string name) "json" ->
-        fail reference.offset "PostgreSQL json has no ordering operator; use jsonb"
-      | _ -> Ok ())
+      let%bind native = Native_type.of_column ~offset:reference.offset column in
+      if Native_type.comparable native then
+        Ok ()
+      else
+        fail reference.offset "PostgreSQL json has no ordering operator; use jsonb")
     |> Result.all
     |> Result.map ~f:(fun _ -> ())
   in
+  let%bind pagination =
+    List.map
+      (Option.to_list query.limit @ Option.to_list query.offset)
+      ~f:(function
+        | Sql.Parameter_value value -> Ok [ { value; codec = Codec.Scalar "int64" } ]
+        | _ -> Ok [])
+    |> Result.all
+    |> Result.map ~f:List.concat
+  in
   let parameters =
-    List.sort (writes @ predicates) ~compare:(fun left right ->
-      Int.compare left.value.start right.value.start)
+    List.sort
+      (writes @ predicates @ pagination)
+      ~compare:(fun left right -> Int.compare left.value.start right.value.start)
   in
   let pieces, stop =
     List.foldi parameters ~init:([], 0) ~f:(fun index (pieces, stop) { value; _ } ->

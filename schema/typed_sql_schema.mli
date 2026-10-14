@@ -37,6 +37,20 @@ module Schema_ir : sig
         }
     | Unsupported of string
 
+  (** Exact nested native types, independent of portable DSL representations. *)
+  type postgresql_type_info =
+    { schema : Identifier.t
+    ; name : Identifier.t
+    ; kind : postgresql_type_kind
+    }
+
+  and postgresql_type_kind =
+    | Native_scalar
+    | Native_enum of string list
+    | Native_domain of postgresql_type_info
+    | Native_array of postgresql_type_info
+    | Native_opaque
+
   type column
   type foreign_key
   type unique_constraint
@@ -58,6 +72,8 @@ module Schema_ir : sig
     -> ?generated:bool
     -> ?primary_key_position:int
     -> ?postgresql_type:Identifier.t * Identifier.t
+    -> ?postgresql_type_info:postgresql_type_info
+    -> ?postgresql_attribute_not_null:bool
     -> unit
     -> column
 
@@ -114,6 +130,13 @@ module Schema_ir : sig
       be reconstructed from the portable representation. *)
   val column_postgresql_type : column -> (Identifier.t * Identifier.t) option
 
+  (** Optional exact type tree. Older version 3 snapshots omit this extension. *)
+  val column_postgresql_type_info : column -> postgresql_type_info option
+
+  (** Native attribute flag used by PG'OCaml's direct-column NULL heuristic,
+      independent of domain-level constraints. *)
+  val column_postgresql_attribute_not_null : column -> bool option
+
   (** Report whether reads use an option codec. *)
   val column_nullable : column -> bool
 
@@ -152,12 +175,14 @@ module Schema_snapshot : sig
 
   (** Encode version 3 JSON with a fixed field order, indentation and a final
       newline. All schema list orders and opaque default/type strings are
-      preserved. Optional metadata is written as JSON [null]. No database or
+      preserved. Original optional metadata is written as JSON [null]; the new
+      version 3 extension fields are omitted when absent. No database or
       filesystem access is performed. *)
   val to_string : Schema_ir.t -> string
 
   (** Decode a version 2 or 3 JSON document. Version 2 has no exact PostgreSQL
-      type metadata. All fields for the declared version are required; duplicate
+      type metadata. The original fields for each declared version are required; version 3 also
+      accepts optional native type trees and attribute NULL flags; duplicate
       and unknown fields, invalid identifiers, incorrect JSON types and
       unsupported versions are rejected. This validates the snapshot structure,
       not database constraints or whether the generator supports its SQL types. *)

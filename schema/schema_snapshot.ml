@@ -212,18 +212,77 @@ let postgresql_type =
   }
 ;;
 
+let rec postgresql_type_info =
+  { encode =
+      (fun (value : Schema_ir.postgresql_type_info) ->
+        let kind, extra =
+          match value.kind with
+          | Native_scalar -> "scalar", []
+          | Schema_ir.Native_opaque -> "opaque", []
+          | Schema_ir.Native_enum labels ->
+            "enum", [ "labels", (list string).encode labels ]
+          | Schema_ir.Native_domain base ->
+            "domain", [ "base", postgresql_type_info.encode base ]
+          | Schema_ir.Native_array element ->
+            "array", [ "element", postgresql_type_info.encode element ]
+        in
+        `Assoc
+          ([ "schema", identifier.encode value.schema
+           ; "name", identifier.encode value.name
+           ; "kind", string.encode kind
+           ]
+           @ extra))
+  ; decode =
+      (fun path json ->
+        let open Result.Let_syntax in
+        let%bind fields = object_fields path json in
+        let%bind schema = field path fields "schema" identifier in
+        let%bind name = field path fields "name" identifier in
+        let%bind kind = field path fields "kind" string in
+        let%bind extra, kind =
+          match kind with
+          | "scalar" -> Ok ([], Schema_ir.Native_scalar)
+          | "opaque" -> Ok ([], Schema_ir.Native_opaque)
+          | "enum" ->
+            let%map labels = field path fields "labels" (list string) in
+            [ "labels" ], Schema_ir.Native_enum labels
+          | "domain" ->
+            let%map base = field path fields "base" postgresql_type_info in
+            [ "base" ], Schema_ir.Native_domain base
+          | "array" ->
+            let%map element = field path fields "element" postgresql_type_info in
+            [ "element" ], Schema_ir.Native_array element
+          | _ -> fail (path ^ ".kind") "unknown native type kind"
+        in
+        let%map () = known_fields path ([ "schema"; "name"; "kind" ] @ extra) fields in
+        { Schema_ir.schema; name; kind })
+  }
+;;
+
+let optional_field path fields name codec =
+  match List.Assoc.find fields name ~equal:String.equal with
+  | None -> Ok None
+  | Some json -> (option codec).decode (path ^ "." ^ name) json
+;;
+
 let column version =
   { encode =
       (fun (value : Schema_ir.column) ->
         `Assoc
-          [ "name", identifier.encode value.name
-          ; "db_type", db_type.encode value.db_type
-          ; "nullable", bool.encode value.nullable
-          ; "default", (option string).encode value.default
-          ; "generated", bool.encode value.generated
-          ; "primary_key_position", (option int).encode value.primary_key_position
-          ; "postgresql_type", (option postgresql_type).encode value.postgresql_type
-          ])
+          ([ "name", identifier.encode value.name
+           ; "db_type", db_type.encode value.db_type
+           ; "nullable", bool.encode value.nullable
+           ; "default", (option string).encode value.default
+           ; "generated", bool.encode value.generated
+           ; "primary_key_position", (option int).encode value.primary_key_position
+           ; "postgresql_type", (option postgresql_type).encode value.postgresql_type
+           ]
+           @ Option.value_map value.postgresql_type_info ~default:[] ~f:(fun info ->
+             [ "postgresql_type_info", postgresql_type_info.encode info ])
+           @ Option.value_map
+               value.postgresql_attribute_not_null
+               ~default:[]
+               ~f:(fun flag -> [ "postgresql_attribute_not_null", bool.encode flag ])))
   ; decode =
       (fun path json ->
         let open Result.Let_syntax in
@@ -240,7 +299,10 @@ let column version =
              ]
              @
              if Int.(version = 3) then
-               [ "postgresql_type" ]
+               [ "postgresql_type"
+               ; "postgresql_type_info"
+               ; "postgresql_attribute_not_null"
+               ]
              else
                [])
             fields
@@ -253,9 +315,36 @@ let column version =
         let%bind primary_key_position =
           field path fields "primary_key_position" (option int)
         in
-        let%map postgresql_type =
+        let%bind postgresql_type =
           if Int.(version = 3) then
             field path fields "postgresql_type" (option postgresql_type)
+          else
+            Ok None
+        in
+        let%bind postgresql_type_info =
+          if Int.(version = 3) then
+            optional_field path fields "postgresql_type_info" postgresql_type_info
+          else
+            Ok None
+        in
+        let%bind () =
+          match postgresql_type, postgresql_type_info with
+          | Some (schema, name), Some info
+            when String.equal
+                   (Identifier.to_string schema)
+                   (Identifier.to_string info.schema)
+                 && String.equal
+                      (Identifier.to_string name)
+                      (Identifier.to_string info.name) -> Ok ()
+          | _, None -> Ok ()
+          | _ ->
+            fail
+              (path ^ ".postgresql_type_info")
+              "native type tree does not match postgresql_type"
+        in
+        let%map postgresql_attribute_not_null =
+          if Int.(version = 3) then
+            optional_field path fields "postgresql_attribute_not_null" bool
           else
             Ok None
         in
@@ -267,6 +356,8 @@ let column version =
           ~generated
           ?primary_key_position
           ?postgresql_type
+          ?postgresql_type_info
+          ?postgresql_attribute_not_null
           ())
   }
 ;;

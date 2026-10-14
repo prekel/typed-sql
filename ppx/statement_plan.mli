@@ -2,13 +2,13 @@ open! Base
 
 type field =
   { name : string
-  ; codec : string
+  ; codec : Codec.t
   ; nullable : bool
   }
 
 type parameter =
   { value : Sql.parameter
-  ; codec : string
+  ; codec : Codec.t
   }
 
 (** Rows always contains at least one field. Command preserves the PG'OCaml

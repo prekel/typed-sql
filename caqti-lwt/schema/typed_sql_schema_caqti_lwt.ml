@@ -129,6 +129,8 @@ ORDER BY m.name, il.name, ii.seqno|}
 
 let introspect_with
       ?postgresql_type
+      ?postgresql_type_info
+      ?postgresql_attribute_not_null
       ~conn
       ~columns_sql
       ~foreign_keys_sql
@@ -152,7 +154,14 @@ let introspect_with
        Lwt.return
          (let open Result.Let_syntax in
           let%bind uniques = map_caqti_error uniques in
-          S.make_schema ?postgresql_type ~db_type columns foreign_keys uniques
+          S.make_schema
+            ?postgresql_type
+            ?postgresql_type_info
+            ?postgresql_attribute_not_null
+            ~db_type
+            columns
+            foreign_keys
+            uniques
           |> Result.map_error ~f:(function S.Schema message -> Schema message)))
 ;;
 
@@ -173,14 +182,30 @@ let introspect ~conn =
     (match map_caqti_error types with
      | Error error -> Lwt.return (Error error)
      | Ok types ->
-       introspect_with
-         ~postgresql_type:(S.postgresql_column_type types)
-         ~conn
-         ~columns_sql:S.postgresql_columns
-         ~foreign_keys_sql:S.postgresql_foreign_keys
-         ~uniques_sql:S.postgresql_uniques
-         ~db_type:(S.postgresql_type_mapper types)
-         ())
+       let* attributes =
+         Connection.collect_list
+           (request
+              (T.Row_type.t4
+                 T.Row_type.string
+                 T.Row_type.string
+                 T.Row_type.string
+                 T.Row_type.bool)
+              S.postgresql_attributes)
+           ()
+       in
+       (match map_caqti_error attributes with
+        | Error error -> Lwt.return (Error error)
+        | Ok attributes ->
+          introspect_with
+            ~postgresql_type_info:(S.postgresql_type_info types)
+            ~postgresql_attribute_not_null:(S.postgresql_attribute_not_null attributes)
+            ~postgresql_type:(S.postgresql_column_type types)
+            ~conn
+            ~columns_sql:S.postgresql_columns
+            ~foreign_keys_sql:S.postgresql_foreign_keys
+            ~uniques_sql:S.postgresql_uniques
+            ~db_type:(S.postgresql_type_mapper types)
+            ()))
   | T.Dialect.Mysql _ -> Lwt.return (Error (Unsupported_dialect "mysql"))
   | T.Dialect.Unknown _ -> Lwt.return (Error (Unsupported_dialect "unknown"))
   | _ -> Lwt.return (Error (Unsupported_dialect "unregistered"))

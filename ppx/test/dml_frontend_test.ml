@@ -62,7 +62,7 @@ let%test_module "single-table DML frontend" =
       assert (
         List.equal
           String.equal
-          (List.map value.parameters ~f:(fun parameter -> parameter.codec))
+          (List.map value.parameters ~f:(fun parameter -> Codec.to_string parameter.codec))
           [ "int32"; "int32"; "string"; "int32"; "int32"; "string"; "int32"; "int32" ])
     ;;
 

@@ -1,7 +1,14 @@
 (library
  (name typed_sql_pgocaml_ppx_tests)
  (package typed-sql-pgocaml-ppx)
- (modules frontend_test dml_frontend_test quotation_test dml_quotation_test)
+ (modules
+  frontend_test
+  dml_frontend_test
+  quotation_test
+  dml_quotation_test
+  extended_frontend_test
+  extended_quotation_test
+  runtime_test)
  (libraries base pgocaml typed-sql-schema typed-sql-pgocaml-ppx)
  (inline_tests)
  (preprocessor_deps schema.json)
@@ -35,6 +42,14 @@
  (preprocess
   (pps typed-sql-pgocaml-ppx -- --typed-sql-schema schema.json)))
 
+(executable
+ (name extended_postgresql_test)
+ (modules extended_postgresql_test)
+ (libraries base pgocaml)
+ (preprocessor_deps schema.json)
+ (preprocess
+  (pps typed-sql-pgocaml-ppx -- --typed-sql-schema schema.json)))
+
 (rule
  (alias runtest)
  (package typed-sql-pgocaml-ppx)
@@ -47,7 +62,8 @@
    bash
    %{dep:compile_fail_test.sh}
    %{exe:ppx_driver.exe}
-   %{bin:ocamlfind})))
+   %{bin:ocamlfind}
+   %{lib:typed-sql-pgocaml-ppx.runtime:typed_sql_pgocaml_runtime.cmi})))
 
 (rule
  (alias runtest)

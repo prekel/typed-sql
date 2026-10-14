@@ -10,7 +10,9 @@
 Создайте snapshot после применения миграций через один из существующих
 PostgreSQL-дамперов. Для PPX необходимы точные типы колонок из snapshot
 версии 3. Старые snapshot версии 2 остаются пригодны для codegen descriptors,
-но не содержат необходимых PPX metadata.
+но не содержат необходимых PPX metadata. Для enum/domain и arrays нужен
+обновлённый snapshot v3 с вложенными native types; для чтения domain-колонок
+также нужен native attribute flag nullability.
 
 В примере ниже библиотека находится в `app/`, а snapshot — в
 `app/schema.json`. Относительный путь сначала разрешается от каталога
@@ -84,7 +86,10 @@ let optional_ids conn =
 ;;
 ```
 
-`$name` и `${expression}` принимают значение типа сравниваемой колонки.
+`$name` и `${expression}` принимают значение типа, выведенного из SQL-контекста.
+Для прямого сравнения с колонкой это обычно её тип; фиксированный IN выбирает
+общий тип operands. Например, smallint-колонка вместе с integer literal в IN
+даёт `int32` для параметра, как в PostgreSQL.
 `$?name` и `$?{expression}` принимают `option` того же типа и кодируют `None`
 как SQL NULL. Равенство с NULL сохраняет SQL-семантику: это не условие
 `IS NULL`. Каждое вхождение подстановки получает отдельный `$n`; значения
@@ -95,6 +100,105 @@ let optional_ids conn =
 Имена должны быть допустимыми OCaml method names и не повторяться. `SELECT *`
 и `alias.*` используют порядок колонок snapshot. Изменение порядка или состава
 колонок в БД требует обновления snapshot и перекомпиляции приложения.
+
+## Только статическая форма SQL
+
+SQL-текст, число placeholders и тип результата фиксируются при компиляции.
+При выполнении меняются только значения bind parameters. Optional значение
+`None` передаётся как NULL и не удаляет условие из запроса. Значения LIMIT/OFFSET
+могут менять число возвращённых строк, но сохраняют ту же форму SQL.
+
+Фиксированный список в IN поддерживается:
+
+```ocaml
+open! Base
+
+let find_two conn first second =
+  [%pgsql conn "SELECT id FROM people WHERE id IN ($first, $second)"]
+;;
+
+let find_many conn (ids : int32 option list) =
+  [%pgsql conn "SELECT id FROM people WHERE id = ANY($ids) ORDER BY id"]
+;;
+
+let page conn (limit : int64 option) (offset : int64) =
+  [%pgsql conn "SELECT id FROM people ORDER BY id LIMIT $?limit OFFSET $offset"]
+;;
+```
+
+Native array — один bind parameter. Длина array, включая пустой array, не
+меняет SQL и не создаёт новый prepared statement. Элементы имеют тип option:
+`[Some 1l; None]` отличается от SQL NULL всего array, который задаётся
+optional-подстановкой `$?ids`. Для пустого array ANY не находит совпадений,
+а ALL сохраняет PostgreSQL-семантику пустого множества.
+
+List-подстановки `$@name`, `$@{expression}`, `$@?name` и `$@?{expression}`
+отложены в roadmap и дают compile-time diagnostic. В оригинальном pgocaml_ppx
+они разворачиваются в переменное число placeholders при выполнении и меняют
+форму SQL. Это отдельный механизм от native array, хотя оба используют OCaml
+lists. Строки и комментарии с текстом `$@name` остаются обычным SQL-текстом.
+
+У каждого quotation подготовленный SQL и имя prepared statement вычисляются
+PPX заранее. Runtime не собирает SQL из пользовательских значений.
+
+## WHERE и pagination
+
+Поддержаны NOT, AND, OR и скобки с precedence PostgreSQL; `=`, `<>`, `!=`, `<`,
+`<=`, `>`, `>=`; IS NULL/IS NOT NULL; LIKE/ILIKE и отрицательные формы с
+необязательным ESCAPE; BETWEEN/NOT BETWEEN; фиксированный IN/NOT IN и comparison
+ANY/ALL с array-параметром или array-колонкой. Boolean-колонка допустима как
+отдельное условие. WHERE одинаково проверяется у SELECT, UPDATE, DELETE и
+ON CONFLICT DO UPDATE.
+
+Operands — прямые колонки, scalar/optional подстановки, обычные SQL strings
+с удвоением кавычек, signed numbers с decimal/exponent, NULL/TRUE/FALSE.
+Подстановки внутри SQL literals не распознаются. Обычные строки предполагают
+`standard_conforming_strings=on`; E-strings и PostgreSQL dollar quoting пока
+отклоняются. SQL literals доступны в predicates и pagination, а grammar
+projection/RETURNING и присваиваний DML остаётся прежней. Проверку значений
+literals и ограничений данных завершает сервер.
+
+Поддержаны comparisons одинаковых native types и встроенные numeric/text
+coercions. Разные enum-типы не смешиваются. Domain раскрывается до base для
+выбора операторов и serializer; неизвестный оператор или неподдержанная
+coercion возвращает diagnostic. Изолированный `$value IS NULL` или сравнение
+двух подстановок без SQL type context отклоняются как неоднозначные.
+
+LIMIT/OFFSET доступны только SELECT: integer literals, scalar/optional
+параметры типа `int64` и NULL; LIMIT также принимает ALL. Допустимы оба порядка
+clauses и отдельный OFFSET; повторный clause отклоняется. NULL в LIMIT снимает
+ограничение, NULL в OFFSET действует как ноль. Отрицательное значение
+проверяет PostgreSQL при выполнении.
+
+## Enum, domain и arrays
+
+Enum сохраняет представление PG’OCaml `string`; допустимые labels и их порядок
+содержатся в snapshot. Domain рекурсивно использует представление base:
+например, domain над int2 имеет тип `int`, а над int4 — `int32`. Ограничения
+самого domain проверяет сервер; PPX не подменяет их генератором DSL codecs.
+
+Одномерные native arrays встроенных scalar-типов, enum и domain представлены
+как `'a option list`. Поддержаны array-of-domain и domain-over-array. Nullable
+array возвращает внешний option; `nullable-results` добавляет этот внешний
+option и к NOT NULL array. NULL-элемент, строка `"NULL"`, пустая строка, кавычки
+и обратные слеши кодируются отдельно и не смешиваются.
+
+Array-codecs используют небольшую библиотеку `typed-sql-pgocaml-ppx.runtime`,
+автоматически подключаемую Dune через `ppx_runtime_libraries`. При ручном запуске
+PPX и компилятора эту библиотеку нужно добавить к runtime-зависимостям.
+Она обрабатывает wire format arrays; scalar conversion продолжает выполняться
+через модуль PGOCaml приложения. Поддержка arrays всех имеющихся scalar
+codecs, включая enum/domain combinations, расширяет upstream 4.4.0.
+
+Многомерные arrays и значения с явными нестандартными bounds при чтении дают
+`PGOCaml.Error`: OCaml list здесь описывает одну dimension без индексов.
+Серверный timezone может менять текст timestamptz; array elements используют
+тот же scalar conversion PGOCaml, что и отдельная колонка.
+
+Nullability прямых domain-колонок определяется по `pg_attribute.attnotnull`,
+как в upstream, а не по domain NOT NULL. Поэтому NOT NULL constraint на domain
+при nullable attribute всё равно даёт внешний option в результате PPX.
+Portable codegen сохраняет собственные metadata nullability.
 
 ## Изменение данных
 
@@ -173,8 +277,8 @@ AS и bare alias. Колонки слева в INSERT/SET и conflict target н�
 | --- | --- |
 | Одна таблица в FROM, `schema.table`, table alias с `AS` или без него | Поддерживается |
 | Прямые колонки, qualified references, `*`, `alias.*`, projection alias через `AS` | Поддерживается |
-| WHERE `column = parameter`, AND, группирующие скобки | Поддерживается |
-| ORDER BY исходным колонкам, ASC/DESC | Поддерживается |
+| WHERE с boolean predicates, comparisons, IS NULL, LIKE/BETWEEN, fixed IN и ANY/ALL | Поддерживается |
+| ORDER BY исходным колонкам, ASC/DESC; LIMIT/OFFSET | Поддерживается |
 | SQL comments, quoted identifiers, один завершающий `;` | Поддерживается |
 | Scalar/optional подстановки и OCaml expressions | Поддерживается |
 | `nullable-results` | Поддерживается |
@@ -185,9 +289,10 @@ AS и bare alias. Колонки слева в INSERT/SET и conflict target н�
 | RETURNING прямых колонок, aliases и wildcard | Поддерживается |
 | ON CONFLICT по колонкам ключа, DO NOTHING, DO UPDATE с параметрами/DEFAULT/EXCLUDED | Поддерживается |
 | ON CONSTRAINT, partial-index predicates, INSERT SELECT, UPDATE FROM, DELETE USING | Явный diagnostic |
-| JOIN, DISTINCT, aggregates, CTE, subqueries, LIMIT/OFFSET | Явный diagnostic |
-| SQL literals/expressions в projection или WHERE, OR, другие comparison operators | Явный diagnostic |
-| List-подстановки, enum/domain, arrays, прочие native types | Явный diagnostic |
+| JOIN, DISTINCT, aggregates, CTE, subqueries | Явный diagnostic |
+| Вычисляемые expressions/projections, casts, функции, E-strings, dollar quoting | Явный diagnostic |
+| Enum/domain и одномерные native arrays поддержанных scalar-типов | Поддерживается с nested metadata |
+| List-подстановки и прочие native types | Явный diagnostic |
 
 Поддерживаются встроенные PostgreSQL-типы `bool`, `int2`, `int4`, `int8`,
 `float4`, `float8`, `text`, `varchar`, `bpchar`, `bytea`, `numeric`, `date`,
@@ -230,3 +335,9 @@ Snapshot таблиц не содержит всей информации и п�
 
 Дальнейшие шаги и выполненные части записаны в
 [дорожной карте PPX](ppx_roadmap.md).
+
+Проверки запускаются через `make build`, `make test`, `make fmt` и
+`make test-postgres`. Для отдельного сравнения с standalone driver upstream
+4.4.0 используется `TYPED_SQL_UPSTREAM_PPX=/path/to/driver.exe make test-postgres`:
+одни fixtures проверяют OCaml-типы и результаты обоих PPX. Обычные offline
+проверки и компиляция приложения этого driver и доступной БД не требуют.

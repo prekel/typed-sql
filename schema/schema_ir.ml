@@ -33,6 +33,19 @@ type db_type =
       }
   | Unsupported of string
 
+type postgresql_type_info =
+  { schema : Identifier.t
+  ; name : Identifier.t
+  ; kind : postgresql_type_kind
+  }
+
+and postgresql_type_kind =
+  | Native_scalar
+  | Native_enum of string list
+  | Native_domain of postgresql_type_info
+  | Native_array of postgresql_type_info
+  | Native_opaque
+
 type column =
   { name : Identifier.t
   ; db_type : db_type
@@ -41,6 +54,8 @@ type column =
   ; generated : bool
   ; primary_key_position : int option
   ; postgresql_type : (Identifier.t * Identifier.t) option
+  ; postgresql_type_info : postgresql_type_info option
+  ; postgresql_attribute_not_null : bool option
   }
 
 type foreign_key =
@@ -75,9 +90,20 @@ let column
       ?(generated = false)
       ?primary_key_position
       ?postgresql_type
+      ?postgresql_type_info
+      ?postgresql_attribute_not_null
       ()
   =
-  { name; db_type; nullable; default; generated; primary_key_position; postgresql_type }
+  { name
+  ; db_type
+  ; nullable
+  ; default
+  ; generated
+  ; primary_key_position
+  ; postgresql_type
+  ; postgresql_type_info
+  ; postgresql_attribute_not_null
+  }
 ;;
 
 let foreign_key ~columns ?referenced_schema ~referenced_table ~referenced_columns () =
@@ -99,6 +125,12 @@ let unique_constraints (table : table) = table.unique_constraints
 let column_name (column : column) = column.name
 let column_db_type (column : column) = column.db_type
 let column_postgresql_type (column : column) = column.postgresql_type
+let column_postgresql_type_info (column : column) = column.postgresql_type_info
+
+let column_postgresql_attribute_not_null (column : column) =
+  column.postgresql_attribute_not_null
+;;
+
 let column_nullable (column : column) = column.nullable
 let column_default (column : column) = column.default
 let column_generated (column : column) = column.generated

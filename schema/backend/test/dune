@@ -1,0 +1,8 @@
+(library
+ (name typed_sql_native_introspection_tests)
+ (package typed-sql-schema)
+ (modules native_introspection_test)
+ (libraries base typed-sql-schema typed-sql-schema.backend)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

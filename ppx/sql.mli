@@ -17,6 +17,26 @@ type parameter =
   ; stop : int
   }
 
+type operand =
+  | Reference of reference
+  | Parameter_value of parameter
+  | String_literal of string * int
+  | Number_literal of string * int
+  | Bool_literal of bool * int
+  | Null_literal of int
+
+type predicate =
+  | Boolean of operand
+  | Compare of string * operand * operand
+  | Is_null of operand * bool
+  | Like of operand * operand * bool * bool * operand option
+  | Between of operand * operand * operand * bool
+  | In of operand * operand list * bool
+  | Quantified of string * operand * operand * bool
+  | Not of predicate
+  | And of predicate * predicate
+  | Or of predicate * predicate
+
 type projection =
   | Column of reference * string option
   | All of reference
@@ -30,7 +50,7 @@ type assignment = reference * value
 
 type conflict_action =
   | Do_nothing
-  | Do_update of assignment list * (reference * parameter) list
+  | Do_update of assignment list * predicate option
 
 type conflict =
   { target : reference list option
@@ -54,12 +74,15 @@ type t =
   ; alias : string option
   ; statement : statement
   ; projection : projection list
-  ; conditions : (reference * parameter) list
+  ; conditions : predicate option
+  ; limit : operand option
+  ; offset : operand option
   ; order : reference list
   }
 
-(** Parse the supported single-table SELECT and DML grammar. Every token must
-    be consumed. Offsets refer to bytes in the SQL literal, not the OCaml file. *)
+(** Parse the supported single-table SELECT and DML grammar, consuming every
+    token. Offsets are bytes in the SQL literal. SQL strings use standard
+    conforming string syntax. *)
 val parse : string -> (t, error) Result.t
 
 val error_to_string : error -> string

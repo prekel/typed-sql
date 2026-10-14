@@ -4,6 +4,31 @@ open Typed_sql_schema
 let identifier = Identifier.of_string_exn
 let public_schema = identifier "public"
 
+let rec native_info schema name db_type =
+  let kind =
+    match db_type with
+    | Schema_ir.Enum { labels; _ } -> Schema_ir.Native_enum labels
+    | Domain { base; name = domain_name; _ } ->
+      let base_name =
+        match base with
+        | Named { name; _ } -> Identifier.to_string name
+        | Text ->
+          if String.equal (Identifier.to_string domain_name) "username" then
+            "varchar"
+          else
+            "text"
+        | _ -> failwith "fixture domain requires an explicit native base"
+      in
+      Schema_ir.Native_domain
+        (native_info (identifier "pg_catalog") (identifier base_name) base)
+    | Array Int ->
+      Schema_ir.Native_array
+        (native_info (identifier "pg_catalog") (identifier "int4") Schema_ir.Int)
+    | _ -> Schema_ir.Native_scalar
+  in
+  { Schema_ir.schema; name; kind }
+;;
+
 let column name db_type =
   let pg_catalog = identifier "pg_catalog" in
   let schema, native_name =
@@ -32,6 +57,8 @@ let column name db_type =
     ~db_type
     ~nullable:false
     ~postgresql_type:(schema, identifier native_name)
+    ~postgresql_type_info:(native_info schema (identifier native_name) db_type)
+    ~postgresql_attribute_not_null:true
     ()
 ;;
 

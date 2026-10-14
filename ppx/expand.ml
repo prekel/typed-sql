@@ -92,6 +92,28 @@ let payload ~loc = function
   | _ -> error ~loc "expected a PG'OCaml expression quotation"
 ;;
 
+let rec encoder ~loc = function
+  | Codec.Scalar codec -> pg ~loc ("string_of_" ^ codec)
+  | Array element ->
+    apply
+      ~loc
+      (name ~loc "Typed_sql_pgocaml_runtime.string_of_array")
+      (encoder ~loc element)
+;;
+
+let rec decoder ~loc = function
+  | Codec.Scalar codec -> pg ~loc (codec ^ "_of_string")
+  | Array element ->
+    let raw = gen_symbol ~prefix:"typed_sql_array_" () in
+    let decode = decoder ~loc element in
+    [%expr
+      fun [%p B.pvar ~loc raw] ->
+        match Typed_sql_pgocaml_runtime.array_of_string [%e name ~loc raw] with
+        | Stdlib.Result.Ok values ->
+          Stdlib.List.map (Stdlib.Option.map [%e decode]) values
+        | Stdlib.Result.Error message -> Stdlib.raise (PGOCaml.Error message)]
+;;
+
 let generate ~loc ~genobject ~nullable_results dbh (plan : Statement_plan.t) =
   let fresh () = gen_symbol ~prefix:"typed_sql_pgsql_" () in
   let conn = fresh () in
@@ -110,23 +132,17 @@ let generate ~loc ~genobject ~nullable_results dbh (plan : Statement_plan.t) =
     List.map plan.parameters ~f:(fun { Statement_plan.value; codec } ->
       let expression = Parse.expression (Stdlib.Lexing.from_string value.expression) in
       let expression = { expression with pexp_loc = loc } in
-      let encoder = pg ~loc ("string_of_" ^ codec) in
-      if value.optional then (
-        let variable = fresh () in
-        let encoded = apply ~loc encoder (name ~loc variable) in
-        [%expr
-          match [%e expression] with
-          | Stdlib.Option.None -> Stdlib.Option.None
-          | Stdlib.Option.Some [%p B.pvar ~loc variable] ->
-            Stdlib.Option.Some [%e encoded]])
+      let encode = encoder ~loc codec in
+      if value.optional then
+        [%expr Stdlib.Option.map [%e encode] [%e expression]]
       else
-        [%expr Stdlib.Option.Some [%e apply ~loc encoder expression]])
+        [%expr Stdlib.Option.Some [%e apply ~loc encode expression]])
   in
   let fields = Statement_plan.fields plan in
   let variables = List.map fields ~f:(fun _ -> fresh ()) in
   let values =
     List.map2_exn fields variables ~f:(fun field variable ->
-      let decoder = pg ~loc (field.codec ^ "_of_string") in
+      let decoder = decoder ~loc field.codec in
       let raw = name ~loc variable in
       let value = fresh () in
       let decoded = apply ~loc decoder (name ~loc value) in

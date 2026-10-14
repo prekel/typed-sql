@@ -101,8 +101,8 @@ let%test_module "single-table SELECT frontend" =
     ;;
 
     let%expect_test "unsupported trailing grammar diagnostic" =
-      print_error "SELECT id FROM people LIMIT 1";
-      [%expect {| SQL byte 28: unsupported SQL token in the supported subset |}]
+      print_error "SELECT id FROM people LIMIT id";
+      [%expect {| SQL byte 28: pagination cannot refer to a column |}]
     ;;
 
     let%expect_test "source alias diagnostic" =
@@ -112,7 +112,8 @@ let%test_module "single-table SELECT frontend" =
 
     let%expect_test "unsupported array diagnostic" =
       print_error "SELECT numbers FROM people";
-      [%expect {| SQL byte 7: unsupported PostgreSQL type: pg_catalog._int4 |}]
+      [%expect
+        {| SQL byte 7: unsupported PostgreSQL type: pg_catalog._int4; refresh snapshot with nested native metadata |}]
     ;;
 
     let%test "rejects multiple statements" =
@@ -123,12 +124,12 @@ let%test_module "single-table SELECT frontend" =
       Result.is_error (compile "SELECT id FROM people JOIN people p ON true")
     ;;
 
-    let%test "rejects SQL literal equality" =
-      Result.is_error (compile "SELECT id FROM people WHERE id = 1")
+    let%test "accepts SQL literal equality" =
+      Result.is_ok (compile "SELECT id FROM people WHERE id = 1")
     ;;
 
-    let%test "rejects OR conditions" =
-      Result.is_error (compile "SELECT id FROM people WHERE id = $id OR id = $id")
+    let%test "accepts OR conditions" =
+      Result.is_ok (compile "SELECT id FROM people WHERE id = $id OR id = $id")
     ;;
 
     let%test "rejects aggregates" =

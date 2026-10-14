@@ -1,13 +1,14 @@
 set -eu
 ppx="$1"
 ocamlfind="$2"
+runtime_dir="$(dirname "$3")"
 test_dir="$(mktemp -d)"
 trap 'rm -rf "$test_dir"' EXIT
 
 for fixture in compile_fail/*.ml; do
   expected="$(sed -n 's/^(\* expected: \(.*\) \*)$/\1/p' "$fixture")"
   if "$ppx" --typed-sql-schema schema.json --impl "$fixture" -o "$test_dir/fixture.ml" > "$test_dir/stdout" 2> "$test_dir/stderr"; then
-    if "$ocamlfind" ocamlc -package base,pgocaml -c "$test_dir/fixture.ml" -o "$test_dir/fixture.cmo" > "$test_dir/stdout" 2> "$test_dir/stderr"; then
+    if "$ocamlfind" ocamlc -I "$runtime_dir" -package base,pgocaml -c "$test_dir/fixture.ml" -o "$test_dir/fixture.cmo" > "$test_dir/stdout" 2> "$test_dir/stderr"; then
       echo "$fixture unexpectedly compiled" >&2
       exit 1
     fi
@@ -47,4 +48,4 @@ let delete conn id : unit =
   [%pgsql conn "DELETE FROM ppx_items WHERE id = $id"]
 OCAML
 PGHOST=/nonexistent/typed-sql-offline "$ppx" --typed-sql-schema schema.json --impl "$test_dir/dml.ml" -o "$test_dir/dml_generated.ml"
-"$ocamlfind" ocamlc -package base,pgocaml -c "$test_dir/dml_generated.ml" -o "$test_dir/dml_generated.cmo"
+"$ocamlfind" ocamlc -I "$runtime_dir" -package base,pgocaml -c "$test_dir/dml_generated.ml" -o "$test_dir/dml_generated.cmo"

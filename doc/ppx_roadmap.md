@@ -1,8 +1,9 @@
 # Дорожная карта PPX, совместимого с pgocaml_ppx
 
 Состояние на 14 октября 2026 года. Реализован экспериментальный
-`typed-sql-pgocaml-ppx`: SELECT одной таблицы с WHERE по равенству параметрам,
-AND, ORDER BY, tuples/objects и базовыми scalar-типами PG’OCaml. Поддержаны
+`typed-sql-pgocaml-ppx`: SELECT одной таблицы с расширенным WHERE,
+ORDER BY, LIMIT/OFFSET, tuples/objects и scalar-типами PG’OCaml. Enum/domain
+и одномерные native arrays используют вложенные metadata snapshot v3. Поддержаны
 также INSERT/UPDATE/DELETE, RETURNING, несколько VALUES, DEFAULT и обычный
 ON CONFLICT с DO NOTHING/DO UPDATE. Подключение и
 точные ограничения описаны в [руководстве PPX](ppx.md). Отмеченные пункты
@@ -132,8 +133,9 @@ Custom Type Conversions отложены до последнего этапа. �
 
 - [x] Сохранять точное имя native type каждой колонки, включая `int2`/`int4`
   и имена enum/domain/array; оба дампера создают одинаковый snapshot.
-- [ ] Сохранять точные native types domain bases и array elements для их
-  будущего вывода типов, сверх существующих portable nested descriptors.
+- [x] Сохранять точные native types domain bases и array elements, сверх
+  portable nested descriptors, как необязательное расширение snapshot v3.
+  Сохранять attribute NOT NULL для совместимого чтения domain-колонок.
 - [x] Зафиксировать новую версию snapshot и поведение reader/codegen для
   старых файлов. Потерянные сведения нельзя восстанавливать догадкой;
   совместимый PPX должен требовать достаточно полный snapshot.
@@ -151,7 +153,9 @@ Custom Type Conversions отложены до последнего этапа. �
 
 - [x] Поддержать SELECT одной таблицы, columns/projection aliases, `*`, WHERE
   `column = parameter`, AND со скобками и ORDER BY исходным колонкам.
-- [ ] Добавить остальные boolean/comparison expressions, LIMIT и OFFSET.
+- [x] Добавить NOT/AND/OR, comparisons, IS NULL, LIKE/ILIKE, BETWEEN,
+  фиксированный IN/NOT IN, ANY/ALL и literals в predicates; LIMIT/OFFSET.
+  Остальные expressions и операторы вне подмножества по-прежнему отклонять.
 - [x] Поддержать базовые INSERT/UPDATE/DELETE по одной таблице, включая
   RETURNING, несколько VALUES, DEFAULT и ON CONFLICT по колонкам ключа с
   DO NOTHING/DO UPDATE и EXCLUDED. Operators и statements вне заявленного
@@ -179,9 +183,15 @@ Custom Type Conversions отложены до последнего этапа. �
   casts, CASE, подзапросы, CTE и set operations.
 - [ ] Расширять правила PostgreSQL type inference вместе с поддержкой
   операторов, функций и implicit coercions; неоднозначные случаи отклонять.
-- [ ] Добавить enum/domain codecs, native arrays и list-подстановки как
-  отдельные возможности.
-  Для lists проверить пустой список, несколько длин и порядок placeholders.
+- [x] Добавить enum/domain codecs и одномерные native arrays поддержанных
+  scalar-типов, включая enum/domain combinations, NULL и escaping.
+- [ ] Добавить динамическую форму SQL и list-подстановки `$@...` отдельным
+  этапом. Пока поддерживается только статическая форма: SQL, число
+  placeholders и result shape известны при компиляции. Native array
+  остаётся одним параметром независимо от длины и не относится к этому этапу.
+  Для lists проверить runtime numbering, cache по итоговому SQL, несколько
+  длин и совместимое поведение пустого списка; кодировки параметров не
+  включать в SQL или cache key.
 - [ ] Поддержать source comments с отдельной проверкой совместимости.
 - [ ] Отдельно разобрать upstream-эвристику NULL для outer JOIN и выражений.
   Улучшение nullability, меняющее OCaml-тип результата, документировать как
@@ -193,7 +203,48 @@ Custom Type Conversions отложены до последнего этапа. �
 compile-fail fixtures, сравнение типов и выполнения с upstream. Универсальная
 совместимость не объявляется до проверки соответствующих SQL-возможностей.
 
-### 5. Описать постепенную миграцию на query builder
+### 5. Statement quotations через raw SQL API и миграция на query builder
+
+Новый режим `[%pgsql.statement ...]` должен возвращать `Statement.t` через
+будущий [raw SQL API](adr/0002-raw-sql-escape-hatch.md). Реализация этого API —
+предварительное условие этапа. PPX выводит типы по snapshot и описывает raw
+statement; перевод SQL в DSL для этого режима не требуется. Существующие
+`[%pgsql ...]` и `[%pgsql.object ...]` сохраняют выполнение через PG’OCaml.
+
+Input задаётся binder-pattern внутри quotation. Эскиз синтаксиса для таблицы
+`people`, где `id` имеет тип `integer`, а `name` — `text NOT NULL`:
+
+```ocaml
+let find =
+  [%pgsql.statement
+    fun id ->
+      "SELECT name FROM people WHERE id = $id"]
+(* find : (int32, string list, [`Postgresql]) Statement.t *)
+
+let find_two =
+  [%pgsql.statement
+    fun (first, second) ->
+      "SELECT name FROM people WHERE id IN ($first, $second)"]
+(* find_two : (int32 * int32, string list, [`Postgresql]) Statement.t *)
+```
+
+Lambda описывает input: PPX извлекает SQL literal и генерирует getters
+параметров из pattern. Значение quotation — готовый `Statement.t`; getters
+получают input при выполнении через adapter. Соединение в определение не
+входит. Обычно statement создаётся один раз при загрузке модуля и затем
+исполняется с разными input. Его можно создать и внутри функции: статичность
+означает фиксированную форму SQL, а не обязательное время создания.
+Третий параметр `Statement.t` задаёт поддерживаемые диалекты: здесь
+``[`Postgresql]``; ``[`Not_sqlite]`` относится к требованиям DSL.
+
+- [ ] Реализовать режим через raw SQL API со статическим SQL, фиксированными
+  placeholders и offline-выводом типов input/output по snapshot.
+- [ ] Поддержать scalar, tuple и record binder-patterns с типизированными
+  getters; значения input остаются bind parameters. Динамические lists и
+  Custom Type Conversions остаются отдельными отложенными этапами.
+- [ ] Определить мост между выведенными PG’OCaml-типами, их codecs и
+  backend-neutral описаниями raw statement, сохранив независимость ядра от
+  PG’OCaml. Выявлять несовместимые типы параметров при компиляции.
 
 - [ ] Подготовить пример приложения со смешанными quotations и DSL-запросами,
   использующими одну схему и соединение через существующий `Make` в
@@ -204,10 +255,18 @@ compile-fail fixtures, сравнение типов и выполнения с 
 - [ ] Показать явные преобразования между `int32` и `int`, CalendarLib и
   временными типами typed-sql, `string` и enum/domain/numeric.
 - [ ] Описать адаптацию ошибок: quotations сохраняют исключения PG’OCaml,
-  а `Statement` выполняется через adapter с его `Result.t`.
+  а `Statement` выполняется через adapter с его `Result.t`. Для DML без
+  `RETURNING` учесть переход от `unit` к `Affected_rows.t`.
+- [ ] Показать путь от выполняющей quotation к raw statement quotation, затем
+  к DSL statement. При последнем переходе сохранить input и слой выполнения;
+  необходимые преобразования PG’OCaml-типов показать явно.
 
-Критерий завершения: отдельный запрос в примере можно заменить на DSL без
-одновременной миграции остальных quotations или смены пула соединений.
+Критерий завершения: отдельный запрос в примере можно заменить на raw, затем
+DSL statement без одновременной миграции остальных quotations или смены пула
+соединений. Regression и compile-fail fixtures проверяют выведенные input/output
+и несовместимые параметры. Определение statement не вызывает getters;
+повторное выполнение с разными input сохраняет SQL и placeholders. Парные
+raw/DSL запросы возвращают одинаковые результаты.
 
 ### 6. Custom Type Conversions — последний этап, по отдельному согласию
 
@@ -256,7 +315,9 @@ upstream-контракту; конфигурация не требует дос
 - [x] Отдельные PostgreSQL-тесты сравнивают результаты, NULL, порядок строк,
   WHERE и повторное выполнение в рамках зафиксированного upstream-контракта.
   Они не становятся условием обычной компиляции приложения.
-- [ ] Расширить PostgreSQL-проверки на RETURNING, list-подстановки и остальной SQL.
+- [x] Расширить PostgreSQL-проверки на RETURNING, predicates, pagination и
+  native codecs; добавить fixtures сравнения с upstream 4.4.0.
+- [ ] Проверить динамические list-подстановки и последующие SQL-возможности.
 - [x] Проверки Dune подтверждают пересборку после изменения metadata и
   воспроизводимость генерации при неизменном input.
 

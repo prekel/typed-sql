@@ -727,3 +727,189 @@ let%expect_test "snapshot reports the path of a too-long identifier" =
    | Ok _ -> failwith "long identifier accepted in schema snapshot");
   [%expect {| $.tables[0].name: SQL identifier must be at most 63 bytes, got 64 |}]
 ;;
+
+let%test_module "optional nested native metadata in version 3" =
+  (module struct
+    let info schema name kind : Schema_ir.postgresql_type_info =
+      { schema = identifier schema; name = identifier name; kind }
+    ;;
+
+    let enum = info "public" "mood" (Native_enum [ "happy"; "sad" ])
+    let array = info "public" "_mood" (Native_array enum)
+    let domain = info "public" "mood_list" (Native_domain array)
+
+    let schema =
+      Schema_ir.v
+        [ Schema_ir.table
+            ~schema:(identifier "public")
+            ~name:(identifier "items")
+            ~columns:
+              [ Schema_ir.column
+                  ~name:(identifier "value")
+                  ~db_type:Text
+                  ~nullable:false
+                  ~postgresql_type:(domain.schema, domain.name)
+                  ~postgresql_type_info:domain
+                  ~postgresql_attribute_not_null:false
+                  ()
+              ]
+            ()
+        ]
+    ;;
+
+    let source = Schema_snapshot.to_string schema
+
+    let column value =
+      List.hd_exn (Schema_ir.columns (List.hd_exn (Schema_ir.tables value)))
+    ;;
+
+    let%test_unit "writer remains version 3 and preserves nested exact identities" =
+      (match Yojson.Safe.from_string source with
+       | `Assoc fields ->
+         (match List.Assoc.find fields "version" ~equal:String.equal with
+          | Some (`Int version) -> assert (Int.equal version 3)
+          | _ -> failwith "expected snapshot version")
+       | _ -> failwith "expected snapshot object");
+      let restored = column (decode source) in
+      assert (
+        Option.equal
+          Bool.equal
+          (Schema_ir.column_postgresql_attribute_not_null restored)
+          (Some false));
+      match Schema_ir.column_postgresql_type_info restored with
+      | Some
+          { name
+          ; kind =
+              Native_domain
+                { name = array_name
+                ; kind = Native_array { name = enum_name; kind = Native_enum labels; _ }
+                ; _
+                }
+          ; _
+          } ->
+        assert (String.equal (Identifier.to_string name) "mood_list");
+        assert (String.equal (Identifier.to_string array_name) "_mood");
+        assert (String.equal (Identifier.to_string enum_name) "mood");
+        assert (List.equal String.equal labels [ "happy"; "sad" ])
+      | _ -> failwith "expected domain over enum array"
+    ;;
+
+    let%test_unit "optional metadata does not change portable descriptors" =
+      let without_metadata =
+        Schema_ir.v
+          [ Schema_ir.table
+              ~schema:(identifier "public")
+              ~name:(identifier "items")
+              ~columns:
+                [ Schema_ir.column
+                    ~name:(identifier "value")
+                    ~db_type:Text
+                    ~nullable:false
+                    ~postgresql_type:(domain.schema, domain.name)
+                    ()
+                ]
+              ()
+          ]
+      in
+      let generate value =
+        Schema_codegen.generate value
+        |> Result.map_error ~f:Schema_codegen.error_to_string
+        |> Result.ok_or_failwith
+      in
+      assert (String.equal (generate schema) (generate without_metadata));
+      assert (
+        Option.is_none
+          (Schema_ir.column_postgresql_type_info
+             (column (decode (Schema_snapshot.to_string without_metadata)))))
+    ;;
+
+    let change_column f =
+      match Yojson.Safe.from_string source with
+      | `Assoc root ->
+        (match List.Assoc.find root "tables" ~equal:String.equal with
+         | Some (`List [ `Assoc table ]) ->
+           (match List.Assoc.find table "columns" ~equal:String.equal with
+            | Some (`List [ `Assoc fields ]) ->
+              let table =
+                List.Assoc.add
+                  table
+                  "columns"
+                  (`List [ `Assoc (f fields) ])
+                  ~equal:String.equal
+              in
+              Yojson.Safe.to_string
+                (`Assoc
+                    (List.Assoc.add
+                       root
+                       "tables"
+                       (`List [ `Assoc table ])
+                       ~equal:String.equal))
+            | _ -> failwith "expected fixture column")
+         | _ -> failwith "expected fixture table")
+      | _ -> failwith "expected snapshot object"
+    ;;
+
+    let%test "a native type tree must match the exact column type" =
+      let source =
+        change_column (fun fields ->
+          List.Assoc.add
+            fields
+            "postgresql_type"
+            (`Assoc [ "schema", `String "public"; "name", `String "other" ])
+            ~equal:String.equal)
+      in
+      Result.is_error (Schema_snapshot.of_string source)
+    ;;
+
+    let%test "attribute flags require a boolean" =
+      Result.is_error
+        (Schema_snapshot.of_string
+           (change_column (fun fields ->
+              List.Assoc.add
+                fields
+                "postgresql_attribute_not_null"
+                (`String "false")
+                ~equal:String.equal)))
+    ;;
+
+    let%test "explicit null extensions are accepted as absent metadata" =
+      let restored =
+        decode
+          (change_column (fun fields ->
+             List.Assoc.add
+               (List.Assoc.add fields "postgresql_type_info" `Null ~equal:String.equal)
+               "postgresql_attribute_not_null"
+               `Null
+               ~equal:String.equal))
+        |> column
+      in
+      Option.is_none (Schema_ir.column_postgresql_type_info restored)
+      && Option.is_none (Schema_ir.column_postgresql_attribute_not_null restored)
+    ;;
+
+    let%test "unknown native kinds are rejected" =
+      Result.is_error
+        (Schema_snapshot.of_string
+           (String.substr_replace_all
+              source
+              ~pattern:"\"kind\": \"domain\""
+              ~with_:"\"kind\": \"unknown\""))
+    ;;
+
+    let%test "missing domain bases are rejected" =
+      let source =
+        change_column (fun fields ->
+          List.Assoc.add
+            fields
+            "postgresql_type_info"
+            (`Assoc
+                [ "schema", `String "public"
+                ; "name", `String "mood_list"
+                ; "kind", `String "domain"
+                ])
+            ~equal:String.equal)
+      in
+      Result.is_error (Schema_snapshot.of_string source)
+    ;;
+  end)
+;;

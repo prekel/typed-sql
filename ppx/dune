@@ -2,8 +2,16 @@
  (name typed_sql_pgocaml_ppx)
  (public_name typed-sql-pgocaml-ppx)
  (kind ppx_rewriter)
- (modules sql statement_plan expand typed_sql_pgocaml_ppx)
+ (modules
+  sql
+  codec
+  native_type
+  predicate_plan
+  statement_plan
+  expand
+  typed_sql_pgocaml_ppx)
  (libraries base ppxlib typed-sql-schema)
+ (ppx_runtime_libraries typed-sql-pgocaml-ppx.runtime)
  (preprocess
   (pps ppx_let ppxlib.metaquot)))
 

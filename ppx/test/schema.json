@@ -454,6 +454,898 @@
           ]
         }
       ]
+    },
+    {
+      "schema": "public",
+      "name": "native_items",
+      "columns": [
+        {
+          "name": "id",
+          "db_type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "int4"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "mood",
+          "db_type": {
+            "kind": "enum",
+            "schema": "public",
+            "name": "mood",
+            "labels": [
+              "happy",
+              "sad"
+            ]
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "public",
+            "name": "mood"
+          },
+          "postgresql_type_info": {
+            "schema": "public",
+            "name": "mood",
+            "kind": "enum",
+            "labels": [
+              "happy",
+              "sad"
+            ]
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "small_value",
+          "db_type": {
+            "kind": "domain",
+            "schema": "public",
+            "name": "small_native",
+            "base": {
+              "kind": "int"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "public",
+            "name": "small_native"
+          },
+          "postgresql_type_info": {
+            "schema": "public",
+            "name": "small_native",
+            "kind": "domain",
+            "base": {
+              "schema": "pg_catalog",
+              "name": "int2",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "nested_value",
+          "db_type": {
+            "kind": "domain",
+            "schema": "public",
+            "name": "nested_native",
+            "base": {
+              "kind": "domain",
+              "schema": "public",
+              "name": "small_native",
+              "base": {
+                "kind": "int"
+              }
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "public",
+            "name": "nested_native"
+          },
+          "postgresql_type_info": {
+            "schema": "public",
+            "name": "nested_native",
+            "kind": "domain",
+            "base": {
+              "schema": "public",
+              "name": "small_native",
+              "kind": "domain",
+              "base": {
+                "schema": "pg_catalog",
+                "name": "int2",
+                "kind": "scalar"
+              }
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "required_value",
+          "db_type": {
+            "kind": "domain",
+            "schema": "public",
+            "name": "required_native",
+            "base": {
+              "kind": "text"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "public",
+            "name": "required_native"
+          },
+          "postgresql_type_info": {
+            "schema": "public",
+            "name": "required_native",
+            "kind": "domain",
+            "base": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": false
+        },
+        {
+          "name": "numbers",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "int"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_int4"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_int4",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "nullable_numbers",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "int"
+            }
+          },
+          "nullable": true,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_int4"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_int4",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": false
+        },
+        {
+          "name": "moods",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "enum",
+              "schema": "public",
+              "name": "mood",
+              "labels": [
+                "happy",
+                "sad"
+              ]
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "public",
+            "name": "_mood"
+          },
+          "postgresql_type_info": {
+            "schema": "public",
+            "name": "_mood",
+            "kind": "array",
+            "element": {
+              "schema": "public",
+              "name": "mood",
+              "kind": "enum",
+              "labels": [
+                "happy",
+                "sad"
+              ]
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "domain_numbers",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "domain",
+              "schema": "public",
+              "name": "nested_native",
+              "base": {
+                "kind": "domain",
+                "schema": "public",
+                "name": "small_native",
+                "base": {
+                  "kind": "int"
+                }
+              }
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "public",
+            "name": "_nested_native"
+          },
+          "postgresql_type_info": {
+            "schema": "public",
+            "name": "_nested_native",
+            "kind": "array",
+            "element": {
+              "schema": "public",
+              "name": "nested_native",
+              "kind": "domain",
+              "base": {
+                "schema": "public",
+                "name": "small_native",
+                "kind": "domain",
+                "base": {
+                  "schema": "pg_catalog",
+                  "name": "int2",
+                  "kind": "scalar"
+                }
+              }
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "domain_array",
+          "db_type": {
+            "kind": "domain",
+            "schema": "public",
+            "name": "intarray_native",
+            "base": {
+              "kind": "array",
+              "element": {
+                "kind": "int"
+              }
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "public",
+            "name": "intarray_native"
+          },
+          "postgresql_type_info": {
+            "schema": "public",
+            "name": "intarray_native",
+            "kind": "domain",
+            "base": {
+              "schema": "pg_catalog",
+              "name": "_int4",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "int4",
+                "kind": "scalar"
+              }
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "array_bool",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "bool"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_bool"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_bool",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "bool",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "array_int2",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "int"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_int2"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_int2",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "int2",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "array_int4",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "int"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_int4"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_int4",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "array_int8",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "int64"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_int8"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_int8",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "int8",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "array_float4",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "float"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_float4"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_float4",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "float4",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "array_float8",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "float"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_float8"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_float8",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "float8",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "array_text",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "text"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_text"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_text",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "array_varchar",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "text"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_varchar"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_varchar",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "varchar",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "array_bpchar",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "text"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_bpchar"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_bpchar",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "bpchar",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "array_bytea",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "bytes"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_bytea"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_bytea",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "bytea",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "array_numeric",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "numeric"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_numeric"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_numeric",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "numeric",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "array_date",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "date"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_date"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_date",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "date",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "array_time",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "named",
+              "schema": "pg_catalog",
+              "name": "time"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_time"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_time",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "time",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "array_timestamp",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "timestamp_without_timezone"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_timestamp"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_timestamp",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "timestamp",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "array_timestamptz",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "timestamp"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_timestamptz"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_timestamptz",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "timestamptz",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "array_interval",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "interval"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_interval"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_interval",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "interval",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "array_json",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "json"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_json"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_json",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "json",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "array_jsonb",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "jsonb"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_jsonb"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_jsonb",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "jsonb",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "array_uuid",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "uuid"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_uuid"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_uuid",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "uuid",
+              "kind": "scalar"
+            }
+          },
+          "postgresql_attribute_not_null": true
+        },
+        {
+          "name": "instant",
+          "db_type": {
+            "kind": "timestamp"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "timestamptz"
+          },
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "timestamptz",
+            "kind": "scalar"
+          },
+          "postgresql_attribute_not_null": true
+        }
+      ],
+      "foreign_keys": [],
+      "unique_constraints": []
     }
   ]
 }

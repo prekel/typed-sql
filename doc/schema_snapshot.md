@@ -63,6 +63,29 @@ native names `int2` и `int4`. Для enum/domain/array здесь сохран�
 требует точный тип выбранных колонок и параметров. Snapshot валидирует
 identifiers, но не проверяет соответствие native имени portable descriptor.
 
+Версия snapshot остаётся **3**. Обновлённые PostgreSQL-дамперы добавляют два
+необязательных поля колонки:
+
+- `postgresql_type_info` — рекурсивное описание native type. Каждый узел
+  содержит `schema`, `name` и `kind`: `scalar`, `enum` с `labels`, `domain` с
+  вложенным `base`, `array` с вложенным `element` либо `opaque` для прочих типов.
+  Native имя внешнего узла должно совпадать с `postgresql_type`.
+- `postgresql_attribute_not_null` — boolean из `pg_attribute.attnotnull`.
+  Он нужен PG’OCaml PPX для nullability прямых domain-колонок независимо
+  от domain constraints и portable `nullable`.
+
+Например, domain над smallint сохраняет base `{ "schema": "pg_catalog",
+"name": "int2", "kind": "scalar" }`, а array integer — element с `int4`.
+Вложенные native types не восстанавливаются из portable descriptors догадкой.
+Codegen использует прежний `db_type` и не меняет представления DSL.
+
+Когда новые metadata отсутствуют, writer опускает эти поля; reader также
+принимает для них JSON null. Прежние v3 без расширений и v2 по-прежнему читаются.
+Для новых PPX codecs enum/domain/array нужен snapshot с native type tree;
+для чтения domain-колонки также нужен attribute flag. Reader предыдущего
+выпуска, отклоняющий неизвестные поля, новые расширения v3 не прочитает:
+пакеты потребителей такого snapshot необходимо обновить.
+
 В `foreign_keys` каждый объект содержит `columns` — список имён колонок,
 `referenced_schema` — строку или `null`, `referenced_table` — строку и
 `referenced_columns` — список имён. В `unique_constraints` каждый объект
