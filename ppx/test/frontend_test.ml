@@ -33,7 +33,7 @@ let%test_module "single-table SELECT frontend" =
     let compile source =
       let open Result.Let_syntax in
       let%bind query = Sql.parse source in
-      Select_plan.create schema query
+      Statement_plan.create schema query
     ;;
 
     let print_error source =
@@ -69,14 +69,14 @@ let%test_module "single-table SELECT frontend" =
         |> Result.ok_or_failwith
       in
       let plan =
-        Select_plan.create schema query
+        Statement_plan.create schema query
         |> Result.map_error ~f:Sql.error_to_string
         |> Result.ok_or_failwith
       in
       assert (
         List.equal
           String.equal
-          (List.map plan.fields ~f:(fun field -> field.name))
+          (List.map (Statement_plan.fields plan) ~f:(fun field -> field.name))
           [ "second"; "first" ])
     ;;
 
@@ -102,12 +102,12 @@ let%test_module "single-table SELECT frontend" =
 
     let%expect_test "unsupported trailing grammar diagnostic" =
       print_error "SELECT id FROM people LIMIT 1";
-      [%expect {| SQL byte 28: unsupported SQL token in the SELECT subset |}]
+      [%expect {| SQL byte 28: unsupported SQL token in the supported subset |}]
     ;;
 
     let%expect_test "source alias diagnostic" =
       print_error "SELECT people.id FROM people AS p";
-      [%expect {| SQL byte 7: column qualifier does not name the SELECT source |}]
+      [%expect {| SQL byte 7: column qualifier does not name the statement source |}]
     ;;
 
     let%expect_test "unsupported array diagnostic" =
@@ -190,7 +190,7 @@ let%test_module "single-table SELECT frontend" =
         |> Result.map_error ~f:Sql.error_to_string
         |> Result.ok_or_failwith
       in
-      assert (Result.is_error (Select_plan.create schema query))
+      assert (Result.is_error (Statement_plan.create schema query))
     ;;
   end)
 ;;

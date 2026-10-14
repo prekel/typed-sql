@@ -1,5 +1,5 @@
 open! Base
 module Sql = Sql
-module Select_plan = Select_plan
+module Statement_plan = Statement_plan
 
 let () = Expand.register ()

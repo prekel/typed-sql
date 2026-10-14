@@ -2,7 +2,9 @@
 
 Состояние на 14 октября 2026 года. Реализован экспериментальный
 `typed-sql-pgocaml-ppx`: SELECT одной таблицы с WHERE по равенству параметрам,
-AND, ORDER BY, tuples/objects и базовыми scalar-типами PG’OCaml. Подключение и
+AND, ORDER BY, tuples/objects и базовыми scalar-типами PG’OCaml. Поддержаны
+также INSERT/UPDATE/DELETE, RETURNING, несколько VALUES, DEFAULT и обычный
+ON CONFLICT с DO NOTHING/DO UPDATE. Подключение и
 точные ограничения описаны в [руководстве PPX](ppx.md). Отмеченные пункты
 проверены offline fixtures и PostgreSQL-тестами; остальные остаются планом.
 Общая работа над DSL описана в
@@ -94,13 +96,19 @@ copyright notices, происхождение и применимая
 
 ## Этапы
 
+Custom Type Conversions отложены до последнего этапа. Общий запрос выполнить
+весь roadmap не включает эту работу: перед её началом нужно отдельно спросить
+«Custom Type Conversions тоже?» и дождаться явного согласия. Это правило
+закреплено в [AGENTS.md](../AGENTS.md).
+
 ### 1. Зафиксировать контракт совместимости
 
 - [x] Зафиксировать матрицу поддержанного синтаксиса и flags в руководстве:
   поддержанные scalar quotations и явные diagnostics для остальных возможностей.
 - [ ] Расширить проверяемый контракт до всего синтаксиса upstream 4.4.0:
-  tuples, objects, `$name`, `$?name`, `${...}`, list-подстановки, converters,
-  `nullable-results`, `show`, source comments и параметры подключения.
+  tuples, objects, `$name`, `$?name`, `${...}`, list-подстановки,
+  `nullable-results`, source comments и параметры подключения. Custom Type
+  Conversions и связанные flags проверяются отдельно на последнем этапе.
 - [x] Перенести и адаптировать
   [upstream PR #80](https://github.com/darioteixeira/pgocaml/pull/80): поддержку
   OCaml quoted strings `{|...|}` и `{sql|...|sql}` при разборе аргументов PPX.
@@ -108,7 +116,7 @@ copyright notices, происхождение и применимая
   (`pgsql` и `pgsql.object`), обычных строк и подстановок внутри quoted strings.
 - [x] Зафиксировать для поддержанного SELECT OCaml-типы, output names, порядок
   строк, NULL и работу prepared statements в downstream fixtures.
-- [ ] Расширить эти fixtures вместе с поддержкой остального SQL и converters.
+- [ ] Расширить эти fixtures вместе с поддержкой остального SQL.
 - [x] Описать судьбу каждого flag: поддержка или явный diagnostic. В первой
   версии отклонять compile-time `execute` и flags подключения к БД.
 - [x] Реализовать небольшой parser SELECT с комментариями, quoted identifiers
@@ -135,7 +143,6 @@ copyright notices, происхождение и применимая
   Одинаковые имена в разных схемах не должны разрешаться случайным порядком.
 - [x] Описать и проверить пересборку Dune при изменении snapshot. Файлы
   metadata не содержат credentials.
-- [ ] Добавить converter config в dependencies после реализации converters.
 
 Критерий завершения: round-trip snapshot сохраняет необходимые точные типы,
 а PPX и codegen читают одну схему без доступа к БД.
@@ -145,8 +152,13 @@ copyright notices, происхождение и применимая
 - [x] Поддержать SELECT одной таблицы, columns/projection aliases, `*`, WHERE
   `column = parameter`, AND со скобками и ORDER BY исходным колонкам.
 - [ ] Добавить остальные boolean/comparison expressions, LIMIT и OFFSET.
-- [ ] Поддержать базовые INSERT/UPDATE/DELETE по одной таблице, включая
-  RETURNING; operators и statements вне заявленного подмножества отклонять.
+- [x] Поддержать базовые INSERT/UPDATE/DELETE по одной таблице, включая
+  RETURNING, несколько VALUES, DEFAULT и ON CONFLICT по колонкам ключа с
+  DO NOTHING/DO UPDATE и EXCLUDED. Operators и statements вне заявленного
+  подмножества отклонять.
+- [x] Проверить DML offline fixtures и выполнением в PostgreSQL: unit без
+  RETURNING, scalar/tuple/object results, NULL, defaults, обе ветви upsert,
+  пустой RETURNING и порядок bind parameters.
 - [x] Сохранить scalar/optional подстановки и `${...}`, вывод типов
   параметров по контексту запроса, tuples, objects и порядок строк.
 - [x] Сохранить nullability прямых колонок и flag `nullable-results`.
@@ -170,8 +182,7 @@ copyright notices, происхождение и применимая
 - [ ] Добавить enum/domain codecs, native arrays и list-подстановки как
   отдельные возможности.
   Для lists проверить пустой список, несколько длин и порядок placeholders.
-- [ ] Поддержать custom converters, `show`/`show=...` и source comments с
-  отдельной проверкой совместимости.
+- [ ] Поддержать source comments с отдельной проверкой совместимости.
 - [ ] Отдельно разобрать upstream-эвристику NULL для outer JOIN и выражений.
   Улучшение nullability, меняющее OCaml-тип результата, документировать как
   изменение контракта; не выдавать его за прозрачную замену.
@@ -198,6 +209,30 @@ compile-fail fixtures, сравнение типов и выполнения с 
 Критерий завершения: отдельный запрос в примере можно заменить на DSL без
 одновременной миграции остальных quotations или смены пула соединений.
 
+### 6. Custom Type Conversions — последний этап, по отдельному согласию
+
+Выполняется после остальных незавершённых пунктов roadmap, включая поддержку
+PG’OCaml 4.3.0 и PostgreSQL 15. Пока не поддерживать sexp config и quotations
+с `load_custom_from=...`, в том числе в сочетании с `show`. Текущие diagnostics
+для этих возможностей сохраняются до отдельно согласованной реализации.
+
+Даже при поручении «сделай всё из roadmap» сначала спросить
+«Custom Type Conversions тоже?» и дождаться ответа. Отдельный явный запрос
+пользователя на Custom Type Conversions или уже полученное согласие разрешает
+работу без повторного вопроса.
+
+- [ ] Добавить sexp config и выбор файла через `load_custom_from=...` или
+  `PGCUSTOM_CONVERTERS_CONFIG`, с совместимым выбором serializers/decoders.
+- [ ] Добавить config в Dune dependencies и проверить пересборку после его
+  изменения, сохранив offline-компиляцию.
+- [ ] Поддержать `show`/`show=...` и сочетание object quotations с custom
+  converters, включая пример с `load_custom_from=tests_ppx/config.sexp`.
+- [ ] Добавить отдельные regression, compile-fail и PostgreSQL-проверки
+  converters, некорректного config и совместимости OCaml-типов с upstream.
+
+Критерий завершения: отдельно согласованные custom conversions работают по
+upstream-контракту; конфигурация не требует доступа к БД при компиляции.
+
 ## Проверки и критерии выпуска
 
 - [ ] Поддержать PG’OCaml 4.3.0 и PostgreSQL 15 как минимальную совместимую
@@ -211,7 +246,8 @@ compile-fail fixtures, сравнение типов и выполнения с 
   даёт diagnostic.
 - [x] Fixtures фиксируют OCaml-типы upstream для параметров/результата, включая
   `option`, tuples и object methods поддержанного SELECT.
-- [ ] Расширить сравнение на enum/domain, converters и остальной SQL.
+- [ ] Расширить сравнение на enum/domain и остальной SQL. Проверки custom
+  converters относятся к отдельно согласованному последнему этапу.
 - [x] Compile-fail сценарии покрывают неизвестные таблицы и колонки,
   неверные source references, несовместимые типы и неподдержанные SQL/flags.
 - [x] Небольшие отдельные expect snapshots проверяют diagnostics и

@@ -1,7 +1,7 @@
 (library
  (name typed_sql_pgocaml_ppx_tests)
  (package typed-sql-pgocaml-ppx)
- (modules frontend_test quotation_test)
+ (modules frontend_test dml_frontend_test quotation_test dml_quotation_test)
  (libraries base pgocaml typed-sql-schema typed-sql-pgocaml-ppx)
  (inline_tests)
  (preprocessor_deps schema.json)
@@ -22,6 +22,14 @@
 (executable
  (name postgresql_test)
  (modules postgresql_test)
+ (libraries base pgocaml)
+ (preprocessor_deps schema.json)
+ (preprocess
+  (pps typed-sql-pgocaml-ppx -- --typed-sql-schema schema.json)))
+
+(executable
+ (name dml_postgresql_test)
+ (modules dml_postgresql_test)
  (libraries base pgocaml)
  (preprocessor_deps schema.json)
  (preprocess

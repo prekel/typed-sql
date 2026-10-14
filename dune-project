@@ -160,9 +160,9 @@
 
 (package
  (name typed-sql-pgocaml-ppx)
- (synopsis "Offline schema-checked PG'OCaml SELECT quotations")
+ (synopsis "Offline schema-checked PG'OCaml SQL quotations")
  (description
-  "An experimental PG'OCaml-compatible SELECT PPX using typed-sql schema snapshots instead of compile-time database access.")
+  "An experimental PG'OCaml-compatible SELECT and DML PPX using typed-sql schema snapshots instead of compile-time database access.")
  (license LGPL-2.0-or-later)
  (depends
   (ocaml (>= 4.14.1))

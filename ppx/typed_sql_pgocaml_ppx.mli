@@ -4,4 +4,4 @@ open! Base
     expression extensions, not these modules. No database execution occurs. *)
 module Sql = Sql
 
-module Select_plan = Select_plan
+module Statement_plan = Statement_plan

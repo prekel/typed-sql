@@ -11,6 +11,10 @@
 
 ### Добавлено
 
+- Offline PG’OCaml PPX поддерживает INSERT/UPDATE/DELETE одной таблицы,
+  RETURNING, несколько VALUES, DEFAULT и ON CONFLICT с DO NOTHING/DO UPDATE,
+  EXCLUDED и WHERE. Команды без RETURNING возвращают unit; результаты
+  сохраняют codecs и nullability PG’OCaml.
 - Экспериментальный `typed-sql-pgocaml-ppx`: offline SELECT одной таблицы по
   snapshot, WHERE с scalar/optional параметрами, ORDER BY, tuples/objects и
   quoted strings из upstream PR #80. Базовые scalar-типы сохраняют контракт

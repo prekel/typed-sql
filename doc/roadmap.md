@@ -621,8 +621,9 @@ PostgreSQL-возможностями. Portable approximation с другой с
 - [ ] Оптимизировать построение больших condition/order lists только по benchmark;
 - [ ] Проектировать PPX для сокращения ручного DSL-кода после проверки API
   внешним RealWorld-приложением.
-- [x] Выпустить экспериментальный offline SELECT PPX: одна таблица, WHERE
-  по параметрам, ORDER BY, tuples/objects и scalar-типы PG’OCaml. Подключение
+- [x] Выпустить экспериментальный offline SQL PPX: SELECT одной таблицы, WHERE
+  по параметрам, ORDER BY, INSERT/UPDATE/DELETE с RETURNING и ON CONFLICT,
+  tuples/objects и scalar-типы PG’OCaml. Подключение
   и ограничения описаны в [руководстве PPX](ppx.md).
 - [ ] Расширять offline PPX, совместимый с `pgocaml_ppx`, для
   постепенной миграции SQL quotations на query builder. Этапы, границы

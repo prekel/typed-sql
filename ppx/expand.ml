@@ -92,7 +92,7 @@ let payload ~loc = function
   | _ -> error ~loc "expected a PG'OCaml expression quotation"
 ;;
 
-let generate ~loc ~genobject ~nullable_results dbh (plan : Select_plan.t) =
+let generate ~loc ~genobject ~nullable_results dbh (plan : Statement_plan.t) =
   let fresh () = gen_symbol ~prefix:"typed_sql_pgsql_" () in
   let conn = fresh () in
   let params = fresh () in
@@ -107,7 +107,7 @@ let generate ~loc ~genobject ~nullable_results dbh (plan : Select_plan.t) =
   let prepare_name = string ~loc prepared_name in
   let query = string ~loc plan.sql in
   let parameters =
-    List.map plan.parameters ~f:(fun { Select_plan.value; codec } ->
+    List.map plan.parameters ~f:(fun { Statement_plan.value; codec } ->
       let expression = Parse.expression (Stdlib.Lexing.from_string value.expression) in
       let expression = { expression with pexp_loc = loc } in
       let encoder = pg ~loc ("string_of_" ^ codec) in
@@ -122,9 +122,10 @@ let generate ~loc ~genobject ~nullable_results dbh (plan : Select_plan.t) =
       else
         [%expr Stdlib.Option.Some [%e apply ~loc encoder expression]])
   in
-  let variables = List.map plan.fields ~f:(fun _ -> fresh ()) in
+  let fields = Statement_plan.fields plan in
+  let variables = List.map fields ~f:(fun _ -> fresh ()) in
   let values =
-    List.map2_exn plan.fields variables ~f:(fun field variable ->
+    List.map2_exn fields variables ~f:(fun field variable ->
       let decoder = pg ~loc (field.codec ^ "_of_string") in
       let raw = name ~loc variable in
       let value = fresh () in
@@ -145,7 +146,7 @@ let generate ~loc ~genobject ~nullable_results dbh (plan : Select_plan.t) =
   let decoded =
     if genobject then (
       let methods =
-        List.map2_exn plan.fields values ~f:(fun field value ->
+        List.map2_exn fields values ~f:(fun field value ->
           { pcf_desc =
               Pcf_method ({ txt = field.name; loc }, Public, Cfk_concrete (Fresh, value))
           ; pcf_loc = loc
@@ -157,6 +158,7 @@ let generate ~loc ~genobject ~nullable_results dbh (plan : Select_plan.t) =
       match
         values
       with
+      | [] -> [%expr ()]
       | [ value ] -> value
       | _ -> B.pexp_tuple ~loc values)
   in
@@ -180,6 +182,12 @@ let generate ~loc ~genobject ~nullable_results dbh (plan : Select_plan.t) =
           Stdlib.raise
             (PGOCaml.Error "ppx_pgsql: incorrect number of columns returned from query")]
   in
+  let rows_pattern, result =
+    match plan.result with
+    | Statement_plan.Command -> B.ppat_any ~loc, [%expr ()]
+    | Rows _ ->
+      B.pvar ~loc rows, [%expr Stdlib.List.rev_map [%e decode] [%e name ~loc rows]]
+  in
   let execution =
     [%expr
       PGOCaml.bind
@@ -198,8 +206,7 @@ let generate ~loc ~genobject ~nullable_results dbh (plan : Select_plan.t) =
                 ~name:[%e prepare_name]
                 ~params:[%e params_expr]
                 ())
-             (fun [%p B.pvar ~loc rows] ->
-                PGOCaml.return (Stdlib.List.rev_map [%e decode] [%e name ~loc rows])))]
+             (fun [%p rows_pattern] -> PGOCaml.return [%e result]))]
   in
   let private_data =
     [%expr
@@ -239,7 +246,7 @@ let expand ~genobject ~loc payload_ =
   let plan =
     let open Result.Let_syntax in
     let%bind sql = Sql.parse sql in
-    Select_plan.create schema sql
+    Statement_plan.create schema sql
   in
   let plan =
     match plan with
@@ -247,16 +254,19 @@ let expand ~genobject ~loc payload_ =
     | Error diagnostic -> error ~loc:sql_loc (Sql.error_to_string diagnostic)
   in
   if genobject then (
+    let fields = Statement_plan.fields plan in
+    if List.is_empty fields then
+      error ~loc:sql_loc "pgsql.object requires RETURNING for a DML command";
     let rec validate seen = function
       | [] -> ()
       | field :: rest ->
-        if not (valid_method field.Select_plan.name) then
+        if not (valid_method field.Statement_plan.name) then
           error ~loc:sql_loc ("invalid object method name: " ^ field.name);
         if List.mem seen field.name ~equal:String.equal then
           error ~loc:sql_loc ("duplicate object method name: " ^ field.name);
         validate (field.name :: seen) rest
     in
-    validate [] plan.fields);
+    validate [] fields);
   generate
     ~loc
     ~genobject
@@ -269,7 +279,7 @@ let register () =
   Driver.add_arg
     "--typed-sql-schema"
     (Stdlib.Arg.String (fun path -> schema_file := Some path))
-    ~doc:"PATH Schema snapshot used for offline SELECT checking";
+    ~doc:"PATH Schema snapshot used for offline SQL checking";
   let extension extension_name genobject =
     Extension.declare
       extension_name
