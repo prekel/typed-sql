@@ -3,7 +3,9 @@
  (public_name typed-sql-pgocaml-ppx)
  (kind ppx_rewriter)
  (modules
+  sql_string
   sql_query
+  type_modifier
   sql
   query_plan
   codec

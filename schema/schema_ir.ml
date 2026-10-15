@@ -56,6 +56,7 @@ type column =
   ; postgresql_type : (Identifier.t * Identifier.t) option
   ; postgresql_type_info : postgresql_type_info option
   ; postgresql_attribute_not_null : bool option
+  ; postgresql_type_modifier : int option
   }
 
 type foreign_key =
@@ -92,6 +93,7 @@ let column
       ?postgresql_type
       ?postgresql_type_info
       ?postgresql_attribute_not_null
+      ?postgresql_type_modifier
       ()
   =
   { name
@@ -103,6 +105,7 @@ let column
   ; postgresql_type
   ; postgresql_type_info
   ; postgresql_attribute_not_null
+  ; postgresql_type_modifier
   }
 ;;
 
@@ -131,6 +134,7 @@ let column_postgresql_attribute_not_null (column : column) =
   column.postgresql_attribute_not_null
 ;;
 
+let column_postgresql_type_modifier (column : column) = column.postgresql_type_modifier
 let column_nullable (column : column) = column.nullable
 let column_default (column : column) = column.default
 let column_generated (column : column) = column.generated

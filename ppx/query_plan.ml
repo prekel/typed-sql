@@ -24,6 +24,7 @@ type column =
   { name : string
   ; native : (N.t, Q.error) Result.t
   ; origin : S.column option
+  ; modifier : int option
   ; identity : string
   }
 
@@ -38,11 +39,13 @@ type scope =
   ; columns : column list
   ; outer : scope option
   ; grouped : string list option
+  ; forbidden : string list
   }
 
 type value =
   { native : N.t option
   ; origin : S.column option
+  ; modifier : int option
   ; key : string
   ; aggregate : bool
   }
@@ -63,6 +66,8 @@ type environment =
   ; outer : scope option
   ; top : bool
   ; dml : bool
+  ; lateral : scope option
+  ; windows : (string * Q.window) list
   }
 
 exception Invalid of Q.error
@@ -86,8 +91,14 @@ let known offset (value : value) =
   | None -> reject offset "cannot infer parameter type without a SQL context"
 ;;
 
-let value ?origin ?(aggregate = false) native key = { native; origin; key; aggregate }
-let empty_scope outer = { bindings = []; columns = []; outer; grouped = None }
+let value ?origin ?(modifier = Some (-1)) ?(aggregate = false) native key =
+  { native; origin; modifier; key; aggregate }
+;;
+
+let empty_scope outer =
+  { bindings = []; columns = []; outer; grouped = None; forbidden = [] }
+;;
+
 let native (column : column) = get column.native
 
 let comparable offset typ =
@@ -160,6 +171,8 @@ let rec resolve (scope : scope) offset names =
        reject offset "column qualifier does not name the statement source"
      | _ ->
        let column = unique offset ("column: " ^ name) found in
+       if List.mem scope.forbidden column.identity ~equal:String.equal then
+         reject offset "LATERAL reference requires an INNER or LEFT JOIN";
        Option.iter scope.grouped ~f:(fun allowed ->
          if not (List.mem allowed column.identity ~equal:String.equal) then
            reject offset "subquery uses an ungrouped outer column");
@@ -210,6 +223,7 @@ let table_columns state offset table =
     { name = I.to_string (S.column_name column)
     ; native = N.of_column_exact ~offset column
     ; origin = Some column
+    ; modifier = S.column_postgresql_type_modifier column
     ; identity = id ^ "." ^ I.to_string (S.column_name column)
     })
 ;;
@@ -354,6 +368,48 @@ and query_label (query : Q.statement) =
 
 let expr_name expr = fst (expression_label expr)
 
+let resolve_window definitions (window : Q.window) =
+  match window.parent with
+  | None -> window
+  | Some name ->
+    let parent =
+      match List.Assoc.find definitions name ~equal:String.equal with
+      | Some parent -> parent
+      | None -> reject window.offset ("unknown or forward window: " ^ name)
+    in
+    if window.direct then
+      parent
+    else (
+      if Option.is_some parent.frame then
+        reject window.offset "cannot copy a window with a frame clause";
+      if not (List.is_empty window.partition) then
+        reject window.offset "cannot override window PARTITION BY";
+      if (not (List.is_empty parent.ordering)) && not (List.is_empty window.ordering) then
+        reject window.offset "cannot override window ORDER BY";
+      { window with
+        parent = None
+      ; partition = parent.partition
+      ; ordering =
+          (if List.is_empty window.ordering then
+             parent.ordering
+           else
+             window.ordering)
+      })
+;;
+
+let frame_expressions (window : Q.window) =
+  Option.value_map window.frame ~default:[] ~f:(fun frame ->
+    List.filter_map [ frame.first; frame.last ] ~f:(function
+      | Q.Bounded (expr, _) -> Some expr
+      | _ -> None))
+;;
+
+let window_expressions (window : Q.window) =
+  window.partition
+  @ List.map window.ordering ~f:(fun (expr, _, _) -> expr)
+  @ frame_expressions window
+;;
+
 let rec dependencies (query : Q.statement) =
   let expr (value : Q.expression) = expression_dependencies value in
   let projection = function
@@ -365,6 +421,8 @@ let rec dependencies (query : Q.statement) =
     | Q.Select select ->
       Option.value_map select.from ~default:[] ~f:relation_dependencies
       @ List.concat_map select.projection ~f:projection
+      @ List.concat_map select.windows ~f:(fun (_, window) ->
+        List.concat_map (window_expressions window) ~f:expr)
       @ List.concat_map
           (Option.to_list select.conditions @ select.group @ Option.to_list select.having)
           ~f:expr
@@ -380,11 +438,13 @@ let rec dependencies (query : Q.statement) =
              ~f:expr
          | _ -> [])
       @ List.concat_map returning ~f:projection
-    | Update (_, _, assignments, condition, returning) ->
-      List.concat_map (List.map assignments ~f:snd @ Option.to_list condition) ~f:expr
+    | Update (_, _, assignments, sources, condition, returning) ->
+      Option.value_map sources ~default:[] ~f:relation_dependencies
+      @ List.concat_map (List.map assignments ~f:snd @ Option.to_list condition) ~f:expr
       @ List.concat_map returning ~f:projection
-    | Delete (_, _, condition, returning) ->
-      List.concat_map (Option.to_list condition) ~f:expr
+    | Delete (_, _, sources, condition, returning) ->
+      Option.value_map sources ~default:[] ~f:relation_dependencies
+      @ List.concat_map (Option.to_list condition) ~f:expr
       @ List.concat_map returning ~f:projection
   in
   let local = List.map query.ctes ~f:(fun cte -> cte.Q.name) in
@@ -396,7 +456,7 @@ and relation_dependencies (relation : Q.relation) =
   match relation.relation with
   | Table { names = [ name ]; _ } -> [ name ]
   | Table _ -> []
-  | Derived query -> dependencies query
+  | Derived query | Lateral query -> dependencies query
   | Join (left, right, _, condition) ->
     relation_dependencies left
     @ relation_dependencies right
@@ -426,6 +486,7 @@ and children (expr : Q.expression) =
     call.args
     @ List.map call.order ~f:(fun (expr, _, _) -> expr)
     @ Option.to_list call.filter
+    @ Option.value_map call.over ~default:[] ~f:window_expressions
   | In_query (value, _, _) -> [ value ]
   | Column _
   | Parameter_value _
@@ -438,17 +499,34 @@ and children (expr : Q.expression) =
   | Exists _ -> []
 ;;
 
+let rec has_window (expr : Q.expression) =
+  match expr.node with
+  | Call { over = Some _; _ } -> true
+  | _ -> List.exists (children expr) ~f:has_window
+;;
+
 let rec infer
           state
           environment
           (scope : scope)
           ?expected
           ?(inside_aggregate = false)
+          ?(inside_window = false)
+          ?(allow_window = false)
           (expr : Q.expression)
   =
   let offset = expr.offset in
+  let infer_full = infer in
   let infer ?expected expr =
-    infer state environment scope ?expected ~inside_aggregate expr
+    infer
+      state
+      environment
+      scope
+      ?expected
+      ~inside_aggregate
+      ~inside_window
+      ~allow_window
+      expr
   in
   let boolean expr =
     let result = infer ~expected:(scalar "bool") expr in
@@ -468,7 +546,11 @@ let rec infer
   match expr.node with
   | Column names ->
     let column = resolve scope offset names in
-    value ?origin:column.origin (Some (native column)) column.identity
+    value
+      ?origin:column.origin
+      ~modifier:column.modifier
+      (Some (native column))
+      column.identity
   | Parameter_value parameter ->
     Option.iter expected ~f:(bind state offset parameter);
     value expected ("$" ^ Int.to_string parameter.start)
@@ -497,6 +579,32 @@ let rec infer
     let left = boolean left
     and right = boolean right in
     finish (scalar "bool") ~aggregate:(left.aggregate || right.aggregate) [ left; right ]
+  | Binary ((("->" | "->>" | "#>" | "#>>") as op), left, right) ->
+    let a = infer left in
+    let typ = N.base (known left.offset a) in
+    if not (List.exists [ scalar "json"; scalar "jsonb" ] ~f:(N.equal typ)) then
+      reject offset "JSON extraction requires json or jsonb";
+    let initial = infer right in
+    let expected =
+      if String.is_prefix op ~prefix:"#" then
+        N.Array (scalar "text")
+      else (
+        match
+          Option.map initial.native ~f:N.base
+        with
+        | Some (N.Scalar ("int2" | "int4")) -> scalar "int4"
+        | _ -> scalar "text")
+    in
+    let b = infer ~expected right in
+    if not (N.implicit (known right.offset b) expected) then
+      reject right.offset "invalid JSON extraction key or path type";
+    let result =
+      if String.is_suffix op ~suffix:">>" then
+        scalar "text"
+      else
+        typ
+    in
+    finish result ~aggregate:(a.aggregate || b.aggregate) [ a; b ]
   | Binary (op, left, right) ->
     let a = infer left
     and b = infer right in
@@ -525,7 +633,19 @@ let rec infer
         b
     in
     let comparison =
-      List.mem [ "="; "<>"; "!="; "<"; ">"; "<="; ">=" ] op ~equal:String.equal
+      List.mem
+        [ "="
+        ; "<>"
+        ; "!="
+        ; "<"
+        ; ">"
+        ; "<="
+        ; ">="
+        ; "is distinct from"
+        ; "is not distinct from"
+        ]
+        op
+        ~equal:String.equal
     in
     if comparison then (
       comparable offset typ;
@@ -563,34 +683,21 @@ let rec infer
     in
     value (Some result) (key op [ a; b ]) ~aggregate:(a.aggregate || b.aggregate)
   | Cast (inner, target) ->
-    if
-      target.modified
-      &&
-      match List.last target.names with
-      | Some
-          ( "int"
-          | "integer"
-          | "int2"
-          | "int4"
-          | "int8"
-          | "smallint"
-          | "bigint"
-          | "bool"
-          | "boolean"
-          | "text"
-          | "uuid"
-          | "json"
-          | "jsonb" ) -> true
-      | _ -> false
-    then
-      reject offset "this PostgreSQL type does not accept modifiers";
+    let modifier =
+      get
+        (Type_modifier.of_type_name target
+         |> Result.map_error ~f:(fun (error : Q.error) -> { error with Q.offset }))
+    in
+    let cast_key =
+      String.concat ~sep:"." target.names
+      ^ String.concat (List.init target.dimensions ~f:(fun _ -> "[]"))
+      ^ ":"
+      ^ Int.to_string modifier
+    in
     let target = type_name state offset target in
     let source = infer ~expected:target inner in
-    if
-      Option.is_some source.origin
-      && N.equal (known offset source) target
-      &&
-      match N.base target with
+    let sensitive =
+      match target with
       | N.Scalar
           ( "varchar"
           | "bpchar"
@@ -598,24 +705,57 @@ let rec infer
           | "time"
           | "timestamp"
           | "timestamptz"
-          | "interval" ) -> true
+          | "interval" )
+      | N.Array
+          (N.Scalar
+             ( "varchar"
+             | "bpchar"
+             | "numeric"
+             | "time"
+             | "timestamp"
+             | "timestamptz"
+             | "interval" )) -> true
       | _ -> false
-    then
-      reject
-        offset
-        "same-type cast column origin requires type modifier metadata; use a cast to another supported type";
+    in
+    let origin =
+      if not (N.equal (known offset source) target) then
+        None
+      else (
+        match
+          source.origin
+        with
+        | None -> None
+        | Some column ->
+          if not sensitive then
+            source.origin
+          else (
+            match
+              S.column_postgresql_type_modifier column
+            with
+            | None ->
+              reject
+                offset
+                "same-type cast column origin requires type modifier metadata; refresh the schema snapshot"
+            | Some original ->
+              if Int.equal original modifier then
+                source.origin
+              else
+                None))
+    in
     if not (N.explicit (known offset source) target) then
       reject offset "unsupported PostgreSQL cast";
-    let origin =
-      if N.equal (known offset source) target then
-        source.origin
-      else
-        None
-    in
-    if N.equal (known offset source) target then
-      { source with native = Some target; origin }
+    if
+      N.equal (known offset source) target
+      && ((not sensitive) || Option.equal Int.equal source.modifier (Some modifier))
+    then
+      { source with native = Some target; origin; modifier = Some modifier }
     else
-      finish target ?origin ~aggregate:source.aggregate [ source ]
+      value
+        ?origin
+        ~modifier:(Some modifier)
+        ~aggregate:source.aggregate
+        (Some target)
+        (key ("cast:" ^ cast_key) [ source ])
   | Like_escape (inner, escape) ->
     let result = boolean inner in
     let escaped = infer ~expected:(scalar "text") escape in
@@ -698,7 +838,116 @@ let rec infer
       ~aggregate:
         (List.exists (List.map (children expr) ~f:infer) ~f:(fun x -> x.aggregate))
       results
-  | Call call -> infer_call state environment scope ?expected ~inside_aggregate expr call
+  | Call call when Option.is_some call.over ->
+    if not allow_window then
+      reject offset "window functions are not allowed in this clause";
+    if inside_window || inside_aggregate then
+      reject offset "window functions cannot be nested or used inside aggregates";
+    let window = resolve_window environment.windows (Option.value_exn call.over) in
+    let window_values = infer_window state environment scope window in
+    let name = name_of_call offset call.name in
+    let infer_arg ?expected arg =
+      infer_full state environment scope ?expected ~inside_window:true arg
+    in
+    let arity choices =
+      if not (List.mem choices (List.length call.args) ~equal:Int.equal) then
+        reject offset "incorrect window function argument count"
+    in
+    let integer arg =
+      let result = infer_arg ~expected:(scalar "int4") arg in
+      if not (N.implicit (known arg.Q.offset result) (scalar "int4")) then
+        reject arg.offset "window function argument requires integer";
+      result
+    in
+    let typ, arguments =
+      if is_aggregate name then (
+        if call.distinct || not (List.is_empty call.order) then
+          reject offset "DISTINCT and aggregate ORDER BY are not supported with OVER";
+        let result =
+          infer_call
+            state
+            environment
+            scope
+            ?expected
+            ~inside_aggregate:false
+            ~inside_window:true
+            ~allow_window:false
+            ~windowed:true
+            expr
+            { call with over = None }
+        in
+        known offset result, [ result ])
+      else (
+        if
+          call.star
+          || call.distinct
+          || (not (List.is_empty call.order))
+          || Option.is_some call.filter
+        then
+          reject offset "aggregate modifiers require a window aggregate";
+        match name with
+        | "row_number" | "rank" | "dense_rank" ->
+          arity [ 0 ];
+          scalar "int8", []
+        | "percent_rank" | "cume_dist" ->
+          arity [ 0 ];
+          scalar "float8", []
+        | "ntile" ->
+          arity [ 1 ];
+          scalar "int4", [ integer (List.hd_exn call.args) ]
+        | "first_value" | "last_value" | "nth_value" | "lag" | "lead" ->
+          arity
+            (if String.equal name "nth_value" then
+               [ 2 ]
+             else if String.equal name "lag" || String.equal name "lead" then
+               [ 1; 2; 3 ]
+             else
+               [ 1 ]);
+          let first = List.hd_exn call.args in
+          let initial = infer_arg first in
+          let default = Option.map (List.nth call.args 2) ~f:infer_arg in
+          let known_types =
+            List.filter_map (initial :: Option.to_list default) ~f:(fun value ->
+              value.native)
+          in
+          if List.is_empty known_types then
+            reject offset "cannot infer polymorphic window argument type; add a cast";
+          let typ = common offset known_types in
+          let value = infer_arg ~expected:typ first in
+          if not (N.implicit (known offset value) typ) then
+            reject offset "incompatible window value type";
+          let remaining =
+            List.filter_mapi call.args ~f:(fun index arg ->
+              if Int.(index = 0) then
+                None
+              else if Int.(index = 1) then
+                Some (integer arg)
+              else (
+                let value = infer_arg ~expected:typ arg in
+                if not (N.implicit (known offset value) typ) then
+                  reject arg.offset "incompatible window default type";
+                Some value))
+          in
+          typ, value :: remaining
+        | _ -> reject offset "OVER requires a supported window or aggregate function")
+    in
+    value
+      (Some typ)
+      (key name (arguments @ window_values))
+      ~aggregate:
+        (List.exists (arguments @ window_values) ~f:(fun value -> value.aggregate))
+  | Call call ->
+    infer_call
+      state
+      environment
+      scope
+      ?expected
+      ~inside_aggregate
+      ~inside_window
+      ~allow_window
+      ~windowed:false
+      expr
+      call
   | Scalar query ->
     let result =
       analyze
@@ -762,17 +1011,21 @@ and infer_call
       (scope : scope)
       ?expected
       ~inside_aggregate
+      ~inside_window
+      ~allow_window
+      ~windowed
       (expr : Q.expression)
       (call : Q.call)
   =
   let offset = expr.offset in
   ignore (expected : N.t option);
   let name = name_of_call offset call.name in
-  let aggregate = is_aggregate name in
+  let aggregate_name = is_aggregate name in
+  let aggregate = aggregate_name && not windowed in
   if aggregate && inside_aggregate then
     reject offset "aggregate calls cannot be nested";
   if
-    (not aggregate)
+    (not aggregate_name)
     && (call.star
         || call.distinct
         || (not (List.is_empty call.order))
@@ -786,6 +1039,8 @@ and infer_call
       scope
       ?expected
       ~inside_aggregate:(inside_aggregate || aggregate)
+      ~inside_window
+      ~allow_window
       value
   in
   let expect_count n =
@@ -834,8 +1089,97 @@ and infer_call
       (Some typ)
       (key name args)
       ~aggregate:(List.exists args ~f:(fun arg -> arg.aggregate)))
-  else if not aggregate then
-    reject offset ("unsupported PostgreSQL function: " ^ name)
+  else if not aggregate_name then (
+    let text = scalar "text"
+    and integer = scalar "int4" in
+    let count = List.length call.args in
+    let arity sizes =
+      if not (List.mem sizes count ~equal:Int.equal) then
+        reject offset "incorrect function argument count"
+    in
+    let typed types =
+      List.map2_exn call.args types ~f:(fun expr expected ->
+        let result = infer ~expected expr in
+        if not (N.implicit (known expr.Q.offset result) expected) then
+          reject expr.offset "unsupported PostgreSQL function overload";
+        result)
+    in
+    let result, args =
+      match name with
+      | "lower" | "upper" ->
+        arity [ 1 ];
+        text, typed [ text ]
+      | "length" | "char_length" | "character_length" | "octet_length" ->
+        arity [ 1 ];
+        let initial = infer (List.hd_exn call.args) in
+        let typ =
+          match initial.native with
+          | Some (N.Scalar "bytea")
+            when String.equal name "length" || String.equal name "octet_length" ->
+            scalar "bytea"
+          | Some (N.Scalar "bpchar") -> scalar "bpchar"
+          | _ -> text
+        in
+        integer, typed [ typ ]
+      | "btrim" | "ltrim" | "rtrim" ->
+        arity [ 1; 2 ];
+        text, typed (List.init count ~f:(fun _ -> text))
+      | "substring" | "substr" ->
+        arity [ 2; 3 ];
+        if
+          not
+            (List.exists (List.tl_exn call.args) ~f:(fun arg ->
+               Option.value_map (infer arg).native ~default:false ~f:(fun typ ->
+                 N.implicit typ integer)))
+        then
+          reject
+            offset
+            "positional substring requires an integer type context; regex overloads are unsupported";
+        text, typed (text :: List.init (count - 1) ~f:(fun _ -> integer))
+      | "replace" ->
+        arity [ 3 ];
+        text, typed [ text; text; text ]
+      | "concat" ->
+        if Int.(count = 0) then
+          reject offset "CONCAT requires arguments";
+        ( text
+        , List.map call.args ~f:(fun expr ->
+            let result = infer expr in
+            ignore (known expr.Q.offset result : N.t);
+            result) )
+      | "abs" ->
+        arity [ 1 ];
+        let initial = infer (List.hd_exn call.args) in
+        let typ = Option.value_map initial.native ~default:(scalar "float8") ~f:N.base in
+        let result = infer ~expected:typ (List.hd_exn call.args) in
+        if not (N.numeric typ) then
+          reject offset "ABS requires numeric input";
+        typ, [ result ]
+      | "round" ->
+        arity [ 1; 2 ];
+        let initial = infer (List.hd_exn call.args) in
+        let typ =
+          if Int.(count = 2) then
+            scalar "numeric"
+          else (
+            match
+              Option.map initial.native ~f:N.base
+            with
+            | Some (N.Scalar "numeric") -> scalar "numeric"
+            | _ -> scalar "float8")
+        in
+        ( typ
+        , typed
+            (if Int.(count = 1) then
+               [ typ ]
+             else
+               [ typ; integer ]) )
+      | _ -> reject offset ("unsupported PostgreSQL function: " ^ name)
+    in
+    value
+      (Some result)
+      (key name args)
+      ~aggregate:(List.exists args ~f:(fun arg -> arg.aggregate)))
   else (
     let rec references (expr : Q.expression) =
       match expr.node with
@@ -952,7 +1296,71 @@ and infer_call
       let result = infer ~expected:(scalar "bool") filter in
       if not (N.equal (known filter.Q.offset result) (scalar "bool")) then
         reject filter.offset "FILTER requires bool");
-    value (Some result) (key name args) ~aggregate:true)
+    value
+      (Some result)
+      (key name args)
+      ~aggregate:(aggregate || List.exists args ~f:(fun value -> value.aggregate)))
+
+and infer_window state environment scope (window : Q.window) =
+  let infer_full = infer in
+  let infer expr =
+    let first = infer state environment scope ~inside_window:true expr in
+    if Option.is_none first.native then
+      infer state environment scope ~inside_window:true ~expected:(scalar "text") expr
+    else
+      first
+  in
+  let partition =
+    List.map window.partition ~f:(fun expr ->
+      let value = infer expr in
+      comparable expr.Q.offset (known expr.offset value);
+      value)
+  in
+  let ordered =
+    List.map window.ordering ~f:(fun (expr, _, _) ->
+      let value = infer expr in
+      comparable expr.Q.offset (known expr.offset value);
+      value)
+  in
+  let offsets =
+    Option.value_map window.frame ~default:[] ~f:(fun frame ->
+      let rank = function
+        | Q.Unbounded true -> 0
+        | Bounded (_, true) -> 1
+        | Current_row -> 2
+        | Bounded (_, false) -> 3
+        | Unbounded false -> 4
+      in
+      if
+        Int.(
+          rank frame.first = 4
+          || rank frame.last = 0
+          || rank frame.first > rank frame.last)
+      then
+        reject window.offset "invalid window frame boundaries";
+      if String.equal frame.mode "groups" && List.is_empty ordered then
+        reject window.offset "GROUPS requires window ORDER BY";
+      let expected =
+        if not (String.equal frame.mode "range") then
+          scalar "int8"
+        else if List.is_empty (frame_expressions window) then
+          scalar "int8"
+        else (
+          let ordered = unique window.offset "RANGE ORDER BY expression" ordered in
+          match N.base (known window.offset ordered) with
+          | N.Scalar ("date" | "time" | "timestamp" | "timestamptz" | "interval") ->
+            scalar "interval"
+          | N.Scalar "float4" -> scalar "float8"
+          | typ when N.numeric typ -> typ
+          | _ -> reject window.offset "unsupported RANGE offset type")
+      in
+      List.map (frame_expressions window) ~f:(fun expr ->
+        let value = infer_full state environment (empty_scope None) ~expected expr in
+        if value.aggregate || not (N.implicit (known expr.Q.offset value) expected) then
+          reject expr.offset "invalid window frame offset type";
+        value))
+  in
+  partition @ ordered @ offsets
 
 and relation state environment (source : Q.relation) : scope =
   let bindings, columns =
@@ -980,9 +1388,14 @@ and relation state environment (source : Q.relation) : scope =
             ] )
       in
       [ { names; alias = false; columns } ], columns
-    | Derived query ->
+    | (Derived query | Lateral query) as kind ->
+      let outer =
+        match kind with
+        | Q.Lateral _ -> Option.first_some environment.lateral environment.outer
+        | _ -> environment.outer
+      in
       let result =
-        analyze state { environment with outer = None; top = false; dml = false } query
+        analyze state { environment with outer; top = false; dml = false } query
       in
       if result.command then
         reject source.offset "derived table requires returned columns";
@@ -991,14 +1404,30 @@ and relation state environment (source : Q.relation) : scope =
       , List.map result.columns ~f:(fun column ->
           { column with identity = identity ^ "." ^ column.name }) )
     | Join (left, right, kind, condition) ->
-      let left = relation state environment left
-      and right = relation state environment right in
+      let left = relation state environment left in
+      let forbidden =
+        match kind with
+        | Q.Right | Full -> List.map left.columns ~f:(fun column -> column.identity)
+        | _ -> []
+      in
+      let preceding =
+        match environment.lateral with
+        | None -> { left with forbidden }
+        | Some previous ->
+          { left with
+            bindings = merge_bindings source.offset previous.bindings left.bindings
+          ; columns = previous.columns @ left.columns
+          ; forbidden = previous.forbidden @ forbidden
+          }
+      in
+      let right = relation state { environment with lateral = Some preceding } right in
       let bindings = merge_bindings source.offset left.bindings right.bindings in
       let scope =
         { bindings
         ; columns = left.columns @ right.columns
         ; outer = environment.outer
         ; grouped = None
+        ; forbidden = []
         }
       in
       let using =
@@ -1053,7 +1482,14 @@ and relation state environment (source : Q.relation) : scope =
             Option.value_map selected ~default:(fresh state) ~f:(fun column ->
               column.identity)
           in
-          acc @ [ { name; native = Ok typ; origin; identity } ])
+          acc
+          @ [ { name
+              ; native = Ok typ
+              ; origin
+              ; modifier = Option.bind selected ~f:(fun column -> column.modifier)
+              ; identity
+              }
+            ])
       in
       let remaining columns =
         List.filter columns ~f:(fun column ->
@@ -1067,7 +1503,7 @@ and relation state environment (source : Q.relation) : scope =
     | Some name -> [ { names = [ name ]; alias = true; columns } ]
     | None -> bindings
   in
-  { bindings; columns; outer = environment.outer; grouped = None }
+  { bindings; columns; outer = environment.outer; grouped = None; forbidden = [] }
 
 and predicate state environment (scope : scope) (expr : Q.expression) =
   let result = infer state environment scope ~expected:(scalar "bool") expr in
@@ -1101,7 +1537,15 @@ and output_label state environment scope (expr : Q.expression) =
       "case", 1
   | _ -> expression_label expr
 
-and project state environment (scope : scope) ?expected ?(defer = false) projection =
+and project
+      state
+      environment
+      (scope : scope)
+      ?expected
+      ?(defer = false)
+      ?(allow_window = false)
+      projection
+  =
   List.concat_mapi projection ~f:(fun index -> function
     | Q.All reference ->
       if List.is_empty reference.names then
@@ -1114,7 +1558,9 @@ and project state environment (scope : scope) ?expected ?(defer = false) project
           .columns
     | Field (expr, name) ->
       let expectation = Option.bind expected ~f:(fun types -> List.nth types index) in
-      let first = infer state environment scope ?expected:expectation expr in
+      let first =
+        infer state environment scope ?expected:expectation ~allow_window expr
+      in
       let result =
         if Option.is_none first.native && not defer then
           infer
@@ -1122,6 +1568,7 @@ and project state environment (scope : scope) ?expected ?(defer = false) project
             environment
             scope
             ~expected:(Option.value expectation ~default:(scalar "text"))
+            ~allow_window
             expr
         else
           first
@@ -1130,12 +1577,13 @@ and project state environment (scope : scope) ?expected ?(defer = false) project
             Option.value name ~default:(fst (output_label state environment scope expr))
         ; native = Ok (Option.value result.native ~default:N.Unknown)
         ; origin = result.origin
+        ; modifier = result.modifier
         ; identity = result.key
         }
       ])
 
 and check_group state environment (scope : scope) allowed (expr : Q.expression) =
-  let result = infer state environment scope expr in
+  let result = infer state environment scope ~allow_window:true expr in
   if List.mem allowed result.key ~equal:String.equal then
     ()
   else (
@@ -1149,7 +1597,13 @@ and check_group state environment (scope : scope) allowed (expr : Q.expression) 
           String.equal local.identity column.identity)
       then
         reject expr.offset "column must appear in GROUP BY or an aggregate"
-    | Call call when is_aggregate (name_of_call expr.offset call.name) -> ()
+    | Call call
+      when Option.is_none call.over && is_aggregate (name_of_call expr.offset call.name)
+      -> ()
+    | Call { over = Some window; _ } ->
+      List.iter
+        (children expr @ window_expressions (resolve_window environment.windows window))
+        ~f:(check_group state environment scope allowed)
     | Scalar query | Exists query ->
       ignore
         (analyze
@@ -1176,6 +1630,7 @@ and check_group state environment (scope : scope) allowed (expr : Q.expression) 
     | _ -> List.iter (children expr) ~f:(check_group state environment scope allowed))
 
 and analyze state environment ?expected ?(defer = false) (query : Q.statement) : result =
+  let environment = { environment with lateral = None; windows = [] } in
   let names = List.map query.ctes ~f:(fun cte -> cte.Q.name) in
   if List.contains_dup names ~compare:String.compare then
     reject query.offset "duplicate CTE name";
@@ -1221,6 +1676,16 @@ and analyze state environment ?expected ?(defer = false) (query : Q.statement) :
         (List.filter pending ~f:(fun other -> not (String.equal other.Q.name cte.name)))
   in
   let environment = ctes environment definitions in
+  let windows =
+    match query.body with
+    | Q.Select select ->
+      List.fold select.windows ~init:[] ~f:(fun definitions (name, window) ->
+        if List.Assoc.mem definitions name ~equal:String.equal then
+          reject window.Q.offset "duplicate window name";
+        definitions @ [ name, resolve_window definitions window ])
+    | _ -> []
+  in
+  let environment = { environment with windows } in
   let result, scope, select =
     match query.body with
     | Q.Select select ->
@@ -1232,7 +1697,18 @@ and analyze state environment ?expected ?(defer = false) (query : Q.statement) :
       in
       Option.iter select.conditions ~f:(fun expr ->
         ignore (predicate state environment scope expr : value));
-      let columns = project state environment scope ?expected ~defer select.projection in
+      List.iter windows ~f:(fun (_, window) ->
+        ignore (infer_window state environment scope window : value list));
+      let columns =
+        project
+          state
+          environment
+          scope
+          ?expected
+          ~defer
+          ~allow_window:true
+          select.projection
+      in
       if List.is_empty columns then
         reject query.offset "SELECT must return at least one column";
       let result = { columns; command = false } in
@@ -1264,7 +1740,15 @@ and analyze state environment ?expected ?(defer = false) (query : Q.statement) :
           let typ = common query.offset [ native left; native right ] in
           if not (all && String.equal operator "union") then
             comparable query.offset typ;
-          { left with native = Ok typ; origin = None })
+          { left with
+            native = Ok typ
+          ; origin = None
+          ; modifier =
+              (if Option.equal Int.equal left.modifier right.modifier then
+                 left.modifier
+               else
+                 Some (-1))
+          })
       in
       { columns; command = false }, empty_scope environment.outer, None
     | Nested inner ->
@@ -1301,7 +1785,12 @@ and analyze state environment ?expected ?(defer = false) (query : Q.statement) :
         `Expression expr
     | _ -> `Expression expr
   in
-  let aggregate = ref false in
+  let aggregate =
+    ref
+      (List.exists windows ~f:(fun (_, window) ->
+         List.exists (infer_window state environment scope window) ~f:(fun value ->
+           value.aggregate)))
+  in
   let groups =
     match select with
     | None -> []
@@ -1312,9 +1801,13 @@ and analyze state environment ?expected ?(defer = false) (query : Q.statement) :
           | `Output column ->
             List.iter select.projection ~f:(function
               | Q.Field (expr, _)
-                when String.equal (infer state environment scope expr).key column.identity
-                ->
-                if (infer state environment scope expr).aggregate then
+                when String.equal
+                       (infer state environment scope ~allow_window:true expr).key
+                       column.identity ->
+                if
+                  (infer state environment scope ~allow_window:true expr).aggregate
+                  || has_window expr
+                then
                   reject expr.offset "aggregate is not allowed in GROUP BY"
               | _ -> ());
             comparable expr.Q.offset (native column);
@@ -1329,7 +1822,7 @@ and analyze state environment ?expected ?(defer = false) (query : Q.statement) :
       List.iter select.projection ~f:(function
         | Q.All _ -> ()
         | Field (expr, _) ->
-          if (infer state environment scope expr).aggregate then
+          if (infer state environment scope ~allow_window:true expr).aggregate then
             aggregate := true);
       Option.iter select.having ~f:(fun expr ->
         let result = infer state environment scope ~expected:(scalar "bool") expr in
@@ -1347,7 +1840,7 @@ and analyze state environment ?expected ?(defer = false) (query : Q.statement) :
     | `Expression expr ->
       if Option.is_none select then
         reject expr.offset "set operation ORDER BY requires an output name or position";
-      let ordered = infer state environment scope expr in
+      let ordered = infer state environment scope ~allow_window:true expr in
       comparable expr.offset (known expr.offset ordered);
       if ordered.aggregate then
         aggregate := true;
@@ -1363,6 +1856,10 @@ and analyze state environment ?expected ?(defer = false) (query : Q.statement) :
     if select.Q.distinct then
       List.iter result.columns ~f:(fun column -> comparable query.offset (native column));
     if !aggregate then (
+      List.iter windows ~f:(fun (_, window) ->
+        List.iter
+          (window_expressions window)
+          ~f:(check_group state environment scope groups));
       List.iter select.projection ~f:(function
         | Q.Field (expr, _) -> check_group state environment scope groups expr
         | All reference ->
@@ -1474,7 +1971,7 @@ and recursive_cte state environment (cte : Q.cte) =
           "recursive reference cannot occur on the nullable side of an outer join";
       1
     | Table _ -> 0
-    | Derived query ->
+    | Derived query | Lateral query ->
       if List.mem (dependencies query) cte.name ~equal:String.equal then
         reject source.offset "recursive reference inside a subquery is unsupported";
       0
@@ -1526,6 +2023,8 @@ and recursive_cte state environment (cte : Q.cte) =
     ; outer = None
     ; top = false
     ; dml = false
+    ; lateral = None
+    ; windows = []
     }
   in
   let term_result = analyze state environment term in
@@ -1543,8 +2042,8 @@ and dml state environment body =
   let target, alias =
     match body with
     | Q.Insert (target, alias, _, _, _, _, _)
-    | Update (target, alias, _, _, _)
-    | Delete (target, alias, _, _) -> target, alias
+    | Update (target, alias, _, _, _, _)
+    | Delete (target, alias, _, _, _) -> target, alias
     | _ -> reject 0 "DML analyzer received a SELECT"
   in
   let target_table = table state target.offset target.names in
@@ -1560,6 +2059,21 @@ and dml state environment body =
         ("target column: " ^ name)
         (List.filter scope.columns ~f:(fun c -> String.equal c.name name))
     | _ -> reject reference.offset "expected =; target column must be unqualified"
+  in
+  let sources =
+    match body with
+    | Q.Update (_, _, _, sources, _, _) | Delete (_, _, sources, _, _) -> sources
+    | _ -> None
+  in
+  let scope =
+    match sources with
+    | None -> scope
+    | Some source ->
+      let extra = relation state { environment with lateral = None } source in
+      { scope with
+        bindings = merge_bindings source.offset scope.bindings extra.bindings
+      ; columns = scope.columns @ extra.columns
+      }
   in
   let assigned expression_scope seen (reference, expr) =
     let column = resolve_target reference in
@@ -1584,12 +2098,12 @@ and dml state environment body =
   in
   let returning =
     match body with
-    | Q.Update (_, _, assignments, condition, returning) ->
+    | Q.Update (_, _, assignments, _, condition, returning) ->
       ignore (List.fold assignments ~init:[] ~f:(assigned scope) : string list);
       Option.iter condition ~f:(fun expr ->
         ignore (predicate state environment scope expr : value));
       returning
-    | Delete (_, _, condition, returning) ->
+    | Delete (_, _, _, condition, returning) ->
       Option.iter condition ~f:(fun expr ->
         ignore (predicate state environment scope expr : value));
       returning
@@ -1700,7 +2214,8 @@ and dml state environment body =
     | _ -> reject target.offset "DML analyzer lost its statement kind"
   in
   List.iter returning ~f:(function
-    | Q.Field (expr, _) when (infer state environment scope expr).aggregate ->
+    | Q.Field (expr, _)
+      when (infer state environment scope ~allow_window:true expr).aggregate ->
       reject expr.offset "aggregate is not allowed in RETURNING"
     | _ -> ());
   ( { columns = project state environment scope returning
@@ -1713,7 +2228,10 @@ let create schema query =
   let state = { schema; next = 0; parameters = [] } in
   try
     let result =
-      analyze state { ctes = []; outer = None; top = true; dml = true } query
+      analyze
+        state
+        { ctes = []; outer = None; top = true; dml = true; lateral = None; windows = [] }
+        query
     in
     let fields =
       List.map result.columns ~f:(fun column ->

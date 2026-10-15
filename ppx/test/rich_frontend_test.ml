@@ -342,8 +342,8 @@ let%test_module "nested PostgreSQL frontend" =
       Result.is_error (compile {sql|SELECT id::unknown_type FROM join_people|sql})
     ;;
 
-    let%test "unsupported window" =
-      Result.is_error (compile {sql|SELECT count(*) OVER () FROM join_people|sql})
+    let%test "window aggregate" =
+      Result.is_ok (compile {sql|SELECT count(*) OVER () FROM join_people|sql})
     ;;
 
     let%test_unit "computed outputs retain upstream optional codecs" =

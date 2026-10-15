@@ -4,6 +4,15 @@
 
 ### Добавлено
 
+- Offline PPX: E-strings и dollar quoting, LATERAL derived SELECT,
+  window functions с WINDOW и frames, UPDATE FROM / DELETE USING,
+  проверенные scalar functions, JSON extraction и IS DISTINCT FROM.
+- Optional `postgresql_type_modifier` в snapshot v3, schema IR, обоих
+  дамперах и schema PPX codegen. Same-type casts сохраняют точную
+  PG’OCaml-nullability при достаточных metadata; старые v2/v3 читаются.
+- Offline, compile-fail и PostgreSQL-проверки новых групп, включая
+  differential fixture с upstream 4.4.0; исходный SQL остаётся статическим.
+
 - PostgreSQL-тест общей транзакции query builder и offline PPX через один
   Lwt-модуль PG’OCaml: взаимная видимость записей, object → record, изоляция
   от второго соединения, commit и rollback, включая исключение quotation.

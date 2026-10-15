@@ -18,7 +18,8 @@
             "name": "int8",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         }
       ],
       "foreign_keys": [],
@@ -41,7 +42,8 @@
             "name": "timestamp",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "float_value",
@@ -56,7 +58,8 @@
             "name": "timestamp",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "duration",
@@ -71,7 +74,8 @@
             "name": "interval",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "payload",
@@ -86,7 +90,8 @@
             "name": "json",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "payload_binary",
@@ -101,7 +106,8 @@
             "name": "jsonb",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "mood",
@@ -122,7 +128,8 @@
             "kind": "enum",
             "labels": [ "happy", "sad" ]
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "result_status",
@@ -143,7 +150,8 @@
             "kind": "enum",
             "labels": [ "Ok", "Error" ]
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "username",
@@ -168,7 +176,8 @@
               "kind": "scalar"
             }
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "host",
@@ -197,7 +206,8 @@
               "kind": "scalar"
             }
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "inet_value",
@@ -216,7 +226,8 @@
             "name": "inet",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "small_value",
@@ -231,7 +242,8 @@
             "name": "int4",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "numbers",
@@ -251,7 +263,8 @@
               "kind": "scalar"
             }
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "rational_value",
@@ -276,7 +289,8 @@
               "kind": "scalar"
             }
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "geometry_value",
@@ -301,7 +315,8 @@
               "kind": "scalar"
             }
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         }
       ],
       "foreign_keys": [],
@@ -324,7 +339,8 @@
             "name": "int8",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         }
       ],
       "foreign_keys": [],
@@ -347,7 +363,8 @@
             "name": "int8",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         }
       ],
       "foreign_keys": [],
@@ -370,7 +387,8 @@
             "name": "int8",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "id-column",
@@ -385,7 +403,8 @@
             "name": "int4",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "display-name",
@@ -400,7 +419,8 @@
             "name": "text",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "display_name",
@@ -415,7 +435,8 @@
             "name": "text",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "display.name",
@@ -430,7 +451,8 @@
             "name": "text",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "table",
@@ -445,7 +467,8 @@
             "name": "bool",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "published-on",
@@ -460,7 +483,8 @@
             "name": "date",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "created-at",
@@ -478,7 +502,8 @@
             "name": "timestamptz",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "external-id",
@@ -493,7 +518,8 @@
             "name": "uuid",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "reference",
@@ -508,7 +534,8 @@
             "name": "text",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "return",
@@ -523,7 +550,8 @@
             "name": "text",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "land",
@@ -538,7 +566,8 @@
             "name": "text",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "_",
@@ -553,7 +582,8 @@
             "name": "text",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "map",
@@ -568,7 +598,8 @@
             "name": "text",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         },
         {
           "name": "total",
@@ -583,7 +614,8 @@
             "name": "numeric",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         }
       ],
       "foreign_keys": [],
@@ -606,7 +638,8 @@
             "name": "int8",
             "kind": "scalar"
           },
-          "postgresql_attribute_not_null": true
+          "postgresql_attribute_not_null": true,
+          "postgresql_type_modifier": -1
         }
       ],
       "foreign_keys": [],

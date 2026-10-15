@@ -74,6 +74,7 @@ module Schema_ir : sig
     -> ?postgresql_type:Identifier.t * Identifier.t
     -> ?postgresql_type_info:postgresql_type_info
     -> ?postgresql_attribute_not_null:bool
+    -> ?postgresql_type_modifier:int
     -> unit
     -> column
 
@@ -136,6 +137,10 @@ module Schema_ir : sig
   (** Native attribute flag used by PG'OCaml's direct-column NULL heuristic,
       independent of domain-level constraints. *)
   val column_postgresql_attribute_not_null : column -> bool option
+
+  (** Raw [pg_attribute.atttypmod]. [Some (-1)] means no declared modifier;
+      [None] means metadata was not recorded. *)
+  val column_postgresql_type_modifier : column -> int option
 
   (** Report whether reads use an option codec. *)
   val column_nullable : column -> bool

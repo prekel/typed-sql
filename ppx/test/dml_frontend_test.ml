@@ -228,12 +228,12 @@ let%test_module "single-table DML frontend" =
       Result.is_ok (compile "INSERT INTO items (id) SELECT id FROM items")
     ;;
 
-    let%test "UPDATE FROM remains unsupported" =
-      Result.is_error (compile "UPDATE items SET id = $id FROM items other")
+    let%test "UPDATE FROM is supported" =
+      Result.is_ok (compile "UPDATE items SET id = $id FROM items other")
     ;;
 
-    let%test "DELETE USING remains unsupported" =
-      Result.is_error (compile "DELETE FROM items USING items other")
+    let%test "DELETE USING is supported" =
+      Result.is_ok (compile "DELETE FROM items USING items other")
     ;;
 
     let%test "SQL literals is supported" =

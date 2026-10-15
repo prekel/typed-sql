@@ -813,6 +813,8 @@ let generate_pgocaml_ppx schema =
       ; option type_info column.postgresql_type_info
       ; ") ?postgresql_attribute_not_null:("
       ; option Bool.to_string column.postgresql_attribute_not_null
+      ; ") ?postgresql_type_modifier:("
+      ; option Int.to_string column.postgresql_type_modifier
       ; ") ()"
       ]
   in

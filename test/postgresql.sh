@@ -129,6 +129,8 @@ PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/dml_postgresql_test.ex
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/extended_postgresql_test.exe
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/join_postgresql_test.exe
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/rich_postgresql_test.exe
+PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/literal_postgresql_test.exe
+PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/compatibility_postgresql_test.exe
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/mixed_transaction_postgresql_test.exe
 if [[ -n "${TYPED_SQL_UPSTREAM_PPX:-}" ]]; then
   dune build --root . ppx/test/ppx_driver.exe ppx/runtime/typed_sql_pgocaml_runtime.cma
@@ -141,6 +143,10 @@ fi
 PGDATABASE=typed_sql_ppx_test dune exec --root . caqti-lwt/schema/typed_sql_schema_dump.exe > "$workdir/ppx_caqti_schema.json"
 PGDATABASE=typed_sql_ppx_test dune exec --root . schema-pgocaml-lwt/typed_sql_pgocaml_schema_dump.exe > "$workdir/ppx_pgocaml_schema.json"
 diff -u "$workdir/ppx_caqti_schema.json" "$workdir/ppx_pgocaml_schema.json"
+# The typmod fixture has varchar(10), numeric(8,2), and interval DAY TO SECOND(3).
+grep -Fq '"postgresql_type_modifier": 14' "$workdir/ppx_caqti_schema.json"
+grep -Fq '"postgresql_type_modifier": 524294' "$workdir/ppx_caqti_schema.json"
+grep -Fq '"postgresql_type_modifier": 470286339' "$workdir/ppx_caqti_schema.json"
 grep -Fq '"name": "int2"' "$workdir/ppx_caqti_schema.json"
 grep -Fq '"name": "int4"' "$workdir/ppx_caqti_schema.json"
 if [[ "$server_version" -ge 170000 ]]; then

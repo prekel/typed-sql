@@ -24,6 +24,8 @@
   frontend_test
   join_frontend_test
   rich_frontend_test
+  compatibility_frontend_test
+  sql_string_test
   join_quotation_test
   dml_frontend_test
   quotation_test
@@ -120,3 +122,17 @@
  (libraries base lwt.unix pgocaml typed-sql typed-sql-pgocaml-lwt)
  (preprocess
   (pps ppx_let typed_sql_pgocaml_test_schema_ppx)))
+
+(executable
+ (name compatibility_postgresql_test)
+ (modules compatibility_postgresql_test)
+ (libraries base pgocaml)
+ (preprocess
+  (pps typed_sql_pgocaml_test_schema_ppx)))
+
+(executable
+ (name literal_postgresql_test)
+ (modules literal_postgresql_test)
+ (libraries base pgocaml)
+ (preprocess
+  (pps typed_sql_pgocaml_test_schema_ppx)))

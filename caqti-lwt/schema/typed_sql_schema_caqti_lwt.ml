@@ -131,6 +131,7 @@ let introspect_with
       ?postgresql_type
       ?postgresql_type_info
       ?postgresql_attribute_not_null
+      ?postgresql_type_modifier
       ~conn
       ~columns_sql
       ~foreign_keys_sql
@@ -158,6 +159,7 @@ let introspect_with
             ?postgresql_type
             ?postgresql_type_info
             ?postgresql_attribute_not_null
+            ?postgresql_type_modifier
             ~db_type
             columns
             foreign_keys
@@ -189,7 +191,7 @@ let introspect ~conn =
                  T.Row_type.string
                  T.Row_type.string
                  T.Row_type.string
-                 T.Row_type.bool)
+                 (T.Row_type.t2 T.Row_type.bool T.Row_type.int))
               S.postgresql_attributes)
            ()
        in
@@ -199,6 +201,7 @@ let introspect ~conn =
           introspect_with
             ~postgresql_type_info:(S.postgresql_type_info types)
             ~postgresql_attribute_not_null:(S.postgresql_attribute_not_null attributes)
+            ~postgresql_type_modifier:(S.postgresql_type_modifier attributes)
             ~postgresql_type:(S.postgresql_column_type types)
             ~conn
             ~columns_sql:S.postgresql_columns

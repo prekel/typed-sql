@@ -6,7 +6,7 @@ runtime_interface="$4"
 workdir="$(mktemp -d)"
 trap 'rm -rf "$workdir"' EXIT
 
-for fixture in ppx/test/upstream_contract.ml ppx/test/join_postgresql_test.ml ppx/test/rich_postgresql_test.ml; do
+for fixture in ppx/test/upstream_contract.ml ppx/test/join_postgresql_test.ml ppx/test/rich_postgresql_test.ml ppx/test/compatibility_postgresql_test.ml; do
   "$upstream" --impl "$fixture" -o "$workdir/upstream.ml"
   PGHOST=/nonexistent/typed-sql-offline "$offline" \
     --impl "$fixture" -o "$workdir/offline.ml"

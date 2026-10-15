@@ -192,12 +192,12 @@ let%test_module "extended predicates" =
       Result.is_error (compile "UPDATE items SET id = $id LIMIT 1")
     ;;
 
-    let%test "E-strings stay unsupported" =
-      Result.is_error (compile "SELECT id FROM items WHERE name = E'escape'")
+    let%test "E-strings are supported" =
+      Result.is_ok (compile "SELECT id FROM items WHERE name = E'escape'")
     ;;
 
-    let%test "dollar quoting stays unsupported" =
-      Result.is_error (compile "SELECT id FROM items WHERE name = $$text$$")
+    let%test "dollar quoting is supported" =
+      Result.is_ok (compile "SELECT id FROM items WHERE name = $$text$$")
     ;;
 
     let%test "invalid exponents produce a diagnostic" =

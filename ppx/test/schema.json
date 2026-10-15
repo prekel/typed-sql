@@ -1510,6 +1510,163 @@
       ],
       "unique_constraints": [],
       "foreign_keys": []
+    },
+    {
+      "schema": "public",
+      "name": "typmod_values",
+      "columns": [
+        {
+          "name": "id",
+          "db_type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": 1,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "int4"
+          },
+          "postgresql_type_modifier": -1
+        },
+        {
+          "name": "v",
+          "db_type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "varchar"
+          },
+          "postgresql_type_modifier": 14
+        },
+        {
+          "name": "c",
+          "db_type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "bpchar"
+          },
+          "postgresql_type_modifier": 7
+        },
+        {
+          "name": "n",
+          "db_type": {
+            "kind": "numeric"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "numeric"
+          },
+          "postgresql_type_modifier": 524294
+        },
+        {
+          "name": "t",
+          "db_type": {
+            "kind": "timestamp_without_timezone"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "timestamp"
+          },
+          "postgresql_type_modifier": 3
+        },
+        {
+          "name": "z",
+          "db_type": {
+            "kind": "timestamp"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "timestamptz"
+          },
+          "postgresql_type_modifier": 3
+        },
+        {
+          "name": "tm",
+          "db_type": {
+            "kind": "unsupported",
+            "database_type": "time"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "time"
+          },
+          "postgresql_type_modifier": 3
+        },
+        {
+          "name": "i",
+          "db_type": {
+            "kind": "interval"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "interval"
+          },
+          "postgresql_type_modifier": 470286339
+        },
+        {
+          "name": "vs",
+          "db_type": {
+            "kind": "array",
+            "element": {
+              "kind": "text"
+            }
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "_varchar"
+          },
+          "postgresql_type_modifier": 14,
+          "postgresql_type_info": {
+            "schema": "pg_catalog",
+            "name": "_varchar",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "varchar",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "unique_constraints": [],
+      "foreign_keys": []
     }
   ]
 }

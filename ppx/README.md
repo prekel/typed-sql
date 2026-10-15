@@ -216,7 +216,8 @@ Callback транзакции возвращает `Result.t Lwt.t`: `Ok` фик
 - Поддерживаются SELECT, INSERT/UPDATE/DELETE с RETURNING и без него,
   WHERE с AND/OR/NOT, сравнениями и IS NULL, LIMIT/OFFSET, JOIN,
   expressions, известные aggregates, GROUP BY/HAVING, подзапросы, CTE
-  и UNION/INTERSECT/EXCEPT. У каждой группы есть ограничения;
+  и UNION/INTERSECT/EXCEPT, LATERAL derived SELECT, window functions,
+  UPDATE FROM / DELETE USING. E-strings и dollar-quoted literals также доступны. У каждой группы есть ограничения;
   [полный список](../doc/ppx.md) описывает поддержанные формы.
 - Поддерживаются enum как `string`, domain через базовый codec и одномерные
   arrays. Многомерные arrays не поддерживаются.
@@ -227,9 +228,13 @@ Callback транзакции возвращает `Result.t Lwt.t`: `Ok` фик
 - Неквалифицированные таблицы разрешаются в `public`. Для других схем пишите
   `schema.table`. При выполнении схема и `search_path` соединения должны
   соответствовать snapshot. Сервер проверяет ограничения данных и права доступа.
-- Window functions, LATERAL, произвольные SQL functions/operators и часть casts
-  пока не поддерживаются. Неизвестная конструкция даёт ошибку компиляции;
-  обращения в БД для уточнения типов нет.
+- Поддержаны lower/upper, length, trim, позиционный substring, replace,
+  concat, abs/round, JSON extraction и IS DISTINCT FROM. Произвольные SQL
+  functions/operators, table functions и regex-overloads substring пока
+  отклоняются. Обращения в БД для уточнения типов нет.
+- Для точных same-type casts varchar/numeric и временных колонок обновите
+  snapshot: optional typmod metadata сохраняются в версии 3. Старые snapshots
+  читаются, но неоднозначный cast без нужных metadata даёт diagnostic.
 - Custom Type Conversions, sexp config, `load_custom_from` и
   `PGCUSTOM_CONVERTERS_CONFIG` пока не поддерживаются. Они запланированы последними
   и требуют отдельного согласования реализации.

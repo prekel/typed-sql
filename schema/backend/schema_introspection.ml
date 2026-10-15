@@ -12,7 +12,7 @@ type raw_foreign_key =
   * (int * string * string option * (string * string option))
 
 type raw_unique = string option * string * string option * (int * string)
-type raw_attribute = string * string * string * bool
+type raw_attribute = string * string * string * (bool * int)
 type raw_type = int * string * string * (string * int * int * string)
 
 let postgresql_columns =
@@ -58,7 +58,7 @@ ORDER BY c.table_schema, c.table_name, c.ordinal_position|}
 ;;
 
 let postgresql_attributes =
-  {|SELECT ns.nspname, rel.relname, a.attname, a.attnotnull
+  {|SELECT ns.nspname, rel.relname, a.attname, a.attnotnull, a.atttypmod
 FROM pg_catalog.pg_attribute AS a
 JOIN pg_catalog.pg_class AS rel ON rel.oid = a.attrelid
 JOIN pg_catalog.pg_namespace AS ns ON ns.oid = rel.relnamespace
@@ -392,21 +392,38 @@ let postgresql_type_info rows oid =
 ;;
 
 let postgresql_attribute_not_null rows schema table column =
-  List.find_map rows ~f:(fun (actual_schema, actual_table, actual_column, not_null) ->
-    if
-      Option.value_map schema ~default:false ~f:(String.equal actual_schema)
-      && String.equal table actual_table
-      && String.equal column actual_column
-    then
-      Some not_null
-    else
-      None)
+  List.find_map
+    rows
+    ~f:(fun (actual_schema, actual_table, actual_column, (not_null, _)) ->
+      if
+        Option.value_map schema ~default:false ~f:(String.equal actual_schema)
+        && String.equal table actual_table
+        && String.equal column actual_column
+      then
+        Some not_null
+      else
+        None)
+;;
+
+let postgresql_type_modifier rows schema table column =
+  List.find_map
+    rows
+    ~f:(fun (actual_schema, actual_table, actual_column, (_, modifier)) ->
+      if
+        Option.value_map schema ~default:false ~f:(String.equal actual_schema)
+        && String.equal table actual_table
+        && String.equal column actual_column
+      then
+        Some modifier
+      else
+        None)
 ;;
 
 let make_schema
       ?(postgresql_type = fun _ -> None)
       ?(postgresql_type_info = fun _ -> Ok None)
       ?(postgresql_attribute_not_null = fun _ _ _ -> None)
+      ?(postgresql_type_modifier = fun _ _ _ -> None)
       ~db_type
       columns
       foreign_keys
@@ -453,6 +470,11 @@ let make_schema
                  ?postgresql_type:(postgresql_type database_type)
                  ?postgresql_type_info:native_info
                  ?postgresql_attribute_not_null:attribute_not_null
+                 ?postgresql_type_modifier:
+                   (postgresql_type_modifier
+                      (Option.map schema ~f:Typed_sql.Identifier.to_string)
+                      table
+                      (Typed_sql.Identifier.to_string name))
                  ~nullable
                  ?default
                  ~generated

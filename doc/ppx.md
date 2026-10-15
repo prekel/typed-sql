@@ -174,8 +174,13 @@ ON CONFLICT DO UPDATE.
 Operands — прямые колонки, scalar/optional подстановки, обычные SQL strings
 с удвоением кавычек, signed numbers с decimal/exponent, NULL/TRUE/FALSE.
 Подстановки внутри SQL literals не распознаются. Обычные строки предполагают
-`standard_conforming_strings=on`; E-strings и PostgreSQL dollar quoting пока
-отклоняются. SQL literals доступны в predicates и pagination, а grammar
+`standard_conforming_strings=on`. Поддержаны `E'...'`/`e'...'` с backslash,
+octal/hex и Unicode escapes, а также `$$...$$` и `$tag$...$tag$` без escaping.
+Теги чувствительны к регистру. Строки, разделённые whitespace с переводом
+строки, объединяются по правилам PostgreSQL; при продолжении E-string
+сохраняется её escape mode. Незакрытые literals и неправильные Unicode escapes
+дают diagnostic с byte offset. Исходный SQL при выполнении не переписывается,
+кроме настоящих bind-подстановок. SQL literals доступны в predicates и pagination, а grammar
 projection/RETURNING и присваиваний DML остаётся прежней. Проверку значений
 literals и ограничений данных завершает сервер.
 
@@ -270,7 +275,12 @@ USING возвращает объединённые колонки в поряд
 колонка остаётся non-option, даже на стороне, где JOIN может создать NULL.
 Для таких строк без `nullable-results` сохраняется прежняя runtime-ошибка.
 Объединённая колонка FULL USING не имеет прямого column origin и получает
-`option`. JOIN не добавляется в UPDATE FROM или DELETE USING.
+`option`.
+
+Поддержан LATERAL для derived SELECT в FROM, CROSS/INNER/LEFT JOIN LATERAL.
+Он видит предшествующие источники, но не последующие; RIGHT/FULL JOIN не
+допускают LATERAL-ссылку на свою левую сторону. Некоррелированный LATERAL
+в этих JOIN допустим. Table functions и set-returning functions пока отклоняются.
 
 ## Выражения, агрегаты и вложенные запросы
 
@@ -280,11 +290,16 @@ COALESCE и NULLIF. Поддержан SELECT без FROM. Параметры о
 в том числе внутри expressions, casts и CASE.
 
 Типы casts берутся из поддержанных builtin-типов и native metadata snapshot
-для enum/domain и одномерных arrays. Type modifiers принимаются в синтаксисе,
-но origin same-type casts для varchar/bpchar/numeric и временных типов нельзя
-надёжно определить без отсутствующих в snapshot typmod metadata. Такой cast
-прямой колонки отклоняется с diagnostic вместо предположения о её OCaml-типе.
-Преобразование в другой поддержанный тип и casts literals/параметров доступны.
+для enum/domain и одномерных arrays. Optional поле snapshot v3
+`postgresql_type_modifier` хранит точный `pg_attribute.atttypmod`. Поддержаны
+modifiers varchar/bpchar, numeric, time/timestamp/timestamptz и interval,
+включая `INTERVAL DAY TO SECOND(p)`. Совпадение типа и typmod сохраняет column
+origin; изменение typmod даёт вычисляемый результат с `option`, как upstream.
+Например, для NOT NULL `varchar(10)` cast `::varchar(10)` возвращает `string`,
+а `::varchar(20)` и `::varchar` — `string option`.
+Старые v3 snapshots читаются, но неоднозначный same-type cast при отсутствии
+metadata требует обновить snapshot. Преобразование в другой поддержанный тип
+и casts literals/параметров доступны без этих metadata.
 
 GROUP BY и HAVING поддерживают expressions, output names и позиции; ORDER BY
 также принимает expressions, aliases, позиции и NULLS FIRST/LAST. Доступны
@@ -292,7 +307,7 @@ GROUP BY и HAVING поддерживают expressions, output names и поз�
 одномерный `array_agg` для известных overloads, с DISTINCT, FILTER и
 aggregate-local ORDER BY. Негруппированные ссылки и nested aggregates
 отклоняются. Автоматические функциональные зависимости от primary key,
-GROUPING SETS/ROLLUP/CUBE и window functions не поддержаны.
+GROUPING SETS/ROLLUP/CUBE не поддержаны.
 
 Вычисляемое поле без column origin получает `option` по эвристике upstream,
 даже если PostgreSQL всегда возвращает значение: например, `count(*)`
@@ -306,8 +321,50 @@ DISTINCT, derived tables с aliases, scalar subqueries, EXISTS/NOT EXISTS,
 IN/NOT IN и ANY/ALL с SELECT. Scalar/predicate subqueries могут обращаться к
 внешним источникам; их имена и ссылки проверяются с учётом shadowing.
 Scalar subquery должен возвращать одну колонку; превышение одной строки
-обрабатывает PostgreSQL. LATERAL и агрегаты, принадлежащие внешнему уровню
-запроса, пока отклоняются.
+обрабатывает PostgreSQL. Агрегаты, принадлежащие внешнему уровню запроса,
+пока отклоняются.
+
+## Оконные и скалярные функции
+
+Поддержаны `row_number`, `rank`, `dense_rank`, `percent_rank`, `cume_dist`,
+`ntile`, `lag`, `lead`, `first_value`, `last_value`, `nth_value`, а также
+перечисленные aggregates с `OVER`. Доступны inline specifications, именованные
+`WINDOW` definitions и их наследование, PARTITION BY, ORDER BY и frames
+ROWS/RANGE/GROUPS с EXCLUDE. RANGE offsets проверяются для известных numeric
+и temporal overloads; GROUPS требует ORDER BY. Frame offsets не ссылаются
+на колонки; отрицательные и NULL-значения проверяет PostgreSQL при выполнении.
+
+Window expressions разрешены в SELECT и ORDER BY, но не в WHERE, HAVING,
+GROUP BY, JOIN ON, DML SET/RETURNING или внутри другого окна/агрегата.
+`sum(count(*)) OVER (...)` допустим при корректной группировке. DISTINCT
+и aggregate-local ORDER BY с OVER отклоняются; FILTER доступен для оконных
+агрегатов. Полиморфный аргумент без SQL type context требует явного cast.
+`row_number()` возвращает `int64 option`, как и остальные вычисляемые outputs.
+
+```ocaml
+open! Base
+
+let page_positions conn preceding =
+  [%pgsql.object conn
+    {|SELECT id, row_number() OVER w AS position,
+             sum(id) OVER (w ROWS $preceding PRECEDING) AS running
+      FROM people WINDOW w AS (ORDER BY id) ORDER BY id|}]
+;;
+```
+
+Из скалярных функций поддержаны `lower`/`upper`, `length`, `char_length` /
+`character_length`, `octet_length`, `trim` и `btrim`/`ltrim`/`rtrim`,
+позиционные `substring`/`substr`, `replace`, `concat`, `abs` и `round`.
+Типы параметров соответствуют выбранной PostgreSQL-перегрузке: например,
+`round(integer)` даёт `float option`, а `round(numeric, integer)` — `string option`.
+У позиционного substring числовой контекст должен выбирать overload,
+например `substring(name FROM 1 FOR $count)` или `substring(name, $start::integer)`.
+Regex-overloads substring и неизвестные пользовательские функции отклоняются.
+
+Доступны `IS DISTINCT FROM` / `IS NOT DISTINCT FROM` и JSON/JSONB extraction
+`->`, `->>`, `#>`, `#>>`. Ключ имеет тип text или integer; path — `text[]`.
+`->`/`#>` сохраняют JSON-тип, `->>`/`#>>` возвращают text; OCaml-представление
+обоих — `string option`. Новые выражения не меняют статическую форму SQL.
 
 ## WITH и recursive CTE
 
@@ -348,6 +405,13 @@ let delete conn id : int32 list =
   [%pgsql conn "DELETE FROM people WHERE id = $id RETURNING id"]
 ;;
 ```
+
+UPDATE FROM и DELETE USING принимают таблицы, joins, derived sources и CTE.
+Присваивания изменяют только target; WHERE и RETURNING могут читать остальные
+источники. Неквалифицированная колонка должна разрешаться однозначно.
+Target недоступен внутри собственного FROM/USING relation, включая LATERAL;
+для self-JOIN используйте отдельный alias. Если source даёт несколько
+совпадений для одной target-строки, выбор строки остаётся поведением PostgreSQL.
 
 Без RETURNING `[%pgsql ...]` возвращает `unit` в monad модуля PGOCaml.
 С RETURNING действуют те же правила scalar/tuple/object results и NULL, что
@@ -420,9 +484,12 @@ AS и bare alias. Колонки слева в INSERT/SET и conflict target н�
 | UNION/INTERSECT/EXCEPT, ALL/DISTINCT | Поддерживается |
 | SELECT и DML CTE, recursive SELECT установленной формы | Поддерживается |
 | CASE, COALESCE/NULLIF, numeric expressions, casts известных типов | Поддерживается с описанными ограничениями |
-| ON CONSTRAINT, partial-index predicates, UPDATE FROM, DELETE USING | Явный diagnostic |
-| LATERAL, window functions, GROUPING SETS, SEARCH/CYCLE и MERGE | Явный diagnostic |
-| Прочие функции/операторы, E-strings, dollar quoting | Явный diagnostic |
+| UPDATE FROM, DELETE USING, source columns в RETURNING | Поддерживается |
+| ON CONSTRAINT, partial-index predicates | Явный diagnostic |
+| LATERAL derived SELECT, перечисленные window functions и frames | Поддерживается |
+| GROUPING SETS, SEARCH/CYCLE, MERGE и table functions | Явный diagnostic |
+| E-strings, dollar quoting, перечисленные scalar functions и JSON operators | Поддерживается |
+| Прочие функции/операторы | Явный diagnostic |
 | Enum/domain и одномерные native arrays поддержанных scalar-типов | Поддерживается с nested metadata |
 | List-подстановки и прочие native types | Явный diagnostic |
 
@@ -475,3 +542,8 @@ Snapshot таблиц не содержит всей информации и п�
 4.4.0 используется `TYPED_SQL_UPSTREAM_PPX=/path/to/driver.exe make test-postgres`:
 одни fixtures проверяют OCaml-типы и результаты обоих PPX. Обычные offline
 проверки и компиляция приложения этого driver и доступной БД не требуют.
+
+Tagged dollar strings и текст, похожий на подстановки внутри literals,
+проверяются напрямую на PostgreSQL: regexp-подстановки upstream 4.4.0 не
+распознают эти границы. Остальные новые группы дополнительно проверяются
+общей fixture `compatibility_postgresql_test.ml` с upstream и offline PPX.

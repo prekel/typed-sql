@@ -913,3 +913,91 @@ let%test_module "optional nested native metadata in version 3" =
     ;;
   end)
 ;;
+
+let%test_module "PostgreSQL type modifiers" =
+  (module struct
+    let schema modifier =
+      Schema_ir.v
+        [ Schema_ir.table
+            ~schema:(identifier "public")
+            ~name:(identifier "items")
+            ~columns:
+              [ Schema_ir.column
+                  ~name:(identifier "value")
+                  ~db_type:Text
+                  ~nullable:false
+                  ~postgresql_type:(identifier "pg_catalog", identifier "varchar")
+                  ?postgresql_type_modifier:modifier
+                  ()
+              ]
+            ()
+        ]
+    ;;
+
+    let column schema =
+      List.hd_exn (Schema_ir.columns (List.hd_exn (Schema_ir.tables schema)))
+    ;;
+
+    let source = Schema_snapshot.to_string (schema (Some (-1)))
+
+    let%test "missing metadata stays unknown" =
+      Option.is_none
+        (Schema_ir.column_postgresql_type_modifier
+           (column (decode (Schema_snapshot.to_string (schema None)))))
+    ;;
+
+    let%test "known unspecified modifier stays minus one" =
+      Option.equal
+        Int.equal
+        (Schema_ir.column_postgresql_type_modifier (column (decode source)))
+        (Some (-1))
+    ;;
+
+    let%test "declared length survives round trip" =
+      Option.equal
+        Int.equal
+        (Schema_ir.column_postgresql_type_modifier
+           (column (decode (Schema_snapshot.to_string (schema (Some 14))))))
+        (Some 14)
+    ;;
+
+    let%test "null modifier remains unknown" =
+      let source =
+        String.substr_replace_all
+          source
+          ~pattern:"\"postgresql_type_modifier\": -1"
+          ~with_:"\"postgresql_type_modifier\": null"
+      in
+      Option.is_none (Schema_ir.column_postgresql_type_modifier (column (decode source)))
+    ;;
+
+    let%test "out of range modifier is rejected" =
+      let source =
+        String.substr_replace_all
+          source
+          ~pattern:"\"postgresql_type_modifier\": -1"
+          ~with_:"\"postgresql_type_modifier\": 2147483648"
+      in
+      Result.is_error (Schema_snapshot.of_string source)
+    ;;
+
+    let%test "noninteger modifier is rejected" =
+      let source =
+        String.substr_replace_all
+          source
+          ~pattern:"\"postgresql_type_modifier\": -1"
+          ~with_:"\"postgresql_type_modifier\": \"14\""
+      in
+      Result.is_error (Schema_snapshot.of_string source)
+    ;;
+
+    let%test "portable descriptors ignore native modifiers" =
+      let generate schema =
+        Schema_codegen.generate schema
+        |> Result.map_error ~f:Schema_codegen.error_to_string
+        |> Result.ok_or_failwith
+      in
+      String.equal (generate (schema None)) (generate (schema (Some 14)))
+    ;;
+  end)
+;;

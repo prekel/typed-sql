@@ -35,7 +35,8 @@ type token =
 type type_name =
   { names : string list
   ; dimensions : int
-  ; modified : bool
+  ; modifiers : int list
+  ; interval_fields : string list
   }
 
 type expression =
@@ -72,7 +73,29 @@ and call =
   ; distinct : bool
   ; order : ordering list
   ; filter : expression option
+  ; over : window option
   }
+
+and window =
+  { parent : string option
+  ; partition : expression list
+  ; ordering : ordering list
+  ; frame : frame option
+  ; direct : bool
+  ; offset : int
+  }
+
+and frame =
+  { mode : string
+  ; first : frame_bound
+  ; last : frame_bound
+  ; exclusion : string option
+  }
+
+and frame_bound =
+  | Unbounded of bool
+  | Current_row
+  | Bounded of expression * bool
 
 and ordering = expression * bool * bool option
 
@@ -90,6 +113,7 @@ and relation =
 and relation_node =
   | Table of reference
   | Derived of statement
+  | Lateral of statement
   | Join of relation * relation * join_kind * join_condition
 
 and join_kind =
@@ -112,6 +136,7 @@ and select =
   ; group : expression list
   ; having : expression option
   ; distinct : bool
+  ; windows : (string * window) list
   }
 
 and conflict =
@@ -138,8 +163,14 @@ and body =
       * conflict option
       * projection list
   | Update of
-      reference * string option * assignment list * expression option * projection list
-  | Delete of reference * string option * expression option * projection list
+      reference
+      * string option
+      * assignment list
+      * relation option
+      * expression option
+      * projection list
+  | Delete of
+      reference * string option * relation option * expression option * projection list
 
 and cte =
   { name : string

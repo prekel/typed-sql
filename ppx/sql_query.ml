@@ -78,16 +78,6 @@ let lex source =
     else
       quoted start (i + 1) (source.[i] :: acc)
   in
-  let rec sql_string start i acc =
-    if Int.(i >= length) then
-      fail start "unterminated SQL string literal"
-    else if has i "''" then
-      sql_string start (i + 2) ('\'' :: acc)
-    else if Char.equal source.[i] '\'' then
-      Ok (String.of_char_list (List.rev acc), i + 1)
-    else
-      sql_string start (i + 1) (source.[i] :: acc)
-  in
   let number start =
     let digits i =
       let rec loop i =
@@ -156,9 +146,24 @@ let lex source =
     else if has i "/*" then (
       let%bind stop = comment i 1 (i + 2) in
       scan stop acc)
-    else if Char.equal source.[i] '\'' then (
-      let%bind value, stop = sql_string i (i + 1) [] in
+    else if Char.equal source.[i] '\'' || has i "E'" || has i "e'" then (
+      let escape = not (Char.equal source.[i] '\'') in
+      let%bind value, stop =
+        Sql_string.quoted
+          ~escape
+          source
+          ~quote:
+            (if escape then
+               i + 1
+             else
+               i)
+        |> Result.map_error ~f:(fun (e : Sql_string.error) ->
+          { offset = e.offset; message = e.message })
+      in
       scan stop ({ kind = String_sql value; offset = i } :: acc))
+    else if List.exists [ "->>"; "#>>"; "->"; "#>" ] ~f:(has i) then (
+      let op = List.find_exn [ "->>"; "#>>"; "->"; "#>" ] ~f:(has i) in
+      scan (i + String.length op) ({ kind = Operator op; offset = i } :: acc))
     else if
       Char.is_digit source.[i]
       || (List.mem [ '+'; '-'; '.' ] source.[i] ~equal:Char.equal
@@ -197,6 +202,16 @@ let lex source =
     else if Char.equal source.[i] '"' then (
       let%bind name, stop = quoted i (i + 1) [] in
       scan stop ({ kind = Quoted name; offset = i } :: acc))
+    else if
+      Char.equal source.[i] '$' && Option.is_some (Sql_string.dollar_opener source i)
+    then (
+      let delimiter, body = Option.value_exn (Sql_string.dollar_opener source i) in
+      let%bind value, stop =
+        Sql_string.dollar source ~start:i ~delimiter ~body
+        |> Result.map_error ~f:(fun (e : Sql_string.error) ->
+          { offset = e.offset; message = e.message })
+      in
+      scan stop ({ kind = String_sql value; offset = i } :: acc))
     else if Char.equal source.[i] '$' then (
       let%bind () =
         if has (i + 1) "@" then
@@ -280,7 +295,8 @@ let lex source =
 type type_name =
   { names : string list
   ; dimensions : int
-  ; modified : bool
+  ; modifiers : int list
+  ; interval_fields : string list
   }
 
 type expression =
@@ -317,7 +333,29 @@ and call =
   ; distinct : bool
   ; order : ordering list
   ; filter : expression option
+  ; over : window option
   }
+
+and window =
+  { parent : string option
+  ; partition : expression list
+  ; ordering : ordering list
+  ; frame : frame option
+  ; direct : bool
+  ; offset : int
+  }
+
+and frame =
+  { mode : string
+  ; first : frame_bound
+  ; last : frame_bound
+  ; exclusion : string option
+  }
+
+and frame_bound =
+  | Unbounded of bool
+  | Current_row
+  | Bounded of expression * bool
 
 and ordering = expression * bool * bool option
 
@@ -335,6 +373,7 @@ and relation =
 and relation_node =
   | Table of reference
   | Derived of statement
+  | Lateral of statement
   | Join of relation * relation * join_kind * join_condition
 
 and join_kind =
@@ -357,6 +396,7 @@ and select =
   ; group : expression list
   ; having : expression option
   ; distinct : bool
+  ; windows : (string * window) list
   }
 
 and conflict =
@@ -383,8 +423,14 @@ and body =
       * conflict option
       * projection list
   | Update of
-      reference * string option * assignment list * expression option * projection list
-  | Delete of reference * string option * expression option * projection list
+      reference
+      * string option
+      * assignment list
+      * relation option
+      * expression option
+      * projection list
+  | Delete of
+      reference * string option * relation option * expression option * projection list
 
 and cte =
   { name : string
@@ -512,6 +558,14 @@ let boundary =
   ; "fetch"
   ; "window"
   ; "over"
+  ; "partition"
+  ; "rows"
+  ; "range"
+  ; "groups"
+  ; "exclude"
+  ; "preceding"
+  ; "following"
+  ; "lateral"
   ]
 ;;
 
@@ -713,7 +767,21 @@ and parse_body parser : statement =
       else
         None
     in
-    empty offset (Select { projection; from; conditions; group; having; distinct }))
+    let windows =
+      if take_word parser "window" then
+        list parser (fun parser ->
+          let name = identifier parser in
+          expect_word parser "as";
+          (match peek parser with
+           | Symbol '(' -> ()
+           | _ -> reject (pos parser) "WINDOW definition requires parentheses");
+          name, parse_window parser)
+      else
+        []
+    in
+    empty
+      offset
+      (Select { projection; from; conditions; group; having; distinct; windows }))
   else if take_word parser "insert" then (
     expect_word parser "into";
     let target = reference parser in
@@ -780,16 +848,28 @@ and parse_body parser : statement =
     let target_alias, _ = alias parser in
     expect_word parser "set";
     let assignments = parse_assignments parser in
+    let from =
+      if take_word parser "from" then
+        Some (parse_from parser)
+      else
+        None
+    in
     let condition = parse_where parser in
     let result = parse_returning parser in
-    empty offset (Update (target, target_alias, assignments, condition, result)))
+    empty offset (Update (target, target_alias, assignments, from, condition, result)))
   else if take_word parser "delete" then (
     expect_word parser "from";
     let target = reference parser in
     let target_alias, _ = alias parser in
+    let using =
+      if take_word parser "using" then
+        Some (parse_from parser)
+      else
+        None
+    in
     let condition = parse_where parser in
     let result = parse_returning parser in
-    empty offset (Delete (target, target_alias, condition, result)))
+    empty offset (Delete (target, target_alias, using, condition, result)))
   else
     reject offset "expected SELECT, INSERT, UPDATE or DELETE"
 
@@ -926,11 +1006,17 @@ and parse_joins parser : relation =
 
 and parse_relation parser : relation =
   let offset = pos parser in
+  let lateral = take_word parser "lateral" in
   let base =
     if take_symbol parser '(' then (
       let base =
         if word parser "select" || word parser "with" then
-          { relation = Derived (parse_statement parser)
+          { relation =
+              (let query = parse_statement parser in
+               if lateral then
+                 Lateral query
+               else
+                 Derived query)
           ; alias = None
           ; columns = []
           ; offset
@@ -943,6 +1029,12 @@ and parse_relation parser : relation =
     else
       { relation = Table (reference parser); alias = None; columns = []; offset }
   in
+  if lateral then (
+    match
+      base.relation
+    with
+    | Lateral _ -> ()
+    | _ -> reject offset "LATERAL requires a derived SELECT");
   let new_alias, columns = alias parser in
   let alias =
     match new_alias with
@@ -956,7 +1048,7 @@ and parse_relation parser : relation =
       columns
   in
   (match base.relation, alias with
-   | Derived _, None -> reject offset "subquery in FROM requires an alias"
+   | (Derived _ | Lateral _), None -> reject offset "subquery in FROM requires an alias"
    | _ -> ());
   { base with alias; columns; offset }
 
@@ -1009,8 +1101,22 @@ and parse_expression parser minimum : expression =
       in
       if Int.(minimum <= 40) && take_word parser "is" then (
         let negative = take_word parser "not" in
-        expect_word parser "null";
-        loop (expression left.offset (Is_null (left, negative))))
+        if take_word parser "distinct" then (
+          expect_word parser "from";
+          let right = parse_expression parser 41 in
+          loop
+            (expression
+               left.offset
+               (Binary
+                  ( (if negative then
+                       "is not distinct from"
+                     else
+                       "is distinct from")
+                  , left
+                  , right ))))
+        else (
+          expect_word parser "null";
+          loop (expression left.offset (Is_null (left, negative)))))
       else if Int.(minimum <= 40) && take_word parser "between" then (
         let low = parse_expression parser 41 in
         expect_word parser "and";
@@ -1034,7 +1140,7 @@ and parse_expression parser minimum : expression =
           | Word (("like" | "ilike") as op) -> op, 40
           | Symbol '=' -> "=", 40
           | Operator (("<" | ">" | "<=" | ">=" | "<>" | "!=") as op) -> op, 40
-          | Operator "||" -> "||", 50
+          | Operator (("||" | "->" | "->>" | "#>" | "#>>") as op) -> op, 50
           | Symbol (('+' | '-') as op) -> String.of_char op, 60
           | Symbol (('*' | '/' | '%') as op) -> String.of_char op, 70
           | _ -> "", 0
@@ -1159,8 +1265,31 @@ and parse_atom parser : expression =
     expect_symbol parser ')';
     value
   | Word _ | Quoted _ ->
+    let keyword =
+      match peek parser with
+      | Word _ -> true
+      | _ -> false
+    in
     let name = reference parser in
     if take_symbol parser '(' then (
+      let function_name = List.last_exn name.names in
+      let trim =
+        keyword
+        && String.equal function_name "trim"
+        && Int.equal (List.length name.names) 1
+      in
+      let direction =
+        if trim then
+          if take_word parser "leading" then
+            "ltrim"
+          else if take_word parser "trailing" then
+            "rtrim"
+          else (
+            ignore (take_word parser "both" : bool);
+            "btrim")
+        else
+          function_name
+      in
       let distinct = take_word parser "distinct" in
       if not distinct then
         ignore (take_word parser "all" : bool);
@@ -1174,8 +1303,37 @@ and parse_atom parser : expression =
           | _ -> false
         then
           []
-        else
-          list parser (fun p -> parse_expression p 0)
+        else if trim && take_word parser "from" then
+          [ parse_expression parser 0 ]
+        else (
+          let first = parse_expression parser 0 in
+          if trim && take_word parser "from" then (
+            let value = parse_expression parser 0 in
+            [ value; first ])
+          else if
+            String.equal function_name "substring"
+            && keyword
+            && Int.equal (List.length name.names) 1
+            && (word parser "from" || word parser "for")
+          then (
+            let start =
+              if take_word parser "from" then
+                parse_expression parser 0
+              else
+                expression offset (Number_literal "1")
+            in
+            if take_word parser "for" then
+              [ first; start; parse_expression parser 0 ]
+            else
+              [ first; start ])
+          else (
+            let rec rest acc =
+              if take_symbol parser ',' then
+                rest (parse_expression parser 0 :: acc)
+              else
+                List.rev acc
+            in
+            rest [ first ]))
       in
       let order =
         if take_word parser "order" then (
@@ -1195,10 +1353,108 @@ and parse_atom parser : expression =
         else
           None
       in
-      expression offset (Call { name = name.names; args; star; distinct; order; filter }))
+      let over =
+        if take_word parser "over" then
+          Some (parse_window parser)
+        else
+          None
+      in
+      let names =
+        if trim then
+          [ direction ]
+        else
+          name.names
+      in
+      expression offset (Call { name = names; args; star; distinct; order; filter; over }))
     else
       expression offset (Column name.names)
   | _ -> reject offset "expected SQL expression"
+
+and parse_window parser : window =
+  let offset = pos parser in
+  if not (take_symbol parser '(') then
+    { parent = Some (identifier parser)
+    ; partition = []
+    ; ordering = []
+    ; frame = None
+    ; direct = true
+    ; offset
+    }
+  else (
+    let parent =
+      match peek parser with
+      | Word name
+        when not
+               (List.mem
+                  [ "partition"; "order"; "rows"; "range"; "groups" ]
+                  name
+                  ~equal:String.equal) -> Some (identifier parser)
+      | Quoted _ -> Some (identifier parser)
+      | _ -> None
+    in
+    let partition =
+      if take_word parser "partition" then (
+        expect_word parser "by";
+        list parser (fun p -> parse_expression p 0))
+      else
+        []
+    in
+    let ordering =
+      if take_word parser "order" then (
+        expect_word parser "by";
+        parse_order parser)
+      else
+        []
+    in
+    let frame =
+      match peek parser with
+      | Word (("rows" | "range" | "groups") as mode) ->
+        advance parser;
+        let bound () =
+          if take_word parser "unbounded" then (
+            let preceding = take_word parser "preceding" in
+            if not preceding then
+              expect_word parser "following";
+            Unbounded preceding)
+          else if take_word parser "current" then (
+            expect_word parser "row";
+            Current_row)
+          else (
+            let value = parse_expression parser 0 in
+            let preceding = take_word parser "preceding" in
+            if not preceding then
+              expect_word parser "following";
+            Bounded (value, preceding))
+        in
+        let first, last =
+          if take_word parser "between" then (
+            let first = bound () in
+            expect_word parser "and";
+            first, bound ())
+          else
+            bound (), Current_row
+        in
+        let exclusion =
+          if take_word parser "exclude" then
+            if take_word parser "current" then (
+              expect_word parser "row";
+              Some "current row")
+            else if take_word parser "group" then
+              Some "group"
+            else if take_word parser "ties" then
+              Some "ties"
+            else (
+              expect_word parser "no";
+              expect_word parser "others";
+              Some "no others")
+          else
+            None
+        in
+        Some { mode; first; last; exclusion }
+      | _ -> None
+    in
+    expect_symbol parser ')';
+    { parent; partition; ordering; frame; direct = false; offset })
 
 and parse_type parser =
   let quoted =
@@ -1226,17 +1482,75 @@ and parse_type parser =
         [ "bpchar" ]
     | names, _ -> names
   in
-  let modified = take_symbol parser '(' in
-  if modified then (
-    ignore
-      (list parser (fun parser ->
-         match peek parser with
-         | Number value ->
-           advance parser;
-           value
-         | _ -> reject (pos parser) "expected type modifier")
-       : string list);
-    expect_symbol parser ')');
+  let modifiers () =
+    if take_symbol parser '(' then (
+      let values =
+        list parser (fun parser ->
+          let offset = pos parser in
+          match peek parser with
+          | Number value ->
+            advance parser;
+            (match Int.of_string_opt value with
+             | Some value -> value
+             | None -> reject offset "type modifier requires an integer")
+          | _ -> reject offset "expected type modifier")
+      in
+      expect_symbol parser ')';
+      values)
+    else
+      []
+  in
+  let values = modifiers () in
+  let interval_fields =
+    if List.equal String.equal names [ "interval" ] then (
+      let field () =
+        match peek parser with
+        | Word (("year" | "month" | "day" | "hour" | "minute" | "second") as name) ->
+          advance parser;
+          Some name
+        | _ -> None
+      in
+      match field () with
+      | None -> []
+      | Some first ->
+        if take_word parser "to" then (
+          match
+            field ()
+          with
+          | Some last -> [ first; last ]
+          | None -> reject (pos parser) "expected interval field")
+        else
+          [ first ])
+    else
+      []
+  in
+  let values =
+    if List.is_empty interval_fields then
+      values
+    else (
+      if not (List.is_empty values) then
+        reject (pos parser) "interval precision follows SECOND";
+      let precision = modifiers () in
+      if
+        (not (List.is_empty precision))
+        && not (String.equal (List.last_exn interval_fields) "second")
+      then
+        reject (pos parser) "interval precision requires SECOND";
+      precision)
+  in
+  let values =
+    if
+      List.is_empty values
+      && (not quoted)
+      && List.mem
+           [ [ "char" ]; [ "character" ] ]
+           name.names
+           ~equal:(List.equal String.equal)
+    then
+      [ 1 ]
+    else
+      values
+  in
   let names =
     match names with
     | [ "timestamp" ] | [ "time" ] ->
@@ -1262,7 +1576,7 @@ and parse_type parser =
     else
       n
   in
-  { names; dimensions = dimensions 0; modified }
+  { names; dimensions = dimensions 0; modifiers = values; interval_fields }
 ;;
 
 let parse tokens =

@@ -88,7 +88,9 @@ let%test_module "exact catalog type trees" =
 
     let%test_unit "attribute flags are resolved by schema table and column" =
       let rows =
-        [ "public", "items", "value", false; "archive", "items", "value", true ]
+        [ "public", "items", "value", (false, -1)
+        ; "archive", "items", "value", (true, 14)
+        ]
       in
       assert (
         Option.equal

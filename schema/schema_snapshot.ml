@@ -282,7 +282,11 @@ let column version =
            @ Option.value_map
                value.postgresql_attribute_not_null
                ~default:[]
-               ~f:(fun flag -> [ "postgresql_attribute_not_null", bool.encode flag ])))
+               ~f:(fun flag -> [ "postgresql_attribute_not_null", bool.encode flag ])
+           @ Option.value_map
+               value.postgresql_type_modifier
+               ~default:[]
+               ~f:(fun modifier -> [ "postgresql_type_modifier", int.encode modifier ])))
   ; decode =
       (fun path json ->
         let open Result.Let_syntax in
@@ -302,6 +306,7 @@ let column version =
                [ "postgresql_type"
                ; "postgresql_type_info"
                ; "postgresql_attribute_not_null"
+               ; "postgresql_type_modifier"
                ]
              else
                [])
@@ -342,11 +347,25 @@ let column version =
               (path ^ ".postgresql_type_info")
               "native type tree does not match postgresql_type"
         in
-        let%map postgresql_attribute_not_null =
+        let%bind postgresql_attribute_not_null =
           if Int.(version = 3) then
             optional_field path fields "postgresql_attribute_not_null" bool
           else
             Ok None
+        in
+        let%bind postgresql_type_modifier =
+          if Int.(version = 3) then
+            optional_field path fields "postgresql_type_modifier" int
+          else
+            Ok None
+        in
+        let%map () =
+          match postgresql_type_modifier with
+          | Some modifier when Int.(modifier < -2147483648 || modifier > 2147483647) ->
+            fail
+              (path ^ ".postgresql_type_modifier")
+              "expected a signed 32-bit type modifier"
+          | _ -> Ok ()
         in
         Schema_ir.column
           ~name
@@ -358,6 +377,7 @@ let column version =
           ?postgresql_type
           ?postgresql_type_info
           ?postgresql_attribute_not_null
+          ?postgresql_type_modifier
           ())
   }
 ;;

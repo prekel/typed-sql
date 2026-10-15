@@ -113,14 +113,15 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
   ;;
 
   let decode_attribute = function
-    | [ schema; table; column; not_null ] ->
+    | [ schema; table; column; not_null; modifier ] ->
       let open Result.Let_syntax in
       let%bind schema = required "attribute schema" schema in
       let%bind table = required "attribute table" table in
       let%bind column = required "attribute column" column in
-      let%map not_null = boolean "attribute not-null" not_null in
-      schema, table, column, not_null
-    | fields -> wrong_width 4 fields
+      let%bind not_null = boolean "attribute not-null" not_null in
+      let%map modifier = integer "attribute type modifier" modifier in
+      schema, table, column, (not_null, modifier)
+    | fields -> wrong_width 5 fields
   ;;
 
   let fetch conn ~name ~decode sql =
@@ -179,6 +180,7 @@ module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) 
                     ~postgresql_type_info:(S.postgresql_type_info types)
                     ~postgresql_attribute_not_null:
                       (S.postgresql_attribute_not_null attributes)
+                    ~postgresql_type_modifier:(S.postgresql_type_modifier attributes)
                     ~db_type:(S.postgresql_type_mapper types)
                     columns
                     foreign_keys

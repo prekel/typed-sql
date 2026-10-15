@@ -62,10 +62,10 @@ backend-independent ядро не получает новых зависимос
 4. Определить PostgreSQL-типы параметров и результата.
 5. Выбрать совместимые serializers/decoders и сгенерировать OCaml-код.
 
-Входом служит файл snapshot, общий с генератором descriptors. PPX не загружает
-сгенерированный OCaml-модуль и не требует его выполнения во время сборки.
-Обычный PPX работает до typechecking приложения и не может получить metadata
-из произвольных OCaml-значений descriptors.
+Входом служит snapshot, общий с генератором descriptors. Codegen создаёт
+schema PPX библиотеку, которую Dune связывает с драйвером; JSON не читается
+при раскрытии quotations. Это отдельный сгенерированный источник metadata,
+а не извлечение OCaml-значений descriptors до typechecking приложения.
 
 [Snapshot версии 3](schema_snapshot.md) сохраняет точное PostgreSQL-имя типа
 каждой колонки. Версия 2 по-прежнему читается для codegen, но не содержит этих
@@ -134,7 +134,8 @@ Custom Type Conversions отложены до последнего этапа. �
   и byte offsets diagnostics; грамматика полностью проверяет входной SQL.
 - [x] Расширить parser до поддержанных SQL expressions/literals и вложенных
   query blocks с сохранением offsets исходного SQL.
-- [ ] Добавить PostgreSQL E-strings и dollar quoting.
+- [x] Добавить PostgreSQL E-strings и dollar quoting с сохранением bind boundaries,
+  Unicode escaping, newline continuations и исходных offsets.
 - [x] При заимствовании кода выделить файлы с лицензией и указать tag/commit
   upstream, чтобы изменения можно было сверять с исходной реализацией.
 
@@ -204,15 +205,19 @@ Custom Type Conversions отложены до последнего этапа. �
   корреляцию scalar/predicate subqueries.
 - [x] Добавить обычные и recursive SELECT CTE, INSERT/UPDATE/DELETE CTE,
   INSERT SELECT и проверки побочных эффектов; сохранить snapshot v3.
-- [ ] Расширять оставшиеся формы: LATERAL, window functions, функциональные
-  зависимости GROUP BY, GROUPING SETS, SEARCH/CYCLE, mutual recursion и
-  aggregates внешнего уровня. MERGE и UPDATE FROM/DELETE USING остаются вне
-  поддержанного DML. Ограничения текущих групп перечислены в руководстве.
-- [ ] Определить metadata typmod для точной эвристики origin same-type casts
-  прямых varchar/bpchar/numeric и временных колонок; сейчас такие casts
-  отклоняются, если нельзя гарантировать совместимый OCaml-тип результата.
-- [ ] Расширять правила PostgreSQL type inference вместе с поддержкой
-  операторов, функций и implicit coercions; неоднозначные случаи отклонять.
+- [x] Добавить LATERAL derived SELECT, window functions и WINDOW/frames
+  ROWS/RANGE/GROUPS/EXCLUDE, а также UPDATE FROM и DELETE USING с RETURNING.
+- [x] Сохранить optional typmod metadata колонок в snapshot v3 и обоих дамперах;
+  проверять origin same-type casts varchar/bpchar/numeric и временных колонок.
+  Старые v3 без metadata читаются; неоднозначные casts требуют обновления снимка.
+- [x] Добавить lower/upper, length, trim, позиционный substring, replace, concat,
+  abs/round, JSON extraction и IS DISTINCT FROM с проверенными overloads.
+- [ ] Расширять оставшиеся формы: функциональные зависимости GROUP BY,
+  GROUPING SETS, SEARCH/CYCLE, mutual recursion, table/set-returning functions
+  и aggregates внешнего уровня. MERGE остаётся вне поддержанного DML.
+- [ ] Расширять остальные функции, операторы и implicit coercions;
+  regex-overloads substring пока отклоняются. Ограничения групп описаны
+  в руководстве, неизвестные overloads не восстанавливаются догадкой.
 - [x] Добавить enum/domain codecs и одномерные native arrays поддержанных
   scalar-типов, включая enum/domain combinations, NULL и escaping.
 - [ ] Добавить динамическую форму SQL и list-подстановки `$@...` отдельным
@@ -412,12 +417,21 @@ upstream-контракту; конфигурация не требует дос
 - [x] Отдельные PostgreSQL-тесты сравнивают результаты, NULL, порядок строк,
   WHERE и повторное выполнение в рамках зафиксированного upstream-контракта.
   Они не становятся условием обычной компиляции приложения.
+- [ ] Расширять differential-тесты upstream `pgocaml_ppx` и offline-замены,
+  сверяя их покрытие с матрицей поддерживаемого контракта: для каждой
+  поддержанной возможности нужны общая compile-time fixture и сравнение
+  результатов/побочных эффектов на PostgreSQL. Отдельно проверить границы
+  значений параметров, SQLSTATE ошибок и rollback.
 - [x] Расширить PostgreSQL-проверки на RETURNING, predicates, pagination и
   native codecs; добавить fixtures сравнения с upstream 4.4.0.
 - [x] Добавить offline, compile-fail и differential fixtures для outer JOIN,
   CASE/casts, агрегатов, set operations, подзапросов, recursive и DML CTE;
   проверить object → record и побочные эффекты на PostgreSQL.
 - [ ] Проверить динамические list-подстановки и последующие SQL-возможности.
+- [x] Добавить offline/compile-fail и PostgreSQL fixtures для новых literals, typmod,
+  LATERAL, окон, scalar functions, JSON operators и UPDATE FROM/DELETE USING;
+  сравнить общую SQL fixture с upstream по типам и результатам. Tagged dollar
+  literals, которые upstream разбирает как параметры, проверяются отдельно.
 - [x] Проверки Dune подтверждают пересборку после изменения metadata и
   воспроизводимость генерации при неизменном input.
 

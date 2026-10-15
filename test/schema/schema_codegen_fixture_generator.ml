@@ -59,6 +59,7 @@ let column name db_type =
     ~postgresql_type:(schema, identifier native_name)
     ~postgresql_type_info:(native_info schema (identifier native_name) db_type)
     ~postgresql_attribute_not_null:true
+    ~postgresql_type_modifier:(-1)
     ()
 ;;
 

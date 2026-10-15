@@ -98,8 +98,8 @@ type t =
 
 (** Parse the supported SQL subset, including joins, expressions, aggregates,
     nested SELECTs, set operations and SELECT/DML CTEs. Every token is consumed;
-    offsets are bytes in the original literal. SQL strings use standard
-    conforming string syntax. *)
+    offsets are bytes in the original literal. SQL strings support standard,
+    escape and dollar-quoted syntax; substitutions inside them stay literal. *)
 val parse : string -> (t, error) Result.t
 
 val error_to_string : error -> string

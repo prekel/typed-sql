@@ -25,8 +25,9 @@ type t =
 
 (** Resolve sources and exact codecs. Only returned and parameter columns
     need supported type metadata; unused unsupported columns and DEFAULT writes
-    are harmless. Each INNER JOIN condition sees only the sources preceding it
-    and its own source. Unqualified columns must resolve uniquely; aliases hide
+    are harmless. JOIN conditions see their operands; LATERAL derived queries
+    see preceding sources with PostgreSQL join restrictions.
+    Unqualified columns must resolve uniquely; aliases hide
     original relation names. Wildcards preserve source and snapshot column order.
     EXCLUDED assignments require identical exact native types. *)
 val create : Typed_sql_schema.Schema_ir.t -> Sql.t -> (t, Sql.error) Result.t
