@@ -44,7 +44,7 @@ let or_fail = function
 ;;
 
 let test_existing_pgocaml () =
-  let* conn = Existing_pgocaml.connect () in
+  let* conn = Existing_pgocaml.connect ?host:(Stdlib.Sys.getenv_opt "PGHOST") () in
   Lwt.finalize
     (fun () ->
        let statement =
@@ -689,7 +689,7 @@ let test_prepared_cache conn =
    | Error (Adapter.Constraint_violation { kind = Adapter.Unique; _ }) -> ()
    | _ -> failwith "cached command lost SQLSTATE classification");
   let* () = Adapter.Prepared_cache.close transaction_cache >>= or_fail in
-  let* other_conn = Pgocaml.connect () in
+  let* other_conn = Pgocaml.connect ?host:(Stdlib.Sys.getenv_opt "PGHOST") () in
   Lwt.finalize
     (fun () ->
        let* count = prepared_count other_conn in
@@ -1020,7 +1020,7 @@ let test_finite_date_bounds conn =
 ;;
 
 let main () =
-  let* conn = Pgocaml.connect () in
+  let* conn = Pgocaml.connect ?host:(Stdlib.Sys.getenv_opt "PGHOST") () in
   Lwt.finalize
     (fun () ->
        let* () =

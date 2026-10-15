@@ -1460,6 +1460,56 @@
       ],
       "unique_constraints": [],
       "foreign_keys": []
+    },
+    {
+      "schema": "public",
+      "name": "ppx_mixed_items",
+      "columns": [
+        {
+          "name": "id",
+          "db_type": {
+            "kind": "int64"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": 1,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "int8"
+          }
+        },
+        {
+          "name": "name",
+          "db_type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "text"
+          }
+        },
+        {
+          "name": "note",
+          "db_type": {
+            "kind": "text"
+          },
+          "nullable": true,
+          "default": null,
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "text"
+          }
+        }
+      ],
+      "unique_constraints": [],
+      "foreign_keys": []
     }
   ]
 }

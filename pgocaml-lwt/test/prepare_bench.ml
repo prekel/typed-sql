@@ -26,7 +26,7 @@ let measure ~label ~iterations f =
 ;;
 
 let main () =
-  let* conn = Pgocaml.connect () in
+  let* conn = Pgocaml.connect ?host:(Stdlib.Sys.getenv_opt "PGHOST") () in
   Lwt.finalize
     (fun () ->
        let query = "SELECT $1::bigint" in

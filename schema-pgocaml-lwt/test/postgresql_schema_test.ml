@@ -47,7 +47,7 @@ let check_schema schema =
 ;;
 
 let test_default () =
-  let* conn = Pgocaml.connect () in
+  let* conn = Pgocaml.connect ?host:(Stdlib.Sys.getenv_opt "PGHOST") () in
   Lwt.finalize
     (fun () ->
        let* result = Typed_sql_schema_pgocaml_lwt.introspect ~conn in
@@ -59,7 +59,7 @@ let test_default () =
 ;;
 
 let test_custom () =
-  let* conn = Custom_pgocaml.connect () in
+  let* conn = Custom_pgocaml.connect ?host:(Stdlib.Sys.getenv_opt "PGHOST") () in
   Lwt.finalize
     (fun () ->
        let* result = Custom_schema.introspect ~conn in

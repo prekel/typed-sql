@@ -59,7 +59,7 @@ let any conn (ids : int32 option list) : int32 list =
 ;;
 
 let () =
-  let conn = PGOCaml.connect () in
+  let conn = PGOCaml.connect ?host:(Stdlib.Sys.getenv_opt "PGHOST") () in
   Exn.protect
     ~finally:(fun () -> PGOCaml.close conn)
     ~f:(fun () ->

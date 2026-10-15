@@ -170,6 +170,6 @@
   base
   (ppxlib (>= 0.35.0))
   ppx_let
-  (pgocaml (>= 4.4.0))
+  (pgocaml (>= 4.3.0))
   (ppx_expect :with-test))
  (tags (database sql pgocaml ppx postgresql)))

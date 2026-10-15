@@ -90,7 +90,7 @@ let qualified_wildcard conn : (int32 * string * string option) list =
 ;;
 
 let () =
-  let conn = PGOCaml.connect () in
+  let conn = PGOCaml.connect ?host:(Stdlib.Sys.getenv_opt "PGHOST") () in
   Exn.protect
     ~finally:(fun () -> PGOCaml.close conn)
     ~f:(fun () ->

@@ -13,7 +13,7 @@ let normalize_error error =
 ;;
 
 let main () =
-  let* conn = Pgocaml.connect () in
+  let* conn = Pgocaml.connect ?host:(Stdlib.Sys.getenv_opt "PGHOST") () in
   let runner : Suite.runner =
     { exec_sql =
         (fun sql ->

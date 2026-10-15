@@ -1643,7 +1643,7 @@ await db.selectFrom('person')
 Разрешённые идентификаторы выбираются по закрытому variant; пользовательская строка не попадает в SQL.
 
 ```ocaml
-# let kysely23 =
+let kysely23 : ([ `Age | `Id ], (int64 * int) list, Dialect.both) Statement.t =
   Statement.Dynamic.query_many ~dialect:Dialect.portable (fun sort_by ->
     match sort_by with
     | `Age ->
@@ -1664,9 +1664,6 @@ await db.selectFrom('person')
           let+ projected_left = Projection.expr (Person.id person)
           and+ projected_right = Projection.expr (Person.age person) in
           projected_left, projected_right)))
-val kysely23 :
-  ([< `Age | `Id ] as '_weak3, (int64 * int) list, Dialect.both) Statement.t =
-  <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL, сортировка по age)
@@ -2860,7 +2857,7 @@ await db.selectFrom('person')
 Верхний регистр параметра вычисляется до bind; для этого примера предполагаются ASCII-имена.
 
 ```ocaml
-# let kysely40 =
+let kysely40 : (String.t, int64 list, Dialect.both) Statement.t =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let open Parameters.Let_syntax in
     let+ uppercase_name = params.expr Db_type.text ~get:Stdlib.String.uppercase_ascii in
@@ -2869,7 +2866,6 @@ await db.selectFrom('person')
         from Person.table
         |> where (fun person -> Expr.upper (Person.first_name person) =. uppercase_name)
         |> select (fun person -> Projection.expr (Person.id person))))
-val kysely40 : (string/2, int64 list, Dialect.both) Statement.t = <abstr>
 ```
 
 #### SQL typed-sql (PostgreSQL)

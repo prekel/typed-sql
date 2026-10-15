@@ -112,3 +112,11 @@
  (libraries base pgocaml)
  (preprocess
   (pps typed_sql_pgocaml_test_schema_ppx)))
+
+(executable
+ (name mixed_transaction_postgresql_test)
+ (modules mixed_transaction_postgresql_test)
+ (optional)
+ (libraries base lwt.unix pgocaml typed-sql typed-sql-pgocaml-lwt)
+ (preprocess
+  (pps ppx_let typed_sql_pgocaml_test_schema_ppx)))

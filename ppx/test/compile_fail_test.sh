@@ -13,7 +13,10 @@ for fixture in compile_fail/*.ml; do
       exit 1
     fi
   fi
-  if ! grep -Fq "$expected" "$test_dir/stderr"; then
+  # OCaml versions wrap the same type diagnostic at different positions.
+  if ! tr '\n' ' ' < "$test_dir/stderr" \
+    | sed 's/[[:space:]][[:space:]]*/ /g' \
+    | grep -Fq "$expected"; then
     cat "$test_dir/stderr" >&2
     exit 1
   fi

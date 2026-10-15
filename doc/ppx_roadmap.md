@@ -385,12 +385,18 @@ upstream-контракту; конфигурация не требует дос
 
 ## Проверки и критерии выпуска
 
-- [ ] Поддержать PG’OCaml 4.3.0 и PostgreSQL 15 как минимальную совместимую
-  связку: проверить сборку PPX и generated-кода, scalar codecs, bind parameters,
-  NULL, prepared cache и одинаковые snapshots обоих дамперов. Текущий пакет
-  требует PG’OCaml 4.4.0; PostgreSQL-проверки выполнены на 18.6. После проверки
-  связки 4.3.0/15 снизить нижнюю границу `pgocaml` в `dune-project` до 4.3.0,
-  сохранив regression-проверки на 4.4.0 и PostgreSQL 18.
+- [x] Поддержать PG’OCaml 4.3.0: нижняя граница зависимости PPX снижена до
+  4.3.0. Сборка и offline fixtures проверены на OCaml 4.14.1; scalar codecs,
+  bind parameters, NULL, prepared cache и одинаковые snapshots обоих дамперов —
+  на PostgreSQL 18.6. Сохранены проверки на OCaml 5.1.1 / PG’OCaml 4.4.0.
+- [ ] Проверить PostgreSQL 15, в том числе в связке с PG’OCaml 4.3.0:
+  повторить PostgreSQL-тесты codecs, prepared cache и schema dump. Проверки
+  на PostgreSQL 18.6 не заменяют эту проверку минимальной версии сервера.
+- [x] Проверить query builder и offline PPX в одной Lwt-транзакции на общем
+  соединении через `Make (PGOCaml)`: оба направления чтения/записи,
+  object → record, commit, явный rollback и rollback при исключении PPX.
+  Второе соединение проверяет изоляцию до commit и отсутствие откатившихся
+  записей; тест выполнен с PG’OCaml 4.3.0 и 4.4.0 на PostgreSQL 18.6.
 - [x] Compile-time fixtures запускаются с недоступным PostgreSQL; переменные
   окружения `PG*` не включают скрытый online fallback. Отсутствующий snapshot
   даёт diagnostic.

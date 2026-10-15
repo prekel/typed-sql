@@ -55,7 +55,11 @@ let connection_options source =
     | Some "" | None -> None
     | host -> host
   in
-  let host = Option.first_some query_host uri_host in
+  let host =
+    Option.first_some
+      (Option.first_some query_host uri_host)
+      (Stdlib.Sys.getenv_opt "PGHOST")
+  in
   let host, unix_domain_socket_dir =
     match host with
     | Some host when String.is_prefix host ~prefix:"/" -> None, Some host

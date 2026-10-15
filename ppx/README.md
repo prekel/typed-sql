@@ -7,7 +7,13 @@
 
 Пакет экспериментальный: поддерживается описанное ниже подмножество SQL,
 а не все возможности PostgreSQL и upstream PPX. Текущая зависимость —
-`pgocaml >= 4.4.0`.
+`pgocaml >= 4.3.0`. PG’OCaml 4.3.0 требует OCaml младше 5.0;
+для этой связки используйте OCaml 4.14.1. На OCaml 5 используйте PG’OCaml 4.4.0
+или совместимую более новую версию.
+
+У PG’OCaml 4.3.0 Unix-путь из `PGHOST` нужно передавать явно:
+`PGOCaml.connect ?host:(Stdlib.Sys.getenv_opt "PGHOST") ()`.
+Дампер делает это сам; offline PPX не создаёт соединений.
 
 ## 1. Сохранить схему
 
@@ -175,6 +181,32 @@ let find_many dbh (ids : int32 option list) : int32 list =
 Здесь `[ Some 1l; Some 2l ]` — array из двух чисел, `[]` — пустой array,
 а `None` внутри списка — NULL-элемент. Для SQL NULL всего array используется
 optional-подстановка `$?ids` с внешним `option`.
+
+## Вместе с query builder в одной транзакции
+
+Подключите `typed-sql-pgocaml-lwt`, `typed-sql` и `lwt.unix` к библиотеке
+приложения. Quotations генерируют вызовы модуля с именем `PGOCaml`;
+query builder должен использовать адаптер того же модуля:
+
+```ocaml
+module PGOCaml = Typed_sql_pgocaml_lwt.Pgocaml
+module Adapter = Typed_sql_pgocaml_lwt.Make (PGOCaml)
+```
+
+Внутри `Adapter.transaction ~conn ~f` передавайте полученный `conn` как
+в `Adapter.run ~conn statement input`, так и в `[%pgsql conn ...]` или
+`[%pgsql.object conn ...]`. Quotations с таким модулем возвращают `Lwt.t`.
+Оба способа выполнения видят изменения друг друга до commit.
+
+Callback транзакции возвращает `Result.t Lwt.t`: `Ok` фиксирует все изменения,
+`Error` откатывает их. Исключение quotation также приводит к rollback
+и преобразуется в ошибку адаптера. Для прикладного Lwt-модуля `PGOCaml`
+используйте `Typed_sql_pgocaml_lwt.Make (PGOCaml)` с этим модулем;
+дополнительное соединение или вложенная транзакция для PPX не нужны.
+
+[Полный тест](test/mixed_transaction_postgresql_test.ml) показывает запись
+и чтение обоими способами, object → record, commit и два варианта rollback.
+Он запускается через `make test-postgres`; обычный `make test` не требует БД.
 
 ## Ограничения и совместимость
 

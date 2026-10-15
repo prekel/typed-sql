@@ -5,6 +5,9 @@
 `[%pgsql ...]` и `[%pgsql.object ...]` и выполняет запрос через модуль
 `PGOCaml` приложения. Компиляция не подключается к БД.
 
+Минимальная версия PG’OCaml — 4.3.0. Она требует OCaml младше 5.0 и проверяется
+с OCaml 4.14.1; для OCaml 5 используется PG’OCaml 4.4.0.
+
 ## Подключение
 
 Создайте snapshot версии 3 после применения миграций через один из существующих
@@ -47,6 +50,20 @@ packages или файл snapshot: сгенерированный модуль �
 компиляции. Runtime-соединение и его `search_path` должны соответствовать схеме
 снимка; неквалифицированные таблицы PPX разрешает в `public`. Для других схем
 используйте явное `schema.table`.
+
+## Совместное выполнение с query builder
+
+Quotations и query builder могут использовать одно Lwt-соединение и одну
+транзакцию. Подключите `typed-sql-pgocaml-lwt`, выберите общий модуль `PGOCaml`
+и создайте `Typed_sql_pgocaml_lwt.Make (PGOCaml)`. В callback его `transaction`
+передавайте один `conn` как в `run`, так и в quotations. `Ok` фиксирует все
+изменения; `Error` или исключение quotation откатывает их. Дополнительный
+BEGIN внутри quotations не нужен.
+
+[Integration test](../ppx/test/mixed_transaction_postgresql_test.ml) проверяет
+оба направления чтения/записи, object → record converter, видимость из второго
+соединения и rollback при unique violation из PPX. Он включён в
+`make test-postgres`; для обычной offline-сборки БД не нужна.
 
 ## Запросы
 
