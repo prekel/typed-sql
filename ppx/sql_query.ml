@@ -374,7 +374,7 @@ and relation_node =
   | Table of reference
   | Derived of statement
   | Lateral of statement
-  | Function of call * bool
+  | Functions of call list * bool
   | Join of relation * relation * join_kind * join_condition
 
 and join_kind =
@@ -1009,7 +1009,31 @@ and parse_relation parser : relation =
   let offset = pos parser in
   let lateral = take_word parser "lateral" in
   let base =
-    if take_symbol parser '(' then (
+    if
+      match parser.tokens with
+      | { kind = Word "rows"; _ } :: { kind = Word "from"; _ } :: _ -> true
+      | _ -> false
+    then (
+      expect_word parser "rows";
+      expect_word parser "from";
+      expect_symbol parser '(';
+      let calls =
+        list parser (fun parser ->
+          let expr = parse_atom parser in
+          match expr.node with
+          | Call call -> call
+          | _ -> reject expr.offset "ROWS FROM requires function calls")
+      in
+      expect_symbol parser ')';
+      let ordinality =
+        if take_word parser "with" then (
+          expect_word parser "ordinality";
+          true)
+        else
+          false
+      in
+      { relation = Functions (calls, ordinality); alias = None; columns = []; offset })
+    else if take_symbol parser '(' then (
       let base =
         if word parser "select" || word parser "with" then
           { relation =
@@ -1040,7 +1064,7 @@ and parse_relation parser : relation =
             else
               false
           in
-          Function (call, ordinality)
+          Functions ([ call ], ordinality)
         | _ -> reject offset "expected table or supported table function"
       in
       { relation; alias = None; columns = []; offset })
@@ -1049,8 +1073,8 @@ and parse_relation parser : relation =
     match
       base.relation
     with
-    | Lateral _ | Function _ -> ()
-    | _ -> reject offset "LATERAL requires a derived SELECT");
+    | Lateral _ | Functions _ -> ()
+    | _ -> reject offset "LATERAL requires a derived SELECT or supported table function");
   let new_alias, columns = alias parser in
   let alias =
     match new_alias with

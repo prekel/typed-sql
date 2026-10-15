@@ -12,7 +12,8 @@ for fixture in \
   ppx/test/rich_postgresql_test.ml \
   ppx/test/compatibility_postgresql_test.ml \
   ppx/test/runtime_contract_postgresql_test.ml \
-  ppx/test/srf_postgresql_test.ml; do
+  ppx/test/srf_postgresql_test.ml \
+  ppx/test/srf_select_postgresql_test.ml; do
   echo "Comparing upstream/offline PPX: $fixture"
   "$upstream" --impl "$fixture" -o "$workdir/upstream.ml"
   PGHOST=/nonexistent/typed-sql-offline "$offline" \

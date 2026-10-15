@@ -132,6 +132,7 @@ PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/rich_postgresql_test.e
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/literal_postgresql_test.exe
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/compatibility_postgresql_test.exe
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/srf_postgresql_test.exe
+PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/srf_select_postgresql_test.exe
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/runtime_contract_postgresql_test.exe
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/mixed_transaction_postgresql_test.exe
 if [[ -n "${TYPED_SQL_UPSTREAM_PPX:-}" ]]; then

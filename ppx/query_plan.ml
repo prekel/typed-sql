@@ -484,7 +484,9 @@ and relation_dependencies (relation : Q.relation) =
   | Table { names = [ name ]; _ } -> [ name ]
   | Table _ -> []
   | Derived query | Lateral query -> dependencies query
-  | Function (call, _) -> List.concat_map call.args ~f:expression_dependencies
+  | Functions (calls, _) ->
+    List.concat_map calls ~f:(fun call ->
+      List.concat_map call.Q.args ~f:expression_dependencies)
   | Join (left, right, _, condition) ->
     relation_dependencies left
     @ relation_dependencies right
@@ -533,6 +535,99 @@ let rec has_window (expr : Q.expression) =
   | _ -> List.exists (children expr) ~f:has_window
 ;;
 
+let is_srf = function
+  | "unnest" | "generate_series" -> true
+  | _ -> false
+;;
+
+let rec has_srf (expr : Q.expression) =
+  (match expr.node with
+   | Call call -> Option.value_map (List.last call.name) ~default:false ~f:is_srf
+   | _ -> false)
+  || List.exists (children expr) ~f:has_srf
+;;
+
+let function_values
+      ~(infer_arg : ?expected:N.t -> Q.expression -> value)
+      ~multi
+      offset
+      (call : Q.call)
+  =
+  let name = name_of_call offset call.name in
+  if
+    call.star
+    || call.distinct
+    || (not (List.is_empty call.order))
+    || Option.is_some call.filter
+    || Option.is_some call.over
+  then
+    reject offset "set-returning functions do not accept aggregate or window modifiers";
+  match name with
+  | "unnest" ->
+    if List.is_empty call.args then
+      reject offset "UNNEST requires an array";
+    if (not multi) && not (Int.equal (List.length call.args) 1) then
+      reject offset "UNNEST accepts one array outside FROM";
+    if Int.(List.length call.args > 1 && List.length call.name > 1) then
+      reject offset "multi-array UNNEST must be unqualified";
+    let args = List.map call.args ~f:infer_arg in
+    let types =
+      List.map2_exn call.args args ~f:(fun expr arg ->
+        match N.base (known expr.Q.offset arg) with
+        | N.Array element -> element
+        | _ -> reject expr.offset "UNNEST requires a known array type")
+    in
+    types, args
+  | "generate_series" ->
+    let count = List.length call.args in
+    if not (Int.equal count 2 || Int.equal count 3) then
+      reject offset "GENERATE_SERIES requires two or three arguments";
+    let initial = List.map call.args ~f:infer_arg in
+    let first_two =
+      List.take initial 2 |> List.filter_map ~f:(fun v -> Option.map v.native ~f:N.base)
+    in
+    if List.for_all initial ~f:(fun value -> Option.is_none value.native) then
+      reject offset "GENERATE_SERIES requires a SQL type context";
+    let temporal =
+      List.exists first_two ~f:(function
+        | N.Scalar ("timestamp" | "timestamptz") -> true
+        | _ -> false)
+    in
+    let typ =
+      if temporal then (
+        if not (Int.equal count 3) then
+          reject offset "temporal GENERATE_SERIES requires an interval step";
+        if List.exists first_two ~f:(N.equal (scalar "timestamptz")) then
+          scalar "timestamptz"
+        else
+          scalar "timestamp")
+      else (
+        let types = List.filter_map initial ~f:(fun v -> Option.map v.native ~f:N.base) in
+        let typ = common offset types in
+        match typ with
+        | N.Scalar "int2" ->
+          reject offset "ambiguous GENERATE_SERIES smallint overload; add an integer cast"
+        | N.Scalar "int4" -> scalar "int4"
+        | N.Scalar ("int8" | "numeric") -> typ
+        | _ -> reject offset "unsupported GENERATE_SERIES overload")
+    in
+    let expected =
+      if temporal then
+        [ typ; typ; scalar "interval" ]
+      else
+        List.init count ~f:(fun _ -> typ)
+    in
+    let args =
+      List.map2_exn call.args expected ~f:(fun expr expected ->
+        let value = infer_arg ~expected expr in
+        if not (N.implicit (known expr.Q.offset value) expected) then
+          reject expr.offset "unsupported GENERATE_SERIES overload";
+        value)
+    in
+    [ typ ], args
+  | _ -> reject offset ("unsupported PostgreSQL table function: " ^ name)
+;;
+
 let rec infer
           state
           environment
@@ -541,6 +636,7 @@ let rec infer
           ?(inside_aggregate = false)
           ?(inside_window = false)
           ?(allow_window = false)
+          ?(allow_srf = false)
           (expr : Q.expression)
   =
   let offset = expr.offset in
@@ -554,6 +650,7 @@ let rec infer
       ~inside_aggregate
       ~inside_window
       ~allow_window
+      ~allow_srf
       expr
   in
   let boolean expr =
@@ -595,6 +692,8 @@ let rec infer
   | Bool_literal b -> value (Some (scalar "bool")) (Bool.to_string b)
   | Default -> reject offset "DEFAULT is only supported in assigned values"
   | Unary ("not", expr) ->
+    if has_srf expr then
+      reject offset "boolean arguments must not return a set";
     let inner = boolean expr in
     finish (scalar "bool") ~aggregate:inner.aggregate [ inner ]
   | Unary (_, expr) ->
@@ -604,6 +703,8 @@ let rec infer
       reject offset "numeric unary operator requires a numeric operand";
     finish typ ~aggregate:inner.aggregate [ inner ]
   | Binary (("and" | "or"), left, right) ->
+    if has_srf left || has_srf right then
+      reject offset "boolean arguments must not return a set";
     let left = boolean left
     and right = boolean right in
     finish (scalar "bool") ~aggregate:(left.aggregate || right.aggregate) [ left; right ]
@@ -805,6 +906,8 @@ let rec infer
       reject offset "cannot infer parameter type in IS NULL";
     finish (scalar "bool") ~aggregate:source.aggregate [ source ]
   | Between (inner, low, high, _) ->
+    if has_srf expr then
+      reject offset "set-returning functions are not allowed in BETWEEN";
     let values = [ inner; low; high ] in
     let inferred = List.map values ~f:infer in
     let typ = context inferred in
@@ -821,6 +924,17 @@ let rec infer
       ~aggregate:(List.exists checked ~f:(fun x -> x.aggregate))
       checked
   | In_list (inner, items, _) ->
+    if
+      has_srf expr
+      && List.exists items ~f:(fun item ->
+        let rec nonconstant (expr : Q.expression) =
+          match expr.node with
+          | Column _ | Scalar _ | Exists _ -> true
+          | _ -> has_srf expr || List.exists (children expr) ~f:nonconstant
+        in
+        nonconstant item)
+    then
+      reject offset "set-returning IN requires a fixed list of scalar values";
     let values = inner :: items in
     let first = List.map values ~f:infer in
     let typ = common offset (List.filter_map first ~f:(fun value -> value.native)) in
@@ -837,6 +951,8 @@ let rec infer
       ~aggregate:(List.exists checked ~f:(fun x -> x.aggregate))
       checked
   | Case (operand, branches, otherwise) ->
+    if has_srf expr then
+      reject offset "set-returning functions are not allowed in CASE";
     let input =
       Option.map operand ~f:(fun expr ->
         let first = infer expr in
@@ -866,6 +982,12 @@ let rec infer
       ~aggregate:
         (List.exists (List.map (children expr) ~f:infer) ~f:(fun x -> x.aggregate))
       results
+  | Call call when Option.value_map (List.last call.name) ~default:false ~f:is_srf ->
+    if (not allow_srf) || inside_aggregate || inside_window then
+      reject offset "set-returning functions are not allowed in this clause";
+    let types, args = function_values ~infer_arg:infer ~multi:false offset call in
+    let typ = unique offset "set-returning result column" types in
+    finish typ ~aggregate:(List.exists args ~f:(fun arg -> arg.aggregate)) args
   | Call call when Option.is_some call.over ->
     if not allow_window then
       reject offset "window functions are not allowed in this clause";
@@ -900,6 +1022,7 @@ let rec infer
             ~inside_aggregate:false
             ~inside_window:true
             ~allow_window:false
+            ~allow_srf:false
             ~windowed:true
             expr
             { call with over = None }
@@ -973,6 +1096,7 @@ let rec infer
       ~inside_aggregate
       ~inside_window
       ~allow_window
+      ~allow_srf
       ~windowed:false
       expr
       call
@@ -994,6 +1118,8 @@ let rec infer
        : result);
     value (Some (scalar "bool")) ("exists:" ^ Int.to_string offset)
   | In_query (inner, query, _) ->
+    if has_srf inner then
+      reject offset "set-returning functions are not allowed in IN subquery comparisons";
     let result =
       analyze
         state
@@ -1011,6 +1137,8 @@ let rec infer
     let typ =
       match right.node with
       | Scalar query ->
+        if has_srf inner then
+          reject offset "set-returning functions are not allowed in subquery comparisons";
         let result =
           analyze
             state
@@ -1041,6 +1169,7 @@ and infer_call
       ~inside_aggregate
       ~inside_window
       ~allow_window
+      ~allow_srf
       ~windowed
       (expr : Q.expression)
       (call : Q.call)
@@ -1069,6 +1198,7 @@ and infer_call
       ~inside_aggregate:(inside_aggregate || aggregate)
       ~inside_window
       ~allow_window
+      ~allow_srf:(allow_srf && (not aggregate_name) && not inside_window)
       value
   in
   let expect_count n =
@@ -1076,6 +1206,8 @@ and infer_call
       reject offset "incorrect function argument count"
   in
   if String.equal name "coalesce" then (
+    if List.exists call.args ~f:has_srf then
+      reject offset "set-returning functions are not allowed in COALESCE";
     if List.is_empty call.args then
       reject offset "COALESCE requires arguments";
     let initial = List.map call.args ~f:infer in
@@ -1462,16 +1594,13 @@ and relation state environment (source : Q.relation) : scope =
           , dependencies )
       in
       [ { names; alias = false; columns } ], columns, dependencies
-    | Function (call, ordinality) ->
-      let name = name_of_call source.offset call.name in
-      if
-        call.star
-        || call.distinct
-        || (not (List.is_empty call.order))
-        || Option.is_some call.filter
-        || Option.is_some call.over
-      then
-        reject source.offset "table functions do not accept aggregate or window modifiers";
+    | Functions (calls, ordinality) ->
+      let first =
+        match calls with
+        | first :: _ -> first
+        | [] -> reject source.offset "ROWS FROM requires at least one function"
+      in
+      let name = name_of_call source.offset first.name in
       let scope =
         Option.value
           (Option.first_some environment.lateral environment.outer)
@@ -1483,87 +1612,39 @@ and relation state environment (source : Q.relation) : scope =
           reject expr.Q.offset "aggregate or window is not allowed in a table function";
         value
       in
-      let types =
-        match name with
-        | "unnest" ->
-          if List.is_empty call.args then
-            reject source.offset "UNNEST requires an array";
-          if Int.(List.length call.args > 1 && List.length call.name > 1) then
-            reject source.offset "multi-array UNNEST must be unqualified";
-          List.map call.args ~f:(fun expr ->
-            match N.base (known expr.Q.offset (infer_arg expr)) with
-            | N.Array element -> element
-            | _ -> reject expr.offset "UNNEST requires a known array type")
-        | "generate_series" ->
-          let count = List.length call.args in
-          if not (Int.equal count 2 || Int.equal count 3) then
-            reject source.offset "GENERATE_SERIES requires two or three arguments";
-          let initial = List.map call.args ~f:infer_arg in
-          let first_two =
-            List.take initial 2
-            |> List.filter_map ~f:(fun v -> Option.map v.native ~f:N.base)
-          in
-          if List.for_all initial ~f:(fun value -> Option.is_none value.native) then
-            reject source.offset "GENERATE_SERIES requires a SQL type context";
-          let temporal =
-            List.exists first_two ~f:(function
-              | N.Scalar ("timestamp" | "timestamptz") -> true
-              | _ -> false)
-          in
-          let typ =
-            if temporal then (
-              if not (Int.equal count 3) then
-                reject source.offset "temporal GENERATE_SERIES requires an interval step";
-              if List.exists first_two ~f:(N.equal (scalar "timestamptz")) then
-                scalar "timestamptz"
-              else
-                scalar "timestamp")
+      let outputs =
+        List.concat_map calls ~f:(fun call ->
+          let function_name = name_of_call source.offset call.Q.name in
+          let types =
+            if is_srf function_name then
+              fst (function_values ~infer_arg ~multi:true source.offset call)
             else (
-              let types =
-                List.filter_map initial ~f:(fun v -> Option.map v.native ~f:N.base)
-              in
-              let typ = common source.offset types in
-              match typ with
-              | N.Scalar "int2" ->
-                reject
-                  source.offset
-                  "ambiguous GENERATE_SERIES smallint overload; add an integer cast"
-              | N.Scalar "int4" -> scalar "int4"
-              | N.Scalar ("int8" | "numeric") -> typ
-              | _ -> reject source.offset "unsupported GENERATE_SERIES overload")
+              if List.mem [ "coalesce"; "nullif" ] function_name ~equal:String.equal then
+                reject source.offset "unsupported table function syntax";
+              let expr = { Q.node = Q.Call call; offset = source.offset } in
+              [ known source.offset (infer_arg expr) ])
           in
-          let expected =
-            if temporal then
-              [ typ; typ; scalar "interval" ]
-            else
-              List.init count ~f:(fun _ -> typ)
-          in
-          List.iter2_exn call.args expected ~f:(fun expr expected ->
-            let value = infer_arg ~expected expr in
-            if not (N.implicit (known expr.Q.offset value) expected) then
-              reject expr.offset "unsupported GENERATE_SERIES overload");
-          [ typ ]
-        | _ -> reject source.offset ("unsupported PostgreSQL table function: " ^ name)
+          List.map types ~f:(fun native -> function_name, native))
       in
-      let output_count = List.length types in
-      let types =
+      let single = Int.equal (List.length calls) 1 && Int.equal (List.length outputs) 1 in
+      let outputs =
+        List.map outputs ~f:(fun (name, native) ->
+          ( (if single then
+               Option.value source.alias ~default:name
+             else
+               name)
+          , native ))
+      in
+      let outputs =
         if ordinality then
-          types @ [ scalar "int8" ]
+          outputs @ [ "ordinality", scalar "int8" ]
         else
-          types
+          outputs
       in
       let id = fresh state in
       let columns =
-        List.mapi types ~f:(fun index native ->
-          let column_name =
-            if ordinality && Int.equal index output_count then
-              "ordinality"
-            else if Int.equal output_count 1 then
-              Option.value source.alias ~default:name
-            else
-              name
-          in
-          { name = column_name
+        List.mapi outputs ~f:(fun index (name, native) ->
+          { name
           ; native = Ok native
           ; origin = None
           ; modifier = Some (-1)
@@ -1739,6 +1820,7 @@ and project
       ?expected
       ?(defer = false)
       ?(allow_window = false)
+      ?(allow_srf = false)
       projection
   =
   List.concat_mapi projection ~f:(fun index -> function
@@ -1754,7 +1836,7 @@ and project
     | Field (expr, name) ->
       let expectation = Option.bind expected ~f:(fun types -> List.nth types index) in
       let first =
-        infer state environment scope ?expected:expectation ~allow_window expr
+        infer state environment scope ?expected:expectation ~allow_window ~allow_srf expr
       in
       let result =
         if Option.is_none first.native && not defer then
@@ -1764,6 +1846,7 @@ and project
             scope
             ~expected:(Option.value expectation ~default:(scalar "text"))
             ~allow_window
+            ~allow_srf
             expr
         else
           first
@@ -1778,7 +1861,7 @@ and project
       ])
 
 and check_group state environment (scope : scope) allowed (expr : Q.expression) =
-  let result = infer state environment scope ~allow_window:true expr in
+  let result = infer state environment scope ~allow_window:true ~allow_srf:true expr in
   if List.mem allowed result.key ~equal:String.equal then
     ()
   else (
@@ -1907,6 +1990,7 @@ and analyze state environment ?expected ?(defer = false) (query : Q.statement) :
           ?expected
           ~defer
           ~allow_window:true
+          ~allow_srf:true
           select.projection
       in
       if List.is_empty columns then
@@ -2002,10 +2086,18 @@ and analyze state environment ?expected ?(defer = false) (query : Q.statement) :
             List.iter select.projection ~f:(function
               | Q.Field (expr, _)
                 when String.equal
-                       (infer state environment scope ~allow_window:true expr).key
+                       (infer
+                          state
+                          environment
+                          scope
+                          ~allow_window:true
+                          ~allow_srf:true
+                          expr)
+                         .key
                        column.identity ->
                 if
-                  (infer state environment scope ~allow_window:true expr).aggregate
+                  (infer state environment scope ~allow_window:true ~allow_srf:true expr)
+                    .aggregate
                   || has_window expr
                 then
                   reject expr.offset "aggregate is not allowed in GROUP BY"
@@ -2013,7 +2105,7 @@ and analyze state environment ?expected ?(defer = false) (query : Q.statement) :
             comparable expr.Q.offset (native column);
             column.identity
           | `Expression expr ->
-            let value = infer state environment scope expr in
+            let value = infer state environment scope ~allow_srf:true expr in
             if value.aggregate then
               reject expr.offset "aggregate is not allowed in GROUP BY";
             comparable expr.offset (known expr.offset value);
@@ -2022,7 +2114,10 @@ and analyze state environment ?expected ?(defer = false) (query : Q.statement) :
       List.iter select.projection ~f:(function
         | Q.All _ -> ()
         | Field (expr, _) ->
-          if (infer state environment scope ~allow_window:true expr).aggregate then
+          if
+            (infer state environment scope ~allow_window:true ~allow_srf:true expr)
+              .aggregate
+          then
             aggregate := true);
       Option.iter select.having ~f:(fun expr ->
         let result = infer state environment scope ~expected:(scalar "bool") expr in
@@ -2053,7 +2148,9 @@ and analyze state environment ?expected ?(defer = false) (query : Q.statement) :
     | `Expression expr ->
       if Option.is_none select then
         reject expr.offset "set operation ORDER BY requires an output name or position";
-      let ordered = infer state environment scope ~allow_window:true expr in
+      let ordered =
+        infer state environment scope ~allow_window:true ~allow_srf:true expr
+      in
       comparable expr.offset (known expr.offset ordered);
       if ordered.aggregate then
         aggregate := true;
@@ -2189,10 +2286,12 @@ and recursive_cte state environment (cte : Q.cte) =
           "recursive reference cannot occur on the nullable side of an outer join";
       1
     | Table _ -> 0
-    | Function (call, _) ->
+    | Functions (calls, _) ->
       if
-        List.exists call.args ~f:(fun expr ->
-          List.mem (expression_dependencies expr) cte.name ~equal:String.equal)
+        List.exists
+          (List.concat_map calls ~f:(fun call -> call.Q.args))
+          ~f:(fun expr ->
+            List.mem (expression_dependencies expr) cte.name ~equal:String.equal)
       then
         reject
           source.offset

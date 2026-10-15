@@ -216,8 +216,10 @@ Callback транзакции возвращает `Result.t Lwt.t`: `Ok` фик
 - Поддерживаются SELECT, INSERT/UPDATE/DELETE с RETURNING и без него,
   WHERE с AND/OR/NOT, сравнениями и IS NULL, LIMIT/OFFSET, JOIN,
   expressions, известные aggregates, GROUP BY/HAVING, подзапросы, CTE
-  и UNION/INTERSECT/EXCEPT, LATERAL derived SELECT, window functions, unnest/generate_series в FROM с ordinality,
-  GROUP BY по primary key, UPDATE FROM / DELETE USING. E-strings и dollar-quoted literals также доступны. У каждой группы есть ограничения;
+  и UNION/INTERSECT/EXCEPT, LATERAL derived SELECT, window functions,
+  unnest/generate_series в FROM и SELECT, ROWS FROM с ordinality, GROUP BY
+  по primary key, UPDATE FROM / DELETE USING. E-strings и dollar-quoted literals
+  также доступны. У каждой группы есть ограничения;
   [полный список](../doc/ppx.md) описывает поддержанные формы.
 - Поддерживаются enum как `string`, domain через базовый codec и одномерные
   arrays. Многомерные arrays не поддерживаются.
@@ -232,6 +234,10 @@ Callback транзакции возвращает `Result.t Lwt.t`: `Ok` фик
   concat, abs/round, JSON extraction и IS DISTINCT FROM. Произвольные SQL
   functions/operators, прочие table functions и regex-overloads substring пока
   отклоняются. Обращения в БД для уточнения типов нет.
+- Несколько SRF в SELECT или функций в ROWS FROM разворачиваются совместно
+  с дополнением коротких результатов NULL. Для них доступны scalar wrappers,
+  вложенность в SELECT и aliases; действуют контекстные запреты PostgreSQL
+  для WHERE, CASE/COALESCE, аргументов агрегатов/окон и DML RETURNING.
 - Доступны cardinality, array_length и array_to_string; для GROUP BY по полному
   non-deferrable PK обновите snapshot с metadata deferrability версии 3.
 - Для точных same-type casts varchar/numeric и временных колонок обновите

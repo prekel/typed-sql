@@ -303,9 +303,60 @@ let expand conn (ids : int32 option list) =
 полностью неизвестных аргументов и неоднозначного smallint overload нужен
 явный SQL-cast. Нулевой шаг остаётся
 ошибкой сервера; NULL и несовпадающее со знаком шага направление дают пустую
-серию. Четвёртый timezone-аргумент, SRF в SELECT list, ROWS FROM и остальные
-пользовательские/table functions пока отклоняются. Table functions доступны
-также в поддержанных UPDATE FROM и DELETE USING.
+серию. Четвёртый timezone-аргумент и неизвестные пользовательские/table functions
+пока отклоняются. Table functions доступны также в поддержанных UPDATE FROM
+и DELETE USING.
+
+### SRF в SELECT и ROWS FROM
+
+`unnest` с одним массивом и поддержанные overloads `generate_series` доступны
+в SELECT list. Результат каждого SRF по-прежнему имеет внешний `option`.
+Обычные колонки рядом с ним сохраняют исходные типы, включая NOT NULL.
+
+```ocaml
+let expand conn ~ids ~names =
+  [%pgsql.object conn
+    "SELECT unnest($ids::integer[]) AS id, unnest($names::text[]) AS name"]
+;;
+```
+
+Несколько SRF одного уровня разворачиваются совместно; более короткие результаты
+дополняются NULL. Пустой или SQL NULL массив сам по себе не создаёт строк;
+при наличии другого непустого SRF он даёт NULL на каждой его строке.
+Вложенные SRF, casts, arithmetic/scalar wrappers и NULLIF поддерживаются.
+GROUP BY и ORDER BY могут использовать SRF, в том числе по alias/позиции
+результата; DISTINCT, LIMIT/OFFSET, CTE, set operations и INSERT SELECT
+сохраняют серверный порядок выполнения. Агрегаты и оконные функции могут
+быть входом SRF: например, `unnest(array_agg(id ORDER BY id))`.
+
+SRF запрещены в WHERE, JOIN ON, HAVING, pagination expressions, DML
+SET/VALUES/RETURNING, аргументах агрегатов/окон и specifications окон.
+CASE/COALESCE и boolean AND/OR/NOT также не принимают set-valued arguments.
+BETWEEN и сравнение SRF с подзапросом отклоняются. IN для SRF поддержан с
+фиксированным списком scalar literals/parameters; элементы со ссылками на
+колонки, подзапросами или другими SRF пока дают diagnostic.
+
+`ROWS FROM` объединяет результаты нескольких функций в один источник,
+также дополняя короткие результаты NULL. Разрешены существующие SRF и
+известные скалярные PostgreSQL-функции, например `lower`:
+
+```ocaml
+let numbered conn ~ids =
+  [%pgsql.object conn
+    {|SELECT q.id, q.value, q.n
+      FROM ROWS FROM(unnest($ids::integer[]), generate_series(1,3))
+           WITH ORDINALITY AS q(id,value,n)
+      ORDER BY q.n|}]
+;;
+```
+
+`WITH ORDINALITY` здесь добавляет один общий счётчик `int64 option`.
+Доступны aliases, column aliases, wildcards и implicit/explicit LATERAL.
+Все функции списка видят предшествующие источники, но не результаты соседних
+функций того же списка. Внутри FROM SRF должен оставаться верхним вызовом:
+`generate_series(1,generate_series(1,3))` здесь запрещён, хотя разрешён в SELECT.
+Record-returning функции с `AS (column type, ...)` и неизвестные overloads
+пока отклоняются; metadata views или пользовательских функций не добавляются.
 
 ## Выражения, агрегаты и вложенные запросы
 
@@ -527,10 +578,11 @@ AS и bare alias. Колонки слева в INSERT/SET и conflict target н�
 | UPDATE FROM, DELETE USING, source columns в RETURNING | Поддерживается |
 | ON CONSTRAINT, partial-index predicates | Явный diagnostic |
 | LATERAL derived SELECT, перечисленные window functions и frames | Поддерживается |
-| unnest/generate_series в FROM, LATERAL и WITH ORDINALITY | Поддерживается |
+| unnest/generate_series в FROM и SELECT list | Поддерживается с правилами контекста |
+| ROWS FROM, LATERAL и WITH ORDINALITY | Поддерживается для известных функций |
 | GROUP BY по полному non-deferrable PK базовой таблицы | Поддерживается с metadata v3 |
 | cardinality, array_length, array_to_string | Поддерживается |
-| GROUPING SETS, SEARCH/CYCLE, MERGE, остальные table functions и SRF в SELECT | Явный diagnostic |
+| GROUPING SETS, SEARCH/CYCLE, MERGE, неизвестные table functions и record definitions | Явный diagnostic |
 | E-strings, dollar quoting, перечисленные scalar functions и JSON operators | Поддерживается |
 | Прочие функции/операторы | Явный diagnostic |
 | Enum/domain и одномерные native arrays поддержанных scalar-типов | Поддерживается с nested metadata |
@@ -605,6 +657,7 @@ fixtures проверяются для обоих вариантов.
 | [join_postgresql_test.ml](../ppx/test/join_postgresql_test.ml) | JOIN, порядок полей, aliases, tuples/objects, optional fields |
 | [rich_postgresql_test.ml](../ppx/test/rich_postgresql_test.ml) | Outer JOIN, expressions/casts, aggregates, set operations, подзапросы и CTE, DML-побочные эффекты |
 | [compatibility_postgresql_test.ml](../ppx/test/compatibility_postgresql_test.ml) | Typmod/nullability, LATERAL, windows/frames, scalar functions, JSON operators, UPDATE FROM/DELETE USING |
+| [srf_select_postgresql_test.ml](../ppx/test/srf_select_postgresql_test.ml) | SELECT SRF/ROWS FROM, NULL padding, вложенность, контекстные запреты, GROUP BY/ORDER BY и INSERT SELECT |
 | [srf_postgresql_test.ml](../ppx/test/srf_postgresql_test.ml) | SRF, ordinality, функции массивов, GROUP BY по PK и DML с table functions |
 | [runtime_contract_postgresql_test.ml](../ppx/test/runtime_contract_postgresql_test.ml) | Граничные значения codecs, NULL, SQLSTATE, rollback, savepoints, изоляция и восстановление выполнения после ошибок |
 

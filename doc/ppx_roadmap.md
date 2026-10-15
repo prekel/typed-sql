@@ -214,7 +214,11 @@ Custom Type Conversions отложены до последнего этапа. �
   abs/round, JSON extraction и IS DISTINCT FROM с проверенными overloads.
 - [x] Добавить unnest и generate_series в FROM, включая implicit/explicit
   LATERAL, несколько массивов, aliases и WITH ORDINALITY. Сохранить codecs,
-  upstream-nullability и статическую форму SQL; SRF в SELECT и ROWS FROM отложены.
+  upstream-nullability и статическую форму SQL.
+- [x] Добавить SRF в SELECT list, scalar/nested expressions, GROUP BY/ORDER BY
+  и INSERT SELECT; поддержать ROWS FROM с известными SRF/scalar functions,
+  общим WITH ORDINALITY и LATERAL. Проверить NULL padding, object output,
+  контекстные запреты и сравнить типы/выполнение с upstream.
 - [x] Поддержать функциональную зависимость GROUP BY от полного non-deferrable
   primary key экземпляра базовой таблицы. Optional metadata deferrability
   сохраняются в snapshot v3 и обоих дамперах; старые снимки читаются.

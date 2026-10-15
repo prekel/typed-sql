@@ -4,6 +4,11 @@
 
 ### Добавлено
 
+- Offline PPX: unnest/generate_series в SELECT list и ROWS FROM с известными
+  функциями, LATERAL, общим WITH ORDINALITY и NULL padding. Поддержаны nested
+  SRF, scalar wrappers, GROUP BY/ORDER BY и INSERT SELECT; контекстные запреты
+  проверяются offline и общими compile/runtime fixtures с upstream.
+
 - Offline PPX: unnest/generate_series в FROM с LATERAL и WITH ORDINALITY,
   cardinality/array_length/array_to_string, GROUP BY по полному non-deferrable PK.
   Metadata deferrability добавлены optional-полем таблицы в snapshot v3 и оба

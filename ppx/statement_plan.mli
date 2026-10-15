@@ -26,7 +26,10 @@ type t =
 (** Resolve sources and exact codecs. Only returned and parameter columns
     need supported type metadata; unused unsupported columns and DEFAULT writes
     are harmless. JOIN conditions see their operands; LATERAL derived queries
-    see preceding sources with PostgreSQL join restrictions.
+    see preceding sources with PostgreSQL join restrictions. ROWS FROM functions
+    share that scope and cannot reference each other's outputs. SELECT SRFs
+    preserve a static output shape; disallowed clause/argument contexts fail
+    before runtime, while row expansion and NULL padding remain server semantics.
     Unqualified columns must resolve uniquely; aliases hide
     original relation names. Wildcards preserve source and snapshot column order.
     EXCLUDED assignments require identical exact native types. *)

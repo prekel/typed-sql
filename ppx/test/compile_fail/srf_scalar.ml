@@ -1,4 +1,4 @@
-(* expected: unsupported PostgreSQL function: unnest *)
+(* expected: set-returning functions are not allowed in this clause *)
 open! Base
 
-let query conn = [%pgsql conn "SELECT unnest(numbers) FROM native_items"]
+let query conn = [%pgsql conn "SELECT id FROM native_items WHERE unnest(numbers) = id"]

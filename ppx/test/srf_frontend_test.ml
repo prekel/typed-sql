@@ -195,12 +195,13 @@ let%test_module "table functions and primary key grouping" =
       Result.is_error (compile {sql|SELECT cardinality($values)|sql})
     ;;
 
-    let%test "scalar srf" =
-      Result.is_error (compile {sql|SELECT unnest(numbers) FROM native_items|sql})
+    let%test_unit "select list srf" =
+      ignore (plan {sql|SELECT unnest(numbers) FROM native_items|sql} : Statement_plan.t)
     ;;
 
-    let%test "rows from" =
-      Result.is_error (compile {sql|SELECT * FROM ROWS FROM(unnest($ids::int[])) u|sql})
+    let%test_unit "rows from" =
+      ignore
+        (plan {sql|SELECT * FROM ROWS FROM(unnest($ids::int[])) u|sql} : Statement_plan.t)
     ;;
 
     let%test "right correlation" =
