@@ -1,6 +1,6 @@
 (library
  (name typed_sql_native_introspection_tests)
- (package typed-sql-schema)
+ (optional)
  (modules native_introspection_test)
  (libraries base typed-sql-schema typed-sql-schema.backend)
  (inline_tests)

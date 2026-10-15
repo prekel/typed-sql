@@ -1,6 +1,6 @@
 (library
  (name typed_sql_graphql_test_support)
- (package typed-sql-graphql)
+ (optional)
  (modules demo)
  (libraries base typed-sql typed-sql-graphql yojson)
  (preprocess
@@ -8,7 +8,7 @@
 
 (library
  (name typed_sql_graphql_expect_tests)
- (package typed-sql-graphql)
+ (optional)
  (modules graphql_translation_test)
  (libraries
   base

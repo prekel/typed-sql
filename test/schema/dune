@@ -1,6 +1,6 @@
 (library
  (name typed_sql_schema_expect_tests)
- (package typed-sql-schema)
+ (optional)
  (modules schema_api_test schema_snapshot_test)
  (libraries base compiler-libs.common typed-sql typed-sql-schema yojson)
  (inline_tests)

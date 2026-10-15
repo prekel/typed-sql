@@ -12,14 +12,14 @@
 
 (library
  (name typed_sql_pgocaml_test_schema_ppx)
- (package typed-sql-pgocaml-ppx)
+ (optional)
  (modules schema_ppx)
  (kind ppx_rewriter)
  (libraries typed-sql-schema typed-sql-pgocaml-ppx))
 
 (library
  (name typed_sql_pgocaml_ppx_tests)
- (package typed-sql-pgocaml-ppx)
+ (optional)
  (modules
   frontend_test
   join_frontend_test

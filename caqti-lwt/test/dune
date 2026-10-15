@@ -17,8 +17,8 @@
 
 (library
  (name typed_sql_postgresql_expect_tests)
+ (optional)
  (modules postgresql_expect_test)
- (package typed-sql-caqti-lwt)
  (libraries
   base
   caqti
