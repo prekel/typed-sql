@@ -168,7 +168,7 @@
   (ocaml (>= 4.14.1))
   (typed-sql-schema (= :version))
   base
-  (ppxlib (>= 0.35.0))
+  (ppxlib (>= 0.30.0))
   ppx_let
   (pgocaml (>= 4.3.0))
   (ppx_expect :with-test))
