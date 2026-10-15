@@ -22,6 +22,9 @@
  (package typed-sql-pgocaml-ppx)
  (modules
   frontend_test
+  join_frontend_test
+  rich_frontend_test
+  join_quotation_test
   dml_frontend_test
   quotation_test
   dml_quotation_test
@@ -29,7 +32,8 @@
   extended_quotation_test
   runtime_test)
  (libraries base pgocaml typed-sql-schema typed-sql-pgocaml-ppx)
- (inline_tests)
+ (inline_tests
+  (deps schema.json))
  (preprocess
   (pps ppx_expect ppx_let typed_sql_pgocaml_test_schema_ppx)))
 
@@ -55,6 +59,13 @@
 (executable
  (name extended_postgresql_test)
  (modules extended_postgresql_test)
+ (libraries base pgocaml)
+ (preprocess
+  (pps typed_sql_pgocaml_test_schema_ppx)))
+
+(executable
+ (name join_postgresql_test)
+ (modules join_postgresql_test)
  (libraries base pgocaml)
  (preprocess
   (pps typed_sql_pgocaml_test_schema_ppx)))
@@ -94,3 +105,10 @@
    %{dep:codegen_cli_test.sh}
    %{exe:../../bin/typed_sql_codegen.exe}
    %{dep:rebuild_schema.json})))
+
+(executable
+ (name rich_postgresql_test)
+ (modules rich_postgresql_test)
+ (libraries base pgocaml)
+ (preprocess
+  (pps typed_sql_pgocaml_test_schema_ppx)))

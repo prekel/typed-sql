@@ -1,7 +1,7 @@
 # Дорожная карта PPX, совместимого с pgocaml_ppx
 
-Состояние на 14 октября 2026 года. Реализован экспериментальный
-`typed-sql-pgocaml-ppx`: SELECT одной таблицы с расширенным WHERE,
+Состояние на 15 октября 2026 года. Реализован экспериментальный
+`typed-sql-pgocaml-ppx`: SELECT с JOIN, expressions, aggregates и вложенными запросами,
 ORDER BY, LIMIT/OFFSET, tuples/objects и scalar-типами PG’OCaml. Enum/domain
 и одномерные native arrays используют вложенные metadata snapshot v3. Поддержаны
 также INSERT/UPDATE/DELETE, RETURNING, несколько VALUES, DEFAULT и обычный
@@ -21,6 +21,14 @@ ON CONFLICT с DO NOTHING/DO UPDATE. Подключение и
 настройки snapshot схемы. Исходные quotations, OCaml-типы параметров и
 результатов, модуль `PGOCaml`, соединения и способ выполнения сохраняются.
 Обновление snapshot после миграций остаётся отдельным действием.
+
+Следующий путь миграции — отдельный пакет `typed-sql-ppx` с будущими
+`[%pgsql.query ...]` и `[%pgsql.query.object ...]`, возвращающими
+`Result_query.t` через raw SQL API. Он не зависит от PG’OCaml и позволяет
+выполнять запросы через Caqti. Это запланированное расширение; текущий
+совместимый пакет и его выполняющие quotations сохраняются.
+Вместе с query quotations предстоит рассмотреть `[%pgsql.statement ...]` и
+`[%pgsql.statement.object ...]` для переиспользуемого `Statement.t` с input.
 
 Текущая версия поддерживает явно перечисленное подмножество PostgreSQL SQL.
 Полная замена любого приложения с `pgocaml_ppx` — долгосрочная цель; её нельзя
@@ -87,8 +95,10 @@ typed-sql нельзя автоматически применять вмест�
 
 Сгенерированный код продолжает выполнять SQL через выбранный приложением
 модуль `PGOCaml`, сохраняя его monad и исключения. Пользовательские значения
-передаются bind parameters. Перевод quotation в `Statement.t` не является
-условием первого выпуска; существующий semantic AST DSL остаётся прежним.
+передаются bind parameters. Будущие query quotations будут создавать
+`Result_query.t`, который приложение передаст конструкторам `Statement`.
+Отдельно рассматривается генерация переиспользуемого `Statement.t` через PPX;
+окончательный API этого режима ещё не выбран.
 
 Если синтаксис и генератор OCaml заимствуются из upstream, для них сохраняются
 copyright notices, происхождение и применимая
@@ -122,7 +132,9 @@ Custom Type Conversions отложены до последнего этапа. �
   версии отклонять compile-time `execute` и flags подключения к БД.
 - [x] Реализовать небольшой parser SELECT с комментариями, quoted identifiers
   и byte offsets diagnostics; грамматика полностью проверяет входной SQL.
-- [ ] Расширить parser до SQL expressions/literals и PostgreSQL dollar quoting.
+- [x] Расширить parser до поддержанных SQL expressions/literals и вложенных
+  query blocks с сохранением offsets исходного SQL.
+- [ ] Добавить PostgreSQL E-strings и dollar quoting.
 - [x] При заимствовании кода выделить файлы с лицензией и указать tag/commit
   upstream, чтобы изменения можно было сверять с исходной реализацией.
 
@@ -166,7 +178,7 @@ Custom Type Conversions отложены до последнего этапа. �
 - [x] Сохранить scalar/optional подстановки и `${...}`, вывод типов
   параметров по контексту запроса, tuples, objects и порядок строк.
 - [x] Сохранить nullability прямых колонок и flag `nullable-results`.
-- [ ] Добавить nullability вычисляемых expressions при расширении projection;
+- [x] Добавить nullability поддержанных вычисляемых expressions;
   отсутствие подтверждённого column origin учитывать по upstream-контракту.
 - [x] Сохранить PG’OCaml serializers/decoders для поддержанных типов.
   Неподдержанные converters и flags сопровождать отдельными diagnostics.
@@ -179,8 +191,26 @@ Custom Type Conversions отложены до последнего этапа. �
 
 ### 4. Расширять SQL и совместимость
 
-- [ ] Добавлять отдельными проверяемыми группами JOIN, aggregates/GROUP BY,
-  casts, CASE, подзапросы, CTE и set operations.
+- [x] Добавить JOIN/INNER JOIN с ON, цепочками и self-JOIN, разрешением aliases,
+  проверкой неоднозначных колонок, wildcard order и параметрами ON/WHERE.
+  Сохранить PG’OCaml-типы, object output и исходную nullability колонок.
+- [x] Добавить LEFT/RIGHT/FULL/CROSS, USING/NATURAL, скобки и запятые в FROM.
+- [x] Добавить numeric expressions, CAST/`::`, CASE, COALESCE и NULLIF с
+  контекстными типами параметров и сохранением column origin.
+- [x] Добавить count/sum/avg/min/max, bool_and/bool_or, string_agg/array_agg,
+  GROUP BY/HAVING, DISTINCT, FILTER и aggregate-local ORDER BY.
+- [x] Добавить UNION/INTERSECT/EXCEPT с ALL/DISTINCT и правильными приоритетами.
+- [x] Добавить derived tables, scalar/EXISTS/IN/ANY/ALL subqueries и
+  корреляцию scalar/predicate subqueries.
+- [x] Добавить обычные и recursive SELECT CTE, INSERT/UPDATE/DELETE CTE,
+  INSERT SELECT и проверки побочных эффектов; сохранить snapshot v3.
+- [ ] Расширять оставшиеся формы: LATERAL, window functions, функциональные
+  зависимости GROUP BY, GROUPING SETS, SEARCH/CYCLE, mutual recursion и
+  aggregates внешнего уровня. MERGE и UPDATE FROM/DELETE USING остаются вне
+  поддержанного DML. Ограничения текущих групп перечислены в руководстве.
+- [ ] Определить metadata typmod для точной эвристики origin same-type casts
+  прямых varchar/bpchar/numeric и временных колонок; сейчас такие casts
+  отклоняются, если нельзя гарантировать совместимый OCaml-тип результата.
 - [ ] Расширять правила PostgreSQL type inference вместе с поддержкой
   операторов, функций и implicit coercions; неоднозначные случаи отклонять.
 - [x] Добавить enum/domain codecs и одномерные native arrays поддержанных
@@ -193,7 +223,7 @@ Custom Type Conversions отложены до последнего этапа. �
   длин и совместимое поведение пустого списка; кодировки параметров не
   включать в SQL или cache key.
 - [ ] Поддержать source comments с отдельной проверкой совместимости.
-- [ ] Отдельно разобрать upstream-эвристику NULL для outer JOIN и выражений.
+- [x] Проверить upstream-эвристику NULL для outer JOIN и поддержанных expressions.
   Улучшение nullability, меняющее OCaml-тип результата, документировать как
   изменение контракта; не выдавать его за прозрачную замену.
 - [ ] Для views и пользовательских функций определить, какие дополнительные
@@ -203,70 +233,131 @@ Custom Type Conversions отложены до последнего этапа. �
 compile-fail fixtures, сравнение типов и выполнения с upstream. Универсальная
 совместимость не объявляется до проверки соответствующих SQL-возможностей.
 
-### 5. Statement quotations через raw SQL API и миграция на query builder
+### 5. Query и statement quotations через raw SQL API и миграция на query builder
 
-Новый режим `[%pgsql.statement ...]` должен возвращать `Statement.t` через
-будущий [raw SQL API](adr/0002-raw-sql-escape-hatch.md). Реализация этого API —
+Запланированы `[%pgsql.query ...]` и `[%pgsql.query.object ...]`, возвращающие
+`Result_query.t`. Реализация [raw SQL API](adr/0002-raw-sql-escape-hatch.md) —
 предварительное условие этапа. PPX выводит типы по snapshot и описывает raw
-statement; перевод SQL в DSL для этого режима не требуется. Существующие
-`[%pgsql ...]` и `[%pgsql.object ...]` сохраняют выполнение через PG’OCaml.
+query; перевод SQL в DSL не требуется. Вместе с ними предстоит рассмотреть
+`[%pgsql.statement ...]` и `[%pgsql.statement.object ...]` для создания
+переиспользуемого Statement с input. Существующие `[%pgsql ...]` и
+`[%pgsql.object ...]` сохраняют выполнение через PG’OCaml.
 
-Input задаётся binder-pattern внутри quotation. Эскиз синтаксиса для таблицы
-`people`, где `id` имеет тип `integer`, а `name` — `text NOT NULL`:
+Целевой синтаксис, ещё не реализованный:
 
 ```ocaml
-let find =
-  [%pgsql.statement
-    fun id ->
-      "SELECT name FROM people WHERE id = $id"]
-(* find : (int32, string list, [`Postgresql]) Statement.t *)
-
-let find_two =
-  [%pgsql.statement
-    fun (first, second) ->
-      "SELECT name FROM people WHERE id IN ($first, $second)"]
-(* find_two : (int32 * int32, string list, [`Postgresql]) Statement.t *)
+let find ~status ~limit =
+  [%pgsql.query.object
+    "SELECT id, name FROM people WHERE status = $status LIMIT $limit"]
 ```
 
-Lambda описывает input: PPX извлекает SQL literal и генерирует getters
-параметров из pattern. Значение quotation — готовый `Statement.t`; getters
-получают input при выполнении через adapter. Соединение в определение не
-входит. Обычно statement создаётся один раз при загрузке модуля и затем
-исполняется с разными input. Его можно создать и внутри функции: статичность
-означает фиксированную форму SQL, а не обязательное время создания.
-Третий параметр `Statement.t` задаёт поддерживаемые диалекты: здесь
-``[`Postgresql]``; ``[`Not_sqlite]`` относится к требованиям DSL.
+Именованные аргументы принадлежат обычной OCaml-функции. Каждый вызов создаёт
+immutable deferred query с захваченными значениями bind parameters, без
+соединения или обращения к БД. Тип результата описывает одну строку, для
+`.object` — объект с методами выбранных колонок; список появляется при
+выполнении через `Statement.query_many`. Статичны SQL, число placeholders и
+result shape; значения параметров могут меняться между вызовами.
 
-- [ ] Реализовать режим через raw SQL API со статическим SQL, фиксированными
-  placeholders и offline-выводом типов input/output по snapshot.
-- [ ] Поддержать scalar, tuple и record binder-patterns с типизированными
-  getters; значения input остаются bind parameters. Динамические lists и
-  Custom Type Conversions остаются отдельными отложенными этапами.
-- [ ] Определить мост между выведенными PG’OCaml-типами, их codecs и
-  backend-neutral описаниями raw statement, сохранив независимость ядра от
-  PG’OCaml. Выявлять несовместимые типы параметров при компиляции.
+#### Рассмотреть query и statement quotations вместе
 
-- [ ] Подготовить пример приложения со смешанными quotations и DSL-запросами,
-  использующими одну схему и соединение через существующий `Make` в
-  `typed-sql-pgocaml-lwt`.
-- [ ] Дать парные примеры SELECT и DML с одинаковой прикладной операцией и
-  результатом; DSL записывать через локальное открытие соответствующего
-  модуля, с завершающим `select` или `command`.
-- [ ] Показать явные преобразования между `int32` и `int`, CalendarLib и
-  временными типами typed-sql, `string` и enum/domain/numeric.
-- [ ] Описать адаптацию ошибок: quotations сохраняют исключения PG’OCaml,
-  а `Statement` выполняется через adapter с его `Result.t`. Для DML без
-  `RETURNING` учесть переход от `unit` к `Affected_rows.t`.
-- [ ] Показать путь от выполняющей quotation к raw statement quotation, затем
-  к DSL statement. При последнем переходе сохранить input и слой выполнения;
-  необходимые преобразования PG’OCaml-типов показать явно.
+- [ ] Сравнить четыре формы: `%pgsql.query`, `%pgsql.query.object`,
+  `%pgsql.statement` и `%pgsql.statement.object`. Query возвращает
+  `Result_query.t` для композиции; statement должен позволять переиспользовать
+  скомпилированный план с разными input. Для обоих режимов рассмотреть
+  object output и совместимость с object → record converters приложения.
+- [ ] Для query с захваченными values показать выполнение через
+  `Statement.Dynamic` и создание обычного Statement при каждом вызове.
+  Оба пути повторяют компиляцию. Смена values сама по себе не делает
+  SQL shape динамической; динамическое построение и компиляция — отдельные
+  свойства пути выполнения.
+- [ ] Для statement рассмотреть компиляцию плана при определении, getters
+  input при выполнении и повторные вызовы без компиляции. Сравнить способы
+  задания input, включая binder-pattern и удобство именованных аргументов;
+  окончательный синтаксис пока не утверждать.
+- [ ] Проверить оба режима через общий raw SQL API в `typed-sql-ppx` без
+  PG’OCaml dependencies, через Caqti PostgreSQL и PG’OCaml adapter. Для
+  statement предусмотреть проверки времени вызова getters и переиспользования
+  плана; object → record fixtures должны охватывать оба режима.
 
-Критерий завершения: отдельный запрос в примере можно заменить на raw, затем
-DSL statement без одновременной миграции остальных quotations или смены пула
-соединений. Regression и compile-fail fixtures проверяют выведенные input/output
-и несовместимые параметры. Определение statement не вызывает getters;
-повторное выполнение с разными input сохраняет SQL и placeholders. Парные
-raw/DSL запросы возвращают одинаковые результаты.
+#### Raw query и композиция
+
+- [ ] Реализовать raw SELECT с типизированными binds, output descriptors и
+  decoder, возвращающий `Result_query.t`. PPX должен выводить типы параметров,
+  колонок и nullability offline по snapshot v3 и генерировать этот API.
+- [ ] Поддержать обычный результат и object output. SELECT использует kind
+  `Result_query.select`, DML с `RETURNING` — `Result_query.returning`.
+  DML без возвращаемых строк не выдавать за `Result_query.t`: он требует
+  отдельного command-направления.
+- [ ] Сохранить PostgreSQL requirements в типах; raw PostgreSQL SQL не
+  становится portable из-за выбора другого adapter. Без доказательства
+  кардинальности не приписывать запросу `exactly_one` или `at_most_one`.
+- [ ] Проверить смешанные raw/DSL set operations, включая `Query.union_all`,
+  derived tables и CTE через существующие descriptors колонок. Объект
+  результата не заменяет описание SQL-полей; законченный `Result_query.t`
+  не получает автоматически операции незавершённого `Query.t`.
+- [ ] При вложении учитывать ограничения позиции SQL и совместимость
+  выходных колонок, в том числе nullability и codecs. Неподдержанные случаи
+  возвращают явную ошибку, а не приблизительный SQL.
+- [ ] Обеспечить детерминированную нумерацию bind slots при объединении
+  нескольких raw/DSL запросов, повторных подстановках и одинаковых именах
+  параметров в независимых запросах. Значения не включать в SQL или shape.
+- [ ] Описать создание обычного `Statement` из результата quotation и
+  выполнение через adapters, в том числе через `Statement.Dynamic`.
+  При создании Statement внутри функции происходит повторная компиляция;
+  переиспользование готового плана для query с values не обещать.
+
+#### Отдельный пакет без PG’OCaml
+
+- [ ] Выпустить `typed-sql-ppx` для query quotations без зависимости от
+  `pgocaml`, в том числе в generated-коде и его runtime dependencies.
+- [ ] Вынести общий parser, разрешение схемы и PostgreSQL type inference в
+  переиспользуемый frontend без драйвера. Совместимый
+  `typed-sql-pgocaml-ppx` сохраняет выполняющие quotations и PG’OCaml codecs;
+  ядро не получает зависимости от драйверов, Lwt или ppxlib.
+- [ ] Для query quotations использовать descriptors/codecs typed-sql.
+  Проверить поддержку scalar-типов, enum/domain и arrays на границе обоих
+  adapters; документировать отличия от PG’OCaml и необходимые преобразования,
+  включая `int32`/`int`, CalendarLib, numeric и пользовательские типы схемы.
+- [ ] Проверить установку пакета и сборку приложения в окружении без
+  `pgocaml`, с Caqti PostgreSQL driver. Проверки выполнения через Caqti и
+  PG’OCaml проводить отдельно от обычной offline-компиляции.
+
+#### Инструкция миграции с pgocaml_ppx
+
+- [ ] Написать отдельную инструкцию с последовательными примерами перехода
+  `pgocaml_ppx` → совместимый offline PPX → query quotations → DSL.
+- [ ] Дополнить инструкцию сравнением query для композиции и рассматриваемого
+  statement для переиспользования плана: захват values, передача input,
+  повторная компиляция и сохранение object → record converters.
+- [ ] На первом шаге сохранить `%pgsql.object`, прикладной deriving
+  object → record и `List.map t_of_pgocaml results`. Затем показать
+  `%pgsql.query.object`, создание Statement и выполнение через adapter.
+- [ ] Переписать отдельный raw запрос на DSL, сохраняя object output и
+  существующий converter там, где совпадают типы методов. Не обещать
+  автоматическую совместимость различающихся PG’OCaml/typed-sql типов.
+- [ ] Показать перенос object → record в decoder через `Projection.map`,
+  затем возможное расширение deriving приложения для генерации record
+  projection без промежуточного объекта.
+- [ ] Подготовить парные SELECT и DML с `RETURNING` для raw/DSL и пример
+  смешанного приложения с общей схемой и соединением через существующий
+  `Make` в `typed-sql-pgocaml-lwt`. DSL записывать с завершающим `select`
+  или `command` через локальное открытие соответствующего модуля.
+- [ ] Описать переход с PG’OCaml adapter на Caqti: соединения, транзакции и
+  ошибки. Учесть исключения старых quotations и `Result.t` adapters;
+  для отдельного command-направления — `unit` и `Affected_rows.t`.
+
+Критерий завершения: отдельный запрос можно заменить на query quotation,
+затем на DSL без одновременной миграции остальных quotations. Offline и
+compile-fail fixtures проверяют выведенные типы, несовместимые параметры и
+колонки; object → record fixtures проверяют миграционный converter.
+Golden cases покрывают композицию двух параметризованных raw/DSL запросов;
+PostgreSQL-тесты подтверждают одинаковые результаты через Caqti и PG’OCaml.
+Создание query не обращается к БД, разные bind values сохраняют SQL shape.
+
+Ближайший технический шаг: минимальный raw SELECT API с typed binds и decoder,
+возвращающий `Result_query.t`. Сначала проверить его вручную через Caqti и
+в композиции с DSL, затем добавить генерацию query quotations. Динамические
+lists и Custom Type Conversions остаются отдельными отложенными этапами.
 
 ### 6. Custom Type Conversions — последний этап, по отдельному согласию
 
@@ -317,6 +408,9 @@ upstream-контракту; конфигурация не требует дос
   Они не становятся условием обычной компиляции приложения.
 - [x] Расширить PostgreSQL-проверки на RETURNING, predicates, pagination и
   native codecs; добавить fixtures сравнения с upstream 4.4.0.
+- [x] Добавить offline, compile-fail и differential fixtures для outer JOIN,
+  CASE/casts, агрегатов, set operations, подзапросов, recursive и DML CTE;
+  проверить object → record и побочные эффекты на PostgreSQL.
 - [ ] Проверить динамические list-подстановки и последующие SQL-возможности.
 - [x] Проверки Dune подтверждают пересборку после изменения metadata и
   воспроизводимость генерации при неизменном input.

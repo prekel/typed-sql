@@ -224,8 +224,8 @@ let%test_module "single-table DML frontend" =
            "INSERT INTO items (id) VALUES ($id) ON CONFLICT (id) WHERE id = $id DO NOTHING")
     ;;
 
-    let%test "INSERT SELECT remains unsupported" =
-      Result.is_error (compile "INSERT INTO items (id) SELECT id FROM items")
+    let%test "INSERT SELECT is supported" =
+      Result.is_ok (compile "INSERT INTO items (id) SELECT id FROM items")
     ;;
 
     let%test "UPDATE FROM remains unsupported" =
@@ -236,8 +236,8 @@ let%test_module "single-table DML frontend" =
       Result.is_error (compile "DELETE FROM items USING items other")
     ;;
 
-    let%test "SQL literals remain unsupported" =
-      Result.is_error (compile "INSERT INTO items (id) VALUES (1)")
+    let%test "SQL literals is supported" =
+      Result.is_ok (compile "INSERT INTO items (id) VALUES (1)")
     ;;
 
     let%test_unit "quoted names and comments preserve SQL text" =

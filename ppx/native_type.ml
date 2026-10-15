@@ -3,6 +3,8 @@ module S = Typed_sql_schema.Schema_ir
 module I = Typed_sql_schema.Identifier
 
 type t =
+  | Unknown
+  | Domain of string * string * t
   | Scalar of string
   | Enum of string * string
   | Array of t
@@ -20,6 +22,9 @@ let scalar_codec = function
 ;;
 
 let rec codec = function
+  | Unknown ->
+    failwith "native type invariant: unresolved unknown reached codec generation"
+  | Domain (_, _, base) -> codec base
   | Scalar name ->
     (match scalar_codec name with
      | Some name -> Codec.Scalar name
@@ -79,30 +84,46 @@ let of_column ~offset column =
 
 let rec equal left right =
   match left, right with
+  | Unknown, Unknown -> true
+  | Domain (ls, ln, lb), Domain (rs, rn, rb) ->
+    String.equal ls rs && String.equal ln rn && equal lb rb
   | Scalar left, Scalar right -> String.equal left right
   | Enum (ls, ln), Enum (rs, rn) -> String.equal ls rs && String.equal ln rn
   | Array left, Array right -> equal left right
   | _ -> false
 ;;
 
-let text = function
+let rec base = function
+  | Domain (_, _, typ) -> base typ
+  | typ -> typ
+;;
+
+let text typ =
+  match base typ with
   | Scalar ("text" | "varchar" | "bpchar") -> true
   | _ -> false
 ;;
 
-let numeric = function
+let numeric typ =
+  match base typ with
   | Scalar ("int2" | "int4" | "int8" | "float4" | "float8" | "numeric") -> true
   | _ -> false
 ;;
 
-let rec comparable = function
+let rec comparable typ =
+  match base typ with
+  | Unknown -> false
+  | Domain _ -> false
   | Scalar "json" -> false
   | Scalar _ | Enum _ -> true
   | Array element -> comparable element
 ;;
 
 let compatible left right =
-  equal left right || (text left && text right) || (numeric left && numeric right)
+  equal left right
+  || equal (base left) (base right)
+  || (text left && text right)
+  || (numeric left && numeric right)
 ;;
 
 let common left right =
@@ -127,4 +148,62 @@ let common left right =
          right))
   else
     None
+;;
+
+let rec implicit left right =
+  equal left right
+  || (match left, right with
+      | Domain _, (Scalar _ | Array _ | Enum _) -> equal (base left) right
+      | _ -> false)
+  || (text left && text right)
+  ||
+  match base left, base right with
+  | Unknown, _ -> true
+  | Array left, Array right -> implicit left right
+  | Scalar "int2", Scalar ("int4" | "int8" | "numeric" | "float4" | "float8")
+  | Scalar "int4", Scalar ("int8" | "numeric" | "float4" | "float8")
+  | Scalar "int8", Scalar ("numeric" | "float4" | "float8")
+  | Scalar "numeric", Scalar ("float4" | "float8")
+  | Scalar "float4", Scalar "float8"
+  | Scalar "date", Scalar ("timestamp" | "timestamptz")
+  | Scalar "timestamp", Scalar "timestamptz" -> true
+  | _ -> false
+;;
+
+let rec explicit left right =
+  compatible left right
+  || text left
+  || text right
+  ||
+  match base left, base right with
+  | ( Scalar ("date" | "timestamp" | "timestamptz")
+    , Scalar ("date" | "timestamp" | "timestamptz") )
+  | Scalar ("timestamp" | "timestamptz" | "interval"), Scalar "time"
+  | Scalar "time", Scalar "interval"
+  | Scalar "bool", Scalar "int4"
+  | Scalar "int4", Scalar "bool" -> true
+  | Array left, Array right -> explicit left right
+  | _ -> false
+;;
+
+let rec of_info_exact ~offset (info : S.postgresql_type_info) =
+  let open Result.Let_syntax in
+  match info.kind with
+  | Native_domain inner ->
+    let%map inner = of_info_exact ~offset inner in
+    Domain (I.to_string info.schema, I.to_string info.name, inner)
+  | Native_array inner ->
+    let%map inner = of_info_exact ~offset inner in
+    Array inner
+  | _ -> of_info ~offset info
+;;
+
+let of_column_exact ~offset column =
+  match S.column_postgresql_type_info column with
+  | Some info ->
+    (match S.column_postgresql_type column with
+     | Some (schema, name) when I.equal schema info.schema && I.equal name info.name ->
+       of_info_exact ~offset info
+     | _ -> fail offset "native type tree does not match the exact column type")
+  | None -> of_column ~offset column
 ;;

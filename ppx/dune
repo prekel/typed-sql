@@ -3,7 +3,9 @@
  (public_name typed-sql-pgocaml-ppx)
  (kind ppx_rewriter)
  (modules
+  sql_query
   sql
+  query_plan
   codec
   native_type
   schema_registry
@@ -20,6 +22,7 @@
  (package typed-sql-pgocaml-ppx)
  (section doc)
  (files
+  (README.md as ppx-readme.md)
   COPYING
   ORIGIN.md
   (../doc/ppx.md as ppx.md)))

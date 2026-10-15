@@ -35,11 +35,15 @@ SQL со значениями для `psql` или SQLite и выполнить 
 `Statement.Dynamic`; пример с тремя таблицами находится в
 `graphql/test/demo.ml`.
 
+Экспериментальный `typed-sql-pgocaml-ppx` заменяет `pgocaml_ppx` для
+поддержанного подмножества SQL без обращения к БД при компиляции.
+Настройка и примеры — в [руководстве PPX](ppx/README.md).
+
 ## Установка из GitHub
 
-Все семь пакетов находятся в одном репозитории. Их зависимости друг от друга
+Все восемь пакетов находятся в одном репозитории. Их зависимости друг от друга
 требуют одинаковую версию, поэтому закрепляйте их на одном теге. Например,
-для установки всех пакетов из `v0.4.7`:
+для установки всех пакетов из `v0.4.8`:
 
 <!-- $MDX skip -->
 ```bash
@@ -51,9 +55,10 @@ typed_sql_packages=(
   typed-sql-schema
   typed-sql-schema-caqti-lwt
   typed-sql-schema-pgocaml-lwt
+  typed-sql-pgocaml-ppx
 )
 for package in "${typed_sql_packages[@]}"; do
-  opam pin add -yn "$package" 'git+https://github.com/prekel/typed-sql.git#v0.4.7'
+  opam pin add -yn "$package" 'git+https://github.com/prekel/typed-sql.git#v0.4.8'
 done
 opam install "${typed_sql_packages[@]}"
 ```
@@ -62,8 +67,8 @@ opam install "${typed_sql_packages[@]}"
 зависимости из этого репозитория. Например, `typed-sql-graphql` требует
 `typed-sql`.
 
-Для перехода с `v0.4.7` на следующий опубликованный тег поменяйте значение
-`next_tag` и обновите все pin перед установкой. Ниже `v0.4.8` приведён как
+Для перехода с `v0.4.8` на следующий опубликованный тег поменяйте значение
+`next_tag` и обновите все pin перед установкой. Ниже `v0.4.9` приведён как
 пример следующего тега:
 
 <!-- $MDX skip -->
@@ -76,8 +81,9 @@ typed_sql_packages=(
   typed-sql-schema
   typed-sql-schema-caqti-lwt
   typed-sql-schema-pgocaml-lwt
+  typed-sql-pgocaml-ppx
 )
-next_tag=v0.4.8
+next_tag=v0.4.9
 for package in "${typed_sql_packages[@]}"; do
   opam pin add -yn "$package" "git+https://github.com/prekel/typed-sql.git#$next_tag"
 done

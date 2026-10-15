@@ -1,16 +1,16 @@
 open! Base
 
-type error =
+type error = Sql_query.error =
   { offset : int
   ; message : string
   }
 
-type reference =
+type reference = Sql_query.reference =
   { names : string list
   ; offset : int
   }
 
-type parameter =
+type parameter = Sql_query.parameter =
   { expression : string
   ; optional : bool
   ; start : int
@@ -67,12 +67,28 @@ type statement =
   | Update of assignment list
   | Delete
 
+type relation =
+  { schema : string
+  ; table : string
+  ; alias : string option
+  ; offset : int
+  }
+
+type join =
+  { relation : relation
+  ; condition : predicate
+  }
+
 type t =
   { source : string
+  ; extended : Sql_query.statement option
+    (** Nested query representation. When present, only [source] and [extended]
+      are used; the legacy single-table fields are empty placeholders. *)
   ; schema : string
   ; table : string
   ; alias : string option
   ; statement : statement
+  ; joins : join list
   ; projection : projection list
   ; conditions : predicate option
   ; limit : operand option
@@ -80,8 +96,9 @@ type t =
   ; order : reference list
   }
 
-(** Parse the supported single-table SELECT and DML grammar, consuming every
-    token. Offsets are bytes in the SQL literal. SQL strings use standard
+(** Parse the supported SQL subset, including joins, expressions, aggregates,
+    nested SELECTs, set operations and SELECT/DML CTEs. Every token is consumed;
+    offsets are bytes in the original literal. SQL strings use standard
     conforming string syntax. *)
 val parse : string -> (t, error) Result.t
 

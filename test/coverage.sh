@@ -82,13 +82,26 @@ fi
 
 summary="$(bisect-ppx-report summary --per-file --expect lib/ --coverage-path "$coverage_data")"
 printf '%s\n' "$summary"
-coverage="$(printf '%s\n' "$summary" | awk '/Project coverage/ { print $1 }')"
+# --expect checks completeness but does not restrict the report to lib/.
+# Schema tests also load instrumented libraries; keep the core threshold
+# based on every raw point in lib/, without including other packages.
+coverage="$(printf '%s\n' "$summary" | awk '
+  $4 ~ /^lib\// {
+    split($3, points, "/")
+    covered += points[1]
+    total += points[2]
+  }
+  END {
+    if (total == 0) exit 1
+    printf "%.10f", 100 * covered / total
+  }')"
+printf 'Core lib coverage: %.2f%%\n' "$coverage"
 bisect-ppx-report html --expect lib/ --coverage-path "$coverage_data" -o "$coverage_dir/html"
 case "$mode" in
   public) threshold=96.5 ;;
   all) threshold=99.0 ;;
   mega)
-    printf 'Mega lib coverage: %s%%\n' "$coverage"
+    printf 'Mega lib coverage: %.2f%%\n' "$coverage"
     threshold=67.0
     ;;
 esac

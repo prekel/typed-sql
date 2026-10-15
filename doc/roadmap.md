@@ -613,8 +613,10 @@ PostgreSQL-возможностями. Portable approximation с другой с
   явный ограниченный кэш с `close`. Замер PostgreSQL 18.6 для 2000 повторов
   показал 1,96× через adapter (0,510 с против 0,260 с). Результат зависит от
   запроса и окружения;
-- [ ] Определить отдельный `Unsafe`/`Raw_sql` API с typed bind fragments, когда
-  появится запрос, который нельзя выразить descriptors. В том числе проверить
+- [ ] Определить отдельный `Unsafe`/`Raw_sql` API с typed bind fragments для
+  запросов вне DSL и query quotations. Ближайший шаг — raw SELECT, возвращающий
+  `Result_query.t`, с typed binds и decoder; проверить его через Caqti и в
+  композиции с DSL до подключения PPX. В том числе проверить
   композицию raw relation с внешним SELECT ([EF-35](../test/query-builder-survey/ef-core.md#ef-35-fromsql-с-linq-композицией)).
   Выбранные рамки и открытые решения записаны в
   [ADR 0002](adr/0002-raw-sql-escape-hatch.md);
@@ -629,6 +631,18 @@ PostgreSQL-возможностями. Portable approximation с другой с
   постепенной миграции SQL quotations на query builder. Этапы, границы
   совместимости и требования к metadata описаны в
   [дорожной карте PPX](ppx_roadmap.md).
+- [ ] Выпустить отдельный `typed-sql-ppx` без зависимости от `pgocaml`:
+  `[%pgsql.query ...]` и `[%pgsql.query.object ...]` возвращают
+  `Result_query.t` через raw SQL API. Проверить композицию с DSL, выполнение
+  через Caqti PostgreSQL и PG’OCaml и сборку без `pgocaml`; подготовить
+  инструкцию миграции с `pgocaml_ppx`, включая object → record converters.
+- [ ] Вместе с query quotations рассмотреть `[%pgsql.statement ...]` и
+  `[%pgsql.statement.object ...]` в том же пакете через общий raw SQL API.
+  Сравнить query с захваченными values (`Statement.Dynamic` или создание
+  Statement на каждый вызов, с повторной компиляцией) и переиспользуемый
+  Statement с input. Рассмотреть binder-pattern и удобство именованных
+  аргументов, object output и проверки обоих adapters; синтаксис пока не
+  утверждён. Разные bind values сами по себе не меняют SQL shape.
 
 #### Статические параметры и server-side prepare
 

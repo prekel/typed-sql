@@ -1,14 +1,27 @@
 # История изменений
 
-## В разработке
+## 0.4.8 — 15 октября 2026
 
 ### Исправлено
 
+- Пороги coverage проверяют все сырые точки `lib/`, как задано контрактом
+  ядра. Покрытие других инструментированных пакетов больше не меняет результат
+  этой проверки; их показатели остаются в общем отчёте.
 - PG’OCaml PPX использует OCaml-модуль schema, собранный codegen и подключённый
   через Dune `pps`; PPX больше не читает JSON при раскрытии запросов.
 
 ### Добавлено
 
+- Отдельный `ppx/README.md`: подключение schema PPX через Dune, обновление
+  snapshot, примеры запросов и совместимость с object → record converters.
+- Offline PG’OCaml PPX: outer/CROSS/USING/NATURAL JOIN, expressions и casts,
+  CASE/COALESCE/NULLIF, aggregates/GROUP BY/HAVING, set operations, подзапросы
+  и CTE, включая recursive SELECT и DML внутри WITH. Сохранены PostgreSQL
+  codecs, column-origin nullability и статический SQL; ограничения точных
+  overloads, рекурсии и same-type casts описаны в руководстве PPX.
+- Offline PG’OCaml PPX поддерживает JOIN/INNER JOIN с ON, цепочки и self-JOIN.
+  Разрешение колонок учитывает aliases и видимость источников; wildcard order,
+  типы и nullability сохраняют контракт PG’OCaml, включая object output.
 - Offline PG’OCaml PPX: NOT/AND/OR, comparisons, IS NULL, LIKE/ILIKE,
   BETWEEN, фиксированный IN, ANY/ALL, literals в WHERE и LIMIT/OFFSET.
   Enum/domain и одномерные native arrays поддержанных scalar-типов сохраняют

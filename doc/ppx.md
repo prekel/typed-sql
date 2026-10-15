@@ -204,6 +204,111 @@ Nullability прямых domain-колонок определяется по `pg
 при nullable attribute всё равно даёт внешний option в результате PPX.
 Portable codegen сохраняет собственные metadata nullability.
 
+## Соединения таблиц
+
+SELECT поддерживает `JOIN ... ON` и `INNER JOIN ... ON`, цепочки соединений и
+self-JOIN с различными aliases. Например, если snapshot содержит таблицы
+`people` и `memberships` с колонками `person_id`, `active` и `label`:
+
+```ocaml
+open! Base
+
+let find conn ~active ~min_id =
+  [%pgsql.object conn
+    {|SELECT p.id AS identifier, p.name, m.label
+      FROM people AS p
+      INNER JOIN memberships AS m
+        ON p.id = m.person_id AND m.active = $active
+      WHERE p.id >= $min_id
+      ORDER BY p.id|}]
+;;
+```
+
+В ON доступны те же predicates, что и в WHERE, но только таблицы слева и
+текущий присоединяемый источник; последующие JOIN ещё не видны. Параметры
+из ON, WHERE и LIMIT/OFFSET нумеруются в порядке появления в SQL. Исходный
+SQL сохраняется, изменяются только OCaml-подстановки.
+
+Неквалифицированная колонка должна однозначно разрешаться среди видимых
+источников. Alias скрывает исходное имя таблицы, в том числе schema-qualified
+форму. `*` возвращает колонки в порядке FROM/JOIN, внутри таблицы — в порядке
+snapshot; `alias.*` выбирает один источник. Если несколько колонок имеют
+одинаковое имя, для object output нужны разные projection aliases.
+
+INNER JOIN сохраняет nullability исходных колонок, даже если ON или WHERE
+отсекает NULL. `nullable-results` делает optional все поля, как и в обычном
+SELECT. Object methods и существующие object → record converters продолжают
+работать с теми же PG’OCaml-типами.
+
+Поддержаны также LEFT/RIGHT/FULL с необязательным OUTER, CROSS, USING,
+NATURAL, запятые в FROM и группировка источников скобками. JOIN связывает
+источники сильнее запятой; ON не видит таблицы из другой ветви списка FROM.
+Alias группы скрывает имена её отдельных источников.
+
+USING возвращает объединённые колонки в порядке списка USING, затем остальные
+колонки слева и справа. NATURAL использует общие имена в порядке левого
+источника. Qualified references по-прежнему обращаются к исходным колонкам.
+
+Эвристика upstream для прямых колонок сохраняется и в outer JOIN: NOT NULL
+колонка остаётся non-option, даже на стороне, где JOIN может создать NULL.
+Для таких строк без `nullable-results` сохраняется прежняя runtime-ошибка.
+Объединённая колонка FULL USING не имеет прямого column origin и получает
+`option`. JOIN не добавляется в UPDATE FROM или DELETE USING.
+
+## Выражения, агрегаты и вложенные запросы
+
+SELECT и RETURNING принимают literals, параметры, numeric `+ - * / %`,
+unary `+`/`-`, текстовую конкатенацию, CAST/`::`, simple/searched CASE,
+COALESCE и NULLIF. Поддержан SELECT без FROM. Параметры остаются bind values,
+в том числе внутри expressions, casts и CASE.
+
+Типы casts берутся из поддержанных builtin-типов и native metadata snapshot
+для enum/domain и одномерных arrays. Type modifiers принимаются в синтаксисе,
+но origin same-type casts для varchar/bpchar/numeric и временных типов нельзя
+надёжно определить без отсутствующих в snapshot typmod metadata. Такой cast
+прямой колонки отклоняется с diagnostic вместо предположения о её OCaml-типе.
+Преобразование в другой поддержанный тип и casts literals/параметров доступны.
+
+GROUP BY и HAVING поддерживают expressions, output names и позиции; ORDER BY
+также принимает expressions, aliases, позиции и NULLS FIRST/LAST. Доступны
+`count`, `sum`, `avg`, `min`, `max`, `bool_and`, `bool_or`, `string_agg` и
+одномерный `array_agg` для известных overloads, с DISTINCT, FILTER и
+aggregate-local ORDER BY. Негруппированные ссылки и nested aggregates
+отклоняются. Автоматические функциональные зависимости от primary key,
+GROUPING SETS/ROLLUP/CUBE и window functions не поддержаны.
+
+Вычисляемое поле без column origin получает `option` по эвристике upstream,
+даже если PostgreSQL всегда возвращает значение: например, `count(*)`
+имеет результат `int64 option list`. `sum(integer)` использует `int64`,
+`avg(integer)` — `string` для numeric, с внешним option в обоих случаях.
+Нужные object methods по-прежнему задаются projection aliases; существующий
+converter object → record можно использовать для совпадающих типов методов.
+
+Поддержаны UNION/INTERSECT/EXCEPT с ALL/DISTINCT и скобками, обычный SELECT
+DISTINCT, derived tables с aliases, scalar subqueries, EXISTS/NOT EXISTS,
+IN/NOT IN и ANY/ALL с SELECT. Scalar/predicate subqueries могут обращаться к
+внешним источникам; их имена и ссылки проверяются с учётом shadowing.
+Scalar subquery должен возвращать одну колонку; превышение одной строки
+обрабатывает PostgreSQL. LATERAL и агрегаты, принадлежащие внешнему уровню
+запроса, пока отклоняются.
+
+## WITH и recursive CTE
+
+WITH поддерживает несколько зависимых и вложенных CTE, aliases колонок,
+MATERIALIZED/NOT MATERIALIZED и использование перед SELECT или DML.
+Recursive SELECT имеет форму `anchor UNION [ALL] recursive_term`: типы
+задаёт anchor, recursive term должен вернуть те же типы. Поддерживается одна
+self-reference в FROM/JOIN recursive term; mutual recursion, aggregate term,
+SEARCH/CYCLE и ссылки на nullable стороне outer JOIN отклоняются.
+
+В верхнеуровневом WITH доступны INSERT/UPDATE/DELETE, в том числе без
+RETURNING. Только RETURNING образует relation для чтения; CTE без результата
+всё равно выполняет побочный эффект. Поддержан INSERT SELECT. Результат
+quotation определяется основным statement: `unit` без RETURNING или rows
+для SELECT/RETURNING. Сам statement передаётся PostgreSQL целиком, поэтому
+порядок и выполнение побочных эффектов не имитируются на стороне OCaml.
+Вложенный data-modifying WITH и recursive DML self-reference запрещены.
+
 ## Изменение данных
 
 ```ocaml
@@ -234,7 +339,7 @@ let delete conn id : int32 list =
 
 INSERT требует явного списка колонок для VALUES. Поддерживаются несколько
 строк VALUES, DEFAULT в отдельных позициях и отдельная форма DEFAULT VALUES.
-UPDATE поддерживает несколько присваиваний параметров или DEFAULT.
+UPDATE поддерживает несколько присваиваний выражений или DEFAULT.
 Пропущенные колонки, DEFAULT, identity/generated rules и ограничения данных
 обрабатываются PostgreSQL при выполнении. `None` остаётся SQL NULL, в том
 числе при записи в NOT NULL колонку; ошибку возвращает драйвер.
@@ -280,6 +385,7 @@ AS и bare alias. Колонки слева в INSERT/SET и conflict target н�
 | Возможность | Состояние |
 | --- | --- |
 | Одна таблица в FROM, `schema.table`, table alias с `AS` или без него | Поддерживается |
+| INNER/LEFT/RIGHT/FULL/CROSS JOIN, USING/NATURAL, скобки и запятые в FROM | Поддерживается |
 | Прямые колонки, qualified references, `*`, `alias.*`, projection alias через `AS` | Поддерживается |
 | WHERE с boolean predicates, comparisons, IS NULL, LIKE/BETWEEN, fixed IN и ANY/ALL | Поддерживается |
 | ORDER BY исходным колонкам, ASC/DESC; LIMIT/OFFSET | Поддерживается |
@@ -289,12 +395,17 @@ AS и bare alias. Колонки слева в INSERT/SET и conflict target н�
 | Другие flags, включая `execute`, `show`, параметры подключения | Явный diagnostic |
 | Custom converters, включая `PGCUSTOM_CONVERTERS_CONFIG` | Явный diagnostic |
 | INSERT с явными колонками, несколькими VALUES, DEFAULT/DEFAULT VALUES | Поддерживается |
-| UPDATE SET параметрами/DEFAULT, DELETE, необязательный WHERE | Поддерживается |
-| RETURNING прямых колонок, aliases и wildcard | Поддерживается |
+| UPDATE SET expressions/DEFAULT, DELETE, необязательный WHERE | Поддерживается |
+| RETURNING expressions, aliases и wildcard | Поддерживается |
 | ON CONFLICT по колонкам ключа, DO NOTHING, DO UPDATE с параметрами/DEFAULT/EXCLUDED | Поддерживается |
-| ON CONSTRAINT, partial-index predicates, INSERT SELECT, UPDATE FROM, DELETE USING | Явный diagnostic |
-| JOIN, DISTINCT, aggregates, CTE, subqueries | Явный diagnostic |
-| Вычисляемые expressions/projections, casts, функции, E-strings, dollar quoting | Явный diagnostic |
+| INSERT SELECT, scalar/EXISTS/IN/ANY/ALL subqueries и derived tables | Поддерживается |
+| SELECT DISTINCT, GROUP BY/HAVING, перечисленные aggregates | Поддерживается |
+| UNION/INTERSECT/EXCEPT, ALL/DISTINCT | Поддерживается |
+| SELECT и DML CTE, recursive SELECT установленной формы | Поддерживается |
+| CASE, COALESCE/NULLIF, numeric expressions, casts известных типов | Поддерживается с описанными ограничениями |
+| ON CONSTRAINT, partial-index predicates, UPDATE FROM, DELETE USING | Явный diagnostic |
+| LATERAL, window functions, GROUPING SETS, SEARCH/CYCLE и MERGE | Явный diagnostic |
+| Прочие функции/операторы, E-strings, dollar quoting | Явный diagnostic |
 | Enum/domain и одномерные native arrays поддержанных scalar-типов | Поддерживается с nested metadata |
 | List-подстановки и прочие native types | Явный diagnostic |
 
@@ -331,10 +442,12 @@ Prepared statements кэшируются в `PGOCaml.private_data` в прежн
 SQL и выводит их по snapshot самостоятельно.
 
 Snapshot таблиц не содержит всей информации и правил, необходимых для
-произвольных SQL expressions, перегруженных функций, операторов, casts и JOIN.
+произвольных SQL expressions, перегруженных функций, операторов и casts.
 Полная совместимость остаётся целью: parser и вывод типов будут расширяться
 проверяемыми группами. DML и обычный upsert добавлены одной такой группой,
-поскольку их типы можно вывести из имеющихся metadata колонок. Неподдержанная
+поскольку их типы можно вывести из имеющихся metadata колонок. Последующие
+группы SQL проверяются по тем же правилам: типы, имена и nullability сравниваются
+с upstream, а побочные эффекты и результаты — выполнением в PostgreSQL. Неподдержанная
 конструкция возвращает diagnostic, без обращения к БД при компиляции.
 
 Дальнейшие шаги и выполненные части записаны в

@@ -1,16 +1,16 @@
 open! Base
 
-type error =
+type error = Sql_query.error =
   { offset : int
   ; message : string
   }
 
-type reference =
+type reference = Sql_query.reference =
   { names : string list
   ; offset : int
   }
 
-type parameter =
+type parameter = Sql_query.parameter =
   { expression : string
   ; optional : bool
   ; start : int
@@ -67,12 +67,26 @@ type statement =
   | Update of assignment list
   | Delete
 
+type relation =
+  { schema : string
+  ; table : string
+  ; alias : string option
+  ; offset : int
+  }
+
+type join =
+  { relation : relation
+  ; condition : predicate
+  }
+
 type t =
   { source : string
+  ; extended : Sql_query.statement option
   ; schema : string
   ; table : string
   ; alias : string option
   ; statement : statement
+  ; joins : join list
   ; projection : projection list
   ; conditions : predicate option
   ; limit : operand option
@@ -80,7 +94,7 @@ type t =
   ; order : reference list
   }
 
-type kind =
+type kind = Sql_query.kind =
   | Word of string
   | Quoted of string
   | Symbol of char
@@ -90,7 +104,7 @@ type kind =
   | Operator of string
   | End
 
-type token =
+type token = Sql_query.token =
   { kind : kind
   ; offset : int
   }
@@ -113,6 +127,7 @@ let reserved =
   ; "desc"
   ; "distinct"
   ; "join"
+  ; "natural"
   ; "left"
   ; "right"
   ; "inner"
@@ -159,218 +174,7 @@ let reserved =
   ]
 ;;
 
-let word_start c = Char.is_alpha c || Char.equal c '_' || Int.(Char.to_int c >= 128)
-let word_char c = word_start c || Char.is_digit c || Char.equal c '$'
-let ocaml_name_char c = Char.is_alphanum c || Char.equal c '_' || Char.equal c '\''
-
-let valid_expression source =
-  match
-    Result.try_with (fun () -> Ppxlib.Parse.expression (Stdlib.Lexing.from_string source))
-  with
-  | Ok _ -> true
-  | Error _ -> false
-;;
-
-let lex source =
-  let length = String.length source in
-  let has i text =
-    let n = String.length text in
-    Int.(i + n <= length) && String.equal (String.sub source ~pos:i ~len:n) text
-  in
-  let rec comment start depth i =
-    if Int.(i >= length) then
-      fail start "unterminated block comment"
-    else if has i "/*" then
-      comment start (depth + 1) (i + 2)
-    else if has i "*/" then
-      if Int.(depth = 1) then
-        Ok (i + 2)
-      else
-        comment start (depth - 1) (i + 2)
-    else
-      comment start depth (i + 1)
-  in
-  let rec quoted start i acc =
-    if Int.(i >= length) then
-      fail start "unterminated quoted identifier"
-    else if has i "\"\"" then
-      quoted start (i + 2) ('"' :: acc)
-    else if Char.equal source.[i] '"' then (
-      let name = String.of_char_list (List.rev acc) in
-      if String.is_empty name then
-        fail start "empty quoted identifier"
-      else
-        Ok (name, i + 1))
-    else
-      quoted start (i + 1) (source.[i] :: acc)
-  in
-  let rec sql_string start i acc =
-    if Int.(i >= length) then
-      fail start "unterminated SQL string literal"
-    else if has i "''" then
-      sql_string start (i + 2) ('\'' :: acc)
-    else if Char.equal source.[i] '\'' then
-      Ok (String.of_char_list (List.rev acc), i + 1)
-    else
-      sql_string start (i + 1) (source.[i] :: acc)
-  in
-  let number start =
-    let digits i =
-      let rec loop i =
-        if Int.(i < length) && Char.is_digit source.[i] then
-          loop (i + 1)
-        else
-          i
-      in
-      loop i
-    in
-    let i =
-      if has start "+" || has start "-" then
-        start + 1
-      else
-        start
-    in
-    let i = digits i in
-    let i =
-      if has i "." then
-        digits (i + 1)
-      else
-        i
-    in
-    let open Result.Let_syntax in
-    let%map stop =
-      if has i "e" || has i "E" then (
-        let exponent =
-          if has (i + 1) "+" || has (i + 1) "-" then
-            i + 2
-          else
-            i + 1
-        in
-        let stop = digits exponent in
-        if Int.(stop = exponent) then
-          fail start "invalid numeric literal exponent"
-        else
-          Ok stop)
-      else
-        Ok i
-    in
-    String.sub source ~pos:start ~len:(stop - start), stop
-  in
-  let rec embedded start expression_start i =
-    if Int.(i >= length) then
-      fail start "unterminated or invalid OCaml parameter expression"
-    else if Char.equal source.[i] '}' then (
-      let expression =
-        String.sub source ~pos:expression_start ~len:(i - expression_start)
-      in
-      if valid_expression expression then
-        Ok (expression, i + 1)
-      else
-        embedded start expression_start (i + 1))
-    else
-      embedded start expression_start (i + 1)
-  in
-  let rec scan i acc =
-    let open Result.Let_syntax in
-    if Int.(i >= length) then
-      Ok (List.rev ({ kind = End; offset = length } :: acc))
-    else if Char.is_whitespace source.[i] then
-      scan (i + 1) acc
-    else if has i "--" then (
-      let stop = String.index_from source (i + 2) '\n' |> Option.value ~default:length in
-      scan stop acc)
-    else if has i "/*" then (
-      let%bind stop = comment i 1 (i + 2) in
-      scan stop acc)
-    else if Char.equal source.[i] '\'' then (
-      let%bind value, stop = sql_string i (i + 1) [] in
-      scan stop ({ kind = String_sql value; offset = i } :: acc))
-    else if
-      Char.is_digit source.[i]
-      || (List.mem [ '+'; '-'; '.' ] source.[i] ~equal:Char.equal
-          && Int.(i + 1 < length)
-          && (Char.is_digit source.[i + 1]
-              || ((not (Char.equal source.[i] '.'))
-                  && has (i + 1) "."
-                  && Int.(i + 2 < length)
-                  && Char.is_digit source.[i + 2])))
-    then (
-      let%bind value, stop = number i in
-      scan stop ({ kind = Number value; offset = i } :: acc))
-    else if Char.equal source.[i] '"' then (
-      let%bind name, stop = quoted i (i + 1) [] in
-      scan stop ({ kind = Quoted name; offset = i } :: acc))
-    else if Char.equal source.[i] '$' then (
-      let%bind () =
-        if has (i + 1) "@" then
-          fail i "list substitutions are deferred; only static SQL shapes are supported"
-        else
-          Ok ()
-      in
-      let optional = has (i + 1) "?" in
-      let start =
-        i
-        +
-        if optional then
-          2
-        else
-          1
-      in
-      let%bind expression, stop =
-        if has start "{" then
-          embedded i (start + 1) (start + 1)
-        else if
-          Int.(start < length)
-          && (Char.is_lowercase source.[start] || Char.equal source.[start] '_')
-        then (
-          let rec stop j =
-            if Int.(j < length) && ocaml_name_char source.[j] then
-              stop (j + 1)
-            else
-              j
-          in
-          let stop = stop (start + 1) in
-          let expression = String.sub source ~pos:start ~len:(stop - start) in
-          if valid_expression expression then
-            Ok (expression, stop)
-          else
-            fail i "invalid OCaml parameter name")
-        else
-          fail i "expected $name, $?name, ${expression} or $?{expression}"
-      in
-      scan
-        stop
-        ({ kind = Parameter { expression; optional; start = i; stop }; offset = i } :: acc))
-    else if word_start source.[i] then (
-      let rec stop j =
-        if Int.(j < length) && word_char source.[j] then
-          stop (j + 1)
-        else
-          j
-      in
-      let stop = stop (i + 1) in
-      let word = String.sub source ~pos:i ~len:(stop - i) |> String.lowercase in
-      scan stop ({ kind = Word word; offset = i } :: acc))
-    else if List.mem [ '<'; '>'; '!' ] source.[i] ~equal:Char.equal then (
-      let stop =
-        if has (i + 1) "=" || has i "<>" then
-          i + 2
-        else
-          i + 1
-      in
-      let operator = String.sub source ~pos:i ~len:(stop - i) in
-      if String.equal operator "!" then
-        fail i "expected !="
-      else
-        scan stop ({ kind = Operator operator; offset = i } :: acc))
-    else if List.mem [ '*'; '.'; ','; '='; '('; ')'; ';' ] source.[i] ~equal:Char.equal
-    then
-      scan (i + 1) ({ kind = Symbol source.[i]; offset = i } :: acc)
-    else
-      fail i "unsupported SQL token in the supported subset"
-  in
-  scan 0 []
-;;
+let lex = Sql_query.lex
 
 let position = function
   | [] -> 0
@@ -617,6 +421,28 @@ let where tokens =
     Some value, rest
 ;;
 
+let joins tokens =
+  let open Result.Let_syntax in
+  let rec loop acc tokens =
+    let%bind remaining =
+      match keyword "inner" tokens with
+      | Some rest ->
+        let%map rest = expect_keyword "join" rest in
+        Some rest
+      | None -> Ok (keyword "join" tokens)
+    in
+    match remaining with
+    | None -> Ok (List.rev acc, tokens)
+    | Some rest ->
+      let offset = position rest in
+      let%bind (schema, table, alias), rest = table_source ~bare_alias:true rest in
+      let%bind rest = expect_keyword "on" rest in
+      let%bind condition, rest = disjunction rest in
+      loop ({ relation = { schema; table; alias; offset }; condition } :: acc) rest
+  in
+  loop [] tokens
+;;
+
 let pagination tokens =
   let open Result.Let_syntax in
   let rec loop limit offset tokens =
@@ -716,15 +542,17 @@ let conflict tokens =
     Some { target; action }, rest
 ;;
 
-let parse source =
+let parse_legacy source =
   let open Result.Let_syntax in
   let%bind tokens = lex source in
-  let%bind (schema, table, alias), statement, projection, conditions, order, tokens =
+  let%bind (schema, table, alias), statement, joins, projection, conditions, order, tokens
+    =
     match tokens with
     | { kind = Word name; _ } :: rest when String.equal name "select" ->
       let%bind fields, rest = projection rest in
       let%bind rest = expect_keyword "from" rest in
       let%bind table, rest = table_source ~bare_alias:true rest in
+      let%bind joins, rest = joins rest in
       let%bind conditions, rest = where rest in
       let%map order, rest =
         match keyword "order" rest with
@@ -742,7 +570,7 @@ let parse source =
                column, rest)
             rest
       in
-      table, Select, fields, conditions, order, rest
+      table, Select, joins, fields, conditions, order, rest
     | { kind = Word name; _ } :: rest when String.equal name "insert" ->
       let%bind rest = expect_keyword "into" rest in
       let%bind table, rest = table_source ~bare_alias:false rest in
@@ -774,20 +602,20 @@ let parse source =
       in
       let%bind conflict, rest = conflict rest in
       let%map fields, rest = returning rest in
-      table, Insert { columns; rows; conflict }, fields, None, [], rest
+      table, Insert { columns; rows; conflict }, [], fields, None, [], rest
     | { kind = Word name; _ } :: rest when String.equal name "update" ->
       let%bind table, rest = table_source ~bare_alias:true rest in
       let%bind rest = expect_keyword "set" rest in
       let%bind values, rest = assignments ~excluded:false rest in
       let%bind conditions, rest = where rest in
       let%map fields, rest = returning rest in
-      table, Update values, fields, conditions, [], rest
+      table, Update values, [], fields, conditions, [], rest
     | { kind = Word name; _ } :: rest when String.equal name "delete" ->
       let%bind rest = expect_keyword "from" rest in
       let%bind table, rest = table_source ~bare_alias:true rest in
       let%bind conditions, rest = where rest in
       let%map fields, rest = returning rest in
-      table, Delete, fields, conditions, [], rest
+      table, Delete, [], fields, conditions, [], rest
     | _ -> fail (position tokens) "expected SELECT, INSERT, UPDATE or DELETE"
   in
   let%bind limit, offset, tokens =
@@ -800,10 +628,12 @@ let parse source =
   | [ { kind = End; _ } ] ->
     Ok
       { source
+      ; extended = None
       ; schema
       ; table
       ; alias
       ; statement
+      ; joins
       ; projection
       ; conditions
       ; limit
@@ -812,4 +642,60 @@ let parse source =
       }
   | token :: _ -> fail token.offset "unsupported trailing SQL; expected end of statement"
   | [] -> fail (String.length source) "SQL parser lost its end-of-input marker"
+;;
+
+let parse source =
+  match parse_legacy source with
+  | Ok query -> Ok query
+  | Error legacy_error ->
+    let open Result.Let_syntax in
+    let%bind tokens = lex source in
+    (match Sql_query.parse tokens with
+     | Error extended_error ->
+       let extended =
+         List.exists tokens ~f:(fun token ->
+           match token.kind with
+           | Word name ->
+             List.mem
+               [ "with"
+               ; "recursive"
+               ; "case"
+               ; "cast"
+               ; "group"
+               ; "having"
+               ; "union"
+               ; "intersect"
+               ; "except"
+               ; "left"
+               ; "right"
+               ; "full"
+               ; "cross"
+               ; "natural"
+               ; "using"
+               ]
+               name
+               ~equal:String.equal
+           | Operator "::" -> true
+           | _ -> false)
+       in
+       Error
+         (if extended then
+            extended_error
+          else
+            legacy_error)
+     | Ok extended ->
+       Ok
+         { source
+         ; extended = Some extended
+         ; schema = "public"
+         ; table = ""
+         ; alias = None
+         ; statement = Select
+         ; joins = []
+         ; projection = []
+         ; conditions = None
+         ; limit = None
+         ; offset = None
+         ; order = []
+         })
 ;;

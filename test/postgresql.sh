@@ -127,6 +127,8 @@ dune exec --root . pgocaml-lwt/test/postgresql_test.exe
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/postgresql_test.exe
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/dml_postgresql_test.exe
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/extended_postgresql_test.exe
+PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/join_postgresql_test.exe
+PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/rich_postgresql_test.exe
 if [[ -n "${TYPED_SQL_UPSTREAM_PPX:-}" ]]; then
   dune build --root . ppx/test/ppx_driver.exe ppx/runtime/typed_sql_pgocaml_runtime.cma
   PGDATABASE=typed_sql_ppx_test bash ppx/test/upstream_contract_test.sh \

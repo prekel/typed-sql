@@ -35,48 +35,92 @@ let codec ~offset column =
   Result.map (Native_type.of_column ~offset column) ~f:Native_type.codec
 ;;
 
-let create schema (query : Sql.t) =
+let create_legacy schema (query : Sql.t) =
   let open Result.Let_syntax in
-  let%bind table =
+  let find_table (relation : Sql.relation) =
     match
       List.filter (S.tables schema) ~f:(fun table ->
-        String.equal query.table (I.to_string (S.table_name table))
+        String.equal relation.table (I.to_string (S.table_name table))
         && Option.value_map (S.table_schema table) ~default:false ~f:(fun schema ->
-          String.equal query.schema (I.to_string schema)))
+          String.equal relation.schema (I.to_string schema)))
     with
     | [ table ] -> Ok table
-    | [] -> fail 0 ("unknown table: " ^ query.schema ^ "." ^ query.table)
-    | _ -> fail 0 ("ambiguous table in snapshot: " ^ query.schema ^ "." ^ query.table)
+    | [] ->
+      fail relation.offset ("unknown table: " ^ relation.schema ^ "." ^ relation.table)
+    | _ ->
+      fail
+        relation.offset
+        ("ambiguous table in snapshot: " ^ relation.schema ^ "." ^ relation.table)
   in
-  let qualifier (reference : Sql.reference) names =
-    let valid =
+  let primary : Sql.relation =
+    { schema = query.schema; table = query.table; alias = query.alias; offset = 0 }
+  in
+  let%bind table = find_table primary in
+  let qualifier sources (reference : Sql.reference) names =
+    let matches (relation : Sql.relation) =
       match names with
       | [] -> true
-      | [ name ] -> String.equal name (Option.value query.alias ~default:query.table)
+      | [ name ] ->
+        String.equal name (Option.value relation.alias ~default:relation.table)
       | [ schema; name ] ->
-        Option.is_none query.alias
-        && String.equal schema query.schema
-        && String.equal name query.table
+        Option.is_none relation.alias
+        && String.equal schema relation.schema
+        && String.equal name relation.table
       | _ -> false
     in
-    if valid then
-      Ok ()
-    else
-      fail reference.offset "column qualifier does not name the statement source"
+    let matches = List.filter sources ~f:(fun (relation, _) -> matches relation) in
+    match names, matches with
+    | [], _ | _, [ _ ] -> Ok matches
+    | _, [] -> fail reference.offset "column qualifier does not name the statement source"
+    | _ -> fail reference.offset "ambiguous table qualifier"
   in
-  let resolve (reference : Sql.reference) =
+  let resolve_in sources (reference : Sql.reference) =
     match List.rev reference.names with
     | [] -> fail reference.offset "expected column name"
     | name :: reversed_qualifier ->
-      let%bind () = qualifier reference (List.rev reversed_qualifier) in
-      (match
-         List.filter (S.columns table) ~f:(fun column ->
-           String.equal name (I.to_string (S.column_name column)))
-       with
+      let%bind sources = qualifier sources reference (List.rev reversed_qualifier) in
+      let columns =
+        List.concat_map sources ~f:(fun (_, table) ->
+          List.filter (S.columns table) ~f:(fun column ->
+            String.equal name (I.to_string (S.column_name column))))
+      in
+      (match columns with
        | [ column ] -> Ok column
        | [] -> fail reference.offset ("unknown column: " ^ name)
-       | _ -> fail reference.offset ("ambiguous column in snapshot: " ^ name))
+       | _ -> fail reference.offset ("ambiguous column: " ^ name))
   in
+  let%bind sources, join_parameters =
+    List.fold
+      query.joins
+      ~init:(Ok ([ primary, table ], []))
+      ~f:(fun state join ->
+        let%bind sources, parameters = state in
+        let relation = join.Sql.relation in
+        let exposed (source : Sql.relation) =
+          Option.value source.alias ~default:source.table
+        in
+        let duplicate =
+          List.exists sources ~f:(fun (previous, _) ->
+            String.equal (exposed previous) (exposed relation)
+            && (Option.is_some previous.alias
+                || Option.is_some relation.alias
+                || (String.equal previous.schema relation.schema
+                    && String.equal previous.table relation.table)))
+        in
+        let%bind () =
+          if duplicate then
+            fail relation.offset ("duplicate source name: " ^ exposed relation)
+          else
+            Ok ()
+        in
+        let%bind table = find_table relation in
+        let sources = sources @ [ relation, table ] in
+        let%map added =
+          Predicate_plan.create ~resolve:(resolve_in sources) (Some join.condition)
+        in
+        sources, parameters @ added)
+  in
+  let resolve = resolve_in sources in
   let resolve_excluded (reference : Sql.reference) =
     match reference.names with
     | [ "excluded"; name ] -> resolve { reference with names = [ name ] }
@@ -251,8 +295,10 @@ let create schema (query : Sql.t) =
         let%map field = field ~offset:reference.offset ?name column in
         [ field ]
       | All reference ->
-        let%bind () = qualifier reference reference.names in
-        List.map (S.columns table) ~f:(field ~offset:reference.offset) |> Result.all)
+        let%bind selected = qualifier sources reference reference.names in
+        List.concat_map selected ~f:(fun (_, table) -> S.columns table)
+        |> List.map ~f:(field ~offset:reference.offset)
+        |> Result.all)
     |> Result.all
     |> Result.map ~f:List.concat
   in
@@ -290,7 +336,7 @@ let create schema (query : Sql.t) =
   in
   let parameters =
     List.sort
-      (writes @ predicates @ pagination)
+      (writes @ join_parameters @ predicates @ pagination)
       ~compare:(fun left right -> Int.compare left.value.start right.value.start)
   in
   let pieces, stop =
@@ -301,4 +347,37 @@ let create schema (query : Sql.t) =
   let tail = String.sub query.source ~pos:stop ~len:(String.length query.source - stop) in
   let sql = String.concat (List.rev (tail :: pieces)) in
   Ok { sql; result; parameters }
+;;
+
+let create schema (query : Sql.t) =
+  match query.extended with
+  | None -> create_legacy schema query
+  | Some statement ->
+    let open Result.Let_syntax in
+    let%map result = Query_plan.create schema statement in
+    let parameters =
+      List.map result.parameters ~f:(fun (parameter : Query_plan.parameter) ->
+        { value = parameter.value; codec = parameter.codec })
+    in
+    let pieces, stop =
+      List.foldi parameters ~init:([], 0) ~f:(fun index (pieces, stop) { value; _ } ->
+        let text = String.sub query.source ~pos:stop ~len:(value.start - stop) in
+        ("$" ^ Int.to_string (index + 1)) :: text :: pieces, value.stop)
+    in
+    let tail =
+      String.sub query.source ~pos:stop ~len:(String.length query.source - stop)
+    in
+    let sql = String.concat (List.rev (tail :: pieces)) in
+    let fields =
+      List.map result.fields ~f:(fun (field : Query_plan.field) ->
+        { name = field.name; codec = field.codec; nullable = field.nullable })
+    in
+    { sql
+    ; parameters
+    ; result =
+        (if List.is_empty fields then
+           Command
+         else
+           Rows fields)
+    }
 ;;

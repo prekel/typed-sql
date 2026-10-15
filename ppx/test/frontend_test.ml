@@ -120,7 +120,7 @@ let%test_module "single-table SELECT frontend" =
       Result.is_error (compile "SELECT id FROM people; SELECT id FROM people")
     ;;
 
-    let%test "rejects joins" =
+    let%test "rejects ambiguous joined columns" =
       Result.is_error (compile "SELECT id FROM people JOIN people p ON true")
     ;;
 
@@ -132,16 +132,11 @@ let%test_module "single-table SELECT frontend" =
       Result.is_ok (compile "SELECT id FROM people WHERE id = $id OR id = $id")
     ;;
 
-    let%test "rejects aggregates" =
-      Result.is_error (compile "SELECT count(*) FROM people")
-    ;;
+    let%test "accepts aggregates" = Result.is_ok (compile "SELECT count(*) FROM people")
+    let%test "accepts DISTINCT" = Result.is_ok (compile "SELECT DISTINCT id FROM people")
 
-    let%test "rejects DISTINCT" =
-      Result.is_error (compile "SELECT DISTINCT id FROM people")
-    ;;
-
-    let%test "rejects projection arithmetic" =
-      Result.is_error (compile "SELECT id + id FROM people")
+    let%test "accepts projection arithmetic" =
+      Result.is_ok (compile "SELECT id + id FROM people")
     ;;
 
     let%test "rejects unknown sort columns" =

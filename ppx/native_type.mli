@@ -1,6 +1,8 @@
 open! Base
 
 type t =
+  | Unknown
+  | Domain of string * string * t
   | Scalar of string
   | Enum of string * string
   | Array of t
@@ -23,3 +25,21 @@ val numeric : t -> bool
 (** Common type for fixed IN lists, restricted to known built-in implicit
     numeric/text coercions and identical nominal types. *)
 val common : t -> t -> t option
+
+(** Known built-in implicit and explicit conversions. Unknown casts are rejected. *)
+val implicit : t -> t -> bool
+
+val explicit : t -> t -> bool
+
+(** Preserve nominal domains for result type resolution; operators use [base]. *)
+val base : t -> t
+
+val of_info_exact
+  :  offset:int
+  -> Typed_sql_schema.Schema_ir.postgresql_type_info
+  -> (t, Sql.error) Result.t
+
+val of_column_exact
+  :  offset:int
+  -> Typed_sql_schema.Schema_ir.column
+  -> (t, Sql.error) Result.t
