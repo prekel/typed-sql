@@ -113,6 +113,10 @@
 - Markdown пиши на русском, текст в коде — на английском.
 - Не добавляй CI без отдельного запроса.
 - Не запускай `git commit` самостоятельно.
+- Не создавай GitHub Releases. Просьбу «релизнуть» трактуй как создать Git-тег
+  и отправить его в GitHub; запись GitHub Release не создавай. При удалении
+  GitHub Release сохраняй соответствующий тег, если пользователь отдельно не
+  попросил удалить и тег.
 - Custom Type Conversions в PG’OCaml PPX (sexp config,
   `load_custom_from`, `PGCUSTOM_CONVERTERS_CONFIG`) реализуются последними в
   [roadmap PPX](doc/ppx_roadmap.md) и требуют отдельного явного согласия.
