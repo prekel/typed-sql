@@ -20,36 +20,6 @@ let bind ~loc variable value body =
     body
 ;;
 
-let snapshot ~loc =
-  (match Stdlib.Sys.getenv_opt "PGCUSTOM_CONVERTERS_CONFIG" with
-   | Some config when not (String.is_empty config) ->
-     error ~loc "custom converter config is not supported yet"
-   | _ -> ());
-  Schema_registry.current ~loc
-;;
-
-let payload ~loc = function
-  | PStr [ { pstr_desc = Pstr_eval (expression, []); _ } ] ->
-    let dbh, arguments =
-      match expression.pexp_desc with
-      | Pexp_apply (dbh, arguments) -> dbh, arguments
-      | _ -> error ~loc "expected a connection, optional flags and a SQL literal"
-    in
-    let arguments =
-      List.map arguments ~f:(function
-        (* PR #80: accept both ordinary and delimited OCaml string constants. *)
-        | ( Nolabel
-          , { pexp_desc = Pexp_constant (Pconst_string (value, _, _)); pexp_loc; _ } ) ->
-          value, pexp_loc
-        | _, expression ->
-          error ~loc:expression.pexp_loc "expected an unlabelled string literal")
-    in
-    (match List.rev arguments with
-     | (sql, sql_loc) :: flags -> dbh, List.rev_map flags ~f:fst, sql, sql_loc
-     | [] -> error ~loc "missing SQL literal")
-  | _ -> error ~loc "expected a PG'OCaml expression quotation"
-;;
-
 let rec encoder ~loc = function
   | Codec.Scalar codec -> pg ~loc ("string_of_" ^ codec)
   | Array element ->
@@ -212,15 +182,18 @@ let valid_method name =
 ;;
 
 let expand ~genobject ~loc payload_ =
-  let dbh, flags, sql, sql_loc = payload ~loc payload_ in
-  List.iter flags ~f:(fun flag ->
-    if not (String.equal flag "nullable-results") then
-      error ~loc ("unsupported flag: " ^ flag));
-  let schema = snapshot ~loc:sql_loc in
+  let dbh, flags, sql, sql_loc = Quotation.payload ~loc payload_ in
+  Quotation.check_environment ~loc:sql_loc;
   let plan =
-    let open Result.Let_syntax in
-    let%bind sql = Sql.parse sql in
-    Statement_plan.create schema sql
+    match Schema_registry.source ~loc:sql_loc with
+    | Schema_registry.Schema schema ->
+      let open Result.Let_syntax in
+      let%bind sql = Sql.parse sql in
+      Statement_plan.create schema sql
+    | Queries queries ->
+      let open Result.Let_syntax in
+      let%bind query = Query_bind.scan sql in
+      Query_cache.plan queries query
   in
   let plan =
     match plan with

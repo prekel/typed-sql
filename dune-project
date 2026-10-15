@@ -4,7 +4,7 @@
 
 (name typed-sql)
 
-(version 0.4.9)
+(version 0.5.0)
 
 (generate_opam_files true)
 
@@ -160,14 +160,15 @@
 
 (package
  (name typed-sql-pgocaml-ppx)
- (synopsis "Offline schema-checked PG'OCaml SQL quotations")
+ (synopsis "Offline PG'OCaml quotations with schema or query metadata")
  (description
-  "An experimental PG'OCaml-compatible SELECT and DML PPX using generated typed-sql schema libraries instead of compile-time database access.")
+  "An experimental PG'OCaml-compatible PPX using embedded schema snapshots or prepared query metadata instead of compile-time database access, with an explicit online preparation tool.")
  (license LGPL-2.0-or-later)
  (depends
   (ocaml (>= 4.14.1))
   (typed-sql-schema (= :version))
   base
+  yojson
   (ppxlib (>= 0.30.0))
   ppx_let
   (pgocaml (>= 4.3.0))

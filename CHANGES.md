@@ -2,6 +2,27 @@
 
 ## В разработке
 
+## 0.5.0 — 15 октября 2026
+
+### Добавлено
+
+- Отдельный режим PG’OCaml PPX с сохранёнными описаниями запросов:
+  `typed-sql-pgocaml-queries prepare/check/codegen`, PostgreSQL Prepare/Describe,
+  query cache без OID и офлайн-встраивание в Dune. Существующий режим по snapshot
+  сохраняется; новый режим не использует собственный SQL parser.
+- Общий тест Lwt-транзакции query builder и PG’OCaml PPX выполняется также
+  с кешем описаний запросов: object → record, commit, явный rollback и rollback
+  при исключении PPX.
+
+### Документация
+
+- Пошаговая проверка snapshot и query cache в существующем приложении,
+  включая glob исходников и переключение PPX в Dune. Roadmap разделён на
+  независимые ветви parser/inference и Prepare/Describe cache.
+- Зафиксировано будущее направление query/command quotations с `Expr.t`
+  через raw SQL API и `Statement.with_parameters`. Эти quotations пока
+  не реализованы; выполняющие `%pgsql` и `%pgsql.object` сохраняются.
+
 ## 0.4.9 — 15 октября 2026
 
 ### Добавлено

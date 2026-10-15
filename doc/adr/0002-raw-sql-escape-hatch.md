@@ -36,65 +36,88 @@ raw API нужен для постепенной миграции PG’OCaml quo
 - [x] Сейчас фиксируем решение в ADR и оставляем пункт roadmap открытым.
   Реализация начнётся после выбора конкретного запроса и оставшихся контрактов.
 
-## Потребитель: query и рассматриваемые statement quotations для миграции
+## Потребитель: query/command quotations с `Expr.t` для миграции
 
-В [roadmap совместимого PPX](../ppx_roadmap.md) запланированы
-`[%pgsql.query ...]` и `[%pgsql.query.object ...]`, создающие `Result_query.t`
-через raw SQL API. Они потребуют статических PostgreSQL SELECT и DML с
-`RETURNING`, typed binds и описания output, выведенного PPX по snapshot v3.
-Перевод SQL в DSL не требуется, даже если DSL уже умеет выразить этот запрос.
+В [roadmap совместимого PPX](../ppx_roadmap.md) выбрано направление
+`[%pgsql.query ...]` / `[%pgsql.query.object ...]` → `Result_query.t` и отдельное
+command-направление → `Command.t`. Это будущий API, ещё не реализация.
+Metadata поступают из одной из двух независимых ветвей: собственного SQL
+parser/inference по snapshot v3 или SQL cache Prepare/Describe. Cache-ветвь
+не требует разбора SQL и вывода типов собственным frontend.
+
+Подстановки query quotations принимают `Expr.t`, представляющие bind parameters
+или constants. Quotation используется прямо внутри `params.query_many`
+с локальными `Expr.t` из `let%map.Parameters`; отдельный builder не требуется:
 
 ```ocaml
-let find ~status ~limit =
-  [%pgsql.query.object
-    "SELECT id, name FROM people WHERE status = $status LIMIT $limit"]
+type input =
+  { status : string
+  ; limit : int64
+  }
+
+let find_statement =
+  Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
+    let%map.Parameters status =
+      params.expr Db_type.text ~get:(fun input -> input.status)
+    and limit =
+      params.expr Db_type.int64 ~get:(fun input -> input.limit)
+    in
+    params.query_many
+      [%pgsql.query.object
+        "SELECT id, name FROM people WHERE status = $status LIMIT $limit"])
 ```
 
-Это целевой синтаксис, ещё не реализованный. Именованные аргументы принадлежат
-обычной OCaml-функции. Каждый вызов создаёт immutable deferred query с
-захваченными значениями bind parameters; соединение и эффект выполнения в него
-не входят. Статичность ограничивает SQL shape, число placeholders и форму
-результата. Она не требует создания query при загрузке модуля. Выполнение
-через `Statement.Dynamic` или создание обычного Statement на каждый вызов
-повторяет компиляцию. Захват разных values сам по себе не меняет SQL shape.
+Query строится из symbolic bind slots при определении Statement.
+Готовый план переиспользуется, getters читают новые значения input при каждом
+выполнении. Соединение и эффект выполнения не входят в query. Для этого пути
+не нужен `Statement.Dynamic`; создание builder/Statement при каждом вызове
+прикладной функции по-прежнему повторяло бы компиляцию. `Expr.constant` явно
+захватывает значение времени определения Statement и остаётся SQL bind.
+Quotation также можно вынести в функцию с именованными аргументами `Expr.t`,
+если её нужно переиспользовать; это не требование API.
 
-Вместе с query quotations предстоит рассмотреть `[%pgsql.statement ...]` и
-`[%pgsql.statement.object ...]`. Цель этого режима — компиляция плана при
-определении Statement и извлечение параметров из input при выполнении, с
-повторными вызовами без компиляции. Нужно сравнить способы задания input,
-включая binder-pattern и удобство именованных аргументов. Окончательный
-синтаксис не выбран; это пункт на рассмотрение, а не реализованный API.
-Для обоих режимов нужны object output и проверки object → record converters;
-для statement — проверки времени вызова getters и переиспользования плана.
+Первая версия holes принимает результаты `params.expr`, `params.column` и
+`Expr.constant`; nullable slots требуют отдельного явного контракта. Raw API
+проверяет точные SQL-descriptors и принадлежность slots текущему Statement.
+Произвольные `Expr.lower`, arithmetic и column references в holes отложены:
+для них нужны expression rendering, source scope и соответствие metadata
+результата. Совпадения OCaml-типов для этого недостаточно.
 
-Отдельный пакет `typed-sql-ppx` должен использовать backend-neutral
-descriptors/codecs typed-sql и не зависеть от `pgocaml`, включая generated-код.
-Рассматриваемые statement quotations должны использовать тот же raw SQL API
-и пакет. Общий frontend разделяется с совместимым PPX, сохраняющим PG’OCaml
-codecs.
-Проверки охватывают выполнение через Caqti PostgreSQL и PG’OCaml adapter,
-а также сборку без установленного `pgocaml`. PostgreSQL requirements
-сохраняются: Caqti не делает raw SQL совместимым с SQLite.
+Raw SELECT использует `Result_query.select`, DML RETURNING —
+`Result_query.returning`, DML без результата — `Command.t`. Для cache-ветви
+предстоит определить явный контракт kind: наличие row description само по себе
+не различает SELECT и DML RETURNING. Не выполнять пользовательский SQL ради
+классификации. Без доказательства кардинальности использовать `query_many`
+или runtime `expect_one/optional`.
 
-Для композиции с DSL нужны set operations, derived tables и CTE через
+Отдельные `[%pgsql.statement ...]` / `[%pgsql.statement.object ...]` отложены.
+К ним следует возвращаться при практическом ограничении query/command вместе
+с `Statement.with_parameters`; специальный синтаксис input сейчас не выбран
+и не является условием переиспользования плана.
+
+Пакет `typed-sql-ppx` использует descriptors/codecs typed-sql и не зависит от
+PGOCaml, включая generated-код. Сканер, логические metadata и генерация raw API
+могут быть общими; собственный parser нужен только snapshot-ветви. Подготовка
+кеша остаётся отдельным online-инструментом. Совместимый выполняющий PPX
+сохраняет PG’OCaml codecs; различия `int32`/`int`, CalendarLib и других
+представлений нужно явно учитывать при миграции.
+
+Для композиции raw/DSL нужны set operations, derived tables и CTE через
 проверенные descriptors выходных колонок. Object output является decoder,
-а не описанием полей relation. При вложении raw query compiler должен
-проверять типы колонок и ограничения позиции SQL, назначать bind indices
-детерминированно, сохраняя независимые slots разных запросов и повторные
-подстановки. Пользовательские значения не входят в SQL или shape.
+а не описанием relation fields. Compiler проверяет позиции вложения и SQL-типы,
+назначает bind indices детерминированно, сохраняет shared slots и независимость
+параметров разных запросов. Значения не входят в SQL или shape.
 
-Инструкция миграции должна сохранять object → record converters приложения
-там, где совпадают типы методов, и явно показывать преобразования остальных
-типов. Она должна сравнивать query для композиции и statement для
-переиспользования плана, включая захват values и передачу input. Она также
-описывает переход от исключений quotations к `Result.t`
-adapters, замену adapter на Caqti и дальнейший переход на DSL. DML без
-`RETURNING` требует отдельного command-направления с `Affected_rows.t` вместо
-прежнего `unit`. Динамические lists и Custom Type Conversions не входят в
-этот первый сценарий.
+Инструкция миграции сохраняет object → record converters там, где совпадают
+типы методов, затем показывает query с `Expr.t`, статический Statement и DSL.
+Проверки охватывают getter timing, переиспользование плана, оба источника типов,
+Caqti PostgreSQL и PG’OCaml adapter, сборку без PGOCaml и PostgreSQL requirements.
+Переход на Caqti не делает PostgreSQL SQL совместимым с SQLite. Отдельно
+документируются исключения PG’OCaml / `Result.t` adapters и `unit` / `Affected_rows.t`.
 
-Эти требования ограничивают первый потребитель, но не выбирают общую форму
-raw expressions, portable API или способ описания output вручную.
+Динамические lists, произвольные expression holes и Custom Type Conversions
+не входят в первый сценарий. Эти требования не выбирают окончательную форму
+общего raw API для expressions или portable SQL.
 
 ## Открытые решения
 
@@ -134,13 +157,13 @@ literal placeholder или пользовательской строкой вн�
   `query_many` может возвращать список, а `expect_one`/`expect_optional` —
   проверять число строк при выполнении. Нужны ли конструкторы с заявленной
   статической кардинальностью, пока не решено.
-- [x] Для query quotations raw builder возвращает `Result_query.t` для
-  передачи конструкторам `Statement`. Рассмотрение прямого создания
-  переиспользуемого Statement через PPX остаётся открытым. DML без результата
-  требует отдельного command-направления; общий API для него ещё предстоит
-  определить.
-- [ ] Решить, нужны ли только статические raw statements или также dynamic
-  вариант для SQL shape, зависящей от input. Для portable raw statement нужно
+- [x] Для query quotations raw builder возвращает `Result_query.t` и принимает
+  bind/constant `Expr.t`. Переиспользуемый Statement строится обычным
+  `Statement.with_parameters`; прямые statement quotations отложены.
+  DML без результата требует `Command.t`; точный API его quotation ещё
+  предстоит определить.
+- [ ] Для общего raw API за пределами первого статического PPX-сценария
+  решить, нужен ли dynamic вариант для SQL shape, зависящей от input. Для portable raw statement нужно
   выбрать: один текст для двух диалектов или явно заданная пара текстов.
 - [ ] Определить ошибки определения statement: пустой шаблон, неверные holes,
   неподдерживаемый диалект и несовместимые result codecs. Сформировать shape
@@ -163,7 +186,7 @@ Raw_sql.Postgresql.expr Db_type.timestamp
 
 Для целого SELECT автор должен также описать порядок и типы результата.
 Вручную raw builder получает typed binds и описание полей с decoder;
-query quotation генерирует их по SQL и snapshot. Результат —
+query quotation генерирует их по metadata из snapshot inference или SQL cache. Результат —
 `Result_query.t`, который можно компоновать с DSL до создания Statement.
 
 `Raw_sql.Postgresql`, `Raw_sql.Sqlite` и `Raw_sql.Portable` в этом эскизе

@@ -35,15 +35,17 @@ SQL со значениями для `psql` или SQLite и выполнить 
 `Statement.Dynamic`; пример с тремя таблицами находится в
 `graphql/test/demo.ml`.
 
-Экспериментальный `typed-sql-pgocaml-ppx` заменяет `pgocaml_ppx` для
-поддержанного подмножества SQL без обращения к БД при компиляции.
-Настройка и примеры — в [руководстве PPX](ppx/README.md).
+Экспериментальный `typed-sql-pgocaml-ppx` заменяет `pgocaml_ppx` без обращения
+к БД при компиляции. Можно выбрать собственный parser/inference по snapshot
+схемы или кеш описаний запросов, подготовленный через PostgreSQL Prepare/Describe.
+Настройка и примеры — в [руководстве PPX](ppx/README.md), пробная замена в
+существующем приложении — в [пошаговой инструкции](ppx/TRY_IN_APP.md).
 
 ## Установка из GitHub
 
-Все восемь пакетов находятся в одном репозитории. Их зависимости друг от друга
-требуют одинаковую версию, поэтому закрепляйте их на одном теге. Например,
-для установки всех пакетов из `v0.4.9`:
+Все восемь пакетов находятся в одном репозитории и требуют одинаковую версию.
+Скрипт ниже устанавливает текущий релиз `v0.5.0`, а если пакеты уже установлены —
+обновляет их до этой версии, предварительно заменяя существующие pin:
 
 <!-- $MDX skip -->
 ```bash
@@ -58,39 +60,16 @@ typed_sql_packages=(
   typed-sql-pgocaml-ppx
 )
 for package in "${typed_sql_packages[@]}"; do
-  opam pin add -yn "$package" 'git+https://github.com/prekel/typed-sql.git#v0.4.9'
+  opam pin add -yn "$package" 'git+https://github.com/prekel/typed-sql.git#v0.5.0'
 done
 opam install "${typed_sql_packages[@]}"
 ```
 
-Если нужны только некоторые пакеты, оставьте в обоих списках их имена и
+Если нужны только некоторые пакеты, оставьте в списке их имена и
 зависимости из этого репозитория. Например, `typed-sql-graphql` требует
 `typed-sql`.
 
-Для перехода с `v0.4.8` на `v0.4.9` обновите все pin перед установкой.
-Для последующих обновлений поменяйте значение `next_tag` на нужный
-опубликованный тег:
-
-<!-- $MDX skip -->
-```bash
-typed_sql_packages=(
-  typed-sql
-  typed-sql-caqti-lwt
-  typed-sql-pgocaml-lwt
-  typed-sql-graphql
-  typed-sql-schema
-  typed-sql-schema-caqti-lwt
-  typed-sql-schema-pgocaml-lwt
-  typed-sql-pgocaml-ppx
-)
-next_tag=v0.4.9
-for package in "${typed_sql_packages[@]}"; do
-  opam pin add -yn "$package" "git+https://github.com/prekel/typed-sql.git#$next_tag"
-done
-opam upgrade "${typed_sql_packages[@]}"
-```
-
-`-n` откладывает установку до общего `opam install` или `opam upgrade`, а `-y`
+`-n` откладывает установку до общего `opam install`, а `-y`
 подтверждает замену существующего pin. Синтаксис Git URL с тегом после `#`
 описан в [справке opam pin](https://opam.ocaml.org/doc/man/opam-pin.html).
 

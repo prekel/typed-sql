@@ -1,0 +1,10 @@
+open! Base
+
+(** Decode a PG'OCaml quotation without expanding it. Flags are validated here
+    so collection and expansion accept the same inputs. *)
+val payload
+  :  loc:Ppxlib.Location.t
+  -> Ppxlib.payload
+  -> Ppxlib.expression * string list * string * Ppxlib.Location.t
+
+val check_environment : loc:Ppxlib.Location.t -> unit

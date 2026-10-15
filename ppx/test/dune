@@ -21,6 +21,7 @@
  (name typed_sql_pgocaml_ppx_tests)
  (optional)
  (modules
+  query_cache_test
   frontend_test
   join_frontend_test
   rich_frontend_test
@@ -159,3 +160,8 @@
  (libraries base pgocaml)
  (preprocess
   (pps typed_sql_pgocaml_test_schema_ppx)))
+
+(executable
+ (name cache_driver)
+ (modules cache_driver)
+ (libraries base ppxlib typed-sql-pgocaml-ppx))

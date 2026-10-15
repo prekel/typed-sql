@@ -57,7 +57,7 @@ smoke:
 	opam exec -- dune build --only-packages typed-sql,typed-sql-pgocaml-lwt,typed-sql-schema,typed-sql-schema-pgocaml-lwt @install @runtest
 
 	opam exec -- dune build --only-packages typed-sql,typed-sql-schema,typed-sql-pgocaml-ppx @install @runtest
-	opam exec -- dune build --only-packages typed-sql,typed-sql-schema,typed-sql-pgocaml-ppx,typed-sql-pgocaml-lwt @install @runtest ppx/test/mixed_transaction_postgresql_test.exe
+	opam exec -- dune build --only-packages typed-sql,typed-sql-schema,typed-sql-pgocaml-ppx,typed-sql-pgocaml-lwt @install @runtest ppx/test/mixed_transaction_postgresql_test.exe ppx/test/query_cache/mixed_transaction_postgresql_test.exe
 
 .PHONY: check
 check: fmt build test coverage coverage-all coverage-mega package

@@ -10,12 +10,16 @@
   query_plan
   codec
   native_type
+  query_bind
+  query_cache
+  quotation
+  query_source
   schema_registry
   predicate_plan
   statement_plan
   expand
   typed_sql_pgocaml_ppx)
- (libraries base ppxlib typed-sql-schema)
+ (libraries base ppxlib typed-sql-schema yojson)
  (ppx_runtime_libraries typed-sql-pgocaml-ppx.runtime)
  (preprocess
   (pps ppx_let ppxlib.metaquot)))
@@ -25,6 +29,7 @@
  (section doc)
  (files
   (README.md as ppx-readme.md)
+  TRY_IN_APP.md
   COPYING
   ORIGIN.md
   (../doc/ppx.md as ppx.md)))

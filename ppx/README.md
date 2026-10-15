@@ -1,12 +1,17 @@
 # Offline-замена pgocaml_ppx
 
-`typed-sql-pgocaml-ppx` проверяет SQL по заранее сохранённой схеме PostgreSQL.
+`typed-sql-pgocaml-ppx` проверяет SQL по заранее сохранённой схеме PostgreSQL
+или использует сохранённые описания конкретных запросов через Prepare/Describe.
 Во время компиляции подключение к БД не требуется. Приложение сохраняет
 `[%pgsql ...]`, `[%pgsql.object ...]`, соединения и выполнение через `PGOCaml`.
 Переходить на query builder для этого не нужно.
 
-Пакет экспериментальный: поддерживается описанное ниже подмножество SQL,
-а не все возможности PostgreSQL и upstream PPX. Текущая зависимость —
+Пошаговая проверка на существующем проекте с переключением двух режимов —
+[как попробовать в приложении](TRY_IN_APP.md).
+
+Пакет экспериментальный. Режим snapshot поддерживает описанное ниже подмножество
+SQL; режим кеша поручает проверку SQL PostgreSQL. В обоих режимах совместимость
+с upstream PPX ограничена поддержанными флагами и codecs. Текущая зависимость —
 `pgocaml >= 4.3.0`. PG’OCaml 4.3.0 требует OCaml младше 5.0;
 для этой связки используйте OCaml 4.14.1. На OCaml 5 используйте PG’OCaml 4.4.0
 или совместимую более новую версию.
@@ -14,6 +19,93 @@
 У PG’OCaml 4.3.0 Unix-путь из `PGHOST` нужно передавать явно:
 `PGOCaml.connect ?host:(Stdlib.Sys.getenv_opt "PGHOST") ()`.
 Дампер делает это сам; offline PPX не создаёт соединений.
+
+## Режим кеша запросов: Prepare/Describe
+
+Это отдельный экспериментальный режим для переноса существующих quotations.
+PostgreSQL сам проверяет SQL и определяет типы; ограничения SQL parser,
+описанные ниже для режима snapshot, к нему не относятся. Ограничения codecs,
+статической формы SQL и поддержанных флагов сохраняются.
+
+После применения миграций явно перечислите исходные `.ml` файлы:
+
+```sh
+PGDATABASE=my_app typed-sql-pgocaml-queries prepare \
+  --output queries.json src/people.ml src/orders.ml
+```
+
+Команда устанавливается вместе с `typed-sql-pgocaml-ppx`. Подключение задаётся
+через `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`. По умолчанию
+используется `search_path=public`; другой путь передайте через `--search-path`.
+Команда использует Prepare/Describe и каталоги PostgreSQL в read-only транзакции,
+не выполняя пользовательские запросы. DML также описывается без выполнения.
+Сначала должны существовать все используемые таблицы, типы и функции.
+
+`queries.json` храните в репозитории. Это отдельный формат версии 1,
+не новая версия snapshot схемы. В нём есть SQL, логические типы, codecs,
+nullability и контекст роли/search path; нет OID, паролей и значений параметров.
+Исходные имена OCaml-параметров и расположение quotations в ключ не входят.
+Каждое вхождение подстановки получает собственный номер `$1`, `$2` и далее.
+Изменение пробелов или комментариев SQL меняет ключ; семантической нормализации нет.
+
+Подключение вместо schema PPX:
+
+```lisp
+(rule
+ (target queries_ppx.ml)
+ (deps queries.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run %{bin:typed-sql-pgocaml-queries} codegen %{dep:queries.json}))))
+
+(library
+ (name app_queries_ppx)
+ (modules queries_ppx)
+ (kind ppx_rewriter)
+ (libraries base typed-sql-pgocaml-ppx))
+
+(library
+ (name app_queries)
+ (modules people orders)
+ (libraries base pgocaml)
+ (preprocess (pps app_queries_ppx)))
+```
+
+Dune встраивает metadata в PPX-драйвер. Генерируемый `.ml` не нужно коммитить.
+`codegen`, сборка и OCaml LSP работают без подключения к БД и без чтения JSON
+во время раскрытия quotations, в том числе из другого рабочего каталога Zed.
+В одном драйвере подключайте ровно одну библиотеку metadata: query cache
+либо schema snapshot. Синтаксис запросов и object → record converters остаются
+прежними; соединения и транзакции по-прежнему принадлежат приложению.
+
+После изменения SQL или схемы снова запускайте `prepare`. Кеш обновляется
+атомарно только после успешного описания всех запросов. Проверка актуальности
+также требует БД и не меняет файлы:
+
+```sh
+PGDATABASE=my_app typed-sql-pgocaml-queries check \
+  --cache queries.json src/people.ml src/orders.ml
+```
+
+Передавайте тот же список исходников и `--search-path`, что при подготовке.
+`check` обнаруживает добавленные/удалённые запросы и изменения описаний, роли
+или search path. Полностью офлайн невозможно обнаружить изменение схемы БД.
+Отсутствующий запрос при компиляции вызывает ошибку с предложением обновить кеш;
+автоматического подключения к БД и fallback к собственному parser нет.
+
+Сборщик читает OCaml AST исходных файлов и принимает обычные и delimited literals.
+Он пока не видит quotations, создаваемые другими PPX, и не запускает другие
+preprocessors. Обычный deriving для object → record можно оставить в `pps`.
+Динамические `$@list`, флаг `execute`, custom converters и неподдержанные codecs
+остаются недоступны. Используйте native arrays как один bind parameter.
+Эвристика nullability совпадает с PG’OCaml: `attnotnull` для полей с происхождением,
+иначе nullable. Для outer JOIN и других конструкций, способных вернуть NULL
+в исходно NOT NULL колонке, явно используйте `"nullable-results"`.
+Настройки роли/search path и `standard_conforming_strings=on` должны соответствовать
+условиям выполнения приложения.
+
+Ниже описан сохраняющийся режим проверки по snapshot схемы.
 
 ## 1. Сохранить схему
 

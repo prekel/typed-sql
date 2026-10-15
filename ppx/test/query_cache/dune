@@ -1,0 +1,88 @@
+(rule
+ (target queries_ppx.ml)
+ (deps queries.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    %{exe:../../bin/typed_sql_pgocaml_queries.exe}
+    codegen
+    %{dep:queries.json}))))
+
+(copy_files ../mixed_transaction_postgresql_test.ml)
+
+(rule
+ (target mixed_queries_ppx.ml)
+ (deps mixed_queries.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    %{exe:../../bin/typed_sql_pgocaml_queries.exe}
+    codegen
+    %{dep:mixed_queries.json}))))
+
+(library
+ (name mixed_query_cache_test_ppx)
+ (optional)
+ (kind ppx_rewriter)
+ (modules mixed_queries_ppx)
+ (libraries base typed-sql-pgocaml-ppx))
+
+(executable
+ (name mixed_transaction_postgresql_test)
+ (modules mixed_transaction_postgresql_test)
+ (optional)
+ (libraries base lwt.unix pgocaml typed-sql typed-sql-pgocaml-lwt)
+ (preprocess
+  (pps ppx_let mixed_query_cache_test_ppx)))
+
+(library
+ (name query_cache_test_ppx)
+ (optional)
+ (kind ppx_rewriter)
+ (modules queries_ppx)
+ (libraries base typed-sql-pgocaml-ppx))
+
+(library
+ (name cache_queries)
+ (optional)
+ (modules cache_queries)
+ (libraries base pgocaml)
+ (preprocess
+  (pps query_cache_test_ppx)))
+
+(executable
+ (name main)
+ (modules main)
+ (libraries base pgocaml cache_queries))
+
+(executable
+ (name embedded_driver)
+ (modules embedded_driver)
+ (libraries base ppxlib typed-sql-pgocaml-ppx query_cache_test_ppx))
+
+(executable
+ (name mixed_driver)
+ (modules mixed_driver)
+ (libraries
+  base
+  ppxlib
+  typed-sql-pgocaml-ppx
+  query_cache_test_ppx
+  typed_sql_pgocaml_test_schema_ppx))
+
+(rule
+ (alias runtest)
+ (package typed-sql-pgocaml-ppx)
+ (deps ../query_cache_cli_test.sh queries.json cache_queries.ml)
+ (action
+  (run
+   bash
+   %{dep:../query_cache_cli_test.sh}
+   %{exe:../../bin/typed_sql_pgocaml_queries.exe}
+   %{exe:embedded_driver.exe}
+   %{exe:mixed_driver.exe}
+   %{exe:../cache_driver.exe}
+   %{dep:queries.json}
+   %{dep:cache_queries.ml})))
