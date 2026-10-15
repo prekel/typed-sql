@@ -280,7 +280,32 @@ USING возвращает объединённые колонки в поряд
 Поддержан LATERAL для derived SELECT в FROM, CROSS/INNER/LEFT JOIN LATERAL.
 Он видит предшествующие источники, но не последующие; RIGHT/FULL JOIN не
 допускают LATERAL-ссылку на свою левую сторону. Некоррелированный LATERAL
-в этих JOIN допустим. Table functions и set-returning functions пока отклоняются.
+в этих JOIN допустим. В FROM также поддерживаются `unnest` и `generate_series`:
+функции могут ссылаться на предшествующие источники без ключевого слова LATERAL.
+
+```ocaml
+let expand conn (ids : int32 option list) =
+  [%pgsql.object conn
+    "SELECT u.id, u.n FROM unnest($ids::integer[]) WITH ORDINALITY AS u(id,n) ORDER BY u.n"]
+;;
+```
+
+`unnest` принимает один массив или несколько массивов разных типов; короткие
+массивы дополняются NULL. Форма с несколькими аргументами использует
+неквалифицированное имя `unnest`. `WITH ORDINALITY` добавляет колонку `int8`
+с именем `ordinality`, если alias колонки не задан. Значения функций и ordinality
+имеют вычисляемую upstream-nullability: например, методы примера —
+`id : int32 option` и `n : int64 option`. Доступны tuples, wildcards и aliases.
+
+`generate_series` поддерживает integer/bigint/numeric с двумя или тремя
+аргументами, а также timestamp/timestamptz с обязательным interval-шагом.
+Числовые overloads учитывают расширение integer → bigint → numeric. Для
+полностью неизвестных аргументов и неоднозначного smallint overload нужен
+явный SQL-cast. Нулевой шаг остаётся
+ошибкой сервера; NULL и несовпадающее со знаком шага направление дают пустую
+серию. Четвёртый timezone-аргумент, SRF в SELECT list, ROWS FROM и остальные
+пользовательские/table functions пока отклоняются. Table functions доступны
+также в поддержанных UPDATE FROM и DELETE USING.
 
 ## Выражения, агрегаты и вложенные запросы
 
@@ -306,8 +331,15 @@ GROUP BY и HAVING поддерживают expressions, output names и поз�
 `count`, `sum`, `avg`, `min`, `max`, `bool_and`, `bool_or`, `string_agg` и
 одномерный `array_agg` для известных overloads, с DISTINCT, FILTER и
 aggregate-local ORDER BY. Негруппированные ссылки и nested aggregates
-отклоняются. Автоматические функциональные зависимости от primary key,
-GROUPING SETS/ROLLUP/CUBE не поддержаны.
+отклоняются. GROUPING SETS/ROLLUP/CUBE пока не поддержаны.
+
+Если GROUP BY содержит весь non-deferrable primary key экземпляра базовой
+таблицы, остальные его колонки разрешены в SELECT, wildcard, HAVING, ORDER BY
+и оконных выражениях. Self-JOIN проверяет каждый источник отдельно. UNIQUE,
+неполный или deferrable PK и ключи через CTE/derived tables не дают этого права.
+Для доказательства используется optional table metadata snapshot v3
+`postgresql_primary_key_deferrable: false`. Старый snapshot читается, но для
+такого сокращённого GROUP BY без metadata нужно обновить снимок.
 
 Вычисляемое поле без column origin получает `option` по эвристике upstream,
 даже если PostgreSQL всегда возвращает значение: например, `count(*)`
@@ -365,6 +397,14 @@ Regex-overloads substring и неизвестные пользовательск
 `->`, `->>`, `#>`, `#>>`. Ключ имеет тип text или integer; path — `text[]`.
 `->`/`#>` сохраняют JSON-тип, `->>`/`#>>` возвращают text; OCaml-представление
 обоих — `string option`. Новые выражения не меняют статическую форму SQL.
+
+`cardinality(array)` возвращает int4 (0 для пустого массива),
+`array_length(array, dimension)` — int4 или NULL для пустого массива/отсутствующей
+размерности. `array_to_string(array, delimiter [, null_string])` возвращает text:
+NULL-элементы пропускаются, если замена не задана или равна SQL NULL; `''` также
+допустима как строка замены. Все три результата имеют внешний option по
+upstream-эвристике. Тип массива должен быть известен из колонки или SQL-cast;
+dimension имеет тип int32, delimiter/null_string — string с поддержкой `$?`.
 
 ## WITH и recursive CTE
 
@@ -487,7 +527,10 @@ AS и bare alias. Колонки слева в INSERT/SET и conflict target н�
 | UPDATE FROM, DELETE USING, source columns в RETURNING | Поддерживается |
 | ON CONSTRAINT, partial-index predicates | Явный diagnostic |
 | LATERAL derived SELECT, перечисленные window functions и frames | Поддерживается |
-| GROUPING SETS, SEARCH/CYCLE, MERGE и table functions | Явный diagnostic |
+| unnest/generate_series в FROM, LATERAL и WITH ORDINALITY | Поддерживается |
+| GROUP BY по полному non-deferrable PK базовой таблицы | Поддерживается с metadata v3 |
+| cardinality, array_length, array_to_string | Поддерживается |
+| GROUPING SETS, SEARCH/CYCLE, MERGE, остальные table functions и SRF в SELECT | Явный diagnostic |
 | E-strings, dollar quoting, перечисленные scalar functions и JSON operators | Поддерживается |
 | Прочие функции/операторы | Явный diagnostic |
 | Enum/domain и одномерные native arrays поддержанных scalar-типов | Поддерживается с nested metadata |
@@ -547,3 +590,46 @@ Tagged dollar strings и текст, похожий на подстановки 
 проверяются напрямую на PostgreSQL: regexp-подстановки upstream 4.4.0 не
 распознают эти границы. Остальные новые группы дополнительно проверяются
 общей fixture `compatibility_postgresql_test.ml` с upstream и offline PPX.
+
+## Проверяемый контракт
+
+Differential runner раскрывает каждый общий исходник двумя PPX, компилирует
+оба результата и сравнивает их вывод после выполнения в PostgreSQL. Offline
+driver запускается с недоступным `PGHOST`; только upstream-компиляция и
+выполнение используют тестовую БД. Аннотации OCaml-типов и assertions в общих
+fixtures проверяются для обоих вариантов.
+
+| Общая fixture | Что сравнивается |
+| --- | --- |
+| [upstream_contract.ml](../ppx/test/upstream_contract.ml) | Predicates, LIMIT/OFFSET, фиксированный IN, domain-колонки, arrays и ANY |
+| [join_postgresql_test.ml](../ppx/test/join_postgresql_test.ml) | JOIN, порядок полей, aliases, tuples/objects, optional fields |
+| [rich_postgresql_test.ml](../ppx/test/rich_postgresql_test.ml) | Outer JOIN, expressions/casts, aggregates, set operations, подзапросы и CTE, DML-побочные эффекты |
+| [compatibility_postgresql_test.ml](../ppx/test/compatibility_postgresql_test.ml) | Typmod/nullability, LATERAL, windows/frames, scalar functions, JSON operators, UPDATE FROM/DELETE USING |
+| [srf_postgresql_test.ml](../ppx/test/srf_postgresql_test.ml) | SRF, ordinality, функции массивов, GROUP BY по PK и DML с table functions |
+| [runtime_contract_postgresql_test.ml](../ppx/test/runtime_contract_postgresql_test.ml) | Граничные значения codecs, NULL, SQLSTATE, rollback, savepoints, изоляция и восстановление выполнения после ошибок |
+
+Runtime fixture проверяет минимальные/максимальные integer-значения, float4
+на границах нормального диапазона, большие/малые float8, NaN и infinities,
+пустые строки, UTF-8, кавычки и текст SQL внутри bind parameter. Bytea проходит
+через все 256 значений байта в форматах `hex` и `escape`. SQL NULL, пустой
+array, NULL-элемент и строка `"NULL"` проверяются раздельно. Для date/time и
+timestamp проверяются обычные значения и границы суток/календаря, представимые
+codecs PG’OCaml; это не обещает поддержки всего диапазона PostgreSQL.
+
+Ошибки сравниваются по SQLSTATE и стабильным структурированным полям сервера,
+включая имена таблицы, колонки и constraint. Fixtures ожидают `22003`, `22P02`,
+`22021`, `2201W`, `2201X`, `23502`, `23505` и `25P02`. После ошибки повторно
+выполняется тот же запрос с другими параметрами; после rollback соединение
+используется для новой транзакции. Второе соединение проверяет видимость
+только зафиксированных изменений.
+NUL в text отклоняется самим драйвером как `PGOCaml.Error` до отправки SQL;
+это поведение сравнивается отдельно от серверного SQLSTATE `22021` для
+некорректного UTF-8.
+
+Матрица фиксирует текущее покрытие, а не полное соответствие PostgreSQL.
+Все native array codecs дополнительно проверяются offline и прямыми
+PostgreSQL-тестами; общая runtime fixture сравнивает text/int4 arrays.
+Upstream может требовать custom converter для enum/domain-typed bind;
+общее сравнение enum labels и вложенных domain-casts использует встроенные
+типы на входе и выходе SQL. Прямая enum-сериализация, остальные array codecs
+и неподдержанные SQL-возможности требуют дальнейшего differential-покрытия.

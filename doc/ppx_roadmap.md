@@ -212,9 +212,17 @@ Custom Type Conversions отложены до последнего этапа. �
   Старые v3 без metadata читаются; неоднозначные casts требуют обновления снимка.
 - [x] Добавить lower/upper, length, trim, позиционный substring, replace, concat,
   abs/round, JSON extraction и IS DISTINCT FROM с проверенными overloads.
-- [ ] Расширять оставшиеся формы: функциональные зависимости GROUP BY,
-  GROUPING SETS, SEARCH/CYCLE, mutual recursion, table/set-returning functions
-  и aggregates внешнего уровня. MERGE остаётся вне поддержанного DML.
+- [x] Добавить unnest и generate_series в FROM, включая implicit/explicit
+  LATERAL, несколько массивов, aliases и WITH ORDINALITY. Сохранить codecs,
+  upstream-nullability и статическую форму SQL; SRF в SELECT и ROWS FROM отложены.
+- [x] Поддержать функциональную зависимость GROUP BY от полного non-deferrable
+  primary key экземпляра базовой таблицы. Optional metadata deferrability
+  сохраняются в snapshot v3 и обоих дамперах; старые снимки читаются.
+- [x] Добавить cardinality, array_length и array_to_string с проверенными
+  overloads, NULL и параметрами; сравнить типы и выполнение с upstream.
+- [ ] Расширять оставшиеся формы: GROUPING SETS, SEARCH/CYCLE, mutual recursion,
+  остальные table/set-returning functions и aggregates внешнего уровня.
+  MERGE остаётся вне поддержанного DML.
 - [ ] Расширять остальные функции, операторы и implicit coercions;
   regex-overloads substring пока отклоняются. Ограничения групп описаны
   в руководстве, неизвестные overloads не восстанавливаются догадкой.
@@ -231,8 +239,10 @@ Custom Type Conversions отложены до последнего этапа. �
 - [x] Проверить upstream-эвристику NULL для outer JOIN и поддержанных expressions.
   Улучшение nullability, меняющее OCaml-тип результата, документировать как
   изменение контракта; не выдавать его за прозрачную замену.
-- [ ] Для views и пользовательских функций определить, какие дополнительные
-  сведения нужны snapshot. Отсутствующие metadata не заменять предположением.
+- [ ] Для пользовательских функций определить дополнительные metadata snapshot.
+  Отсутствующие сведения не заменять предположением.
+- [ ] **Отложено по запросу пользователя:** поддержка views и их metadata.
+  К views возвращаться отдельным этапом после текущего расширения SQL.
 
 Критерий каждого расширения: обновлённая матрица поддержки, положительные и
 compile-fail fixtures, сравнение типов и выполнения с upstream. Универсальная
@@ -420,8 +430,15 @@ upstream-контракту; конфигурация не требует дос
 - [ ] Расширять differential-тесты upstream `pgocaml_ppx` и offline-замены,
   сверяя их покрытие с матрицей поддерживаемого контракта: для каждой
   поддержанной возможности нужны общая compile-time fixture и сравнение
-  результатов/побочных эффектов на PostgreSQL. Отдельно проверить границы
-  значений параметров, SQLSTATE ошибок и rollback.
+  результатов/побочных эффектов на PostgreSQL. Текущее покрытие и ограничения
+  сравнения перечислены в [матрице проверок](ppx.md#проверяемый-контракт).
+- [x] Добавить общую runtime fixture с upstream для граничных значений
+  integer/float codecs, NULL, UTF-8/text/bytea, numeric/uuid, временных типов,
+  JSON и native arrays. Проверить SQLSTATE и структурированные поля ошибок,
+  восстановление prepared execution после ошибок, rollback, savepoints и
+  `PGOCaml.transact`; второе соединение проверяет изоляцию и commit.
+  Enum/domain сравниваются через встроенные codecs на границах SQL;
+  custom converters этим этапом не включаются.
 - [x] Расширить PostgreSQL-проверки на RETURNING, predicates, pagination и
   native codecs; добавить fixtures сравнения с upstream 4.4.0.
 - [x] Добавить offline, compile-fail и differential fixtures для outer JOIN,
@@ -432,6 +449,9 @@ upstream-контракту; конфигурация не требует дос
   LATERAL, окон, scalar functions, JSON operators и UPDATE FROM/DELETE USING;
   сравнить общую SQL fixture с upstream по типам и результатам. Tagged dollar
   literals, которые upstream разбирает как параметры, проверяются отдельно.
+- [x] Добавить offline, compile-fail и общую PostgreSQL/differential fixture для
+  SRF в FROM, функций массивов и GROUP BY по PK; проверить ошибки и side effects
+  UPDATE FROM/DELETE USING с table functions.
 - [x] Проверки Dune подтверждают пересборку после изменения metadata и
   воспроизводимость генерации при неизменном input.
 

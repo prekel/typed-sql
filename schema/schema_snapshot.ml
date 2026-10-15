@@ -440,12 +440,17 @@ let table version =
   { encode =
       (fun (value : Schema_ir.table) ->
         `Assoc
-          [ "schema", (option identifier).encode value.schema
-          ; "name", identifier.encode value.name
-          ; "columns", (list (column version)).encode value.columns
-          ; "foreign_keys", (list foreign_key).encode value.foreign_keys
-          ; "unique_constraints", (list unique_constraint).encode value.unique_constraints
-          ])
+          ([ "schema", (option identifier).encode value.schema
+           ; "name", identifier.encode value.name
+           ; "columns", (list (column version)).encode value.columns
+           ; "foreign_keys", (list foreign_key).encode value.foreign_keys
+           ; ( "unique_constraints"
+             , (list unique_constraint).encode value.unique_constraints )
+           ]
+           @
+           match value.postgresql_primary_key_deferrable with
+           | None -> []
+           | Some flag -> [ "postgresql_primary_key_deferrable", `Bool flag ]))
   ; decode =
       (fun path json ->
         let open Result.Let_syntax in
@@ -453,17 +458,37 @@ let table version =
         let%bind () =
           known_fields
             path
-            [ "schema"; "name"; "columns"; "foreign_keys"; "unique_constraints" ]
+            ([ "schema"; "name"; "columns"; "foreign_keys"; "unique_constraints" ]
+             @
+             if Int.equal version 3 then
+               [ "postgresql_primary_key_deferrable" ]
+             else
+               [])
             fields
         in
         let%bind schema = field path fields "schema" (option identifier) in
         let%bind name = field path fields "name" identifier in
         let%bind columns = field path fields "columns" (list (column version)) in
         let%bind foreign_keys = field path fields "foreign_keys" (list foreign_key) in
-        let%map unique_constraints =
+        let%bind unique_constraints =
           field path fields "unique_constraints" (list unique_constraint)
         in
-        Schema_ir.table ?schema ~name ~columns ~foreign_keys ~unique_constraints ())
+        let%map postgresql_primary_key_deferrable =
+          match
+            List.Assoc.find fields "postgresql_primary_key_deferrable" ~equal:String.equal
+          with
+          | None -> Ok None
+          | Some json ->
+            (option bool).decode (path ^ ".postgresql_primary_key_deferrable") json
+        in
+        Schema_ir.table
+          ?schema
+          ~name
+          ~columns
+          ~foreign_keys
+          ~unique_constraints
+          ?postgresql_primary_key_deferrable
+          ())
   }
 ;;
 

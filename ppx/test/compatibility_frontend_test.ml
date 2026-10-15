@@ -276,8 +276,9 @@ let%test_module "PostgreSQL compatibility extensions" =
            {sql|SELECT q.id FROM join_people p FULL JOIN LATERAL (SELECT p.id) q ON true|sql})
     ;;
 
-    let%test "table functions deferred" =
-      Result.is_error (compile {sql|SELECT * FROM LATERAL generate_series(1,3) x|sql})
+    let%test "other table functions deferred" =
+      Result.is_error
+        (compile {sql|SELECT * FROM LATERAL generate_subscripts(NULL::int[],1) x|sql})
     ;;
 
     let%test "update target invisible in FROM" =

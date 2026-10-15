@@ -98,6 +98,7 @@ module Schema_ir : sig
     -> columns:column list
     -> ?foreign_keys:foreign_key list
     -> ?unique_constraints:unique_constraint list
+    -> ?postgresql_primary_key_deferrable:bool
     -> unit
     -> table
 
@@ -118,6 +119,10 @@ module Schema_ir : sig
 
   (** Return primary-key-independent unique constraints. *)
   val unique_constraints : table -> unique_constraint list
+
+  (** Native PK deferrability. [None] means absent PK or missing metadata;
+      only [Some false] proves eligibility for PostgreSQL GROUP BY dependency. *)
+  val postgresql_primary_key_deferrable : table -> bool option
 
   (** Return the SQL column name. *)
   val column_name : column -> Identifier.t

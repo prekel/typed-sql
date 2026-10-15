@@ -114,6 +114,7 @@ and relation_node =
   | Table of reference
   | Derived of statement
   | Lateral of statement
+  | Function of call * bool
   | Join of relation * relation * join_kind * join_condition
 
 and join_kind =

@@ -12,7 +12,7 @@ type raw_foreign_key =
   * (int * string * string option * (string * string option))
 
 type raw_unique = string option * string * string option * (int * string)
-type raw_attribute = string * string * string * (bool * int)
+type raw_attribute = string * string * string * (bool * int * bool option)
 type raw_type = int * string * string * (string * int * int * string)
 
 (** Shared PostgreSQL catalog queries keep both drivers' snapshots aligned. *)
@@ -52,6 +52,13 @@ val postgresql_type_modifier
   -> string
   -> int option
 
+(** Native table PK deferrability from shared catalog rows. *)
+val postgresql_primary_key_deferrable
+  :  raw_attribute list
+  -> string option
+  -> string
+  -> bool option
+
 val make_schema
   :  ?postgresql_type:(string -> (Typed_sql.Identifier.t * Typed_sql.Identifier.t) option)
   -> ?postgresql_type_info:
@@ -59,6 +66,7 @@ val make_schema
         -> (Typed_sql_schema.Schema_ir.postgresql_type_info option, error) Result.t)
   -> ?postgresql_attribute_not_null:(string option -> string -> string -> bool option)
   -> ?postgresql_type_modifier:(string option -> string -> string -> int option)
+  -> ?postgresql_primary_key_deferrable:(string option -> string -> bool option)
   -> db_type:(string -> Typed_sql_schema.Schema_ir.db_type)
   -> raw_column list
   -> raw_foreign_key list

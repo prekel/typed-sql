@@ -216,8 +216,8 @@ Callback транзакции возвращает `Result.t Lwt.t`: `Ok` фик
 - Поддерживаются SELECT, INSERT/UPDATE/DELETE с RETURNING и без него,
   WHERE с AND/OR/NOT, сравнениями и IS NULL, LIMIT/OFFSET, JOIN,
   expressions, известные aggregates, GROUP BY/HAVING, подзапросы, CTE
-  и UNION/INTERSECT/EXCEPT, LATERAL derived SELECT, window functions,
-  UPDATE FROM / DELETE USING. E-strings и dollar-quoted literals также доступны. У каждой группы есть ограничения;
+  и UNION/INTERSECT/EXCEPT, LATERAL derived SELECT, window functions, unnest/generate_series в FROM с ordinality,
+  GROUP BY по primary key, UPDATE FROM / DELETE USING. E-strings и dollar-quoted literals также доступны. У каждой группы есть ограничения;
   [полный список](../doc/ppx.md) описывает поддержанные формы.
 - Поддерживаются enum как `string`, domain через базовый codec и одномерные
   arrays. Многомерные arrays не поддерживаются.
@@ -230,8 +230,10 @@ Callback транзакции возвращает `Result.t Lwt.t`: `Ok` фик
   соответствовать snapshot. Сервер проверяет ограничения данных и права доступа.
 - Поддержаны lower/upper, length, trim, позиционный substring, replace,
   concat, abs/round, JSON extraction и IS DISTINCT FROM. Произвольные SQL
-  functions/operators, table functions и regex-overloads substring пока
+  functions/operators, прочие table functions и regex-overloads substring пока
   отклоняются. Обращения в БД для уточнения типов нет.
+- Доступны cardinality, array_length и array_to_string; для GROUP BY по полному
+  non-deferrable PK обновите snapshot с metadata deferrability версии 3.
 - Для точных same-type casts varchar/numeric и временных колонок обновите
   snapshot: optional typmod metadata сохраняются в версии 3. Старые snapshots
   читаются, но неоднозначный cast без нужных metadata даёт diagnostic.

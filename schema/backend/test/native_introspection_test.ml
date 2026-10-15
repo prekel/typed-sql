@@ -88,8 +88,8 @@ let%test_module "exact catalog type trees" =
 
     let%test_unit "attribute flags are resolved by schema table and column" =
       let rows =
-        [ "public", "items", "value", (false, -1)
-        ; "archive", "items", "value", (true, 14)
+        [ "public", "items", "value", (false, -1, Some false)
+        ; "archive", "items", "value", (true, 14, None)
         ]
       in
       assert (
@@ -100,6 +100,42 @@ let%test_module "exact catalog type trees" =
       assert (
         Option.is_none
           (S.postgresql_attribute_not_null rows (Some "missing") "items" "value"))
+    ;;
+  end)
+;;
+
+let%test_module "primary key catalog metadata" =
+  (module struct
+    let rows =
+      [ "public", "immediate", "id", (true, -1, Some false)
+      ; "public", "deferred", "id", (true, -1, Some true)
+      ; "public", "ordinary", "id", (true, -1, None)
+      ]
+    ;;
+
+    let%test_unit "immediate constraints retain false" =
+      assert (
+        Option.equal
+          Bool.equal
+          (S.postgresql_primary_key_deferrable rows (Some "public") "immediate")
+          (Some false))
+    ;;
+
+    let%test_unit "deferrable constraints retain true" =
+      assert (
+        Option.equal
+          Bool.equal
+          (S.postgresql_primary_key_deferrable rows (Some "public") "deferred")
+          (Some true))
+    ;;
+
+    let%test "absent constraint stays unknown" =
+      Option.is_none (S.postgresql_primary_key_deferrable rows (Some "public") "ordinary")
+    ;;
+
+    let%test "schema mismatch does not reuse metadata" =
+      Option.is_none
+        (S.postgresql_primary_key_deferrable rows (Some "archive") "immediate")
     ;;
   end)
 ;;

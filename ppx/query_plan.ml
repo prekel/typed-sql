@@ -40,6 +40,7 @@ type scope =
   ; outer : scope option
   ; grouped : string list option
   ; forbidden : string list
+  ; dependencies : (string list * string list * bool option) list
   }
 
 type value =
@@ -96,7 +97,13 @@ let value ?origin ?(modifier = Some (-1)) ?(aggregate = false) native key =
 ;;
 
 let empty_scope outer =
-  { bindings = []; columns = []; outer; grouped = None; forbidden = [] }
+  { bindings = []
+  ; columns = []
+  ; outer
+  ; grouped = None
+  ; forbidden = []
+  ; dependencies = []
+  }
 ;;
 
 let native (column : column) = get column.native
@@ -144,6 +151,21 @@ let unique offset what = function
   | _ -> reject offset ("ambiguous " ^ what)
 ;;
 
+let group_error (scope : scope) allowed (column : column) offset message =
+  let missing =
+    List.exists scope.dependencies ~f:(fun (keys, columns, flag) ->
+      Option.is_none flag
+      && List.mem columns column.identity ~equal:String.equal
+      && List.for_all keys ~f:(fun key -> List.mem allowed key ~equal:String.equal))
+  in
+  reject
+    offset
+    (if missing then
+       "primary-key GROUP BY dependency requires deferrability metadata; refresh the schema snapshot"
+     else
+       message)
+;;
+
 let rec resolve (scope : scope) offset names =
   match List.rev names with
   | [] -> reject offset "expected column name"
@@ -175,7 +197,12 @@ let rec resolve (scope : scope) offset names =
          reject offset "LATERAL reference requires an INNER or LEFT JOIN";
        Option.iter scope.grouped ~f:(fun allowed ->
          if not (List.mem allowed column.identity ~equal:String.equal) then
-           reject offset "subquery uses an ungrouped outer column");
+           group_error
+             scope
+             allowed
+             column
+             offset
+             "subquery uses an ungrouped outer column");
        column)
 ;;
 
@@ -457,6 +484,7 @@ and relation_dependencies (relation : Q.relation) =
   | Table { names = [ name ]; _ } -> [ name ]
   | Table _ -> []
   | Derived query | Lateral query -> dependencies query
+  | Function (call, _) -> List.concat_map call.args ~f:expression_dependencies
   | Join (left, right, _, condition) ->
     relation_dependencies left
     @ relation_dependencies right
@@ -1106,6 +1134,34 @@ and infer_call
     in
     let result, args =
       match name with
+      | "cardinality" | "array_length" | "array_to_string" ->
+        arity
+          (match name with
+           | "cardinality" -> [ 1 ]
+           | "array_length" -> [ 2 ]
+           | _ -> [ 2; 3 ]);
+        let first = infer (List.hd_exn call.args) in
+        (match N.base (known offset first) with
+         | N.Array _ -> ()
+         | _ -> reject offset "array function requires a known array type");
+        let rest_types =
+          if String.equal name "array_length" then
+            [ integer ]
+          else
+            List.init (count - 1) ~f:(fun _ -> text)
+        in
+        let rest =
+          List.map2_exn (List.tl_exn call.args) rest_types ~f:(fun expr expected ->
+            let result = infer ~expected expr in
+            if not (N.implicit (known expr.Q.offset result) expected) then
+              reject expr.offset "unsupported array function overload";
+            result)
+        in
+        ( (if String.equal name "array_to_string" then
+             text
+           else
+             integer)
+        , first :: rest )
       | "lower" | "upper" ->
         arity [ 1 ];
         text, typed [ text ]
@@ -1363,7 +1419,7 @@ and infer_window state environment scope (window : Q.window) =
   partition @ ordered @ offsets
 
 and relation state environment (source : Q.relation) : scope =
-  let bindings, columns =
+  let bindings, columns, dependencies =
     match source.relation with
     | Q.Table reference ->
       let cte =
@@ -1371,23 +1427,152 @@ and relation state environment (source : Q.relation) : scope =
         | [ name ] -> List.Assoc.find environment.ctes name ~equal:String.equal
         | _ -> None
       in
-      let columns, names =
+      let columns, names, dependencies =
         match cte with
         | Some (Some columns) ->
           let identity = fresh state in
           ( List.map columns ~f:(fun column ->
               { column with identity = identity ^ "." ^ column.name })
-          , reference.names )
+          , reference.names
+          , [] )
         | Some None ->
           reject reference.offset "CTE without RETURNING cannot be used as a relation"
         | None ->
           let table = table state reference.offset reference.names in
-          ( table_columns state reference.offset table
+          let columns = table_columns state reference.offset table in
+          let keys =
+            List.filter_map columns ~f:(fun column ->
+              Option.bind column.origin ~f:(fun origin ->
+                Option.map (S.column_primary_key_position origin) ~f:(fun _ ->
+                  column.identity)))
+          in
+          let dependencies =
+            if List.is_empty keys then
+              []
+            else
+              [ ( keys
+                , List.map columns ~f:(fun c -> c.identity)
+                , S.postgresql_primary_key_deferrable table )
+              ]
+          in
+          ( columns
           , [ Option.value_map (S.table_schema table) ~default:"public" ~f:I.to_string
             ; I.to_string (S.table_name table)
-            ] )
+            ]
+          , dependencies )
       in
-      [ { names; alias = false; columns } ], columns
+      [ { names; alias = false; columns } ], columns, dependencies
+    | Function (call, ordinality) ->
+      let name = name_of_call source.offset call.name in
+      if
+        call.star
+        || call.distinct
+        || (not (List.is_empty call.order))
+        || Option.is_some call.filter
+        || Option.is_some call.over
+      then
+        reject source.offset "table functions do not accept aggregate or window modifiers";
+      let scope =
+        Option.value
+          (Option.first_some environment.lateral environment.outer)
+          ~default:(empty_scope None)
+      in
+      let infer_arg ?expected expr =
+        let value = infer state environment scope ?expected expr in
+        if value.aggregate || has_window expr then
+          reject expr.Q.offset "aggregate or window is not allowed in a table function";
+        value
+      in
+      let types =
+        match name with
+        | "unnest" ->
+          if List.is_empty call.args then
+            reject source.offset "UNNEST requires an array";
+          if Int.(List.length call.args > 1 && List.length call.name > 1) then
+            reject source.offset "multi-array UNNEST must be unqualified";
+          List.map call.args ~f:(fun expr ->
+            match N.base (known expr.Q.offset (infer_arg expr)) with
+            | N.Array element -> element
+            | _ -> reject expr.offset "UNNEST requires a known array type")
+        | "generate_series" ->
+          let count = List.length call.args in
+          if not (Int.equal count 2 || Int.equal count 3) then
+            reject source.offset "GENERATE_SERIES requires two or three arguments";
+          let initial = List.map call.args ~f:infer_arg in
+          let first_two =
+            List.take initial 2
+            |> List.filter_map ~f:(fun v -> Option.map v.native ~f:N.base)
+          in
+          if List.for_all initial ~f:(fun value -> Option.is_none value.native) then
+            reject source.offset "GENERATE_SERIES requires a SQL type context";
+          let temporal =
+            List.exists first_two ~f:(function
+              | N.Scalar ("timestamp" | "timestamptz") -> true
+              | _ -> false)
+          in
+          let typ =
+            if temporal then (
+              if not (Int.equal count 3) then
+                reject source.offset "temporal GENERATE_SERIES requires an interval step";
+              if List.exists first_two ~f:(N.equal (scalar "timestamptz")) then
+                scalar "timestamptz"
+              else
+                scalar "timestamp")
+            else (
+              let types =
+                List.filter_map initial ~f:(fun v -> Option.map v.native ~f:N.base)
+              in
+              let typ = common source.offset types in
+              match typ with
+              | N.Scalar "int2" ->
+                reject
+                  source.offset
+                  "ambiguous GENERATE_SERIES smallint overload; add an integer cast"
+              | N.Scalar "int4" -> scalar "int4"
+              | N.Scalar ("int8" | "numeric") -> typ
+              | _ -> reject source.offset "unsupported GENERATE_SERIES overload")
+          in
+          let expected =
+            if temporal then
+              [ typ; typ; scalar "interval" ]
+            else
+              List.init count ~f:(fun _ -> typ)
+          in
+          List.iter2_exn call.args expected ~f:(fun expr expected ->
+            let value = infer_arg ~expected expr in
+            if not (N.implicit (known expr.Q.offset value) expected) then
+              reject expr.offset "unsupported GENERATE_SERIES overload");
+          [ typ ]
+        | _ -> reject source.offset ("unsupported PostgreSQL table function: " ^ name)
+      in
+      let output_count = List.length types in
+      let types =
+        if ordinality then
+          types @ [ scalar "int8" ]
+        else
+          types
+      in
+      let id = fresh state in
+      let columns =
+        List.mapi types ~f:(fun index native ->
+          let column_name =
+            if ordinality && Int.equal index output_count then
+              "ordinality"
+            else if Int.equal output_count 1 then
+              Option.value source.alias ~default:name
+            else
+              name
+          in
+          { name = column_name
+          ; native = Ok native
+          ; origin = None
+          ; modifier = Some (-1)
+          ; identity = id ^ "." ^ Int.to_string index
+          })
+      in
+      ( [ { names = [ Option.value source.alias ~default:name ]; alias = true; columns } ]
+      , columns
+      , [] )
     | (Derived query | Lateral query) as kind ->
       let outer =
         match kind with
@@ -1402,7 +1587,8 @@ and relation state environment (source : Q.relation) : scope =
       let identity = fresh state in
       ( []
       , List.map result.columns ~f:(fun column ->
-          { column with identity = identity ^ "." ^ column.name }) )
+          { column with identity = identity ^ "." ^ column.name })
+      , [] )
     | Join (left, right, kind, condition) ->
       let left = relation state environment left in
       let forbidden =
@@ -1428,6 +1614,7 @@ and relation state environment (source : Q.relation) : scope =
         ; outer = environment.outer
         ; grouped = None
         ; forbidden = []
+        ; dependencies = left.dependencies @ right.dependencies
         }
       in
       let using =
@@ -1495,7 +1682,9 @@ and relation state environment (source : Q.relation) : scope =
         List.filter columns ~f:(fun column ->
           not (List.mem using column.name ~equal:String.equal))
       in
-      bindings, merged @ remaining left.columns @ remaining right.columns
+      ( bindings
+      , merged @ remaining left.columns @ remaining right.columns
+      , left.dependencies @ right.dependencies )
   in
   let columns = rename source.offset source.columns columns in
   let bindings =
@@ -1503,7 +1692,13 @@ and relation state environment (source : Q.relation) : scope =
     | Some name -> [ { names = [ name ]; alias = true; columns } ]
     | None -> bindings
   in
-  { bindings; columns; outer = environment.outer; grouped = None; forbidden = [] }
+  { bindings
+  ; columns
+  ; outer = environment.outer
+  ; grouped = None
+  ; forbidden = []
+  ; dependencies
+  }
 
 and predicate state environment (scope : scope) (expr : Q.expression) =
   let result = infer state environment scope ~expected:(scalar "bool") expr in
@@ -1596,7 +1791,12 @@ and check_group state environment (scope : scope) allowed (expr : Q.expression) 
         List.exists scope.columns ~f:(fun local ->
           String.equal local.identity column.identity)
       then
-        reject expr.offset "column must appear in GROUP BY or an aggregate"
+        group_error
+          scope
+          allowed
+          column
+          expr.offset
+          "column must appear in GROUP BY or an aggregate"
     | Call call
       when Option.is_none call.over && is_aggregate (name_of_call expr.offset call.name)
       -> ()
@@ -1834,6 +2034,19 @@ and analyze state environment ?expected ?(defer = false) (query : Q.statement) :
         aggregate := true;
       groups
   in
+  let groups =
+    List.fold
+      scope.dependencies
+      ~init:groups
+      ~f:(fun allowed (keys, columns, deferrable) ->
+        if
+          Option.equal Bool.equal deferrable (Some false)
+          && List.for_all keys ~f:(fun key -> List.mem groups key ~equal:String.equal)
+        then
+          allowed @ columns
+        else
+          allowed)
+  in
   List.iter query.order ~f:(fun (expr, _, _) ->
     match projected expr true with
     | `Output column -> comparable expr.Q.offset (native column)
@@ -1875,7 +2088,12 @@ and analyze state environment ?expected ?(defer = false) (query : Q.statement) :
           in
           List.iter columns ~f:(fun column ->
             if not (List.mem groups column.identity ~equal:String.equal) then
-              reject reference.offset "wildcard column must appear in GROUP BY"));
+              group_error
+                scope
+                groups
+                column
+                reference.offset
+                "wildcard column must appear in GROUP BY"));
       Option.iter select.having ~f:(check_group state environment scope groups);
       List.iter query.order ~f:(fun (expr, _, _) ->
         match projected expr true with
@@ -1971,6 +2189,15 @@ and recursive_cte state environment (cte : Q.cte) =
           "recursive reference cannot occur on the nullable side of an outer join";
       1
     | Table _ -> 0
+    | Function (call, _) ->
+      if
+        List.exists call.args ~f:(fun expr ->
+          List.mem (expression_dependencies expr) cte.name ~equal:String.equal)
+      then
+        reject
+          source.offset
+          "recursive reference inside a table function argument is unsupported";
+      0
     | Derived query | Lateral query ->
       if List.mem (dependencies query) cte.name ~equal:String.equal then
         reject source.offset "recursive reference inside a subquery is unsupported";

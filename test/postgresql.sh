@@ -131,18 +131,24 @@ PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/join_postgresql_test.e
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/rich_postgresql_test.exe
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/literal_postgresql_test.exe
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/compatibility_postgresql_test.exe
+PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/srf_postgresql_test.exe
+PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/runtime_contract_postgresql_test.exe
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/mixed_transaction_postgresql_test.exe
 if [[ -n "${TYPED_SQL_UPSTREAM_PPX:-}" ]]; then
   dune build --root . ppx/test/ppx_driver.exe ppx/runtime/typed_sql_pgocaml_runtime.cma
+  build_dir="${DUNE_BUILD_DIR:-_build}"
   PGDATABASE=typed_sql_ppx_test bash ppx/test/upstream_contract_test.sh \
     "$TYPED_SQL_UPSTREAM_PPX" \
-    "$PWD/_build/default/ppx/test/ppx_driver.exe" \
-    "$PWD/_build/default/ppx/runtime/typed_sql_pgocaml_runtime.cma" \
-    "$PWD/_build/default/ppx/runtime/.typed_sql_pgocaml_runtime.objs/byte/typed_sql_pgocaml_runtime.cmi"
+    "$build_dir/default/ppx/test/ppx_driver.exe" \
+    "$build_dir/default/ppx/runtime/typed_sql_pgocaml_runtime.cma" \
+    "$build_dir/default/ppx/runtime/.typed_sql_pgocaml_runtime.objs/byte/typed_sql_pgocaml_runtime.cmi"
 fi
 PGDATABASE=typed_sql_ppx_test dune exec --root . caqti-lwt/schema/typed_sql_schema_dump.exe > "$workdir/ppx_caqti_schema.json"
 PGDATABASE=typed_sql_ppx_test dune exec --root . schema-pgocaml-lwt/typed_sql_pgocaml_schema_dump.exe > "$workdir/ppx_pgocaml_schema.json"
 diff -u "$workdir/ppx_caqti_schema.json" "$workdir/ppx_pgocaml_schema.json"
+# The shared grouping fixture exercises immediate and deferrable primary keys.
+grep -Fq '"postgresql_primary_key_deferrable": false' "$workdir/ppx_caqti_schema.json"
+grep -Fq '"postgresql_primary_key_deferrable": true' "$workdir/ppx_caqti_schema.json"
 # The typmod fixture has varchar(10), numeric(8,2), and interval DAY TO SECOND(3).
 grep -Fq '"postgresql_type_modifier": 14' "$workdir/ppx_caqti_schema.json"
 grep -Fq '"postgresql_type_modifier": 524294' "$workdir/ppx_caqti_schema.json"

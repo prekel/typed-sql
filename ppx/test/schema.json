@@ -453,7 +453,8 @@
             "name"
           ]
         }
-      ]
+      ],
+      "postgresql_primary_key_deferrable": false
     },
     {
       "schema": "public",
@@ -1509,7 +1510,8 @@
         }
       ],
       "unique_constraints": [],
-      "foreign_keys": []
+      "foreign_keys": [],
+      "postgresql_primary_key_deferrable": false
     },
     {
       "schema": "public",
@@ -1666,7 +1668,110 @@
         }
       ],
       "unique_constraints": [],
-      "foreign_keys": []
+      "foreign_keys": [],
+      "postgresql_primary_key_deferrable": false
+    },
+    {
+      "schema": "public",
+      "name": "group_keys",
+      "columns": [
+        {
+          "name": "tenant",
+          "db_type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1",
+          "generated": false,
+          "primary_key_position": 1,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "int4"
+          }
+        },
+        {
+          "name": "id",
+          "db_type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": true,
+          "primary_key_position": 2,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "int4"
+          }
+        },
+        {
+          "name": "name",
+          "db_type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "default": "'unnamed'::text",
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "text"
+          }
+        }
+      ],
+      "foreign_keys": [],
+      "unique_constraints": [],
+      "postgresql_primary_key_deferrable": false
+    },
+    {
+      "schema": "public",
+      "name": "deferrable_group_keys",
+      "columns": [
+        {
+          "name": "tenant",
+          "db_type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": "1",
+          "generated": false,
+          "primary_key_position": 1,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "int4"
+          }
+        },
+        {
+          "name": "id",
+          "db_type": {
+            "kind": "int"
+          },
+          "nullable": false,
+          "default": null,
+          "generated": true,
+          "primary_key_position": 2,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "int4"
+          }
+        },
+        {
+          "name": "name",
+          "db_type": {
+            "kind": "text"
+          },
+          "nullable": false,
+          "default": "'unnamed'::text",
+          "generated": false,
+          "primary_key_position": null,
+          "postgresql_type": {
+            "schema": "pg_catalog",
+            "name": "text"
+          }
+        }
+      ],
+      "foreign_keys": [],
+      "unique_constraints": [],
+      "postgresql_primary_key_deferrable": true
     }
   ]
 }

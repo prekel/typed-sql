@@ -4,6 +4,14 @@
 
 ### Добавлено
 
+- Offline PPX: unnest/generate_series в FROM с LATERAL и WITH ORDINALITY,
+  cardinality/array_length/array_to_string, GROUP BY по полному non-deferrable PK.
+  Metadata deferrability добавлены optional-полем таблицы в snapshot v3 и оба
+  дампера; новые группы покрыты offline, compile-fail и differential fixtures.
+
+- Общая runtime fixture upstream/offline PPX: граничные значения codecs,
+  SQLSTATE и поля ошибок, rollback/savepoints, изоляция и повторное
+  выполнение после ошибок. В руководстве PPX добавлена матрица сравнений.
 - Offline PPX: E-strings и dollar quoting, LATERAL derived SELECT,
   window functions с WINDOW и frames, UPDATE FROM / DELETE USING,
   проверенные scalar functions, JSON extraction и IS DISTINCT FROM.

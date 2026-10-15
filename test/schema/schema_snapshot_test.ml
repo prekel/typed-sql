@@ -1001,3 +1001,87 @@ let%test_module "PostgreSQL type modifiers" =
     ;;
   end)
 ;;
+
+let%test_module "PostgreSQL primary key deferrability metadata" =
+  (module struct
+    let schema flag =
+      Schema_ir.v
+        [ Schema_ir.table
+            ~schema:(identifier "public")
+            ~name:(identifier "keys")
+            ~columns:
+              [ Schema_ir.column
+                  ~name:(identifier "id")
+                  ~db_type:Int
+                  ~nullable:false
+                  ~primary_key_position:1
+                  ()
+              ]
+            ?postgresql_primary_key_deferrable:flag
+            ()
+        ]
+    ;;
+
+    let flag schema =
+      Schema_ir.postgresql_primary_key_deferrable (List.hd_exn (Schema_ir.tables schema))
+    ;;
+
+    let%test_unit "missing metadata stays unknown" =
+      let source = Schema_snapshot.to_string (schema None) in
+      assert (
+        not (String.is_substring source ~substring:"postgresql_primary_key_deferrable"));
+      assert (Option.is_none (flag (decode source)))
+    ;;
+
+    let%test_unit "immediate PK is distinct from missing metadata" =
+      assert (
+        Option.equal
+          Bool.equal
+          (flag (decode (Schema_snapshot.to_string (schema (Some false)))))
+          (Some false))
+    ;;
+
+    let%test_unit "deferrable PK round trips in version three" =
+      let source = Schema_snapshot.to_string (schema (Some true)) in
+      assert (String.is_substring source ~substring:"\"version\": 3");
+      assert (Option.equal Bool.equal (flag (decode source)) (Some true))
+    ;;
+
+    let%test_unit "null deferrability stays unknown" =
+      let source =
+        Schema_snapshot.to_string (schema (Some true))
+        |> String.substr_replace_first
+             ~pattern:"\"postgresql_primary_key_deferrable\": true"
+             ~with_:"\"postgresql_primary_key_deferrable\": null"
+      in
+      assert (Option.is_none (flag (decode source)))
+    ;;
+
+    let%test "invalid deferrability type rejected" =
+      let source =
+        Schema_snapshot.to_string (schema (Some true))
+        |> String.substr_replace_first
+             ~pattern:"\"postgresql_primary_key_deferrable\": true"
+             ~with_:"\"postgresql_primary_key_deferrable\": 1"
+      in
+      Result.is_error (Schema_snapshot.of_string source)
+    ;;
+
+    let%test_unit "portable codegen ignores native deferrability" =
+      let generate flag =
+        Schema_codegen.generate (schema flag)
+        |> Result.map_error ~f:Schema_codegen.error_to_string
+        |> Result.ok_or_failwith
+      in
+      assert (String.equal (generate None) (generate (Some false)))
+    ;;
+
+    let%test_unit "schema PPX codegen embeds native deferrability" =
+      let generated = Schema_codegen.generate_pgocaml_ppx (schema (Some false)) in
+      assert (
+        String.is_substring
+          generated
+          ~substring:"?postgresql_primary_key_deferrable:(Some (false))")
+    ;;
+  end)
+;;

@@ -854,7 +854,9 @@ let generate_pgocaml_ppx schema =
       ; String.concat ~sep:"; " foreign_keys
       ; " ] ~unique_constraints:[ "
       ; String.concat ~sep:"; " unique_constraints
-      ; " ] ()"
+      ; " ] ?postgresql_primary_key_deferrable:("
+      ; option Bool.to_string table.postgresql_primary_key_deferrable
+      ; ") ()"
       ]
   in
   let tables = Schema_ir.tables schema |> List.map ~f:table in

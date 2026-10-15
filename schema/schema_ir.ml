@@ -77,6 +77,7 @@ type table =
   ; columns : column list
   ; foreign_keys : foreign_key list
   ; unique_constraints : unique_constraint list
+  ; postgresql_primary_key_deferrable : bool option
   }
 
 type t = table list
@@ -115,8 +116,22 @@ let foreign_key ~columns ?referenced_schema ~referenced_table ~referenced_column
 
 let unique_constraint ?name columns = { name; columns }
 
-let table ?schema ~name ~columns ?(foreign_keys = []) ?(unique_constraints = []) () =
-  { schema; name; columns; foreign_keys; unique_constraints }
+let table
+      ?schema
+      ~name
+      ~columns
+      ?(foreign_keys = [])
+      ?(unique_constraints = [])
+      ?postgresql_primary_key_deferrable
+      ()
+  =
+  { schema
+  ; name
+  ; columns
+  ; foreign_keys
+  ; unique_constraints
+  ; postgresql_primary_key_deferrable
+  }
 ;;
 
 let tables schema = schema
@@ -125,6 +140,11 @@ let table_schema (table : table) = table.schema
 let columns (table : table) = table.columns
 let foreign_keys (table : table) = table.foreign_keys
 let unique_constraints (table : table) = table.unique_constraints
+
+let postgresql_primary_key_deferrable (table : table) =
+  table.postgresql_primary_key_deferrable
+;;
+
 let column_name (column : column) = column.name
 let column_db_type (column : column) = column.db_type
 let column_postgresql_type (column : column) = column.postgresql_type

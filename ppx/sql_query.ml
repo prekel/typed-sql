@@ -374,6 +374,7 @@ and relation_node =
   | Table of reference
   | Derived of statement
   | Lateral of statement
+  | Function of call * bool
   | Join of relation * relation * join_kind * join_condition
 
 and join_kind =
@@ -1026,14 +1027,29 @@ and parse_relation parser : relation =
       in
       expect_symbol parser ')';
       base)
-    else
-      { relation = Table (reference parser); alias = None; columns = []; offset }
+    else (
+      let expression = parse_atom parser in
+      let relation =
+        match expression.node with
+        | Column names -> Table { names; offset }
+        | Call call ->
+          let ordinality =
+            if take_word parser "with" then (
+              expect_word parser "ordinality";
+              true)
+            else
+              false
+          in
+          Function (call, ordinality)
+        | _ -> reject offset "expected table or supported table function"
+      in
+      { relation; alias = None; columns = []; offset })
   in
   if lateral then (
     match
       base.relation
     with
-    | Lateral _ -> ()
+    | Lateral _ | Function _ -> ()
     | _ -> reject offset "LATERAL requires a derived SELECT");
   let new_alias, columns = alias parser in
   let alias =
