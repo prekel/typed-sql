@@ -4,8 +4,13 @@ open Typed_sql_schema
 type options =
   { schema_path : string
   ; rules_path : string option
+  ; target : target
   ; excluded_tables : (Identifier.t * Identifier.t) list
   }
+
+and target =
+  | Descriptors
+  | Pgocaml_ppx
 
 type argument_error =
   | Help
@@ -13,7 +18,7 @@ type argument_error =
 
 let usage =
   "Usage: typed-sql-codegen [--exclude-table SCHEMA.TABLE]... "
-  ^ "[--type-rules RULES.json] SCHEMA.json|-"
+  ^ "[--type-rules RULES.json] [--target descriptors|pgocaml-ppx] SCHEMA.json|-"
 ;;
 
 let read path =
@@ -81,30 +86,46 @@ let parse_qualified_table source =
           | Error _, _ | _, Error _ -> invalid_format ()))
 ;;
 
+let parse_target = function
+  | "descriptors" -> Ok Descriptors
+  | "pgocaml-ppx" -> Ok Pgocaml_ppx
+  | _ -> Error Usage
+;;
+
 let parse_args arguments =
-  let rec loop schema_path rules_path excluded_tables = function
+  let rec loop schema_path rules_path target excluded_tables = function
     | [] ->
       (match schema_path with
        | None -> Error Usage
        | Some schema_path ->
-         Ok { schema_path; rules_path; excluded_tables = List.rev excluded_tables })
+         Ok
+           { schema_path
+           ; rules_path
+           ; target = Option.value target ~default:Descriptors
+           ; excluded_tables = List.rev excluded_tables
+           })
     | [ "--help" ] | [ "-h" ] -> Error Help
     | "--exclude-table" :: table_name :: rest ->
       (match parse_qualified_table table_name with
        | Error _ -> Error Usage
-       | Ok table -> loop schema_path rules_path (table :: excluded_tables) rest)
+       | Ok table -> loop schema_path rules_path target (table :: excluded_tables) rest)
     | "--exclude-table" :: [] -> Error Usage
     | "--type-rules" :: path :: rest when Option.is_none rules_path ->
-      loop schema_path (Some path) excluded_tables rest
+      loop schema_path (Some path) target excluded_tables rest
     | "--type-rules" :: _ -> Error Usage
+    | "--target" :: value :: rest when Option.is_none target ->
+      (match parse_target value with
+       | Error error -> Error error
+       | Ok target -> loop schema_path rules_path (Some target) excluded_tables rest)
+    | "--target" :: _ -> Error Usage
     | path :: rest when String.equal path "-" || not (String.is_prefix path ~prefix:"-")
       ->
       (match schema_path with
-       | None -> loop (Some path) rules_path excluded_tables rest
+       | None -> loop (Some path) rules_path target excluded_tables rest
        | Some _ -> Error Usage)
     | _ -> Error Usage
   in
-  loop None None [] arguments
+  loop None None None [] arguments
 ;;
 
 let exclude_tables excluded_tables schema =
@@ -131,9 +152,14 @@ let exclude_tables excluded_tables schema =
               (List.exists excluded_tables ~f:(fun excluded -> has_table excluded table)))))
 ;;
 
-let run { schema_path; rules_path; excluded_tables } =
+let run { schema_path; rules_path; target; excluded_tables } =
   let open Result.Let_syntax in
   let%bind source = read schema_path in
+  let%bind () =
+    match target, rules_path with
+    | Pgocaml_ppx, Some _ -> Error "--type-rules only applies to descriptor generation"
+    | _ -> Ok ()
+  in
   let%bind rules =
     match rules_path with
     | None -> Ok []
@@ -146,8 +172,11 @@ let run { schema_path; rules_path; excluded_tables } =
     |> Result.map_error ~f:Schema_snapshot.error_to_string
   in
   let%bind schema = exclude_tables excluded_tables schema in
-  Schema_codegen.generate ~rules schema
-  |> Result.map_error ~f:Schema_codegen.error_to_string
+  match target with
+  | Descriptors ->
+    Schema_codegen.generate ~rules schema
+    |> Result.map_error ~f:Schema_codegen.error_to_string
+  | Pgocaml_ppx -> Ok (Schema_codegen.generate_pgocaml_ppx schema)
 ;;
 
 let () =

@@ -6,6 +6,7 @@
   sql
   codec
   native_type
+  schema_registry
   predicate_plan
   statement_plan
   expand

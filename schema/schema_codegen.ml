@@ -721,3 +721,148 @@ let generate ?(rules = []) schema =
   ^ "end\n\n"
   ^ String.concat modules ~sep:"\n"
 ;;
+
+let generate_pgocaml_ppx schema =
+  let quoted value = Printf.sprintf "%S" value in
+  let id identifier = "I.of_string_exn " ^ quoted (Identifier.to_string identifier) in
+  let option f = function
+    | None -> "None"
+    | Some value -> "Some (" ^ f value ^ ")"
+  in
+  let string_list values =
+    "[ " ^ String.concat ~sep:"; " (List.map values ~f:quoted) ^ " ]"
+  in
+  let identifier_list values =
+    "[ " ^ String.concat ~sep:"; " (List.map values ~f:id) ^ " ]"
+  in
+  let rec db_type = function
+    | Schema_ir.Bool -> "S.Bool"
+    | Int -> "S.Int"
+    | Int64 -> "S.Int64"
+    | Float -> "S.Float"
+    | Numeric -> "S.Numeric"
+    | Text -> "S.Text"
+    | Bytes -> "S.Bytes"
+    | Date -> "S.Date"
+    | Timestamp -> "S.Timestamp"
+    | Timestamp_without_timezone -> "S.Timestamp_without_timezone"
+    | Interval -> "S.Interval"
+    | Json -> "S.Json"
+    | Jsonb -> "S.Jsonb"
+    | Uuid -> "S.Uuid"
+    | Enum { schema; name; labels } ->
+      "S.Enum { schema = "
+      ^ id schema
+      ^ "; name = "
+      ^ id name
+      ^ "; labels = "
+      ^ string_list labels
+      ^ " }"
+    | Domain { schema; name; base } ->
+      "S.Domain { schema = "
+      ^ id schema
+      ^ "; name = "
+      ^ id name
+      ^ "; base = "
+      ^ db_type base
+      ^ " }"
+    | Array element -> "S.Array (" ^ db_type element ^ ")"
+    | Named { schema; name } ->
+      "S.Named { schema = " ^ id schema ^ "; name = " ^ id name ^ " }"
+    | Unsupported name -> "S.Unsupported " ^ quoted name
+  in
+  let rec type_info (info : Schema_ir.postgresql_type_info) =
+    let kind =
+      match info.kind with
+      | Native_scalar -> "S.Native_scalar"
+      | Native_enum labels -> "S.Native_enum " ^ string_list labels
+      | Native_domain base -> "S.Native_domain (" ^ type_info base ^ ")"
+      | Native_array element -> "S.Native_array (" ^ type_info element ^ ")"
+      | Native_opaque -> "S.Native_opaque"
+    in
+    "{ S.schema = "
+    ^ id info.schema
+    ^ "; name = "
+    ^ id info.name
+    ^ "; kind = "
+    ^ kind
+    ^ " }"
+  in
+  let column (column : Schema_ir.column) =
+    let postgresql_type =
+      option
+        (fun (schema, name) -> "(" ^ id schema ^ ", " ^ id name ^ ")")
+        column.postgresql_type
+    in
+    String.concat
+      [ "S.column ~name:("
+      ; id column.name
+      ; ") ~db_type:("
+      ; db_type column.db_type
+      ; ") ~nullable:"
+      ; Bool.to_string column.nullable
+      ; " ?default:("
+      ; option quoted column.default
+      ; ") ~generated:"
+      ; Bool.to_string column.generated
+      ; " ?primary_key_position:("
+      ; option Int.to_string column.primary_key_position
+      ; ") ?postgresql_type:("
+      ; postgresql_type
+      ; ") ?postgresql_type_info:("
+      ; option type_info column.postgresql_type_info
+      ; ") ?postgresql_attribute_not_null:("
+      ; option Bool.to_string column.postgresql_attribute_not_null
+      ; ") ()"
+      ]
+  in
+  let foreign_key (foreign_key : Schema_ir.foreign_key) =
+    String.concat
+      [ "S.foreign_key ~columns:"
+      ; identifier_list foreign_key.columns
+      ; " ?referenced_schema:("
+      ; option id foreign_key.referenced_schema
+      ; ") ~referenced_table:("
+      ; id foreign_key.referenced_table
+      ; ") ~referenced_columns:"
+      ; identifier_list foreign_key.referenced_columns
+      ; " ()"
+      ]
+  in
+  let unique_constraint (constraint_ : Schema_ir.unique_constraint) =
+    String.concat
+      [ "S.unique_constraint ?name:("
+      ; option id constraint_.name
+      ; ") "
+      ; identifier_list constraint_.columns
+      ]
+  in
+  let table (table : Schema_ir.table) =
+    let columns = List.map table.columns ~f:column in
+    let foreign_keys = List.map table.foreign_keys ~f:foreign_key in
+    let unique_constraints = List.map table.unique_constraints ~f:unique_constraint in
+    String.concat
+      [ "S.table ?schema:("
+      ; option id table.schema
+      ; ") ~name:("
+      ; id table.name
+      ; ") ~columns:[ "
+      ; String.concat ~sep:"; " columns
+      ; " ] ~foreign_keys:[ "
+      ; String.concat ~sep:"; " foreign_keys
+      ; " ] ~unique_constraints:[ "
+      ; String.concat ~sep:"; " unique_constraints
+      ; " ] ()"
+      ]
+  in
+  let tables = Schema_ir.tables schema |> List.map ~f:table in
+  String.concat
+    [ "open! Base\n"
+    ; "module S = Typed_sql_schema.Schema_ir\n"
+    ; "module I = Typed_sql_schema.Identifier\n\n"
+    ; "let schema = S.v [ "
+    ; String.concat ~sep:"; " tables
+    ; " ]\n\n"
+    ; "let () = Typed_sql_pgocaml_ppx.register_schema schema\n"
+    ]
+;;

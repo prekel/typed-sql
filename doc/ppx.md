@@ -7,39 +7,43 @@
 
 ## Подключение
 
-Создайте snapshot после применения миграций через один из существующих
-PostgreSQL-дамперов. Для PPX необходимы точные типы колонок из snapshot
-версии 3. Старые snapshot версии 2 остаются пригодны для codegen descriptors,
-но не содержат необходимых PPX metadata. Для enum/domain и arrays нужен
-обновлённый snapshot v3 с вложенными native types; для чтения domain-колонок
-также нужен native attribute flag nullability.
+Создайте snapshot версии 3 после применения миграций через один из существующих
+PostgreSQL-дамперов. Старые snapshot версии 2 пригодны для генерации descriptors,
+но не содержат точных типов, нужных PPX. Для enum/domain и arrays нужны
+вложенные native types; для чтения domain-колонок также нужен native attribute
+flag nullability.
 
-В примере ниже библиотека находится в `app/`, а snapshot — в
-`app/schema.json`. Относительный путь сначала разрешается от каталога
-исходного OCaml-файла, затем от текущего каталога процесса PPX. Если оба файла
-доступны, приоритет имеет файл рядом с исходником. Абсолютный путь используется
-напрямую. Это правило соответствует
-[ppx_blob начиная с 0.8.0](https://github.com/johnwhitington/ppx_blob/blob/0.8.0/src/ppx_blob.ml)
-и работает в Dune sandbox и Merlin/ocamllsp. `preprocessor_deps` задаётся
-относительно каталога stanza.
+Сгенерируйте из snapshot OCaml-модуль, затем подключите его как PPX-библиотеку:
 
 ```lisp
+(rule
+ (target schema_ppx.ml)
+ (deps schema.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run %{bin:typed-sql-codegen} --target pgocaml-ppx %{dep:schema.json}))))
+
+(library
+ (name app_schema_ppx)
+ (modules schema_ppx)
+ (kind ppx_rewriter)
+ (libraries base typed-sql-schema typed-sql-pgocaml-ppx))
+
 (library
  (name app)
  (libraries base pgocaml)
- (preprocessor_deps schema.json)
- (preprocess
-  (pps typed-sql-pgocaml-ppx -- --typed-sql-schema schema.json)))
+ (preprocess (pps app_schema_ppx)))
 ```
 
-Flags PPX передаются через `--` по
-[правилам Dune](https://dune.readthedocs.io/en/stable/reference/preprocessing-spec.html#arguments-to-ppx-rewriters).
-`preprocessor_deps` делает snapshot зависимостью preprocessing и обеспечивает
-пересборку при его изменении. Пакет `pgocaml_ppx` одновременно с заменой
-подключать нельзя: оба регистрируют одинаковые extension names.
+Здесь `schema.json` — вход генерации, а Dune связывает сгенерированную
+библиотеку с `typed-sql-pgocaml-ppx` при подготовке PPX-драйвера. Запросы
+проверяются по зарегистрированной схеме; при подключении нескольких schema
+библиотек PPX сообщает об ошибке. Пакет `pgocaml_ppx` одновременно подключать
+нельзя: оба пакета регистрируют одинаковые extension names.
 
-Код приложения по-прежнему зависит от `pgocaml`. Для выполнения не нужны
-schema dump packages или файл snapshot: metadata используются только при
+Код приложения зависит от `pgocaml`. Для выполнения не нужны schema dump
+packages или файл snapshot: сгенерированный модуль используется только при
 компиляции. Runtime-соединение и его `search_path` должны соответствовать схеме
 снимка; неквалифицированные таблицы PPX разрешает в `public`. Для других схем
 используйте явное `schema.table`.

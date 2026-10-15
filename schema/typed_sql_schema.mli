@@ -224,4 +224,9 @@ module Schema_codegen : sig
       retains column defaults, generated and primary-key flags, foreign keys,
       and unique constraints as ordinary metadata values. *)
   val generate : ?rules:rule list -> Schema_ir.t -> (string, error) Result.t
+
+  (** Generate OCaml source that constructs the complete schema value and
+      registers it with [typed-sql-pgocaml-ppx]. The returned module is loaded
+      into the PPX driver through Dune's [pps] mechanism. *)
+  val generate_pgocaml_ppx : Schema_ir.t -> string
 end

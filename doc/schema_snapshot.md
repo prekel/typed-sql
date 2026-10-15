@@ -120,6 +120,10 @@ URI-параметры отклоняет.
 
 `typed-sql-codegen` устанавливается с `typed-sql-schema`.
 `typed-sql-codegen schema.json` читает файл, `typed-sql-codegen -` читает stdin.
+По умолчанию он генерирует descriptors; `--target pgocaml-ppx` генерирует
+OCaml-модуль, который регистрирует schema при подключении библиотеки к PPX через
+Dune `(pps ...)`. Например, `typed-sql-codegen --target pgocaml-ppx schema.json
+> schema_ppx.ml`. Для этого target не поддерживаются `--type-rules`.
 `typed-sql-codegen --type-rules rules.json schema.json` применяет правила
 пользовательских типов. Повторяемый параметр
 `--exclude-table SCHEMA.TABLE` исключает таблицу из генерации по точной паре

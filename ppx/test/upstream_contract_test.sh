@@ -7,7 +7,7 @@ workdir="$(mktemp -d)"
 trap 'rm -rf "$workdir"' EXIT
 
 "$upstream" --impl ppx/test/upstream_contract.ml -o "$workdir/upstream.ml"
-PGHOST=/nonexistent/typed-sql-offline "$offline" --typed-sql-schema ppx/test/schema.json \
+PGHOST=/nonexistent/typed-sql-offline "$offline" \
   --impl ppx/test/upstream_contract.ml -o "$workdir/offline.ml"
 ocamlfind ocamlc -package base,pgocaml -linkpkg "$workdir/upstream.ml" -o "$workdir/upstream.exe"
 ocamlfind ocamlc -package base,pgocaml -linkpkg -I "$(dirname "$runtime_interface")" \

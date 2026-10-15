@@ -6,7 +6,6 @@ open! Base
 open Ppxlib
 module B = Ast_builder.Default
 
-let schema_file = ref None
 let error ~loc message = Location.raise_errorf ~loc "typed-sql-pgocaml-ppx: %s" message
 let name ~loc name = B.evar ~loc name
 let apply ~loc fn value = B.pexp_apply ~loc fn [ Nolabel, value ]
@@ -21,53 +20,12 @@ let bind ~loc variable value body =
     body
 ;;
 
-let read_schema ~loc path =
-  let paths =
-    if Stdlib.Filename.is_relative path then
-      [ Stdlib.Filename.concat
-          (Stdlib.Filename.dirname loc.Location.loc_start.pos_fname)
-          path
-      ; path
-      ]
-    else
-      [ path ]
-  in
-  let read path =
-    Result.try_with (fun () ->
-      let channel = Stdlib.open_in_bin path in
-      Exn.protect
-        ~f:(fun () ->
-          Stdlib.really_input_string channel (Stdlib.in_channel_length channel))
-        ~finally:(fun () -> Stdlib.close_in_noerr channel))
-  in
-  let rec first_read errors = function
-    | [] ->
-      error
-        ~loc
-        ("cannot read schema snapshot: " ^ String.concat ~sep:"; " (List.rev errors))
-    | candidate :: rest ->
-      (match read candidate with
-       | Ok contents -> contents
-       | Error exn -> first_read ((candidate ^ ": " ^ Exn.to_string exn) :: errors) rest)
-  in
-  first_read [] paths
-;;
-
 let snapshot ~loc =
   (match Stdlib.Sys.getenv_opt "PGCUSTOM_CONVERTERS_CONFIG" with
    | Some config when not (String.is_empty config) ->
      error ~loc "custom converter config is not supported yet"
    | _ -> ());
-  let path =
-    match !schema_file with
-    | Some path -> path
-    | None -> error ~loc "missing --typed-sql-schema PATH"
-  in
-  let contents = read_schema ~loc path in
-  match Typed_sql_schema.Schema_snapshot.of_string contents with
-  | Ok schema -> schema
-  | Error diagnostic ->
-    error ~loc (Typed_sql_schema.Schema_snapshot.error_to_string diagnostic)
+  Schema_registry.current ~loc
 ;;
 
 let payload ~loc = function
@@ -292,10 +250,6 @@ let expand ~genobject ~loc payload_ =
 ;;
 
 let register () =
-  Driver.add_arg
-    "--typed-sql-schema"
-    (Stdlib.Arg.String (fun path -> schema_file := Some path))
-    ~doc:"PATH Schema snapshot used for offline SQL checking";
   let extension extension_name genobject =
     Extension.declare
       extension_name
