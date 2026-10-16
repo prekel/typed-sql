@@ -171,7 +171,10 @@ and normalize_select (select : Ast.select) =
         })
   }
 
+and normalize_raw (raw : Ast.raw) = { raw with ctes = List.map raw.ctes ~f:normalize_cte }
+
 and normalize_select_query = function
+  | Ast.Raw_select raw -> Ast.Raw_select (normalize_raw raw)
   | Ast.Simple select -> Ast.Simple (normalize_select select)
   | Ast.Source_free source_free ->
     Ast.Source_free
@@ -218,6 +221,8 @@ and normalize_cte (cte : Ast.cte) =
         ; step = normalize_relation recursive.step
         }
     | Ast.Returning_body returning -> Ast.Returning_body (normalize_returning returning)
+    | Ast.Raw_returning_body raw -> Ast.Raw_returning_body (normalize_raw raw)
+    | Ast.Raw_command_body raw -> Ast.Raw_command_body (normalize_raw raw)
     | Ast.Command_body command -> Ast.Command_body (normalize_command command)
   in
   { cte with Ast.columns = List.map cte.columns ~f:normalize_expr; body }
@@ -302,7 +307,13 @@ let select = normalize_select
 let select_query = normalize_select_query
 let command = normalize_command
 
+let command_statement = function
+  | Ast.Structured_command command -> Ast.Structured_command (normalize_command command)
+  | Ast.Raw_command raw -> Ast.Raw_command (normalize_raw raw)
+;;
+
 let result_query = function
+  | Ast.Raw_returning raw -> Ast.Raw_returning (normalize_raw raw)
   | Ast.Select query -> Ast.Select (select_query query)
   | Ast.Returning returning -> Ast.Returning (normalize_returning returning)
 ;;

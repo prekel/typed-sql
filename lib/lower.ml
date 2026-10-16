@@ -139,7 +139,10 @@ and select ~dialect (select : Ast.select) =
         { order with Ast.expr = expression ~dialect order.expr })
   }
 
+and raw ~dialect (raw : Ast.raw) = { raw with ctes = List.map raw.ctes ~f:(cte ~dialect) }
+
 and select_query ~dialect = function
+  | Ast.Raw_select value -> Ast.Raw_select (raw ~dialect value)
   | Ast.Simple select_ -> Ast.Simple (select ~dialect select_)
   | Ast.Source_free source_free ->
     Ast.Source_free
@@ -189,6 +192,8 @@ and cte ~dialect (cte : Ast.cte) =
         }
     | Ast.Returning_body returning ->
       Ast.Returning_body (lower_returning ~dialect returning)
+    | Ast.Raw_returning_body value -> Ast.Raw_returning_body (raw ~dialect value)
+    | Ast.Raw_command_body value -> Ast.Raw_command_body (raw ~dialect value)
     | Ast.Command_body command -> Ast.Command_body (lower_command ~dialect command)
   in
   { cte with Ast.columns = List.map cte.columns ~f:(expression ~dialect); body }
@@ -357,6 +362,7 @@ and select_has_unsupported_having ~dialect (select : Ast.select) =
   || List.exists select.ctes ~f:(cte_has_unsupported_having ~dialect)
 
 and select_query_has_unsupported_having ~dialect = function
+  | Ast.Raw_select _ -> false
   | Ast.Simple select -> select_has_unsupported_having ~dialect select
   | Ast.Source_free source_free ->
     expression_has_unsupported_having ~dialect source_free.expression
@@ -376,6 +382,7 @@ and source_has_unsupported_having ~dialect source =
 
 and cte_has_unsupported_having ~dialect cte =
   match cte.Ast.body with
+  | Ast.Raw_returning_body _ | Ast.Raw_command_body _ -> false
   | Ast.Select_body query -> select_query_has_unsupported_having ~dialect query
   | Ast.Recursive_body { anchor; step; _ } ->
     select_query_has_unsupported_having ~dialect anchor.query
@@ -507,6 +514,7 @@ and sqlite_unsupported_select (select : Ast.select) =
     ]
 
 and sqlite_unsupported_query = function
+  | Ast.Raw_select _ -> Some "raw PostgreSQL SQL"
   | Ast.Simple select -> sqlite_unsupported_select select
   | Ast.Source_free source_free ->
     first_unsupported
@@ -543,6 +551,7 @@ and sqlite_unsupported_source source =
 
 and sqlite_unsupported_cte cte =
   match cte.Ast.body with
+  | Ast.Raw_returning_body _ | Ast.Raw_command_body _ -> Some "raw PostgreSQL SQL"
   | Ast.Returning_body _ | Ast.Command_body _ -> Some "data-modifying CTE"
   | Ast.Select_body query -> sqlite_unsupported_query query
   | Ast.Recursive_body { anchor; step; _ } ->
@@ -615,6 +624,11 @@ let result_query ~dialect query =
     | Dialect.Postgresql -> false
   in
   match query with
+  | Ast.Raw_returning raw ->
+    if sqlite then
+      unsupported "raw PostgreSQL SQL" dialect
+    else
+      Ok (Ast.Raw_returning raw)
   | Ast.Select query when sqlite && Option.is_some (sqlite_unsupported_query query) ->
     unsupported (Option.value_exn (sqlite_unsupported_query query)) dialect
   | Ast.Select query when select_query_has_unsupported_having ~dialect query ->
@@ -635,3 +649,14 @@ let result_query ~dialect query =
 
 let result_query_ast query = query
 let command_ast command = command
+
+let command_statement ~dialect = function
+  | Ast.Structured_command value ->
+    let open Result.Let_syntax in
+    let%map value = command ~dialect value in
+    Ast.Structured_command value
+  | Ast.Raw_command value ->
+    (match dialect with
+     | Dialect.Sqlite -> unsupported "raw PostgreSQL SQL" dialect
+     | Dialect.Postgresql -> Ok (Ast.Raw_command value))
+;;

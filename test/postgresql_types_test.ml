@@ -597,3 +597,17 @@ let%test "unterminated unquoted array escape is rejected" =
 let%test "unescaped quote inside unquoted array element is rejected" =
   Result.is_error (Pg_array.of_string ~decode:Result.return "{value\"}")
 ;;
+
+let%test "timestamptz arrays accept PostgreSQL's default text representation" =
+  let descriptor = Db_type.Postgresql.array Db_type.timestamp in
+  match
+    Db_type.Postgresql.decode_text
+      descriptor
+      {|{"2026-01-02 03:04:05+00",NULL,"2026-01-02 05:34:05+02:30"}|}
+  with
+  | Ok array ->
+    (match Pg_array.elements array with
+     | [ Some first; None; Some second ] -> Ptime.equal first second
+     | _ -> false)
+  | Error _ -> false
+;;

@@ -19,7 +19,7 @@
   statement_plan
   expand
   typed_sql_pgocaml_ppx)
- (libraries base ppxlib typed-sql-schema yojson)
+ (libraries base ppxlib typed-sql-schema typed-sql-ppx.cache yojson)
  (ppx_runtime_libraries typed-sql-pgocaml-ppx.runtime)
  (preprocess
   (pps ppx_let ppxlib.metaquot)))

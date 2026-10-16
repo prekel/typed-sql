@@ -1,40 +1,41 @@
 {
-  "version": 1,
+  "version": 2,
   "role": "fixture",
   "search_path": "public",
   "queries": [
     {
       "sql": "DELETE FROM query_cache_test.people WHERE id = $1",
+      "kind": "command",
+      "top_level_only": true,
       "parameters": [
         {
           "type": {
             "schema": "pg_catalog",
             "name": "int4",
             "kind": "scalar"
-          },
-          "codec": "int32"
+          }
         }
       ],
       "result": null
     },
     {
       "sql": "INSERT INTO query_cache_test.people (id, name, mood, tag, nums) VALUES ($1, $2, $3, $4, $5)",
+      "kind": "command",
+      "top_level_only": true,
       "parameters": [
         {
           "type": {
             "schema": "pg_catalog",
             "name": "int4",
             "kind": "scalar"
-          },
-          "codec": "int32"
+          }
         },
         {
           "type": {
             "schema": "pg_catalog",
             "name": "text",
             "kind": "scalar"
-          },
-          "codec": "string"
+          }
         },
         {
           "type": {
@@ -42,8 +43,7 @@
             "name": "mood",
             "kind": "enum",
             "labels": [ "happy", "sad" ]
-          },
-          "codec": "string"
+          }
         },
         {
           "type": {
@@ -55,8 +55,7 @@
               "name": "int4",
               "kind": "scalar"
             }
-          },
-          "codec": "int32"
+          }
         },
         {
           "type": {
@@ -68,22 +67,22 @@
               "name": "int4",
               "kind": "scalar"
             }
-          },
-          "codec": { "array": "int32" }
+          }
         }
       ],
       "result": null
     },
     {
       "sql": "SELECT $1::int4",
+      "kind": "select",
+      "top_level_only": false,
       "parameters": [
         {
           "type": {
             "schema": "pg_catalog",
             "name": "int4",
             "kind": "scalar"
-          },
-          "codec": "int32"
+          }
         }
       ],
       "result": [
@@ -94,8 +93,7 @@
               "schema": "pg_catalog",
               "name": "int4",
               "kind": "scalar"
-            },
-            "codec": "int32"
+            }
           },
           "nullable": true
         }
@@ -103,6 +101,8 @@
     },
     {
       "sql": "SELECT b.id AS missing FROM query_cache_test.people a LEFT JOIN query_cache_test.people b ON b.id = -1",
+      "kind": "select",
+      "top_level_only": false,
       "parameters": [],
       "result": [
         {
@@ -112,8 +112,7 @@
               "schema": "pg_catalog",
               "name": "int4",
               "kind": "scalar"
-            },
-            "codec": "int32"
+            }
           },
           "nullable": false
         }
@@ -121,6 +120,8 @@
     },
     {
       "sql": "SELECT count(*) FROM query_cache_test.people GROUP BY GROUPING SETS ((name), ()) ORDER BY count(*)",
+      "kind": "select",
+      "top_level_only": false,
       "parameters": [],
       "result": [
         {
@@ -130,8 +131,7 @@
               "schema": "pg_catalog",
               "name": "int8",
               "kind": "scalar"
-            },
-            "codec": "int64"
+            }
           },
           "nullable": true
         }
@@ -139,14 +139,15 @@
     },
     {
       "sql": "SELECT id FROM query_cache_test.people WHERE id = $1",
+      "kind": "select",
+      "top_level_only": false,
       "parameters": [
         {
           "type": {
             "schema": "pg_catalog",
             "name": "int4",
             "kind": "scalar"
-          },
-          "codec": "int32"
+          }
         }
       ],
       "result": [
@@ -157,8 +158,7 @@
               "schema": "pg_catalog",
               "name": "int4",
               "kind": "scalar"
-            },
-            "codec": "int32"
+            }
           },
           "nullable": false
         }
@@ -166,6 +166,8 @@
     },
     {
       "sql": "SELECT id FROM query_cache_test.people WHERE mood = ANY($1) ORDER BY id",
+      "kind": "select",
+      "top_level_only": false,
       "parameters": [
         {
           "type": {
@@ -178,8 +180,7 @@
               "kind": "enum",
               "labels": [ "happy", "sad" ]
             }
-          },
-          "codec": { "array": "string" }
+          }
         }
       ],
       "result": [
@@ -190,8 +191,7 @@
               "schema": "pg_catalog",
               "name": "int4",
               "kind": "scalar"
-            },
-            "codec": "int32"
+            }
           },
           "nullable": false
         }
@@ -199,14 +199,15 @@
     },
     {
       "sql": "SELECT id, name, note, mood, tag, nums FROM query_cache_test.people WHERE id = $1",
+      "kind": "select",
+      "top_level_only": false,
       "parameters": [
         {
           "type": {
             "schema": "pg_catalog",
             "name": "int4",
             "kind": "scalar"
-          },
-          "codec": "int32"
+          }
         }
       ],
       "result": [
@@ -217,8 +218,7 @@
               "schema": "pg_catalog",
               "name": "int4",
               "kind": "scalar"
-            },
-            "codec": "int32"
+            }
           },
           "nullable": false
         },
@@ -229,8 +229,7 @@
               "schema": "pg_catalog",
               "name": "text",
               "kind": "scalar"
-            },
-            "codec": "string"
+            }
           },
           "nullable": false
         },
@@ -241,8 +240,7 @@
               "schema": "pg_catalog",
               "name": "text",
               "kind": "scalar"
-            },
-            "codec": "string"
+            }
           },
           "nullable": true
         },
@@ -254,8 +252,7 @@
               "name": "mood",
               "kind": "enum",
               "labels": [ "happy", "sad" ]
-            },
-            "codec": "string"
+            }
           },
           "nullable": false
         },
@@ -266,8 +263,7 @@
               "schema": "pg_catalog",
               "name": "int4",
               "kind": "scalar"
-            },
-            "codec": "int32"
+            }
           },
           "nullable": false
         },
@@ -283,8 +279,7 @@
                 "name": "int4",
                 "kind": "scalar"
               }
-            },
-            "codec": { "array": "int32" }
+            }
           },
           "nullable": false
         }
@@ -292,14 +287,15 @@
     },
     {
       "sql": "SELECT substring('abc123' from $1)",
+      "kind": "select",
+      "top_level_only": false,
       "parameters": [
         {
           "type": {
             "schema": "pg_catalog",
             "name": "text",
             "kind": "scalar"
-          },
-          "codec": "string"
+          }
         }
       ],
       "result": [
@@ -310,8 +306,7 @@
               "schema": "pg_catalog",
               "name": "text",
               "kind": "scalar"
-            },
-            "codec": "string"
+            }
           },
           "nullable": true
         }
@@ -319,22 +314,22 @@
     },
     {
       "sql": "UPDATE query_cache_test.people SET note = $1 WHERE id = $2 RETURNING note",
+      "kind": "returning",
+      "top_level_only": true,
       "parameters": [
         {
           "type": {
             "schema": "pg_catalog",
             "name": "text",
             "kind": "scalar"
-          },
-          "codec": "string"
+          }
         },
         {
           "type": {
             "schema": "pg_catalog",
             "name": "int4",
             "kind": "scalar"
-          },
-          "codec": "int32"
+          }
         }
       ],
       "result": [
@@ -345,8 +340,7 @@
               "schema": "pg_catalog",
               "name": "text",
               "kind": "scalar"
-            },
-            "codec": "string"
+            }
           },
           "nullable": true
         }

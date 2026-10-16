@@ -14,6 +14,7 @@ depends: [
   "dune" {>= "3.14"}
   "ocaml" {>= "4.14.1"}
   "typed-sql-schema" {= version}
+  "typed-sql-ppx" {= version}
   "base"
   "yojson"
   "ppxlib" {>= "0.30.0"}

@@ -1,0 +1,14 @@
+(copy_files ../query_cache/coexist.ml)
+
+(library
+ (name snapshot_query_coexist)
+ (optional)
+ (modules coexist)
+ (libraries base pgocaml typed-sql)
+ (preprocess
+  (pps ppx_let typed_sql_pgocaml_test_schema_ppx typed_sql_query_test_ppx)))
+
+(alias
+ (name runtest)
+ (package typed-sql-pgocaml-ppx)
+ (deps snapshot_query_coexist.cma))

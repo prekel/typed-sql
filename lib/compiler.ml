@@ -72,12 +72,15 @@ let compile_query_plan ~dialect query =
   in
   let%bind () =
     if Result_query.requires_exactly_one query then (
-      match
-        ast
-      with
-      | Ast.Select (Ast.Simple select) when Aggregate_scope.exactly_one select -> Ok ()
-      | Ast.Select (Ast.Source_free _) -> Ok ()
-      | Ast.Select (Ast.Compound _) | Ast.Returning _ | Ast.Select (Ast.Simple _) ->
+      let proven =
+        match ast with
+        | Ast.Select (Ast.Simple select) -> Aggregate_scope.exactly_one select
+        | Ast.Select (Ast.Source_free _) -> true
+        | _ -> false
+      in
+      if proven then
+        Ok ()
+      else
         Error Compile_error.Exactly_one_query_not_proven)
     else
       Ok ()
@@ -91,10 +94,10 @@ let compile_query_plan ~dialect query =
 ;;
 
 let compile_command_plan ~dialect command =
-  let ast = Command.ast command |> Normalizer.command in
+  let ast = Command.ast command |> Normalizer.command_statement in
   let open Result.Let_syntax in
-  let%bind () = Validator.command ast in
-  let%map lowered = Lower.command ~dialect ast in
+  let%bind () = Validator.command_statement ast in
+  let%map lowered = Lower.command_statement ~dialect ast in
   let template, parameters = Renderer.command ~dialect lowered in
   let shape = command_shape ~dialect ~template ~parameters in
   { dialect; template; parameters; shape }

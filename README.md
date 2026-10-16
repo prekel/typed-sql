@@ -41,6 +41,11 @@ SQL со значениями для `psql` или SQLite и выполнить 
 Настройка и примеры — в [руководстве PPX](ppx/README.md), пробная замена в
 существующем приложении — в [пошаговой инструкции](ppx/TRY_IN_APP.md).
 
+В рабочей ветке добавлен `typed-sql-ppx`: `%pgsql.query`, `.query.object` и
+`.command` из кеша строят typed-sql queries для Caqti или PGOCaml.
+[Подключение, static input и миграция](query-ppx/README.md). Этот пакет пока
+не входит в опубликованный v0.5.0 ниже.
+
 ## Установка из GitHub
 
 Все восемь пакетов находятся в одном репозитории и требуют одинаковую версию.
@@ -879,9 +884,13 @@ integration tests. White-box tests и backend-контракты в этот п�
 5.1.1 `make deps_all` закрепляет `bisect_ppx` на upstream commit, совместимом с
 используемым `ppxlib`.
 
-`make coverage-mega` отдельно измеряет, какие ветви компилятора проходит один
-сложный PostgreSQL-запрос из `test/mega_coverage_test.ml`. Этот диагностический
-прогон требует не менее 67,7% и не заменяет `make coverage` или
-`make coverage-all`; отчёт находится в `_coverage/mega/html/index.html`.
+`make coverage-mega` запускает inline-тесты из `test/mega_coverage_test.ml`
+и интеграционный тест `caqti-lwt/test/mega_coverage_server_test.ml`, который
+выполняет тот же сложный запрос и проверяет вложенные результаты и побочные эффекты.
+Команда поднимает временный PostgreSQL 17–18 и удаляет его после прогона;
+путь к `pg_config` можно задать через `TYPED_SQL_PG_CONFIG`.
+Покрытие обоих запусков объединяется в один отчёт. Прогон требует не менее 67%
+и не заменяет `make coverage` или `make coverage-all`. Отчёт находится в
+`_coverage/mega/html/index.html`.
 `make check` запускает форматирование, сборку, тесты, все три проверки покрытия,
 генерацию документации и проверку пакетов.

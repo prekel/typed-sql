@@ -187,6 +187,17 @@ let rec unsupported_multiset_type
   | Uuid_type -> None
 ;;
 
+(* JSON text preserves both JSON null and SQL NULL inside positional rows. *)
+let rec multiset_text_transport : type a. a t -> bool = function
+  | Named_type { schema; name; repr } ->
+    (String.equal (Identifier.to_string schema) "pg_catalog"
+     && List.mem [ "json"; "jsonb" ] (Identifier.to_string name) ~equal:String.equal)
+    || multiset_text_transport repr
+  | Map_type { repr; _ } -> multiset_text_transport repr
+  | Option_type repr -> multiset_text_transport repr
+  | _ -> false
+;;
+
 let rec nullable : type a. a t -> bool = function
   | Option_type _ -> true
   | Named_type { repr; _ } -> nullable repr

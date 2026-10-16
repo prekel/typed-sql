@@ -13,6 +13,7 @@
   operation_module_test
   postgresql_types_test
   query_test
+  raw_sql_test
   relational_query_test
   aggregate_test
   numeric_expression_test
@@ -77,7 +78,7 @@
 
 (library
  (name typed_sql_private_expect_tests)
- (modules private_api_test merge_private_test)
+ (modules private_api_test merge_private_test raw_sql_private_test)
  (libraries base typed_sql_private)
  (inline_tests)
  (preprocess

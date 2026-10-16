@@ -2,7 +2,12 @@ open! Base
 
 type (_, +_) t =
   | Pure_projection : 'a -> ('a, 'requirements) t
-  | Expr_projection : ('a, 'requirements) Expr.t -> ('a, 'requirements) t
+  | Field_projection :
+      { db_type : 'a Db_type.t
+      ; expression : Ast.expr option
+      ; name : Identifier.t option
+      }
+      -> ('a, 'requirements) t
   | Map_projection : ('a -> 'b) * ('a, 'requirements) t -> ('b, 'requirements) t
   | Both_projection :
       ('a, 'requirements) t * ('b, 'requirements) t
@@ -10,14 +15,35 @@ type (_, +_) t =
 
 type 'a erased = Erased : ('a, 'requirements) t -> 'a erased
 
-let expr expression = Expr_projection expression
+let raw_field ~name db_type =
+  Field_projection { db_type; expression = None; name = Some name }
+;;
+
+let expr expression =
+  let node = Expr.node expression in
+  let name =
+    match node with
+    | Ast.Column { name; _ } -> Some name
+    | _ -> None
+  in
+  Field_projection { db_type = Expr.db_type expression; expression = Some node; name }
+;;
+
 let pair left right = Both_projection (expr left, expr right)
 
 let rec types : type a requirements. (a, requirements) t -> Db_type.packed list = function
   | Pure_projection _ -> []
-  | Expr_projection expression -> [ Db_type.Pack (Expr.db_type expression) ]
+  | Field_projection { db_type; _ } -> [ Db_type.Pack db_type ]
   | Map_projection (_, projection) -> types projection
   | Both_projection (left, right) -> types left @ types right
+;;
+
+let rec output_fields : type a r. (a, r) t -> (Identifier.t option * Db_type.packed) list =
+  function
+  | Pure_projection _ -> []
+  | Field_projection { name; db_type; _ } -> [ name, Db_type.Pack db_type ]
+  | Map_projection (_, projection) -> output_fields projection
+  | Both_projection (left, right) -> output_fields left @ output_fields right
 ;;
 
 let json_location path =
@@ -147,18 +173,18 @@ let rec decode_json_fields
   fun ~path ~field projection values ->
   match projection with
   | Pure_projection value -> Ok (value, values)
-  | Expr_projection expression ->
+  | Field_projection { db_type; _ } ->
     let value = List.hd_exn values in
     let rest = List.tl_exn values in
     Result.map
-      (decode_db_type ~path:(path @ [ field ]) (Expr.db_type expression) value)
+      (decode_db_type ~path:(path @ [ field ]) db_type value)
       ~f:(fun decoded -> decoded, rest)
   | Map_projection (f, projection) ->
     Result.map
       (decode_json_fields ~path ~field projection values)
       ~f:(fun (value, rest) -> f value, rest)
   | Both_projection (left, right) ->
-    let next_field = field + List.length (expressions left) in
+    let next_field = field + List.length (types left) in
     let open Result.Let_syntax in
     let%bind left, values = decode_json_fields ~path ~field left values in
     let%map right, values = decode_json_fields ~path ~field:next_field right values in
@@ -166,7 +192,9 @@ let rec decode_json_fields
 
 and expressions : type a requirements. (a, requirements) t -> Ast.expr list = function
   | Pure_projection _ -> []
-  | Expr_projection expression -> [ Expr.node expression ]
+  | Field_projection { expression = Some expression; _ } -> [ expression ]
+  | Field_projection { expression = None; _ } ->
+    failwith "projection invariant: raw output fields cannot be SQL expressions"
   | Map_projection (_, projection) -> expressions projection
   | Both_projection (left, right) -> expressions left @ expressions right
 ;;
@@ -182,7 +210,7 @@ let decode_json_rows projection ~path json =
   List.mapi rows ~f:(fun index row ->
     let path = path @ [ index + 1 ] in
     let%bind fields = json_list ~path ~expected:"row array" row in
-    let expected = List.length (expressions projection) in
+    let expected = List.length (types projection) in
     if Int.(List.length fields <> expected) then
       json_error ~path "projected field count" "different field count"
     else
@@ -245,12 +273,12 @@ end
 module Make (A : sig
     include Applicative.S
 
-    val expr : ('a, 'requirements) Expr.t -> 'a t
+    val field : 'a Db_type.t -> 'a t
   end) =
 struct
   let rec run_t : type a requirements. (a, requirements) t -> a A.t = function
     | Pure_projection value -> A.return value
-    | Expr_projection expression -> A.expr expression
+    | Field_projection { db_type; _ } -> A.field db_type
     | Map_projection (f, projection) -> A.map (run_t projection) ~f
     | Both_projection (left, right) ->
       let left = run_t left in

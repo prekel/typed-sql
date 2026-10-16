@@ -167,6 +167,7 @@
  (depends
   (ocaml (>= 4.14.1))
   (typed-sql-schema (= :version))
+  (typed-sql-ppx (= :version))
   base
   yojson
   (ppxlib (>= 0.30.0))
@@ -174,3 +175,24 @@
   (pgocaml (>= 4.3.0))
   (ppx_expect :with-test))
  (tags (database sql pgocaml ppx postgresql)))
+
+(package
+ (name typed-sql-ppx)
+ (synopsis "Offline cached SQL quotations for typed-sql")
+ (description
+  "Driver-independent SQL quotations generating typed raw queries and commands from prepared query metadata.")
+ (license LGPL-2.0-or-later)
+ (depends
+  (ocaml
+   (>= 4.14.1))
+  (typed-sql
+   (= :version))
+  (typed-sql-schema
+   (= :version))
+  base
+  yojson
+  (ppxlib
+   (>= 0.30.0))
+  ppx_let
+  (ppx_expect :with-test)
+  (mdx :with-test)))

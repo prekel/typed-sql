@@ -1,0 +1,9 @@
+(library
+ (name typed_sql_ppx)
+ (public_name typed-sql-ppx)
+ (kind ppx_rewriter)
+ (modules typed_sql_ppx)
+ (libraries base ppxlib typed-sql-ppx.cache typed-sql-schema)
+ (ppx_runtime_libraries typed-sql)
+ (preprocess
+  (pps ppx_let ppxlib.metaquot)))

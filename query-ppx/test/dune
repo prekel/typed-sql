@@ -1,0 +1,58 @@
+(executable
+ (optional)
+ (name codegen)
+ (modules codegen)
+ (libraries base typed-sql-ppx.cache))
+
+(rule
+ (target queries_ppx.ml)
+ (deps queries.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run %{exe:codegen.exe} %{dep:queries.json}))))
+
+(library
+ (optional)
+ (name typed_sql_query_test_ppx)
+ (kind ppx_rewriter)
+ (modules queries_ppx)
+ (libraries base typed-sql-ppx))
+
+(library
+ (optional)
+ (name cached_queries)
+ (modules queries)
+ (libraries base typed-sql)
+ (preprocess
+  (pps ppx_let typed_sql_query_test_ppx)))
+
+(library
+ (optional)
+ (name cached_queries_tests)
+ (modules offline_test)
+ (libraries base ppxlib typed-sql cached_queries typed-sql-ppx.cache)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect ppx_let)))
+
+(executable
+ (optional)
+ (name postgresql_test)
+ (modules postgresql_test)
+ (libraries
+  base
+  lwt.unix
+  caqti-lwt.unix
+  caqti-driver-postgresql
+  uri
+  yojson
+  typed-sql-caqti-lwt
+  typed-sql-pgocaml-lwt
+  cached_queries))
+
+(executable
+ (optional)
+ (name driver)
+ (modules driver)
+ (libraries base ppxlib typed-sql-ppx typed_sql_query_test_ppx))

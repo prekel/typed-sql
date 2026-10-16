@@ -1047,13 +1047,10 @@ let row_cardinality : type row output. (row, output) cardinality -> row_cardinal
 ;;
 
 let output_columns ~dialect (Projection.Erased projection) =
-  List.zip_exn (Projection.types projection) (Projection.expressions projection)
-  |> List.mapi ~f:(fun index (Db_type.Pack db_type, expression) ->
+  Projection.output_fields projection
+  |> List.mapi ~f:(fun index (name, Db_type.Pack db_type) ->
     { position = index + 1
-    ; name =
-        (match expression with
-         | Ast.Column { name; _ } -> Some (Identifier.to_string name)
-         | _ -> None)
+    ; name = Option.map name ~f:Identifier.to_string
     ; db_type = Db_type.name db_type
     ; dialect_type =
         (match dialect with
@@ -1232,7 +1229,18 @@ let debug_sql
            Stdlib.Format.pp_print_string formatter literals.(index)))
       template
   in
-  sql ^ ";"
+  let last_line =
+    match String.rsplit2 sql ~on:'\n' with
+    | None -> sql
+    | Some (_, line) -> line
+  in
+  (* A final line comment must not swallow the statement terminator. *)
+  sql
+  ^
+  if String.is_substring last_line ~substring:"--" then
+    "\n;"
+  else
+    ";"
 ;;
 
 let debug_sql_exn ~dialect ~input statement =

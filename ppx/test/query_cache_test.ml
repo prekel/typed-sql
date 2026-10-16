@@ -116,7 +116,7 @@ let%test "unsupported cache versions are rejected" =
        (String.substr_replace_first
           (C.to_string cache)
           ~pattern:"\"version\": 1"
-          ~with_:"\"version\": 2"))
+          ~with_:"\"version\": 3"))
 ;;
 
 let%test "cached codec must match logical type" =
@@ -192,4 +192,22 @@ let%test "missing result is not silently interpreted as a command" =
   Result.is_error
     (C.of_string
        {json|{"version":1,"role":"fixture","search_path":"public","queries":[{"sql":"SELECT 1","parameters":[]}]}|json})
+;;
+
+let%test "logical v2 metadata derives legacy PGOCaml codecs" =
+  let module Shared = Typed_sql_ppx_cache.Query_cache in
+  match
+    Shared.create
+      ~role:"fixture"
+      ~search_path:"public"
+      [ { Shared.sql = entry.sql
+        ; kind = Shared.Select
+        ; top_level_only = false
+        ; parameters = entry.parameters
+        ; result = Some [ { Shared.name = "id"; typ = int4; nullable = true } ]
+        }
+      ]
+  with
+  | Error _ -> false
+  | Ok cache -> Result.is_ok (C.of_string (Shared.to_string cache))
 ;;

@@ -96,8 +96,8 @@ def targets(paths: list[Path]) -> list[Path]:
     files = []
     for path in paths:
         if path.is_dir():
-            files.extend(path.glob("*.md"))
-            files.extend(path.glob("*.mdx"))
+            files.extend(path.rglob("*.md"))
+            files.extend(path.rglob("*.mdx"))
         else:
             files.append(path)
     return sorted({path.resolve() for path in files})

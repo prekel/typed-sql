@@ -96,6 +96,9 @@ let recursive_relation ~union ~anchor ~step =
 let add_cte_to_result cte result =
   let ast =
     match Result_query.ast result with
+    | Ast.Select (Ast.Raw_select raw) ->
+      Ast.Select (Ast.Raw_select { raw with ctes = cte :: raw.ctes })
+    | Ast.Raw_returning raw -> Ast.Raw_returning { raw with ctes = cte :: raw.ctes }
     | Ast.Select (Ast.Simple select) ->
       Ast.Select (Ast.Simple { select with ctes = cte :: select.ctes })
     | Ast.Select (Ast.Source_free source_free) ->
@@ -114,8 +117,10 @@ let add_cte_to_result cte result =
 let with_result definition ~f = f definition.handle |> add_cte_to_result definition.cte
 
 let with_command definition ~f =
-  let command : Ast.command = f definition.handle |> Command.ast in
-  Command.create { command with Ast.ctes = definition.cte :: command.ctes }
+  match f definition.handle |> Command.ast with
+  | Ast.Structured_command command ->
+    Command.create { command with Ast.ctes = definition.cte :: command.ctes }
+  | Ast.Raw_command raw -> Command.raw { raw with ctes = definition.cte :: raw.ctes }
 ;;
 
 let id (cte : _ t) = cte.id
@@ -139,9 +144,10 @@ module Postgresql = struct
     let handle = { id = Atomic.fetch_and_add next_id 1; table } in
     let reference = Table_ref.create table in
     let columns = columns reference in
-    let returning =
+    let body =
       match Result_query.ast query with
-      | Ast.Returning returning -> returning
+      | Ast.Raw_returning raw -> Ast.Raw_returning_body raw
+      | Ast.Returning returning -> Ast.Returning_body returning
       | Ast.Select _ ->
         Stdlib.failwith
           "typed-sql invariant violated: PostgreSQL returning CTE requires a RETURNING query"
@@ -153,7 +159,7 @@ module Postgresql = struct
         ; column_types = Projection.types columns
         ; result_types = Projection.types (Result_query.projection query)
         ; materialization = None
-        ; body = Ast.Returning_body returning
+        ; body
         }
     }
   ;;
@@ -166,7 +172,10 @@ module Postgresql = struct
         ; column_types = []
         ; result_types = []
         ; materialization = None
-        ; body = Ast.Command_body (Command.ast command)
+        ; body =
+            (match Command.ast command with
+             | Ast.Structured_command command -> Ast.Command_body command
+             | Ast.Raw_command raw -> Ast.Raw_command_body raw)
         }
     }
   ;;

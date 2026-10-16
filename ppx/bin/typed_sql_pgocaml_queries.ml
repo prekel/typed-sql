@@ -3,7 +3,7 @@
    Distributed under the GNU Library General Public License, version 2 or later.
    See ../COPYING and ../ORIGIN.md. *)
 open! Base
-module P = Typed_sql_pgocaml_ppx
+module P = Typed_sql_ppx_cache
 module C = P.Query_cache
 module S = Typed_sql_schema.Schema_ir
 module I = Typed_sql_schema.Identifier
@@ -159,6 +159,11 @@ let describe ~search_path queries =
                   reject "described parameter count does not match substitutions";
                 let entry =
                   { C.sql = query.sql
+                  ; kind =
+                      C.kind
+                        ~operation:(P.Query_kind.analyze query.sql).operation
+                        ~rows:(Option.is_some result)
+                  ; top_level_only = (P.Query_kind.analyze query.sql).top_level_only
                   ; parameters =
                       List.map params ~f:(fun p -> resolve [] p.PGOCaml.param_type)
                   ; result =
@@ -202,14 +207,17 @@ let write_atomic path contents =
 ;;
 
 let usage =
-  "Usage: typed-sql-pgocaml-queries (prepare --output CACHE | check --cache CACHE) [--search-path PATH] FILE.ml...\n       typed-sql-pgocaml-queries codegen CACHE"
+  "Usage: typed-sql-pgocaml-queries (prepare --output CACHE | check --cache CACHE) [--search-path PATH] FILE.ml...\n       typed-sql-pgocaml-queries codegen [--target typed-sql-ppx] CACHE"
 ;;
 
 let run () =
   match Array.to_list Stdlib.Sys.argv |> List.tl_exn with
+  | [ "codegen"; "--target"; "typed-sql-ppx"; path ] ->
+    let cache = read_file path |> C.of_string |> get in
+    Stdlib.print_string (C.codegen ~target:`Typed_sql_ppx cache)
   | [ "codegen"; path ] ->
     let cache = read_file path |> C.of_string |> get in
-    Stdlib.print_string (C.codegen cache)
+    Stdlib.print_string (C.codegen ~target:`Pgocaml_ppx cache)
   | (("prepare" | "check") as command) :: arguments ->
     let rec options cache search_path paths = function
       | [] ->

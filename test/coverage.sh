@@ -17,7 +17,10 @@ mkdir -p "$coverage_data"
 export BISECT_FILE="$coverage_data/bisect"
 
 if [ "$mode" = mega ]; then
-  targets="test/.typed_sql_mega_coverage_tests.inline-tests/inline-test-runner.exe"
+  targets="
+test/.typed_sql_mega_coverage_tests.inline-tests/inline-test-runner.exe
+caqti-lwt/test/mega_coverage_server_test.exe
+"
 else
   targets="
 test/.typed_sql_expect_tests.inline-tests/inline-test-runner.exe
@@ -47,6 +50,7 @@ if [ "$mode" = mega ]; then
     ../_build/default/test/.typed_sql_mega_coverage_tests.inline-tests/inline-test-runner.exe \
       inline-test-runner typed_sql_mega_coverage_tests -strict -source-tree-root ..
   )
+  bash test/postgresql.sh mega-coverage
 else
   (
     cd test

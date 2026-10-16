@@ -54,6 +54,35 @@ let check_expression_types ~context left right =
   check_sql_types ~context (expression_sql_type left) (expression_sql_type right)
 ;;
 
+let numeric_input_types = function
+  | Ast.Int -> [ "integer"; "\"pg_catalog\".\"int2\"" ]
+  | Ast.Int64 -> [ "bigint" ]
+  | Ast.Float -> [ "double precision"; "\"pg_catalog\".\"float4\"" ]
+  | Ast.Numeric -> [ "numeric" ]
+;;
+
+let text_input_types =
+  [ "text"; "\"pg_catalog\".\"varchar\""; "\"pg_catalog\".\"bpchar\"" ]
+;;
+
+let check_input_type ~context ~expected allowed expression =
+  match expression_sql_type expression with
+  | Some actual when List.mem allowed actual ~equal:String.equal -> Ok ()
+  | actual -> check_sql_types ~context (Some expected) actual
+;;
+
+let check_numeric_input ~context typ expression =
+  check_input_type
+    ~context
+    ~expected:(numeric_sql_type typ)
+    (numeric_input_types typ)
+    expression
+;;
+
+let check_text_input ~context expression =
+  check_input_type ~context ~expected:"text" text_input_types expression
+;;
+
 let rec validate_expr ~validate_subquery ~visible = function
   | Ast.Param (Ast.Value (Db_type.Value (db_type, _))) ->
     validate_db_type (Db_type.Pack db_type)
@@ -65,17 +94,37 @@ let rec validate_expr ~validate_subquery ~visible = function
       Ok ()
     else
       Error (Compile_error.Foreign_source { visible; actual = source_id })
-  | Ast.Arithmetic (_, left, right) | Ast.Concat (left, right) ->
+  | Ast.Arithmetic (_, left, right) ->
     let open Result.Let_syntax in
     let%bind () = validate_expr ~validate_subquery ~visible left in
-    validate_expr ~validate_subquery ~visible right
+    let%bind () = validate_expr ~validate_subquery ~visible right in
+    let%bind () = check_expression_types ~context:"arithmetic" left right in
+    check_input_type
+      ~context:"arithmetic"
+      ~expected:"numeric SQL type"
+      (List.concat_map
+         [ Ast.Int; Ast.Int64; Ast.Float; Ast.Numeric ]
+         ~f:numeric_input_types)
+      left
+  | Ast.Concat (left, right) ->
+    let open Result.Let_syntax in
+    let%bind () = validate_expr ~validate_subquery ~visible left in
+    let%bind () = validate_expr ~validate_subquery ~visible right in
+    let%bind () = check_text_input ~context:"concatenation" left in
+    check_text_input ~context:"concatenation" right
   | Ast.Coalesce (left, right) ->
     let open Result.Let_syntax in
     let%bind () = validate_expr ~validate_subquery ~visible left in
     let%bind () = validate_expr ~validate_subquery ~visible right in
     check_expression_types ~context:"COALESCE" right left
-  | Ast.Cast (_, _, expression) | Ast.String_function (_, expression) ->
-    validate_expr ~validate_subquery ~visible expression
+  | Ast.Cast (source, _, expression) ->
+    let open Result.Let_syntax in
+    let%bind () = validate_expr ~validate_subquery ~visible expression in
+    check_numeric_input ~context:"CAST input" source expression
+  | Ast.String_function (_, expression) ->
+    let open Result.Let_syntax in
+    let%bind () = validate_expr ~validate_subquery ~visible expression in
+    check_text_input ~context:"string function" expression
   | Ast.Case (branches, else_) ->
     let open Result.Let_syntax in
     let%bind () =
@@ -90,18 +139,46 @@ let rec validate_expr ~validate_subquery ~visible = function
   | Ast.Aggregate
       ( Ast.Count expression
       | Ast.Count_distinct expression
-      | Ast.Sum_int expression
-      | Ast.Sum_float expression
-      | Ast.Sum_int64 expression
-      | Ast.Sum_numeric expression
-      | Ast.Avg_float expression
-      | Ast.Avg_numeric expression
       | Ast.Min expression
       | Ast.Max expression ) -> validate_expr ~validate_subquery ~visible expression
+  | Ast.Aggregate (Ast.Sum_int expression) ->
+    let open Result.Let_syntax in
+    let%bind () = validate_expr ~validate_subquery ~visible expression in
+    check_numeric_input ~context:"SUM input" Ast.Int expression
+  | Ast.Aggregate (Ast.Sum_float expression) ->
+    let open Result.Let_syntax in
+    let%bind () = validate_expr ~validate_subquery ~visible expression in
+    check_input_type
+      ~context:"SUM input"
+      ~expected:"double precision"
+      [ "double precision" ]
+      expression
+  | Ast.Aggregate (Ast.Sum_int64 expression) ->
+    let open Result.Let_syntax in
+    let%bind () = validate_expr ~validate_subquery ~visible expression in
+    check_numeric_input ~context:"SUM input" Ast.Int64 expression
+  | Ast.Aggregate (Ast.Sum_numeric expression) ->
+    let open Result.Let_syntax in
+    let%bind () = validate_expr ~validate_subquery ~visible expression in
+    check_numeric_input ~context:"numeric aggregate input" Ast.Numeric expression
+  | Ast.Aggregate (Ast.Avg_numeric expression) ->
+    let open Result.Let_syntax in
+    let%bind () = validate_expr ~validate_subquery ~visible expression in
+    check_input_type
+      ~context:"AVG input"
+      ~expected:"numeric"
+      (List.concat_map [ Ast.Int; Ast.Int64; Ast.Numeric ] ~f:numeric_input_types)
+      expression
+  | Ast.Aggregate (Ast.Avg_float expression) ->
+    let open Result.Let_syntax in
+    let%bind () = validate_expr ~validate_subquery ~visible expression in
+    check_numeric_input ~context:"AVG input" Ast.Float expression
   | Ast.Aggregate (Ast.String_agg { value; delimiter; order_by }) ->
     let open Result.Let_syntax in
     let%bind () = validate_expr ~validate_subquery ~visible value in
     let%bind () = validate_expr ~validate_subquery ~visible delimiter in
+    let%bind () = check_text_input ~context:"STRING_AGG value" value in
+    let%bind () = check_text_input ~context:"STRING_AGG delimiter" delimiter in
     List.map order_by ~f:(fun order -> order.Ast.expr)
     |> validate_expressions ~validate_subquery ~visible
   | Ast.Aggregate (Ast.Multiset_agg multiset) ->
@@ -493,6 +570,7 @@ and analyze_correlations ~groups ~sources ~inside_aggregate query =
     | Ast.Table _ | Ast.Cte _ -> plain ~grouped:true
   in
   match query with
+  | Ast.Raw_select _ -> plain ~grouped:true
   | Ast.Simple select ->
     combine_all
       (List.map
@@ -1218,7 +1296,55 @@ let validate_relation_schema (relation : Ast.relation) =
     ~result_types:relation.result_types
 ;;
 
+let validate_raw_body ~rows ~top_level (raw : Ast.raw) =
+  let open Result.Let_syntax in
+  let fail message = Error (Compile_error.Invalid_raw_sql message) in
+  let%bind () =
+    if raw.top_level_only && not top_level then
+      Error Compile_error.Invalid_cte_placement
+    else if raw.top_level_only && not (List.is_empty raw.ctes) then
+      fail "cannot attach DSL CTEs to a top-level-only raw statement"
+    else if rows && List.is_empty raw.fields then
+      Error Compile_error.Empty_projection
+    else if (not rows) && not (List.is_empty raw.fields) then
+      fail "command has output fields"
+    else if
+      not
+        (List.exists raw.parts ~f:(function
+           | Ast.Raw_text text -> not (String.is_empty (String.strip text))
+           | _ -> false))
+    then
+      fail "empty SQL template"
+    else
+      Ok ()
+  in
+  let%bind () =
+    Result.all_unit (List.map raw.fields ~f:(fun (_, typ) -> validate_db_type typ))
+  in
+  let check_bind (Db_type.Pack expected) (Db_type.Pack actual) =
+    let%bind () = validate_db_type (Db_type.Pack actual) in
+    if not (Bool.equal (Db_type.nullable expected) (Db_type.nullable actual)) then
+      fail "raw bind nullable representation mismatch"
+    else
+      check_sql_types
+        ~context:"raw bind"
+        (Some (Db_type.sql_type_name expected))
+        (Some (Db_type.sql_type_name actual))
+  in
+  Result.all_unit
+    (List.map raw.parts ~f:(function
+       | Ast.Raw_text _ -> Ok ()
+       | Ast.Raw_bind { expected; value } ->
+         let%bind () = validate_db_type expected in
+         (match value with
+          | Ast.Param (Ast.Slot { db_type; _ }) -> check_bind expected db_type
+          | Ast.Param (Ast.Value (Db_type.Value (typ, _))) ->
+            check_bind expected (Db_type.Pack typ)
+          | _ -> fail "only bind parameters and constants are supported in raw holes")))
+;;
+
 let rec select_query_output_field_names = function
+  | Ast.Raw_select raw -> List.map raw.fields ~f:(fun (name, _) -> Some name)
   | Ast.Simple select ->
     List.map select.Ast.projection ~f:(function
       | Ast.Column { name; _ } -> Some name
@@ -1234,6 +1360,10 @@ let rec validate_select_query_full
           ~forbidden_ctes
           ~available_ctes
   = function
+  | Ast.Raw_select raw ->
+    let open Result.Let_syntax in
+    let%bind _ = validate_ctes_full ~top_level ~forbidden_ctes ~available_ctes raw.ctes in
+    validate_raw_body ~rows:true ~top_level raw
   | Ast.Simple select ->
     validate_select_full
       ~top_level
@@ -1270,7 +1400,7 @@ let rec validate_select_query_full
     let%bind () =
       let locked = function
         | Ast.Simple select -> Option.is_some select.Ast.locking
-        | Ast.Source_free _ | Ast.Compound _ -> false
+        | Ast.Raw_select _ | Ast.Source_free _ | Ast.Compound _ -> false
       in
       if locked compound.left || locked compound.right then
         Error (Compile_error.Invalid_for_update "cannot be used in a set operation")
@@ -1369,8 +1499,13 @@ and validate_ctes_full ?(top_level = false) ~forbidden_ctes ~available_ctes ctes
     let%bind available_ctes = result in
     let%bind () =
       match cte.Ast.body with
-      | (Ast.Returning_body _ | Ast.Command_body _) when not top_level ->
-        Error Compile_error.Invalid_cte_placement
+      | Ast.Raw_returning_body _
+      | Ast.Raw_command_body _
+      | Ast.Returning_body _
+      | Ast.Command_body _
+        when not top_level -> Error Compile_error.Invalid_cte_placement
+      | Ast.Raw_returning_body _
+      | Ast.Raw_command_body _
       | Ast.Select_body _
       | Ast.Recursive_body _
       | Ast.Returning_body _
@@ -1383,7 +1518,8 @@ and validate_cte_full ~forbidden_ctes ~available_ctes cte =
   let open Result.Let_syntax in
   let%bind () =
     match cte.Ast.body with
-    | Ast.Command_body _ when List.is_empty cte.columns -> Ok ()
+    | (Ast.Command_body _ | Ast.Raw_command_body _) when List.is_empty cte.columns ->
+      Ok ()
     | _ ->
       validate_output_schema
         cte.columns
@@ -1391,6 +1527,8 @@ and validate_cte_full ~forbidden_ctes ~available_ctes cte =
         ~result_types:cte.result_types
   in
   match cte.body with
+  | Ast.Raw_returning_body raw -> validate_raw_body ~rows:true ~top_level:true raw
+  | Ast.Raw_command_body raw -> validate_raw_body ~rows:false ~top_level:true raw
   | Ast.Select_body query ->
     validate_select_query_full ~forbidden_ctes ~available_ctes query
   | Ast.Recursive_body { anchor; step; _ } ->
@@ -1419,7 +1557,7 @@ and validate_recursive_step ~forbidden_ctes ~available_ctes ~cte_id step =
   let open Result.Let_syntax in
   let%bind () = validate_relation_schema step in
   match step.Ast.query with
-  | Ast.Compound _ | Ast.Source_free _ ->
+  | Ast.Raw_select _ | Ast.Compound _ | Ast.Source_free _ ->
     Error (Compile_error.Invalid_recursive_reference cte_id)
   | Ast.Simple select ->
     let%bind available_ctes =
@@ -1543,7 +1681,11 @@ and validate_command_full ?(top_level = false) ~forbidden_ctes ~available_ctes c
         List.exists command.ctes ~f:(fun cte ->
           match cte.Ast.body with
           | Ast.Recursive_body _ -> true
-          | Ast.Select_body _ | Ast.Returning_body _ | Ast.Command_body _ -> false)
+          | Ast.Raw_returning_body _
+          | Ast.Raw_command_body _
+          | Ast.Select_body _
+          | Ast.Returning_body _
+          | Ast.Command_body _ -> false)
       then
         Error
           (Compile_error.Invalid_merge "WITH RECURSIVE is not supported directly by MERGE")
@@ -1576,6 +1718,7 @@ and validate_command_full ?(top_level = false) ~forbidden_ctes ~available_ctes c
 ;;
 
 let result_query = function
+  | Ast.Raw_returning raw -> validate_raw_body ~rows:true ~top_level:true raw
   | Ast.Select query ->
     validate_select_query_full ~top_level:true ~forbidden_ctes:[] ~available_ctes:[] query
   | Ast.Returning returning ->
@@ -1595,4 +1738,9 @@ let result_query = function
 
 let command command =
   validate_command_full ~top_level:true ~forbidden_ctes:[] ~available_ctes:[] command
+;;
+
+let command_statement = function
+  | Ast.Structured_command value -> command value
+  | Ast.Raw_command value -> validate_raw_body ~rows:false ~top_level:true value
 ;;

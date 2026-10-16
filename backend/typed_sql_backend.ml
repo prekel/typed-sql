@@ -22,11 +22,7 @@ module Projection = struct
 
       val field : 'a Db_type.t -> 'a t
     end) =
-  Typed_sql_private.Projection.Make (struct
-      include A
-
-      let expr expression = field (Typed_sql_private.Expr.db_type expression)
-    end)
+    Typed_sql_private.Projection.Make (A)
 end
 
 module Compiled_query = struct
@@ -68,6 +64,7 @@ module Statement = struct
     | P.Mismatched_sql_type { context; expected; actual } ->
       Mismatched_sql_type { context; expected; actual }
     | P.Invalid_db_type message -> Invalid_db_type message
+    | P.Invalid_raw_sql message -> Invalid_raw_sql message
     | P.Empty_projection -> Empty_projection
     | P.Empty_values_columns -> Empty_values_columns
     | P.Empty_values_rows -> Empty_values_rows

@@ -1,0 +1,42 @@
+(executable
+ (optional)
+ (name codegen)
+ (modules codegen)
+ (libraries base typed-sql-ppx.cache))
+
+(rule
+ (target queries_ppx.ml)
+ (deps queries.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run %{exe:codegen.exe} %{dep:queries.json}))))
+
+(library
+ (optional)
+ (name sqlx_survey_ppx)
+ (kind ppx_rewriter)
+ (modules queries_ppx)
+ (libraries base typed-sql-ppx))
+
+(library
+ (optional)
+ (name sqlx_survey)
+ (modules queries dynamic)
+ (libraries base typed-sql)
+ (preprocess
+  (pps ppx_let sqlx_survey_ppx)))
+
+(library
+ (optional)
+ (name sqlx_survey_tests)
+ (modules survey_test)
+ (libraries base typed-sql sqlx_survey)
+ (inline_tests)
+ (preprocess
+  (pps ppx_let ppx_expect)))
+
+(mdx
+ (files README.md)
+ (libraries base typed-sql sqlx_survey)
+ (package typed-sql-ppx))

@@ -186,12 +186,31 @@ and select =
   }
 
 and select_query =
+  | Raw_select of raw
   | Simple of select
   | Source_free of
       { ctes : cte list
       ; expression : expr
       }
   | Compound of compound
+
+and raw =
+  { parts : raw_part list
+  ; fields : (Identifier.t * Db_type.packed) list
+  ; top_level_only : bool
+  ; ctes : cte list
+  }
+
+and raw_part =
+  | Raw_text of string
+  | Raw_bind of
+      { expected : Db_type.packed
+      ; value : expr
+      }
+
+and command_statement =
+  | Structured_command of command
+  | Raw_command of raw
 
 and set_operator =
   | Union
@@ -323,6 +342,8 @@ and cte_body =
       }
   | Returning_body of returning
   | Command_body of command
+  | Raw_command_body of raw
+  | Raw_returning_body of raw
 
 and cte =
   { cte_id : int
@@ -334,5 +355,6 @@ and cte =
   }
 
 type result_query =
+  | Raw_returning of raw
   | Select of select_query
   | Returning of returning

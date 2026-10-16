@@ -29,6 +29,7 @@ module Cardinality = Typed_sql_private.Cardinality
 module Query = Typed_sql_private.Query
 module Result_query = Typed_sql_private.Result_query
 module Command = Typed_sql_private.Command
+module Raw_sql = Typed_sql_private.Raw_sql
 module Derived_table = Typed_sql_private.Derived_table
 module Values = Typed_sql_private.Values
 module Cte = Typed_sql_private.Cte

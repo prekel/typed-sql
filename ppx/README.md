@@ -358,3 +358,8 @@ Array runtime `typed-sql-pgocaml-ppx.runtime` Dune подключает авто
 
 Подробности: [руководство](../doc/ppx.md), [roadmap](../doc/ppx_roadmap.md),
 [происхождение кода](ORIGIN.md) и [лицензия](COPYING).
+
+Для постепенного перехода к `Statement.t` и adapters появился отдельный
+[`typed-sql-ppx`](../query-ppx/README.md): query/command quotations из кеша v2
+принимают `Expr.t`, сохраняют статическую форму и не зависят от PGOCaml.
+Это отдельный этап миграции с типами typed-sql.

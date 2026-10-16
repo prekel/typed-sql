@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+mode="${1:-all}"
+case "$mode" in
+  all | mega-coverage) ;;
+  *)
+    printf 'usage: %s [all|mega-coverage]\n' "$0" >&2
+    exit 2
+    ;;
+esac
+
 pg_config_command="${TYPED_SQL_PG_CONFIG:-pg_config}"
 pg_bindir="$("$pg_config_command" --bindir)"
 workdir="$(mktemp -d /tmp/typed-sql-pg.XXXXXX)"
@@ -32,6 +41,17 @@ if [[ "$server_version" -lt 150000 || "$server_version" -ge 190000 ]]; then
   exit 1
 fi
 echo "Testing against PostgreSQL $("$pg_bindir/psql" -Atqc 'SHOW server_version')"
+
+if [[ "$mode" == mega-coverage ]]; then
+  if [[ "$server_version" -lt 170000 ]]; then
+    echo "Mega coverage requires PostgreSQL 17-18, got $server_version" >&2
+    exit 1
+  fi
+  # Run the instrumented executable built by coverage.sh without rebuilding it.
+  build_dir="${DUNE_BUILD_DIR:-_build}"
+  "$build_dir/default/caqti-lwt/test/mega_coverage_server_test.exe"
+  exit 0
+fi
 
 "$pg_bindir/createdb" typed_sql_schema_fixture_test
 PGDATABASE=typed_sql_schema_fixture_test \
@@ -176,3 +196,18 @@ fi
 if [[ "${TYPED_SQL_PREPARE_BENCH:-0}" == 1 ]]; then
   dune exec --root . pgocaml-lwt/test/prepare_bench.exe
 fi
+
+# Driver-independent cache quotations execute the same Statements through both adapters.
+PGDATABASE=typed_sql_ppx_test "$pg_bindir/psql" -X -v ON_ERROR_STOP=1 \
+  -f query-ppx/test/setup.sql >/dev/null
+PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/bin/typed_sql_pgocaml_queries.exe -- \
+  prepare --output "$workdir/query-ppx.json" query-ppx/test/queries.ml
+python3 - "$workdir/query-ppx.json" query-ppx/test/queries.json <<'PYCOMPARE'
+import json, sys
+actual, expected = (json.load(open(path)) for path in sys.argv[1:])
+actual.pop("role")
+expected.pop("role")
+if actual != expected:
+    raise SystemExit("typed-sql-ppx metadata differs from the fixture")
+PYCOMPARE
+PGDATABASE=typed_sql_ppx_test dune exec --root . query-ppx/test/postgresql_test.exe

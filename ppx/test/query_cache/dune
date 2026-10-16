@@ -86,3 +86,16 @@
    %{exe:../cache_driver.exe}
    %{dep:queries.json}
    %{dep:cache_queries.ml})))
+
+(library
+ (name cache_query_coexist)
+ (optional)
+ (modules coexist)
+ (libraries base pgocaml typed-sql)
+ (preprocess
+  (pps ppx_let query_cache_test_ppx typed_sql_query_test_ppx)))
+
+(alias
+ (name runtest)
+ (package typed-sql-pgocaml-ppx)
+ (deps cache_query_coexist.cma))

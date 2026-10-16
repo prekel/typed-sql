@@ -1065,3 +1065,142 @@ let%test_module "named type boundaries" =
     ;;
   end)
 ;;
+
+let%test_module "operator SQL descriptor checks" =
+  (module struct
+    let int_as_text : int Db_type.t =
+      Db_type.map
+        Db_type.text
+        ~encode:(fun value -> Ok (Int.to_string value))
+        ~decode:(fun value ->
+          match Int.of_string_opt value with
+          | Some value -> Ok value
+          | None -> Error "invalid encoded integer")
+    ;;
+
+    let text_as_int : string Db_type.t =
+      Db_type.map
+        Db_type.int
+        ~encode:(fun value ->
+          match Int.of_string_opt value with
+          | Some value -> Ok value
+          | None -> Error "invalid encoded integer")
+        ~decode:(fun value -> Ok (Int.to_string value))
+    ;;
+
+    let wrong_int = Expr.constant int_as_text 1
+    let wrong_text = Expr.constant text_as_int "1"
+
+    let compile expression =
+      Compiler.compile
+        ~dialect:Dialect.portable
+        Query.(from Item.table |> select (fun _ -> Projection.expr expression))
+    ;;
+
+    let rejected expression =
+      match compile expression with
+      | Error (Compile_error.Mismatched_sql_type _) -> true
+      | _ -> false
+    ;;
+
+    let rejected_postgresql expression =
+      match
+        Compiler.compile
+          ~dialect:Dialect.postgresql
+          Query.(from Item.table |> select (fun _ -> Projection.expr expression))
+      with
+      | Error (Compile_error.Mismatched_sql_type _) -> true
+      | _ -> false
+    ;;
+
+    let%test "arithmetic rejects nonnumeric descriptors with numeric OCaml values" =
+      rejected Expr.Int.Infix.(wrong_int +. wrong_int)
+    ;;
+
+    let%test "arithmetic rejects different SQL numeric representations" =
+      let as_bigint : int Db_type.t =
+        Db_type.map
+          Db_type.int64
+          ~encode:(fun value -> Ok (Int64.of_int value))
+          ~decode:(fun value ->
+            match Int64.to_int value with
+            | Some value -> Ok value
+            | None -> Error "integer overflow")
+      in
+      rejected Expr.Int.Infix.(Expr.constant Db_type.int 1 +. Expr.constant as_bigint 2)
+    ;;
+
+    let%test "concatenation rejects nontext SQL descriptors" =
+      rejected (Expr.concat wrong_text wrong_text)
+    ;;
+
+    let%test "LOWER checks the SQL input descriptor" = rejected (Expr.lower wrong_text)
+    let%test "UPPER checks the SQL input descriptor" = rejected (Expr.upper wrong_text)
+    let%test "LENGTH checks the SQL input descriptor" = rejected (Expr.length wrong_text)
+
+    let%test "CAST checks the declared SQL source type" =
+      rejected (Expr.cast_int_to_int64 wrong_int)
+    ;;
+
+    let%test "SUM checks its numeric SQL input" = rejected (Expr.sum_int wrong_int)
+
+    let%test "AVG checks the source of its implicit CAST" =
+      rejected (Expr.avg_int wrong_int)
+    ;;
+
+    let%test "concatenation checks the right descriptor too" =
+      rejected (Expr.concat (Expr.constant Db_type.text "value") wrong_text)
+    ;;
+
+    let constant_as_text value =
+      let descriptor =
+        Db_type.map Db_type.text ~encode:(fun _ -> Ok "1") ~decode:(fun _ -> Ok value)
+      in
+      Expr.constant descriptor value
+    ;;
+
+    let%test "SUM float rejects text transport" =
+      rejected (Expr.sum_float (constant_as_text 1.))
+    ;;
+
+    let%test "SUM bigint rejects text transport" =
+      rejected_postgresql (Postgresql.Numeric.sum_int64 (constant_as_text 1L))
+    ;;
+
+    let%test "SUM numeric rejects text transport" =
+      rejected_postgresql
+        (Postgresql.Numeric.sum_numeric
+           (constant_as_text (Decimal.of_string "1" |> Option.value_exn)))
+    ;;
+
+    let%test "exact AVG rejects a text descriptor" =
+      rejected_postgresql (Postgresql.Numeric.avg_int wrong_int)
+    ;;
+
+    let%test "floating AVG rejects a text descriptor" =
+      rejected (Expr.avg_float (constant_as_text 1.))
+    ;;
+
+    let%test "mapped codecs with the expected SQL representation remain usable" =
+      let mapped = Db_type.map Db_type.int ~encode:Result.return ~decode:Result.return in
+      Result.is_ok
+        (compile Expr.Int.Infix.(Expr.constant mapped 1 +. Expr.constant Db_type.int 2))
+    ;;
+
+    let%test "smallint SUM still has a bigint result" =
+      let smallint =
+        Db_type.Postgresql.named
+          ~schema:(Identifier.of_string_exn "pg_catalog")
+          ~name:(Identifier.of_string_exn "int2")
+          Db_type.int
+      in
+      Result.is_ok
+        (Compiler.compile
+           ~dialect:Dialect.postgresql
+           Query.(
+             from Item.table
+             |> select (fun _ ->
+               Projection.expr (Expr.sum_int (Expr.constant smallint 1)))))
+    ;;
+  end)
+;;

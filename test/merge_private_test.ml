@@ -3,6 +3,12 @@ open Typed_sql_private
 open Ast
 open Expr.Infix
 
+let structured_command command =
+  match Command.ast command with
+  | Ast.Structured_command command -> command
+  | Ast.Raw_command _ -> failwith "structured MERGE fixture expected"
+;;
+
 module Target = struct
   type row
 
@@ -30,7 +36,7 @@ let base_command () =
       |> when_matched_update
            Assignments.(empty |> set_expr Target.value_column (Source.id source))))
   |> Merge.command
-  |> Command.ast
+  |> structured_command
 ;;
 
 let normalized_error command = command |> Normalizer.command |> Validator.command
@@ -64,7 +70,7 @@ let%test "SQLite lowering rejects MERGE even when its only action does nothing" 
       |> using Source.table ~f:(fun target source merge ->
         merge |> on (Target.id target =. Source.id source) |> when_matched_do_nothing))
     |> Merge.command
-    |> Command.ast
+    |> structured_command
   in
   match Lower.command ~dialect:Dialect.Sqlite command with
   | Error (Unsupported_operation { operation = "MERGE"; dialect = Dialect.Sqlite }) ->
@@ -72,7 +78,9 @@ let%test "SQLite lowering rejects MERGE even when its only action does nothing" 
   | Ok _ | Error _ -> false
 ;;
 
-let compile command = Compiler.compile_command_plan ~dialect:Dialect.Postgresql command
+let compile command =
+  Compiler.compile_command_plan ~dialect:Dialect.Postgresql (Command.create command)
+;;
 
 let compiled_merge value =
   let command =
@@ -84,7 +92,7 @@ let compiled_merge value =
         |> when_matched_update Assignments.(empty |> set Target.value_column value)))
     |> Merge.command
   in
-  compile (Command.ast command)
+  compile (structured_command command)
 ;;
 
 let%test "MERGE shape excludes captured values and generative sources" =
@@ -102,7 +110,7 @@ let%test "MERGE shape records conditional branch structure" =
         |> on (Target.id target =. Source.id source)
         |> when_matched_do_nothing ?condition))
     |> Merge.command
-    |> Command.ast
+    |> structured_command
     |> compile
   in
   match make None, make (Some Condition.true_) with

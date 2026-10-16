@@ -29,6 +29,7 @@ let nest template = Template.Nest template
 let separate templates ~by = List.intersperse templates ~sep:by |> concat
 
 let rec select_query_output_field_names = function
+  | Ast.Raw_select raw -> List.map raw.fields ~f:(fun (name, _) -> Some name)
   | Ast.Simple select ->
     List.map select.Ast.projection ~f:(function
       | Ast.Column { name; _ } -> Some name
@@ -323,22 +324,27 @@ and render_nested_json multiset state =
   | Dialect.Postgresql -> multiset, state
   | Dialect.Sqlite -> concat [ text "JSON("; multiset; text ")" ], state
 
-and render_json_values ~aliases ~separator expressions state =
-  match expressions with
-  | [] -> Template.Empty, state
-  | [ expression ] -> render_json_value ~aliases expression state
-  | expression :: rest ->
-    let expression, state = render_json_value ~aliases expression state in
-    let rest, state = render_json_values ~aliases ~separator rest state in
-    concat [ expression; separator; rest ], state
+and render_json_transport (Db_type.Pack typ) value state =
+  match state.dialect with
+  | Dialect.Postgresql when Db_type.multiset_text_transport typ ->
+    concat [ text "CAST("; value; text " AS TEXT)" ]
+  | Dialect.Sqlite | Dialect.Postgresql -> value
 
-and render_json_row ~aliases expressions state =
+and render_json_values ~aliases ~separator fields state =
+  let state, values =
+    List.fold_map fields ~init:state ~f:(fun state (expression, typ) ->
+      let value, state = render_json_value ~aliases expression state in
+      state, render_json_transport typ value state)
+  in
+  separate values ~by:separator, state
+
+and render_json_row ~aliases ~field_types expressions state =
   let multiple = Int.(List.length expressions > 1) in
   let values, state =
     render_json_values
       ~aliases
       ~separator:(concat [ text ","; break " " ])
-      expressions
+      (List.zip_exn expressions field_types)
       state
   in
   let function_ =
@@ -355,7 +361,13 @@ and render_json_row ~aliases expressions state =
   concat [ text function_; arguments ], state
 
 and render_multiset_aggregate_raw ~aliases multiset state =
-  let row, state = render_json_row ~aliases multiset.Ast.fields state in
+  let row, state =
+    render_json_row
+      ~aliases
+      ~field_types:multiset.Ast.field_types
+      multiset.Ast.fields
+      state
+  in
   let order_by, state = render_order_by ~aliases multiset.order_by state in
   let filter, state =
     match multiset.filter with
@@ -405,7 +417,8 @@ and render_multiset_columns alias names types state =
     match state.dialect with
     | Dialect.Sqlite when Db_type.is_json_result db_type ->
       concat [ text "JSON("; column; text ")" ]
-    | Dialect.Sqlite | Dialect.Postgresql -> column
+    | Dialect.Sqlite | Dialect.Postgresql ->
+      render_json_transport (Db_type.Pack db_type) column state
   in
   List.map columns ~f:render |> separate ~by:(concat [ text ","; break " " ])
 
@@ -1001,6 +1014,55 @@ and render_compound_branch
        branch)
   , state )
 
+and render_raw_body (raw : Ast.raw) state =
+  let state, templates =
+    List.fold_map raw.parts ~init:state ~f:(fun state -> function
+      | Ast.Raw_text sql -> state, text sql
+      | Ast.Raw_bind { value; _ } ->
+        let template, state = render_expr ~aliases:[] value state in
+        state, template)
+  in
+  concat templates, state
+
+and render_raw_select ~json_projection ~output_names (raw : Ast.raw) state =
+  let render_body state =
+    let body, state = render_raw_body raw state in
+    if List.is_empty output_names && (not json_projection) && List.is_empty raw.ctes then
+      body, state
+    else (
+      let output_names =
+        if List.is_empty output_names then
+          List.map raw.fields ~f:fst
+        else
+          output_names
+      in
+      let projection =
+        List.mapi output_names ~f:(fun position name ->
+          concat
+            [ text "\"__typed_sql_raw\".\"c"
+            ; text (Int.to_string position)
+            ; text "\" AS "
+            ; quote_identifier name
+            ])
+        |> separate ~by:(concat [ text ","; break " " ])
+      in
+      let columns =
+        List.mapi raw.fields ~f:(fun i _ -> text ("\"c" ^ Int.to_string i ^ "\""))
+        |> separate ~by:(text ", ")
+      in
+      ( concat
+          [ text "SELECT "
+          ; projection
+          ; text " FROM (\n"
+          ; body
+          ; text "\n) AS \"__typed_sql_raw\" ("
+          ; columns
+          ; text ")"
+          ]
+      , state ))
+  in
+  render_with raw.ctes ~render_body state
+
 and render_select_query
       ?(json_projection = false)
       ?(output_names = [])
@@ -1010,6 +1072,7 @@ and render_select_query
       state
   =
   match query with
+  | Ast.Raw_select raw -> render_raw_select ~json_projection ~output_names raw state
   | Ast.Simple select ->
     render_select
       ~json_projection
@@ -1118,6 +1181,7 @@ and render_cte (cte : Ast.cte) state =
         | Ast.Recursive_union_all -> "UNION ALL"
       in
       concat [ anchor; break " "; text union; break " "; step ], state
+    | Ast.Raw_returning_body raw | Ast.Raw_command_body raw -> render_raw_body raw state
     | Ast.Returning_body returning -> render_returning returning state
     | Ast.Command_body command -> render_command_ast command state
   in
@@ -1138,7 +1202,11 @@ and render_ctes ctes state =
     List.exists ctes ~f:(fun (cte : Ast.cte) ->
       match cte.body with
       | Ast.Recursive_body _ -> true
-      | Ast.Select_body _ | Ast.Returning_body _ | Ast.Command_body _ -> false)
+      | Ast.Raw_returning_body _
+      | Ast.Raw_command_body _
+      | Ast.Select_body _
+      | Ast.Returning_body _
+      | Ast.Command_body _ -> false)
   in
   let state = allocate_cte_names ctes state in
   let rec loop ctes state =
@@ -1549,8 +1617,12 @@ let result_query ~dialect query =
   | Ast.Select query ->
     finish (render_select_query ~parent_aliases:[] query initial_state)
   | Ast.Returning returning -> finish (render_returning returning initial_state)
+  | Ast.Raw_returning raw -> finish (render_raw_body raw initial_state)
 ;;
 
 let command ~dialect command =
-  finish (render_command_ast (Lower.command_ast command) (initial_state_for dialect))
+  let state = initial_state_for dialect in
+  match Lower.command_ast command with
+  | Ast.Structured_command value -> finish (render_command_ast value state)
+  | Ast.Raw_command raw -> finish (render_raw_body raw state)
 ;;

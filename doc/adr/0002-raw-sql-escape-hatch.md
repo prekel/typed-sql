@@ -1,7 +1,7 @@
 # ADR 0002: границы Raw SQL escape hatch
 
-- Статус: обсуждается; публичного API пока нет
-- Дата: 25 сентября 2026 года
+- Статус: PostgreSQL whole-statement API реализован; остальные части обсуждаются
+- Дата: 16 октября 2026 года
 - Связанные решения: [ADR 0001](0001-static-statement-api.md)
 
 ## Контекст
@@ -17,7 +17,8 @@ DSL покрывает запросы, для которых можно пров
 PG'OCaml выполняют один `Statement.t`. Помимо неподдержанного DSL синтаксиса,
 raw API нужен для постепенной миграции PG’OCaml quotations на `Result_query.t`
 с последующим выполнением через обычный `Statement` и выбранный adapter.
-Общую форму API ещё предстоит выбрать по требованиям этих потребителей.
+Для whole-statement PostgreSQL API форма выбрана ниже; portable API и
+expression/condition escape hatch остаются открытыми.
 
 ## Выбранные рамки
 
@@ -33,14 +34,14 @@ raw API нужен для постепенной миграции PG’OCaml quo
 - [x] Пользовательские значения остаются типизированными bind parameters.
   Доверенный SQL-текст видимо помечается как unsafe; значения input нельзя
   вставлять в него строковой конкатенацией.
-- [x] Сейчас фиксируем решение в ADR и оставляем пункт roadmap открытым.
-  Реализация начнётся после выбора конкретного запроса и оставшихся контрактов.
+- [x] Реализовать первый PostgreSQL whole-statement сценарий для cache PPX.
+  Остальные части общего raw API остаются открытыми.
 
 ## Потребитель: query/command quotations с `Expr.t` для миграции
 
 В [roadmap совместимого PPX](../ppx_roadmap.md) выбрано направление
 `[%pgsql.query ...]` / `[%pgsql.query.object ...]` → `Result_query.t` и отдельное
-command-направление → `Command.t`. Это будущий API, ещё не реализация.
+command-направление → `Command.t`. Cache-ветвь реализована в `typed-sql-ppx`; snapshot-frontend пока не подключён.
 Metadata поступают из одной из двух независимых ветвей: собственного SQL
 parser/inference по snapshot v3 или SQL cache Prepare/Describe. Cache-ветвь
 не требует разбора SQL и вывода типов собственным frontend.
@@ -85,7 +86,7 @@ Quotation также можно вынести в функцию с именов
 
 Raw SELECT использует `Result_query.select`, DML RETURNING —
 `Result_query.returning`, DML без результата — `Command.t`. Для cache-ветви
-предстоит определить явный контракт kind: наличие row description само по себе
+используется явный kind кеша v2: наличие row description само по себе
 не различает SELECT и DML RETURNING. Не выполнять пользовательский SQL ради
 классификации. Без доказательства кардинальности использовать `query_many`
 или runtime `expect_one/optional`.
@@ -118,6 +119,22 @@ Caqti PostgreSQL и PG’OCaml adapter, сборку без PGOCaml и PostgreSQ
 Динамические lists, произвольные expression holes и Custom Type Conversions
 не входят в первый сценарий. Эти требования не выбирают окончательную форму
 общего raw API для expressions или portable SQL.
+
+## Реализованный PostgreSQL API
+
+`Raw_sql.Postgresql.part` чередует `unsafe_sql` и `bind`. В holes принимаются
+только parameter/constant Expr; compiler проверяет точный SQL descriptor.
+`Raw_sql.Output.field` и аппликативный map задают positional decoder.
+`select`, `returning`, `command` создают отдельные raw AST nodes; фиктивные
+таблицы и unchecked casts не используются. SELECT имеет cardinality many.
+Fragments не содержат собственных placeholders или terminal semicolon.
+
+Кеш v2 хранит kind и top-level-only. Маленький lexer классифицирует внешнюю
+команду и WITH после Prepare/Describe, не выводит типы. Data-modifying CTE,
+row locks и DML нельзя произвольно помещать в derived SELECT. Поддержаны
+set operations, derived tables и CTE через обычные output descriptors.
+Изначальные executing quotations сохраняются. Подробности и примеры:
+[README нового PPX](../../query-ppx/README.md).
 
 ## Открытые решения
 
@@ -160,8 +177,7 @@ literal placeholder или пользовательской строкой вн�
 - [x] Для query quotations raw builder возвращает `Result_query.t` и принимает
   bind/constant `Expr.t`. Переиспользуемый Statement строится обычным
   `Statement.with_parameters`; прямые statement quotations отложены.
-  DML без результата требует `Command.t`; точный API его quotation ещё
-  предстоит определить.
+  DML без результата использует `[%pgsql.command ...]` → `Command.t`.
 - [ ] Для общего raw API за пределами первого статического PPX-сценария
   решить, нужен ли dynamic вариант для SQL shape, зависящей от input. Для portable raw statement нужно
   выбрать: один текст для двух диалектов или явно заданная пара текстов.
@@ -192,8 +208,9 @@ query quotation генерирует их по metadata из snapshot inference 
 `Raw_sql.Postgresql`, `Raw_sql.Sqlite` и `Raw_sql.Portable` в этом эскизе
 означают явный выбор dialect. `Bind` получает значение с `Db_type.t`, compiler
 назначает `$n` или `?n`, а adapter кодирует его при выполнении. DML с
-`RETURNING` относится к row-returning варианту. Точные конструкторы raw API
-ещё предстоит определить и документировать в `typed_sql.mli`.
+`RETURNING` относится к row-returning варианту. Реализованные PostgreSQL
+конструкторы документированы в `typed_sql.mli`; этот общий эскиз сохраняет
+невыбранные portable/expression варианты.
 
 ## Условие для перехода к реализации
 
@@ -202,7 +219,6 @@ query quotation генерирует их по metadata из snapshot inference 
 сценария зафиксировать SQL для PostgreSQL и/или SQLite, типы input и результата
 и требуемую кардинальность. На нём следует закрыть необходимые вопросы выше,
 затем проверить SQL snapshots, binding, применимые проверки source scope и
-выполнение через существующие adapters. Ближайший шаг — минимальный raw
-SELECT API, возвращающий `Result_query.t`, с ручными проверками через Caqti
-и в композиции с DSL; генерация PPX следует после него. До реализации ADR
-не меняет публичный контракт.
+выполнение через существующие adapters. Первый PostgreSQL SELECT/DML сценарий, генерация из кеша и композиция с DSL
+реализованы. Для остальных частей следует повторить этот процесс на конкретном
+потребителе; они пока не меняют публичный контракт.

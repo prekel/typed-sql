@@ -7,6 +7,7 @@ type t =
       ; actual : string
       }
   | Invalid_db_type of string
+  | Invalid_raw_sql of string
   | Empty_projection
   | Empty_values_columns
   | Empty_values_rows
@@ -101,6 +102,7 @@ let to_string = function
   | Mismatched_sql_type { context; expected; actual } ->
     context ^ ": expected SQL type " ^ expected ^ ", got " ^ actual
   | Invalid_db_type message -> "invalid database codec: " ^ message
+  | Invalid_raw_sql message -> "invalid raw SQL: " ^ message
   | Empty_projection -> "SELECT projection must contain at least one expression"
   | Empty_values_columns -> "VALUES relation must declare at least one column"
   | Empty_values_rows -> "VALUES relation must contain at least one row"

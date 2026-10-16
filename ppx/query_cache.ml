@@ -163,12 +163,12 @@ let rec codec_matches expected json =
   | _ -> false
 ;;
 
-let decode_typed_exn json =
+let decode_typed_exn ?(legacy = true) json =
   let typ = decode_type_exn 0 (member "type" json) in
   (match codec typ with
    | Error message -> invalid message
    | Ok expected ->
-     if not (codec_matches expected (member "codec" json)) then
+     if legacy && not (codec_matches expected (member "codec" json)) then
        invalid "cached codec does not match its PostgreSQL type");
   typ
 ;;
@@ -176,7 +176,9 @@ let decode_typed_exn json =
 let of_string source =
   try
     let json = Yojson.Safe.from_string source in
-    if not (Int.equal (member "version" json |> J.to_int) 1) then
+    let version = member "version" json |> J.to_int in
+    let decode_typed_exn json = decode_typed_exn ~legacy:(Int.equal version 1) json in
+    if not (Int.equal version 1 || Int.equal version 2) then
       invalid "unsupported query cache version";
     let entries =
       member "queries" json

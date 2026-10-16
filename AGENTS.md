@@ -78,6 +78,10 @@
 ## Тесты и проверки
 
 - Основные команды: `make build`, `make test`, `make fmt`.
+- В `test/mega_coverage_test.ml` запрещено добавлять новые тесты и
+  `let%test_module`. Разрешено только расширять существующий мегазапрос и
+  обновлять связанные с ним проверки и snapshots. Новые самостоятельные
+  сценарии размещай в отдельных профильных тестовых файлах.
 - `make coverage` измеряет реализацию `Typed_sql` только через публичный API,
   property tests и SQLite `:memory:`. Не используй `typed-sql.private`,
   `typed-sql.backend`, раскрытие новых элементов API или coverage suppression

@@ -2,6 +2,6 @@
  (name typed_sql_pgocaml_queries)
  (public_name typed-sql-pgocaml-queries)
  (package typed-sql-pgocaml-ppx)
- (libraries base ppxlib pgocaml typed-sql-pgocaml-ppx typed-sql-schema unix)
+ (libraries base ppxlib pgocaml typed-sql-schema typed-sql-ppx.cache unix)
  (preprocess
   (pps ppx_let)))

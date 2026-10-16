@@ -535,7 +535,9 @@ module Expr : sig
     -> else_:('a, 'requirements) t
     -> ('a, 'requirements) t
 
-  (** Convert text to lowercase using the database's native function. Unicode
+  (** Convert text to lowercase using the database's native function. The compiler
+      checks that the SQL descriptor is text (including PostgreSQL varchar/bpchar);
+      an OCaml [string] represented by another SQL type is rejected. Unicode
       handling depends on the database locale and extensions; built-in SQLite
       only converts ASCII letters. *)
   val lower : (string, 'requirements) t -> (string, 'requirements) t
@@ -620,8 +622,9 @@ module Expr : sig
   (** SQL numeric CAST with provider-defined rounding, overflow and precision. Preserves SQL [NULL]. *)
   val cast_float_to_int64_nullable : (float option, 'r) t -> (int64 option, 'r) t
 
-  (** Sum non-null [int] values into [int64]. An empty group, or one containing
-      only nulls, returns [None]. *)
+  (** Sum non-null [int] values into [int64]. SQL input must be integer or
+      PostgreSQL smallint; mapped OCaml codecs do not change this requirement.
+      An empty group, or one containing only nulls, returns [None]. *)
   val sum_int : (int, 'r) t -> (int64 option, 'r) t
 
   (** As [sum_int], accepting nullable input. *)
@@ -667,7 +670,9 @@ module Expr : sig
   (** Type-safe arithmetic over SQL integers represented as OCaml [int].
       Overflow behavior follows the database; SQLite may compute values wider
       than signed 32-bit, which adapters reject when decoded as [Db_type.int].
-      Intermediate results used in conditions are not checked by decoding. *)
+      Intermediate results used in conditions are not checked by decoding.
+      The compiler requires matching numeric SQL descriptors; mapped codecs
+      do not bypass this check. *)
   module Int : sig
     module Infix : sig
       val ( +. ) : (int, 'r) t -> (int, 'r) t -> (int, 'r) t
@@ -994,6 +999,64 @@ end
 module Command : sig
   (** A deferred INSERT, UPDATE, DELETE, or MERGE statement without returned rows. *)
   type +'requirements t
+end
+
+(** Typed raw PostgreSQL statements. SQL text is a trusted boundary; values
+    must enter through [bind], never through string interpolation. *)
+module Raw_sql : sig
+  module Output : sig
+    type ('a, +'requirements) t
+
+    (** One positional output field. Names describe SQL output and do not
+        introduce table sources or SQL expressions into the caller's scope. *)
+    val field : name:Identifier.t -> 'a Db_type.t -> ('a, 'requirements) t
+
+    include Base.Applicative.S2 with type ('a, 'r) t := ('a, 'r) t
+
+    module Let_syntax : sig
+      val return : 'a -> ('a, 'r) t
+
+      module Let_syntax : sig
+        val return : 'a -> ('a, 'r) t
+        val map : ('a, 'r) t -> f:('a -> 'b) -> ('b, 'r) t
+        val both : ('a, 'r) t -> ('b, 'r) t -> ('a * 'b, 'r) t
+
+        module Open_on_rhs : sig end
+      end
+    end
+  end
+
+  module Postgresql : sig
+    type +'requirements part
+
+    (** Trusted SQL syntax. Fragments must not introduce their own bind
+        placeholders or statement terminators. SQL identifiers and literal syntax
+        are the author's responsibility. The compiler does not parse or infer raw SQL types. *)
+    val unsafe_sql : string -> 'r part
+
+    (** Declare the expected SQL descriptor of a hole. Only parameter/constant
+        expressions are accepted. Compilation checks SQL identity and nullable
+        representation; binding checks slot ownership before database access. *)
+    val bind : 'a Db_type.t -> ('a, 'r) Expr.t -> 'r part
+
+    (** Declare SELECT output. [top_level_only] must be true for statements
+        whose syntax cannot be nested, including data-modifying CTEs. *)
+    val select
+      :  ?top_level_only:bool
+      -> output:('a, ([> `Not_sqlite ] as 'r)) Output.t
+      -> 'r part list
+      -> ('a, Result_query.select, Cardinality.many, 'r) Result_query.t
+
+    (** Declare DML RETURNING output. This is not a SELECT relation. *)
+    val returning
+      :  output:('a, ([> `Not_sqlite ] as 'r)) Output.t
+      -> 'r part list
+      -> ('a, Result_query.returning, Cardinality.many, 'r) Result_query.t
+
+    (** Declare INSERT/UPDATE/DELETE without RETURNING. The statement can also
+        define an effect-only PostgreSQL CTE. *)
+    val command : ([> `Not_sqlite ] as 'r) part list -> 'r Command.t
+  end
 end
 
 (** A named, typed relation backed by a SELECT. The [table] and [columns]
@@ -2765,6 +2828,8 @@ module Compile_error : sig
         compatible OCaml representations. Codec identity is not SQL identity. *)
     | Invalid_db_type of string
     (** A codec representation cannot preserve its OCaml values in SQL. *)
+    | Invalid_raw_sql of string
+    (** A raw template or hole violates the raw SQL construction contract. *)
     | Empty_projection
     (** SELECT or RETURNING has no SQL expression. Applicative constants alone
           do not form a valid projection. *)
@@ -3058,8 +3123,8 @@ module Statement : sig
     }
   [@@deriving sexp_of]
 
-  (** One SQL result column. [name] is present only for a direct column
-      reference; computed expressions have no source column name. SQLite
+  (** One SQL result column. [name] is present for a direct column reference
+      or a declared raw output field; computed DSL expressions have no source name. SQLite
       result storage classes depend on runtime values, so [dialect_type] is
       provided only for PostgreSQL. *)
   type output_column =
@@ -3426,7 +3491,8 @@ module Statement : sig
       rendered as dialect literals, ready to paste into psql or SQLite. This
       exposes parameter values and is for development diagnostics only;
       execution adapters continue to bind values separately. The selected
-      dynamic or input branch is resolved once. *)
+      dynamic or input branch is resolved once. A final line that may contain
+      a SQL line comment is followed by a newline before the terminator. *)
   val debug_sql
     :  dialect:'supports sql_dialect
     -> input:'input

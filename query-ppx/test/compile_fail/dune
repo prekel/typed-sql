@@ -1,0 +1,13 @@
+(rule
+ (alias runtest)
+ (package typed-sql-ppx)
+ (deps
+  (glob_files *.ml)
+  run.sh)
+ (action
+  (run
+   bash
+   %{dep:run.sh}
+   %{bin:ocamlfind}
+   %{lib:typed-sql:typed_sql.cmi}
+   %{exe:../driver.exe})))

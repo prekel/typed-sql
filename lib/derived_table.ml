@@ -98,7 +98,7 @@ let create ~table ~columns query =
   let query_ast =
     match Result_query.ast query with
     | Ast.Select query -> query
-    | Ast.Returning _ ->
+    | Ast.Returning _ | Ast.Raw_returning _ ->
       Stdlib.failwith
         "typed-sql invariant violated: a derived table requires a SELECT query"
   in

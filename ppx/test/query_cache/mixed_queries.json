@@ -1,40 +1,41 @@
 {
-  "version": 1,
+  "version": 2,
   "role": "fixture",
   "search_path": "public",
   "queries": [
     {
       "sql": "INSERT INTO ppx_mixed_items (id, name, note) VALUES ($1, $2, $3)",
+      "kind": "command",
+      "top_level_only": true,
       "parameters": [
         {
           "type": {
             "schema": "pg_catalog",
             "name": "int8",
             "kind": "scalar"
-          },
-          "codec": "int64"
+          }
         },
         {
           "type": {
             "schema": "pg_catalog",
             "name": "text",
             "kind": "scalar"
-          },
-          "codec": "string"
+          }
         },
         {
           "type": {
             "schema": "pg_catalog",
             "name": "text",
             "kind": "scalar"
-          },
-          "codec": "string"
+          }
         }
       ],
       "result": null
     },
     {
       "sql": "SELECT id, name, note FROM ppx_mixed_items ORDER BY id",
+      "kind": "select",
+      "top_level_only": false,
       "parameters": [],
       "result": [
         {
@@ -44,8 +45,7 @@
               "schema": "pg_catalog",
               "name": "int8",
               "kind": "scalar"
-            },
-            "codec": "int64"
+            }
           },
           "nullable": false
         },
@@ -56,8 +56,7 @@
               "schema": "pg_catalog",
               "name": "text",
               "kind": "scalar"
-            },
-            "codec": "string"
+            }
           },
           "nullable": false
         },
@@ -68,8 +67,7 @@
               "schema": "pg_catalog",
               "name": "text",
               "kind": "scalar"
-            },
-            "codec": "string"
+            }
           },
           "nullable": true
         }
@@ -77,30 +75,29 @@
     },
     {
       "sql": "UPDATE ppx_mixed_items SET name = $1, note = $2 WHERE id = $3",
+      "kind": "command",
+      "top_level_only": true,
       "parameters": [
         {
           "type": {
             "schema": "pg_catalog",
             "name": "text",
             "kind": "scalar"
-          },
-          "codec": "string"
+          }
         },
         {
           "type": {
             "schema": "pg_catalog",
             "name": "text",
             "kind": "scalar"
-          },
-          "codec": "string"
+          }
         },
         {
           "type": {
             "schema": "pg_catalog",
             "name": "int8",
             "kind": "scalar"
-          },
-          "codec": "int64"
+          }
         }
       ],
       "result": null

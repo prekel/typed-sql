@@ -1,0 +1,413 @@
+{
+  "version": 2,
+  "role": "fixture",
+  "search_path": "public",
+  "queries": [
+    {
+      "sql": "DELETE FROM typed_sql_query_items WHERE id = $1",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO typed_sql_query_items (id, name) VALUES ($1, $2) RETURNING id, name",
+      "kind": "returning",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT $1::int4[] AS numbers",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_int4",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "numbers",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_int4",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "int4",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT $1::text AS name; -- trailing comment",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT $1::typed_sql_query_mood",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "public",
+            "name": "typed_sql_query_mood",
+            "kind": "enum",
+            "labels": [ "ready", "done" ]
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "typed_sql_query_mood",
+          "value": {
+            "type": {
+              "schema": "public",
+              "name": "typed_sql_query_mood",
+              "kind": "enum",
+              "labels": [ "ready", "done" ]
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT $1::typed_sql_query_tag",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "public",
+            "name": "typed_sql_query_tag",
+            "kind": "domain",
+            "base": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "typed_sql_query_tag",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT '1.25'::numeric AS amount, ARRAY[1, NULL, 3]::int4[] AS numbers, 'ready'::typed_sql_query_mood AS mood",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "amount",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "numeric",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        },
+        {
+          "name": "numbers",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_int4",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "int4",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": true
+        },
+        {
+          "name": "mood",
+          "value": {
+            "type": {
+              "schema": "public",
+              "name": "typed_sql_query_mood",
+              "kind": "enum",
+              "labels": [ "ready", "done" ]
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT 1::int4 AS id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id FROM typed_sql_query_items WHERE EXISTS (SELECT 1 FROM typed_sql_query_items FOR UPDATE)",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id, name FROM typed_sql_query_items WHERE id = $1",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT value FROM typed_sql_query_json ORDER BY id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "value",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "jsonb",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT value::json AS value FROM typed_sql_query_json ORDER BY id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "value",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "json",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "UPDATE typed_sql_query_items SET name = $1 WHERE id = $2",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "WITH inserted AS (INSERT INTO typed_sql_query_items VALUES (7, 'CTE') RETURNING id) SELECT id FROM inserted",
+      "kind": "select",
+      "top_level_only": true,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "WITH locked AS (SELECT id FROM typed_sql_query_items FOR UPDATE) SELECT id FROM locked",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    }
+  ]
+}

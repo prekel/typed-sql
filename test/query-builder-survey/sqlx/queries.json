@@ -1,0 +1,1048 @@
+{
+  "version": 2,
+  "role": "typed_sql_survey",
+  "search_path": "public",
+  "queries": [
+    {
+      "sql": "DELETE FROM posts WHERE score < $1",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO users (id, name) SELECT * FROM UNNEST($1::int4[], $2::text[]) RETURNING id, name",
+      "kind": "returning",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_int4",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_text",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "INSERT INTO users (id, name) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name RETURNING id, name",
+      "kind": "returning",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "INSERT INTO users (id, name) VALUES ($1, $2) RETURNING id, name",
+      "kind": "returning",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT DISTINCT ON (user_id) user_id, id, title FROM posts ORDER BY user_id, score DESC, id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "user_id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id FROM posts WHERE score < $1 ORDER BY id LIMIT $2 FOR UPDATE SKIP LOCKED",
+      "kind": "select",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int8",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id FROM users EXCEPT SELECT user_id AS id FROM posts ORDER BY id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id FROM users INTERSECT SELECT user_id AS id FROM posts ORDER BY id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id FROM users WHERE id < $1 UNION ALL SELECT user_id AS id FROM posts WHERE user_id >= $2 ORDER BY id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id, CASE WHEN age IS NULL THEN 'unknown' WHEN age >= $1 THEN 'adult' ELSE 'child' END AS category FROM users ORDER BY id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "category",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY score DESC, id) AS rank FROM posts ORDER BY user_id, rank",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "rank",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int8",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id, SUM(score) OVER (PARTITION BY user_id ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS running_total FROM posts ORDER BY user_id, id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "running_total",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int8",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id, name FROM users ORDER BY name, id LIMIT $1 OFFSET $2",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int8",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int8",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id, name FROM users WHERE age IS NOT DISTINCT FROM $1 ORDER BY id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id, name FROM users WHERE id = ANY($1::int4[]) ORDER BY id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_int4",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id, name FROM users WHERE id > $1 AND name LIKE $2 ORDER BY id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id, name FROM users WHERE name = $1 ORDER BY id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT u.id FROM users u WHERE EXISTS (SELECT 1 FROM posts p WHERE p.user_id = u.id AND p.score > $1) ORDER BY u.id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT u.id FROM users u WHERE NOT EXISTS (SELECT 1 FROM posts p WHERE p.user_id = u.id) ORDER BY u.id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT u.id, (SELECT COUNT(*) FROM posts p WHERE p.user_id = u.id) AS total FROM users u ORDER BY u.id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "total",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int8",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT u.id, p.id AS post_id FROM users u LEFT JOIN posts p ON p.user_id = u.id ORDER BY u.id, p.id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "post_id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT u.id, p.title FROM users u JOIN posts p ON p.user_id = u.id WHERE p.score >= $1 ORDER BY u.id, p.id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT u.id, p.title FROM users u LEFT JOIN LATERAL (SELECT title FROM posts WHERE user_id = u.id ORDER BY score DESC, id LIMIT 1) p ON TRUE ORDER BY u.id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT u.id, s.total FROM users u JOIN (SELECT user_id, SUM(score) AS total FROM posts GROUP BY user_id) s ON s.user_id = u.id ORDER BY u.id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "total",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int8",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT user_id, COUNT(*) AS total FROM posts GROUP BY user_id HAVING COUNT(*) >= $1 ORDER BY user_id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int8",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "user_id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "total",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int8",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT user_id, COUNT(*) AS total FROM posts GROUP BY user_id ORDER BY user_id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "user_id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "total",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int8",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "UPDATE posts SET score = score + $1 WHERE user_id = $2 RETURNING id, score",
+      "kind": "returning",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "score",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "UPDATE posts p SET score = $1 FROM users u WHERE p.user_id = u.id AND u.name = $2 RETURNING p.id, p.score",
+      "kind": "returning",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "score",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "WITH RECURSIVE tree AS (SELECT id, parent_id FROM users WHERE id = $1 UNION ALL SELECT u.id, u.parent_id FROM users u JOIN tree t ON u.parent_id = t.id) SELECT id FROM tree ORDER BY id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "WITH popular AS (SELECT user_id FROM posts GROUP BY user_id HAVING COUNT(*) >= $1) SELECT u.id, u.name FROM users u JOIN popular p ON p.user_id = u.id ORDER BY u.id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int8",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    }
+  ]
+}

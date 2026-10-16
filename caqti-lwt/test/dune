@@ -92,6 +92,8 @@
 (executable
  (name mega_coverage_server_test)
  (modules mega_coverage_server_test)
+ ; Keep all core modules in Bisect's --expect lib/ report.
+ (link_flags :standard -linkall)
  (libraries
   base
   caqti

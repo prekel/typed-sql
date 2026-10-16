@@ -219,3 +219,11 @@ PPX или иные правила с обращением к БД, они со�
 который только генерирует object → record converter, этому не мешает.
 Для outer JOIN при необходимости сохраните `"nullable-results"`.
 Подробнее о nullability и codecs — в [README](README.md).
+
+## Дальше: query/command без выполнения внутри quotation
+
+После проверки совместимого PPX можно переносить по одному запросу на
+[`typed-sql-ppx`](../query-ppx/README.md). Он использует кеш v2 и `Expr.t`,
+строит `Result_query.t` / `Command.t` и выполняется через обычный Statement.
+Руководство показывает static input, сохранение object → record и переход
+на Caqti. Это отдельная миграция; для первого шага замены PPX она не нужна.

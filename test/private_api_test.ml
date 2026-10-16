@@ -4,6 +4,10 @@ open Expr.Infix
 module A = Ast
 module Raw_compiler = Compiler
 
+let render_structured_command ~dialect command =
+  Renderer.command ~dialect (Ast.Structured_command command)
+;;
+
 module Compiler = struct
   let values parameters =
     List.map parameters ~f:(function
@@ -435,7 +439,7 @@ let%test "source-free output has no field name" =
     (match Renderer.select_query_output_field_names select_query with
      | [ None ] -> true
      | _ -> false)
-  | A.Returning _ -> false
+  | A.Returning _ | A.Raw_returning _ -> false
 ;;
 
 let%test_module "condition normalization" =
@@ -715,7 +719,9 @@ let%test_module "DML validator diagnostics" =
     let%test_unit "valid INSERT" = Validator.command insert |> ok_exn
 
     let%test "compiled command formatter matches SQL" =
-      let template, parameters = Renderer.command ~dialect:Dialect.Postgresql insert in
+      let template, parameters =
+        render_structured_command ~dialect:Dialect.Postgresql insert
+      in
       let compiled =
         Compiled_command.create
           ~dialect:Dialect.Postgresql
@@ -1142,11 +1148,11 @@ let%test_module "renderer totality for malformed private AST" =
     ;;
 
     let%test_unit "renders empty UPDATE assignments" =
-      ignore (Renderer.command ~dialect:Dialect.Postgresql (command A.Update []))
+      ignore (render_structured_command ~dialect:Dialect.Postgresql (command A.Update []))
     ;;
 
     let%test_unit "renders empty INSERT assignments" =
-      ignore (Renderer.command ~dialect:Dialect.Postgresql (command A.Insert []))
+      ignore (render_structured_command ~dialect:Dialect.Postgresql (command A.Insert []))
     ;;
 
     let%test_unit "renders empty multiset aggregates" =
@@ -2206,7 +2212,7 @@ let%test_module "renderer reports corrupt AST invariants" =
     let%test "INSERT without input reports its invariant" =
       let invalid = { (command A.Insert [ assignment ]) with insert_input = None } in
       fails_with "INSERT command has no input" (fun () ->
-        ignore (Renderer.command ~dialect:Dialect.Postgresql invalid))
+        ignore (render_structured_command ~dialect:Dialect.Postgresql invalid))
     ;;
 
     let%test "INSERT with mixed inputs reports its invariant" =
@@ -2214,7 +2220,7 @@ let%test_module "renderer reports corrupt AST invariants" =
         { (command A.Insert [ assignment ]) with insert_input = Some A.Mixed_sources }
       in
       fails_with "INSERT mixes VALUES and SELECT inputs" (fun () ->
-        ignore (Renderer.command ~dialect:Dialect.Postgresql invalid))
+        ignore (render_structured_command ~dialect:Dialect.Postgresql invalid))
     ;;
   end)
 ;;

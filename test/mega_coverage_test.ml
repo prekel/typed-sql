@@ -428,7 +428,28 @@ let input_rows_query ~limit_parameter ~offset_parameter ~optional_person_id_para
       |> select (fun (((person_id, _), tag), _) ->
         Projection.pair person_id (Expr.lower (Tag.label tag))))
   in
-  let values_branch = Query.(from_values static_tags |> select Tag.projection) in
+  let raw_branch =
+    let%map.Raw_sql.Output id =
+      Raw_sql.Output.field ~name:(Identifier.of_string_exn "field_1") Db_type.int64
+    and label =
+      Raw_sql.Output.field ~name:(Identifier.of_string_exn "label") Db_type.text
+    in
+    id, label
+  in
+  let raw_branch =
+    Raw_sql.Postgresql.(
+      select
+        ~output:raw_branch
+        [ unsafe_sql "SELECT "
+        ; bind Db_type.int64 (Expr.constant Db_type.int64 0L)
+        ; unsafe_sql " AS field_1, "
+        ; bind Db_type.text (Expr.constant Db_type.text "raw input")
+        ; unsafe_sql " AS label WHERE FALSE"
+        ])
+  in
+  let values_branch =
+    Query.union_all Query.(from_values static_tags |> select Tag.projection) raw_branch
+  in
   Query.union_all
     ~order_by:[ Identifier.of_string_exn "field_1", `Asc ]
     inferred_branch
@@ -641,6 +662,40 @@ let deleted_rows =
   Postgresql.Cte.returning ~table:Deleted.table ~columns:Deleted.projection delete_expired
 ;;
 
+let raw_deleted_rows =
+  let output =
+    let%map.Raw_sql.Output id =
+      Raw_sql.Output.field ~name:(Column.name Deleted.id_column) Db_type.int64
+    and person_id =
+      Raw_sql.Output.field ~name:(Column.name Deleted.person_id_column) Db_type.int64
+    and label = Raw_sql.Output.field ~name:(Column.name Deleted.label_column) Db_type.text
+    and score =
+      Raw_sql.Output.field ~name:(Column.name Deleted.score_column) Db_type.int
+    in
+    (id, person_id), (label, score)
+  in
+  let returning =
+    Raw_sql.Postgresql.(
+      returning
+        ~output
+        [ unsafe_sql "DELETE FROM public.mega_expired WHERE FALSE AND score = "
+        ; bind Db_type.int (Expr.constant Db_type.int 0)
+        ; unsafe_sql " RETURNING id, person_id, label, score"
+        ])
+  in
+  Postgresql.Cte.returning ~table:Deleted.table ~columns:Deleted.projection returning
+;;
+
+let raw_maintenance_effect =
+  Postgresql.Cte.command
+    Raw_sql.Postgresql.(
+      command
+        [ unsafe_sql "UPDATE public.mega_maintenance SET enabled = "
+        ; bind Db_type.bool (Expr.constant Db_type.bool true)
+        ; unsafe_sql " WHERE FALSE"
+        ])
+;;
+
 let recursive_sequence =
   Cte.recursive_relation
     ~union:`Union_all
@@ -723,10 +778,14 @@ let person_result_projection person =
   let related_events =
     Query.(
       from Event.table
-      |> where (fun event -> Event.person_id event =. Person.id person)
-      |> order_by (fun event -> Event.id event) `Asc
+      |> cross_join Event.table
+      |> where (fun (event, same_event) ->
+        Event.id event
+        =. Event.id same_event
+        &&. (Event.person_id event =. Person.id person))
+      |> order_by (fun (event, _) -> Event.id event) `Asc
       |> limit 5
-      |> select Event.projection)
+      |> select (fun (event, _) -> Event.projection event))
   in
   let aggregate_events =
     Query.(
@@ -786,6 +845,25 @@ let person_result_projection person =
             from Event.table
             |> where (fun nested -> Event.person_id nested =. Event.person_id event))
         in
+        let average_value =
+          Query.(
+            from Event.table
+            |> where (fun nested -> Event.person_id nested =. Person.id person)
+            |> select_scalar (fun nested ->
+              Expr.avg_float
+                (Expr.cast_int64_to_float
+                   (Expr.cast_float_to_int64 (Event.float_value nested)))))
+          |> Expr.scalar_subquery_nullable
+        in
+        let average_integer =
+          Query.(
+            from Event.table
+            |> where (fun nested -> Event.person_id nested =. Person.id person)
+            |> select_scalar (fun nested ->
+              Expr.avg_int
+                (Expr.cast_int64_to_int (Expr.cast_int_to_int64 (Event.value nested)))))
+          |> Expr.scalar_subquery_nullable
+        in
         let compound_condition =
           Event.id event
           =. Expr.Int64.Infix.(Event.id event +. Expr.constant Db_type.int64 1L)
@@ -828,6 +906,9 @@ let person_result_projection person =
                  [ Condition.true_, Event.id event ]
                  ~else_:(Expr.constant Db_type.int64 0L)
                >$ 0L)
+          &&. Expr.is_not_null (Expr.cast_float_to_int_nullable average_value)
+          &&. Expr.is_not_null average_integer
+          &&. (Expr.cast_int_to_float (Event.value event) >$ 0.)
           &&. (Expr.current_timestamp =. Expr.current_timestamp)
         in
         Expr.coalesce
@@ -1066,177 +1147,192 @@ let mega_query
             Cte.with_result aggregate_metrics ~f:(fun metrics ->
               Cte.with_result outbox_rows ~f:(fun outbox ->
                 Cte.with_result deleted_rows ~f:(fun deleted ->
-                  let updated_rows =
-                    Update.(
-                      table Archive.table
-                      |> from_cte deleted ~f:(fun archive removed update ->
-                        update
-                        |> set_expr
-                             Archive.score_column
-                             Expr.Int.Infix.(
-                               Archive.score archive +. Deleted.score removed)
-                        |> set_expr
-                             Archive.label_column
-                             (Expr.concat_value (Archive.label archive) " archived")
-                        |> where (fun _ -> Archive.id archive =. Deleted.id removed))
-                      |> returning Archive.projection)
-                  in
-                  let updated =
-                    Postgresql.Cte.returning
-                      ~table:Updated.table
-                      ~columns:Updated.projection
-                      updated_rows
-                  in
-                  Cte.with_result updated ~f:(fun updated ->
-                    let audit_source =
-                      Query.(
-                        from_cte deleted
-                        |> select (fun removed ->
-                          Projection.both
-                            (Projection.pair
-                               (Deleted.id removed)
-                               (Deleted.person_id removed))
-                            (Projection.pair
-                               (Deleted.label removed)
-                               (Deleted.score removed))))
+                  Cte.with_result raw_deleted_rows ~f:(fun raw_deleted ->
+                    let updated_rows =
+                      Update.(
+                        table Archive.table
+                        |> from_cte deleted ~f:(fun archive removed update ->
+                          update
+                          |> set_expr
+                               Archive.score_column
+                               Expr.Int.Infix.(
+                                 Archive.score archive +. Deleted.score removed)
+                          |> set_expr
+                               Archive.label_column
+                               (Expr.concat_value (Archive.label archive) " archived")
+                          |> where (fun _ -> Archive.id archive =. Deleted.id removed))
+                        |> returning Archive.projection)
                     in
-                    let audit_insert =
-                      Insert.(
-                        into Audit.table
-                        |> from_select
-                             (Columns.column Audit.id_column
-                              |> Columns.add Audit.person_id_column
-                              |> Columns.add Audit.label_column
-                              |> Columns.add Audit.score_column)
-                             audit_source
-                        |> on_conflict
-                             (Conflict_target.column Audit.person_id_column
-                              |> Conflict_target.add Audit.score_column)
-                        |> do_update (fun ~existing ~excluded ->
-                          Conflict_update.(
-                            empty
-                            |> set_opt Audit.label_column (Some "expired")
-                            |> set_expr_opt
-                                 Audit.score_column
-                                 (Some (Audit.score excluded))
-                            |> where (Audit.score existing =. Audit.score excluded)))
-                        |> returning Audit.projection)
-                    in
-                    let audit =
+                    let updated =
                       Postgresql.Cte.returning
-                        ~table:Audit.table
-                        ~columns:Audit.projection
-                        audit_insert
+                        ~table:Updated.table
+                        ~columns:Updated.projection
+                        updated_rows
                     in
-                    Cte.with_result audit ~f:(fun audit ->
-                      let combined_query =
-                        let removed =
-                          Query.(
-                            from_cte deleted
-                            |> select (fun removed ->
-                              Projection.pair
-                                (Deleted.person_id removed)
-                                (Deleted.score removed)))
-                        in
-                        let changed =
-                          Query.(
-                            from_cte updated
-                            |> select (fun changed ->
-                              Projection.pair
-                                (Updated.person_id changed)
-                                (Updated.score changed)))
-                        in
-                        let order_by_person =
-                          [ Column.name Deleted.person_id_column, `Asc
-                          ; Column.name Deleted.score_column, `Desc
-                          ]
-                        in
-                        let all_rows =
-                          Query.union_all ~order_by:order_by_person removed changed
-                        in
-                        let distinct_rows =
-                          Query.union ~order_by:order_by_person removed changed
-                        in
-                        let common_rows = Query.intersect distinct_rows changed in
-                        let common_rows_with_duplicates =
-                          Postgresql.Query.intersect_all
-                            ~order_by:order_by_person
-                            all_rows
-                            common_rows
-                        in
-                        let except_rows =
-                          Query.except
-                            ~order_by:order_by_person
-                            common_rows_with_duplicates
-                            removed
-                        in
-                        let empty_except_all =
-                          Postgresql.Query.except_all
-                            ~order_by:order_by_person
-                            changed
-                            changed
-                        in
-                        Query.union ~order_by:order_by_person except_rows empty_except_all
+                    Cte.with_result updated ~f:(fun updated ->
+                      let audit_source =
+                        Query.(
+                          from_cte deleted
+                          |> select (fun removed ->
+                            Projection.both
+                              (Projection.pair
+                                 (Deleted.id removed)
+                                 (Deleted.person_id removed))
+                              (Projection.pair
+                                 (Deleted.label removed)
+                                 (Deleted.score removed))))
                       in
-                      let combined_definition =
-                        Cte.select
-                          ~materialization:`Not_materialized
-                          (Derived_table.create
-                             ~table:Combined.table
-                             ~columns:Combined.projection
-                             combined_query)
+                      let audit_insert =
+                        Insert.(
+                          into Audit.table
+                          |> from_select
+                               (Columns.column Audit.id_column
+                                |> Columns.add Audit.person_id_column
+                                |> Columns.add Audit.label_column
+                                |> Columns.add Audit.score_column)
+                               audit_source
+                          |> on_conflict
+                               (Conflict_target.column Audit.person_id_column
+                                |> Conflict_target.add Audit.score_column)
+                          |> do_update (fun ~existing ~excluded ->
+                            Conflict_update.(
+                              empty
+                              |> set_opt Audit.label_column (Some "expired")
+                              |> set_expr_opt
+                                   Audit.score_column
+                                   (Some (Audit.score excluded))
+                              |> where (Audit.score existing =. Audit.score excluded)))
+                          |> returning Audit.projection)
                       in
-                      Cte.with_result combined_definition ~f:(fun combined ->
-                        Cte.with_result recursive_events ~f:(fun recursive_events ->
-                          let summary_query =
+                      let audit =
+                        Postgresql.Cte.returning
+                          ~table:Audit.table
+                          ~columns:Audit.projection
+                          audit_insert
+                      in
+                      Cte.with_result audit ~f:(fun audit ->
+                        let combined_query =
+                          let removed =
                             Query.(
-                              from_cte combined
-                              |> left_join_cte audit ~on:(fun row audit ->
-                                Combined.person_id row =. Audit.person_id audit)
-                              |> left_join_cte_relation
-                                   recursive_events
-                                   ~on:(fun (row, _) ((_, person_id), _) ->
-                                     Combined.person_id row =. person_id)
-                              |> where (fun ((row, audit), ((_, person_id), _)) ->
-                                Expr.is_not_null (Audit.nullable_id audit)
-                                &&. Expr.is_not_null person_id
-                                &&. (Combined.score row >$ 0))
-                              |> group_by (fun ((row, _), _) -> Combined.person_id row)
-                              |> having (fun _ -> Expr.count_all >$ 0L)
-                              |> having (fun _ -> Expr.count_all <$ 100L)
-                              |> order_by
-                                   (fun ((row, _), _) -> Combined.person_id row)
-                                   `Desc
-                              |> offset 0
-                              |> Postgresql.Query.fetch_with_ties_param limit_parameter
-                              |> select (fun ((row, _), _) ->
-                                Projection.map3
-                                  ~f:(fun person_id event_count total_score ->
-                                    person_id, event_count, total_score)
-                                  (Projection.expr (Combined.person_id row))
-                                  (Projection.expr Expr.count_all)
-                                  (Projection.expr (Expr.sum_int (Combined.score row)))))
+                              from_cte deleted
+                              |> select (fun removed ->
+                                Projection.pair
+                                  (Deleted.person_id removed)
+                                  (Deleted.score removed)))
                           in
-                          let summary_definition =
-                            Cte.select
-                              ~materialization:`Materialized
-                              (Derived_table.create
-                                 ~table:Summary.table
-                                 ~columns:Summary.projection
-                                 summary_query)
+                          let removed =
+                            Query.union_all
+                              removed
+                              Query.(
+                                from_cte raw_deleted
+                                |> select (fun removed ->
+                                  Projection.pair
+                                    (Deleted.person_id removed)
+                                    (Deleted.score removed)))
                           in
-                          Cte.with_result summary_definition ~f:(fun summary ->
-                            final_update
-                              ~sequence
-                              ~recursive_events
-                              ~inputs
-                              ~input_rows_relation
-                              ~label_parameter
-                              ~ids_parameter
-                              ~joined_events
-                              ~metrics
-                              ~outbox
-                              ~summary)))))))))))))
+                          let changed =
+                            Query.(
+                              from_cte updated
+                              |> select (fun changed ->
+                                Projection.pair
+                                  (Updated.person_id changed)
+                                  (Updated.score changed)))
+                          in
+                          let order_by_person =
+                            [ Column.name Deleted.person_id_column, `Asc
+                            ; Column.name Deleted.score_column, `Desc
+                            ]
+                          in
+                          let all_rows =
+                            Query.union_all ~order_by:order_by_person removed changed
+                          in
+                          let distinct_rows =
+                            Query.union ~order_by:order_by_person removed changed
+                          in
+                          let common_rows = Query.intersect distinct_rows changed in
+                          let common_rows_with_duplicates =
+                            Postgresql.Query.intersect_all
+                              ~order_by:order_by_person
+                              all_rows
+                              common_rows
+                          in
+                          let except_rows =
+                            Query.except
+                              ~order_by:order_by_person
+                              common_rows_with_duplicates
+                              removed
+                          in
+                          let empty_except_all =
+                            Postgresql.Query.except_all
+                              ~order_by:order_by_person
+                              changed
+                              changed
+                          in
+                          Query.union
+                            ~order_by:order_by_person
+                            except_rows
+                            empty_except_all
+                        in
+                        let combined_definition =
+                          Cte.select
+                            ~materialization:`Not_materialized
+                            (Derived_table.create
+                               ~table:Combined.table
+                               ~columns:Combined.projection
+                               combined_query)
+                        in
+                        Cte.with_result combined_definition ~f:(fun combined ->
+                          Cte.with_result recursive_events ~f:(fun recursive_events ->
+                            let summary_query =
+                              Query.(
+                                from_cte combined
+                                |> left_join_cte audit ~on:(fun row audit ->
+                                  Combined.person_id row =. Audit.person_id audit)
+                                |> left_join_cte_relation
+                                     recursive_events
+                                     ~on:(fun (row, _) ((_, person_id), _) ->
+                                       Combined.person_id row =. person_id)
+                                |> where (fun ((row, audit), ((_, person_id), _)) ->
+                                  Expr.is_not_null (Audit.nullable_id audit)
+                                  &&. Expr.is_not_null person_id
+                                  &&. (Combined.score row >$ 0))
+                                |> group_by (fun ((row, _), _) -> Combined.person_id row)
+                                |> having (fun _ -> Expr.count_all >$ 0L)
+                                |> having (fun _ -> Expr.count_all <$ 100L)
+                                |> order_by
+                                     (fun ((row, _), _) -> Combined.person_id row)
+                                     `Desc
+                                |> offset 0
+                                |> Postgresql.Query.fetch_with_ties_param limit_parameter
+                                |> select (fun ((row, _), _) ->
+                                  Projection.map3
+                                    ~f:(fun person_id event_count total_score ->
+                                      person_id, event_count, total_score)
+                                    (Projection.expr (Combined.person_id row))
+                                    (Projection.expr Expr.count_all)
+                                    (Projection.expr (Expr.sum_int (Combined.score row)))))
+                            in
+                            let summary_definition =
+                              Cte.select
+                                ~materialization:`Materialized
+                                (Derived_table.create
+                                   ~table:Summary.table
+                                   ~columns:Summary.projection
+                                   summary_query)
+                            in
+                            Cte.with_result summary_definition ~f:(fun summary ->
+                              final_update
+                                ~sequence
+                                ~recursive_events
+                                ~inputs
+                                ~input_rows_relation
+                                ~label_parameter
+                                ~ids_parameter
+                                ~joined_events
+                                ~metrics
+                                ~outbox
+                                ~summary))))))))))))))
+  |> fun query -> Cte.with_result raw_maintenance_effect ~f:(fun () -> query)
 ;;
 
 let postgresql_statement =
@@ -1327,6 +1423,9 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
     {|
     WITH RECURSIVE
       "c0" AS (
+        UPDATE public.mega_maintenance SET enabled = $1 WHERE FALSE
+      ),
+      "c1" AS (
         MERGE INTO "mega_cleanup" AS t0
         USING "mega_expired" AS t1
         ON (t0."id" = t1."person_id")
@@ -1343,24 +1442,24 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
         WHEN NOT MATCHED THEN
           DO NOTHING
       ),
-      "c1" AS (
+      "c2" AS (
         UPDATE "mega_maintenance"
         SET
-          "enabled" = $1
+          "enabled" = $2
       ),
-      "c2" (
+      "c3" (
         "field_1"
       ) AS (
         SELECT
-          $2
+          $3
         UNION ALL
         SELECT
-          (t0."field_1" + $3)
-        FROM "c2" AS t0
+          (t0."field_1" + $4)
+        FROM "c3" AS t0
         WHERE
-          (t0."field_1" < $4)
+          (t0."field_1" < $5)
       ),
-      "c3" (
+      "c4" (
         "id",
         "label"
       ) AS (
@@ -1380,12 +1479,12 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
             "v"."column2" AS "label"
           FROM (VALUES
             (
-              $5,
-              $6
+              $6,
+              $7
             ),
             (
-              $7,
-              $8
+              $8,
+              $9
             )
           ) AS "v") AS t1
             ON (t0."field_1" = t1."id")
@@ -1394,52 +1493,60 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
             "v"."column2" AS "label"
           FROM (VALUES
             (
-              $5,
-              $6
+              $6,
+              $7
             ),
             (
-              $7,
-              $8
+              $8,
+              $9
             )
           ) AS "v") AS t2
             ON (t0."field_1" = t2."id")
           WHERE
             (
-              (t0."field_1" > $9)
+              (t0."field_1" > $10)
               AND (
-                (CAST($10 AS bigint) IS NULL)
-                OR (t0."field_1" = $10)
+                (CAST($11 AS bigint) IS NULL)
+                OR (t0."field_1" = $11)
               )
             )
           ORDER BY
             t0."field_1" ASC
-          LIMIT $11
-          OFFSET $12
+          LIMIT $12
+          OFFSET $13
         ) AS s0
         UNION ALL
         SELECT *
         FROM (
-          SELECT
-            t0."id",
-            t0."label"
-          FROM (SELECT
-            "v"."column1" AS "id",
-            "v"."column2" AS "label"
-          FROM (VALUES
-            (
-              $13,
-              $14
-            ),
-            (
-              $15,
-              $16
-            )
-          ) AS "v") AS t0
+          SELECT *
+          FROM (
+            SELECT
+              t0."id",
+              t0."label"
+            FROM (SELECT
+              "v"."column1" AS "id",
+              "v"."column2" AS "label"
+            FROM (VALUES
+              (
+                $14,
+                $15
+              ),
+              (
+                $16,
+                $17
+              )
+            ) AS "v") AS t0
+          ) AS s0
+          UNION ALL
+          SELECT *
+          FROM (
+            SELECT $18 AS field_1, $19 AS label WHERE FALSE
+          ) AS s0
         ) AS s0
         ORDER BY
           "field_1" ASC
       ),
-      "c4" (
+      "c5" (
         "id",
         "person_id",
         "label"
@@ -1476,7 +1583,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
         LEFT JOIN "mega_events" AS t4
           ON (t0."id" = t4."id")
       ),
-      "c5" (
+      "c6" (
         "count_all",
         "count_id",
         "count_distinct",
@@ -1519,9 +1626,9 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
           MAX(t0."nullable_numeric_value")
         FROM "mega_events" AS t0
         WHERE
-          (t0."id" > $17)
+          (t0."id" > $20)
       ),
-      "c6" (
+      "c7" (
         "id",
         "label"
       ) AS (
@@ -1530,14 +1637,14 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
           "label"
         )
         VALUES
-          ($18, $19),
-          ($20, $21)
+          ($21, $22),
+          ($23, $24)
         ON CONFLICT DO NOTHING
         RETURNING
           "id",
           "label"
       ),
-      "c7" (
+      "c8" (
         "id",
         "person_id",
         "label",
@@ -1545,14 +1652,22 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
       ) AS (
         DELETE FROM "mega_expired"
         WHERE
-          ("score" < $22)
+          ("score" < $25)
         RETURNING
           "id",
           "person_id",
           "label",
           "score"
       ),
-      "c8" (
+      "c9" (
+        "id",
+        "person_id",
+        "label",
+        "score"
+      ) AS (
+        DELETE FROM public.mega_expired WHERE FALSE AND score = $26 RETURNING id, person_id, label, score
+      ),
+      "c10" (
         "id",
         "person_id",
         "label",
@@ -1561,8 +1676,8 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
         UPDATE "mega_archive" AS t0
         SET
           "score" = (t0."score" + t1."score"),
-          "label" = (t0."label" || $23)
-        FROM "c7" AS t1
+          "label" = (t0."label" || $27)
+        FROM "c8" AS t1
         WHERE
           (t0."id" = t1."id")
         RETURNING
@@ -1571,7 +1686,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
           t0."label",
           t0."score"
       ),
-      "c9" (
+      "c11" (
         "id",
         "person_id",
         "label",
@@ -1588,14 +1703,14 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
           t0."person_id",
           t0."label",
           t0."score"
-        FROM "c7" AS t0
+        FROM "c8" AS t0
         ON CONFLICT (
           "person_id",
           "score"
         )
         DO UPDATE
         SET
-          "label" = $24,
+          "label" = $28,
           "score" = excluded."score"
         WHERE
           (t0."score" = excluded."score")
@@ -1605,7 +1720,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
           "label",
           "score"
       ),
-      "c10" (
+      "c12" (
         "person_id",
         "score"
       ) AS NOT MATERIALIZED (
@@ -1617,10 +1732,21 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
             FROM (
               SELECT *
               FROM (
-                SELECT
-                  t0."person_id",
-                  t0."score"
-                FROM "c7" AS t0
+                SELECT *
+                FROM (
+                  SELECT
+                    t0."person_id",
+                    t0."score"
+                  FROM "c8" AS t0
+                ) AS s0
+                UNION ALL
+                SELECT *
+                FROM (
+                  SELECT
+                    t0."person_id",
+                    t0."score"
+                  FROM "c9" AS t0
+                ) AS s0
               ) AS s0
               UNION ALL
               SELECT *
@@ -1628,7 +1754,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                 SELECT
                   t0."person_id",
                   t0."score"
-                FROM "c8" AS t0
+                FROM "c10" AS t0
               ) AS s0
               ORDER BY
                 "person_id" ASC,
@@ -1641,10 +1767,21 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
               FROM (
                 SELECT *
                 FROM (
-                  SELECT
-                    t0."person_id",
-                    t0."score"
-                  FROM "c7" AS t0
+                  SELECT *
+                  FROM (
+                    SELECT
+                      t0."person_id",
+                      t0."score"
+                    FROM "c8" AS t0
+                  ) AS s0
+                  UNION ALL
+                  SELECT *
+                  FROM (
+                    SELECT
+                      t0."person_id",
+                      t0."score"
+                    FROM "c9" AS t0
+                  ) AS s0
                 ) AS s0
                 UNION
                 SELECT *
@@ -1652,7 +1789,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                   SELECT
                     t0."person_id",
                     t0."score"
-                  FROM "c8" AS t0
+                  FROM "c10" AS t0
                 ) AS s0
                 ORDER BY
                   "person_id" ASC,
@@ -1664,7 +1801,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                 SELECT
                   t0."person_id",
                   t0."score"
-                FROM "c8" AS t0
+                FROM "c10" AS t0
               ) AS s0
             ) AS s0
             ORDER BY
@@ -1674,10 +1811,21 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
           EXCEPT
           SELECT *
           FROM (
-            SELECT
-              t0."person_id",
-              t0."score"
-            FROM "c7" AS t0
+            SELECT *
+            FROM (
+              SELECT
+                t0."person_id",
+                t0."score"
+              FROM "c8" AS t0
+            ) AS s0
+            UNION ALL
+            SELECT *
+            FROM (
+              SELECT
+                t0."person_id",
+                t0."score"
+              FROM "c9" AS t0
+            ) AS s0
           ) AS s0
           ORDER BY
             "person_id" ASC,
@@ -1691,7 +1839,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
             SELECT
               t0."person_id",
               t0."score"
-            FROM "c8" AS t0
+            FROM "c10" AS t0
           ) AS s0
           EXCEPT ALL
           SELECT *
@@ -1699,7 +1847,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
             SELECT
               t0."person_id",
               t0."score"
-            FROM "c8" AS t0
+            FROM "c10" AS t0
           ) AS s0
           ORDER BY
             "person_id" ASC,
@@ -1709,7 +1857,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
           "person_id" ASC,
           "score" DESC
       ),
-      "c11" (
+      "c13" (
         "field_1",
         "field_2",
         "field_3",
@@ -1719,19 +1867,19 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
           t0."id",
           t0."person_id",
           t0."label",
-          $25
+          $29
         FROM "mega_events" AS t0
         UNION ALL
         SELECT
           t0."id",
           t0."person_id",
           t0."label",
-          (t1."field_4" + $26)
+          (t1."field_4" + $30)
         FROM "mega_events" AS t0
-        INNER JOIN "c11" AS t1
+        INNER JOIN "c13" AS t1
           ON (t0."id" > t1."field_1")
       ),
-      "c12" (
+      "c14" (
         "person_id",
         "event_count",
         "total_score"
@@ -1740,40 +1888,40 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
           t0."person_id",
           COUNT(*),
           SUM(t0."score")
-        FROM "c10" AS t0
-        LEFT JOIN "c9" AS t1
+        FROM "c12" AS t0
+        LEFT JOIN "c11" AS t1
           ON (t0."person_id" = t1."person_id")
-        LEFT JOIN "c11" AS t2
+        LEFT JOIN "c13" AS t2
           ON (t0."person_id" = t2."field_2")
         WHERE
           (
             (t1."id" IS NOT NULL)
             AND (t2."field_2" IS NOT NULL)
-            AND (t0."score" > $27)
+            AND (t0."score" > $31)
           )
         GROUP BY
           t0."person_id"
         HAVING
           (
-            (COUNT(*) > $28)
-            AND (COUNT(*) < $29)
+            (COUNT(*) > $32)
+            AND (COUNT(*) < $33)
           )
         ORDER BY
           t0."person_id" DESC
-        OFFSET $30
-        FETCH FIRST $31 ROWS WITH TIES
+        OFFSET $34
+        FETCH FIRST $35 ROWS WITH TIES
       )
     UPDATE "public"."mega_people" AS t0
     SET
-      "active" = $32,
-      "nickname" = $33,
-      "bio" = $34,
+      "active" = $36,
+      "nickname" = $37,
+      "bio" = $38,
       "status" = DEFAULT,
-      "score" = (t0."score" + COALESCE(t4."total_score", $35)),
+      "score" = (t0."score" + COALESCE(t4."total_score", $39)),
       "name" = ((CASE
-        WHEN (t4."event_count" > $36) THEN UPPER(t0."name")
+        WHEN (t4."event_count" > $40) THEN UPPER(t0."name")
         ELSE LOWER(t0."name")
-      END) || $37)
+      END) || $41)
     FROM "mega_events" AS t1,
       (
         SELECT *
@@ -1792,12 +1940,12 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
             "v"."column2" AS "label"
           FROM (VALUES
             (
-              $5,
-              $6
+              $6,
+              $7
             ),
             (
-              $7,
-              $8
+              $8,
+              $9
             )
           ) AS "v") AS t6
             ON (t5."field_1" = t6."id")
@@ -1806,47 +1954,58 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
             "v"."column2" AS "label"
           FROM (VALUES
             (
-              $5,
-              $6
+              $6,
+              $7
             ),
             (
-              $7,
-              $8
+              $8,
+              $9
             )
           ) AS "v") AS t7
             ON (t5."field_1" = t7."id")
           WHERE
             (
-              (t5."field_1" > $9)
+              (t5."field_1" > $10)
               AND (
-                (CAST($10 AS bigint) IS NULL)
-                OR (t5."field_1" = $10)
+                (CAST($11 AS bigint) IS NULL)
+                OR (t5."field_1" = $11)
               )
             )
           ORDER BY
             t5."field_1" ASC
-          LIMIT $11
-          OFFSET $12
+          LIMIT $12
+          OFFSET $13
         ) AS s0
         UNION ALL
         SELECT *
         FROM (
-          SELECT
-            t5."id" AS "id",
-            t5."label" AS "label"
-          FROM (SELECT
-            "v"."column1" AS "id",
-            "v"."column2" AS "label"
-          FROM (VALUES
-            (
-              $13,
-              $14
-            ),
-            (
-              $15,
-              $16
-            )
-          ) AS "v") AS t5
+          SELECT *
+          FROM (
+            SELECT
+              t5."id" AS "id",
+              t5."label" AS "label"
+            FROM (SELECT
+              "v"."column1" AS "id",
+              "v"."column2" AS "label"
+            FROM (VALUES
+              (
+                $14,
+                $15
+              ),
+              (
+                $16,
+                $17
+              )
+            ) AS "v") AS t5
+          ) AS s0
+          UNION ALL
+          SELECT *
+          FROM (
+            SELECT "__typed_sql_raw"."c0" AS "id",
+            "__typed_sql_raw"."c1" AS "label" FROM (
+    SELECT $18 AS field_1, $19 AS label WHERE FALSE
+    ) AS "__typed_sql_raw" ("c0", "c1")
+          ) AS s0
         ) AS s0
         ORDER BY
           "id" ASC
@@ -1857,39 +2016,39 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
           t5."score" AS "field_2"
         FROM "public"."mega_people" AS t5
       ) AS t3,
-      "c12" AS t4
+      "c14" AS t4
     WHERE
       (
         (t0."id" = t4."person_id")
-        AND (CAST($38 AS boolean) IS NOT NULL)
-        AND (CAST($39 AS integer) IS NOT NULL)
-        AND (CAST($40 AS bigint) IS NOT NULL)
-        AND (CAST($41 AS double precision) IS NOT NULL)
-        AND (CAST($42 AS numeric) IS NOT NULL)
-        AND (CAST($43 AS text) IS NOT NULL)
-        AND (CAST($44 AS bytea) IS NOT NULL)
-        AND (CAST($45 AS date) IS NOT NULL)
-        AND (CAST($46 AS timestamp with time zone) IS NOT NULL)
-        AND (CAST($47 AS uuid) IS NOT NULL)
-        AND (CAST($48 AS text) IS NOT NULL)
+        AND (CAST($42 AS boolean) IS NOT NULL)
+        AND (CAST($43 AS integer) IS NOT NULL)
+        AND (CAST($44 AS bigint) IS NOT NULL)
+        AND (CAST($45 AS double precision) IS NOT NULL)
+        AND (CAST($46 AS numeric) IS NOT NULL)
+        AND (CAST($47 AS text) IS NOT NULL)
+        AND (CAST($48 AS bytea) IS NOT NULL)
+        AND (CAST($49 AS date) IS NOT NULL)
+        AND (CAST($50 AS timestamp with time zone) IS NOT NULL)
+        AND (CAST($51 AS uuid) IS NOT NULL)
+        AND (CAST($52 AS text) IS NOT NULL)
         AND (t1."person_id" = t0."id")
         AND (t2."id" = t0."id")
         AND (t3."field_1" = t0."id")
-        AND (t0."name" IS DISTINCT FROM $43)
+        AND (t0."name" IS DISTINCT FROM $47)
         AND ((EXISTS (
           SELECT
             1
-          FROM "c2" AS t5
+          FROM "c3" AS t5
           WHERE
             (t5."field_1" = t0."id")
-        )) = $49)
+        )) = $53)
         AND ((EXISTS (
           SELECT
             1
-          FROM "c11" AS t5
+          FROM "c13" AS t5
           WHERE
             (t5."field_2" = t0."id")
-        )) = $50)
+        )) = $54)
         AND ((EXISTS (
           SELECT
             1
@@ -1898,16 +2057,16 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
             (t5."person_id" = t0."id")
           ORDER BY
             t5."id" ASC
-          LIMIT $51
+          LIMIT $55
           FOR UPDATE OF t5 SKIP LOCKED
-        )) = $52)
+        )) = $56)
         AND ((EXISTS (
           SELECT
             1
-          FROM "c3" AS t5
+          FROM "c4" AS t5
           WHERE
             (t5."id" = t0."id")
-        )) = $53)
+        )) = $57)
         AND ((EXISTS (
           SELECT
             1
@@ -1931,48 +2090,48 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
             FROM "public"."mega_people" AS t8
           ) AS t7
             ON (t5."field_1" = t7."field_1")
-        )) = $54)
-        AND ((EXISTS (
-          SELECT
-            1
-          FROM "c4" AS t5
-          INNER JOIN "c4" AS t6
-            ON (t5."id" = t6."id")
-          WHERE
-            (t5."person_id" = t0."id")
-        )) = $55)
+        )) = $58)
         AND ((EXISTS (
           SELECT
             1
           FROM "c5" AS t5
+          INNER JOIN "c5" AS t6
+            ON (t5."id" = t6."id")
           WHERE
-            (t5."count_all" > $56)
-        )) = $57)
+            (t5."person_id" = t0."id")
+        )) = $59)
         AND ((EXISTS (
           SELECT
             1
           FROM "c6" AS t5
           WHERE
-            (t5."id" > $58)
-        )) = $59)
+            (t5."count_all" > $60)
+        )) = $61)
+        AND ((EXISTS (
+          SELECT
+            1
+          FROM "c7" AS t5
+          WHERE
+            (t5."id" > $62)
+        )) = $63)
         AND (COALESCE((
           SELECT
             COUNT(*)
           FROM "mega_events" AS t5
           WHERE
             (t5."person_id" = t0."id")
-        ), $60) > $61)
+        ), $64) > $65)
         AND (t0."id" IN (
-          $62,
-          $63
+          $66,
+          $67
         ))
-        AND (t0."id" NOT IN ($64))
+        AND (t0."id" NOT IN ($68))
         AND (t0."name" IN (
-          $65,
-          $66
+          $69,
+          $70
         ))
-        AND (t0."name" NOT IN ($67))
-        AND (t0."score" BETWEEN $68 AND $69)
+        AND (t0."name" NOT IN ($71))
+        AND (t0."score" BETWEEN $72 AND $73)
         AND (NOT (t0."nickname" IS NULL))
         AND (NOT EXISTS (
           SELECT
@@ -1987,23 +2146,23 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
           FROM "mega_events" AS t5
           WHERE
             (t5."person_id" = t0."id")
-          LIMIT $70
+          LIMIT $74
         ))
         AND ((
           SELECT
             STRING_AGG(
               t5."nullable_label",
-              $71
+              $75
               ORDER BY t5."id" ASC
             )
           FROM "mega_events" AS t5
           WHERE
             (t5."person_id" = t0."id")
-        ) = $72)
-        AND (t0."id" = ANY(CAST($73 AS bigint[])))
-        AND (CAST(CAST($74 AS "pg_catalog"."timestamp") AS "pg_catalog"."timestamp") IS NOT NULL)
-        AND (CAST(CAST($75 AS "pg_catalog"."interval") AS "pg_catalog"."interval") IS NOT NULL)
-        AND ($76 = ANY(CAST($77 AS bigint[])))
+        ) = $76)
+        AND (t0."id" = ANY(CAST($77 AS bigint[])))
+        AND (CAST(CAST($78 AS "pg_catalog"."timestamp") AS "pg_catalog"."timestamp") IS NOT NULL)
+        AND (CAST(CAST($79 AS "pg_catalog"."interval") AS "pg_catalog"."interval") IS NOT NULL)
+        AND ($80 = ANY(CAST($81 AS bigint[])))
       )
     RETURNING
       t0."id",
@@ -2034,11 +2193,15 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
               t5."person_id" AS "v1",
               t5."label" AS "v2"
             FROM "mega_events" AS t5
+            CROSS JOIN "mega_events" AS t6
             WHERE
-              (t5."person_id" = t0."id")
+              (
+                (t5."id" = t6."id")
+                AND (t5."person_id" = t0."id")
+              )
             ORDER BY
               t5."id" ASC
-            LIMIT $78
+            LIMIT $82
           ) AS m0
         )
         AS TEXT
@@ -2095,9 +2258,9 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                       WHERE
                         (
                           (t6."person_id" = t0."id")
-                          AND (t6."value" > $79)
+                          AND (t6."value" > $83)
                         )
-                    )) = $80)
+                    )) = $84)
                   )
                 ),
                 JSONB_BUILD_ARRAY()
@@ -2111,34 +2274,34 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
         SELECT
           COALESCE(SUM((CASE
             WHEN (
-              (t5."id" = (t5."id" + $81))
-              AND ((t5."id" - $82) = $83)
-              AND ((t5."id" * $84) = t5."id")
-              AND ((t5."id" / NULLIF($85, 0)) = t5."id")
-              AND (t5."id" <> $86)
-              AND (t5."id" <> $87)
-              AND (t5."id" < $88)
-              AND (t5."id" <= $89)
-              AND (t5."id" >= $90)
-              AND (t5."id" <= $91)
-              AND (t5."id" >= $92)
+              (t5."id" = (t5."id" + $85))
+              AND ((t5."id" - $86) = $87)
+              AND ((t5."id" * $88) = t5."id")
+              AND ((t5."id" / NULLIF($89, 0)) = t5."id")
+              AND (t5."id" <> $90)
+              AND (t5."id" <> $91)
+              AND (t5."id" < $92)
+              AND (t5."id" <= $93)
+              AND (t5."id" >= $94)
+              AND (t5."id" <= $95)
+              AND (t5."id" >= $96)
               AND (t5."nullable_id" IS NULL)
               AND (t5."nullable_id" IS NOT NULL)
               AND (t5."id" IN (
-                $93,
-                $94
+                $97,
+                $98
               ))
-              AND (t5."id" NOT IN ($95))
-              AND (t5."id" IN ($96))
-              AND (t5."id" NOT IN ($97))
-              AND (t5."id" BETWEEN $98 AND $99)
+              AND (t5."id" NOT IN ($99))
+              AND (t5."id" IN ($100))
+              AND (t5."id" NOT IN ($101))
+              AND (t5."id" BETWEEN $102 AND $103)
               AND (t5."id" IN (
                 SELECT
                   t6."id"
                 FROM "mega_events" AS t6
                 WHERE
                   (t6."id" = t5."id")
-                LIMIT $100
+                LIMIT $104
               ))
               AND (t5."id" NOT IN (
                 SELECT
@@ -2146,7 +2309,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                 FROM "mega_events" AS t6
                 WHERE
                   (t6."id" = t5."id")
-                LIMIT $101
+                LIMIT $105
               ))
               AND (EXISTS (
                 SELECT
@@ -2162,28 +2325,43 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                 WHERE
                   (t6."person_id" = t5."person_id")
               ))
-              AND (t5."label" IS DISTINCT FROM $102)
-              AND (t5."label" LIKE $103)
-              AND (CHAR_LENGTH(t5."label") > $104)
+              AND (t5."label" IS DISTINCT FROM $106)
+              AND (t5."label" LIKE $107)
+              AND (CHAR_LENGTH(t5."label") > $108)
               AND ((
                 SELECT
                   t6."nullable_id"
                 FROM "mega_events" AS t6
                 WHERE
                   (t6."id" = t5."id")
-                LIMIT $105
+                LIMIT $109
               ) = t5."id")
-              AND (NOT (t5."id" > $106))
-              AND ((LOWER(t5."label") || $107) LIKE $108)
-              AND (COALESCE(t5."nullable_id", $109) > $110)
+              AND (NOT (t5."id" > $110))
+              AND ((LOWER(t5."label") || $111) LIKE $112)
+              AND (COALESCE(t5."nullable_id", $113) > $114)
               AND ((CASE
                 WHEN TRUE THEN t5."id"
-                ELSE $111
-              END) > $112)
+                ELSE $115
+              END) > $116)
+              AND (CAST((
+                SELECT
+                  AVG(CAST(CAST(t6."float_value" AS bigint) AS double precision))
+                FROM "mega_events" AS t6
+                WHERE
+                  (t6."person_id" = t0."id")
+              ) AS integer) IS NOT NULL)
+              AND ((
+                SELECT
+                  AVG(CAST(CAST(CAST(t6."value" AS bigint) AS integer) AS double precision))
+                FROM "mega_events" AS t6
+                WHERE
+                  (t6."person_id" = t0."id")
+              ) IS NOT NULL)
+              AND (CAST(t5."value" AS double precision) > $117)
               AND (CURRENT_TIMESTAMP = CURRENT_TIMESTAMP)
             ) THEN t5."value"
-            ELSE $113
-          END)), $114)
+            ELSE $118
+          END)), $119)
         FROM "mega_events" AS t5
       )
     |}];
@@ -2194,236 +2372,246 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
      (parameters
       (((position 1) (placeholder $1) (name ()) (db_type bool)
         (dialect_type (boolean)) (value ((Encoded true))))
-       ((position 2) (placeholder $2) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1))))
+       ((position 2) (placeholder $2) (name ()) (db_type bool)
+        (dialect_type (boolean)) (value ((Encoded true))))
        ((position 3) (placeholder $3) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 1))))
        ((position 4) (placeholder $4) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 4))))
+        (dialect_type (bigint)) (value ((Encoded 1))))
        ((position 5) (placeholder $5) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 4))))
+       ((position 6) (placeholder $6) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 6) (placeholder $6) (name ()) (db_type text)
+       ((position 7) (placeholder $7) (name ()) (db_type text)
         (dialect_type (text)) (value ((Encoded one))))
-       ((position 7) (placeholder $7) (name ()) (db_type int64)
+       ((position 8) (placeholder $8) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 2))))
-       ((position 8) (placeholder $8) (name ()) (db_type text)
+       ((position 9) (placeholder $9) (name ()) (db_type text)
         (dialect_type (text)) (value ((Encoded two))))
-       ((position 9) (placeholder $9) (name ()) (db_type int64)
+       ((position 10) (placeholder $10) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 10) (placeholder $10) (name (optional_mega_person_id))
+       ((position 11) (placeholder $11) (name (optional_mega_person_id))
         (db_type "option(int64)") (dialect_type (bigint)) (value (Null)))
-       ((position 11) (placeholder $11) (name (optional_input_rows_limit))
+       ((position 12) (placeholder $12) (name (optional_input_rows_limit))
         (db_type "option(int)") (dialect_type (integer)) (value ((Encoded 20))))
-       ((position 12) (placeholder $12) (name (input_rows_offset))
+       ((position 13) (placeholder $13) (name (input_rows_offset))
         (db_type "option(int)") (dialect_type (integer)) (value ((Encoded 1))))
-       ((position 13) (placeholder $13) (name ()) (db_type int64)
+       ((position 14) (placeholder $14) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 14) (placeholder $14) (name ()) (db_type text)
+       ((position 15) (placeholder $15) (name ()) (db_type text)
         (dialect_type (text)) (value ((Encoded one))))
-       ((position 15) (placeholder $15) (name ()) (db_type int64)
+       ((position 16) (placeholder $16) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 2))))
-       ((position 16) (placeholder $16) (name ()) (db_type text)
+       ((position 17) (placeholder $17) (name ()) (db_type text)
         (dialect_type (text)) (value ((Encoded two))))
-       ((position 17) (placeholder $17) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
        ((position 18) (placeholder $18) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 101))))
+        (dialect_type (bigint)) (value ((Encoded 0))))
        ((position 19) (placeholder $19) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded inserted))))
+        (dialect_type (text)) (value ((Encoded "raw input"))))
        ((position 20) (placeholder $20) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 21) (placeholder $21) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 101))))
+       ((position 22) (placeholder $22) (name ()) (db_type text)
+        (dialect_type (text)) (value ((Encoded inserted))))
+       ((position 23) (placeholder $23) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 102))))
-       ((position 21) (placeholder $21) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded "also inserted"))))
-       ((position 22) (placeholder $22) (name ()) (db_type int)
-        (dialect_type (integer)) (value ((Encoded 0))))
-       ((position 23) (placeholder $23) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded " archived"))))
        ((position 24) (placeholder $24) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded expired))))
+        (dialect_type (text)) (value ((Encoded "also inserted"))))
        ((position 25) (placeholder $25) (name ()) (db_type int)
         (dialect_type (integer)) (value ((Encoded 0))))
        ((position 26) (placeholder $26) (name ()) (db_type int)
-        (dialect_type (integer)) (value ((Encoded 1))))
-       ((position 27) (placeholder $27) (name ()) (db_type int)
         (dialect_type (integer)) (value ((Encoded 0))))
-       ((position 28) (placeholder $28) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 29) (placeholder $29) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 100))))
+       ((position 27) (placeholder $27) (name ()) (db_type text)
+        (dialect_type (text)) (value ((Encoded " archived"))))
+       ((position 28) (placeholder $28) (name ()) (db_type text)
+        (dialect_type (text)) (value ((Encoded expired))))
+       ((position 29) (placeholder $29) (name ()) (db_type int)
+        (dialect_type (integer)) (value ((Encoded 0))))
        ((position 30) (placeholder $30) (name ()) (db_type int)
-        (dialect_type (integer)) (value ((Encoded 0))))
-       ((position 31) (placeholder $31) (name (input_rows_limit)) (db_type int)
-        (dialect_type (integer)) (value ((Encoded 20))))
-       ((position 32) (placeholder $32) (name ()) (db_type bool)
-        (dialect_type (boolean)) (value ((Encoded true))))
-       ((position 33) (placeholder $33) (name ()) (db_type "option(text)")
-        (dialect_type (text)) (value (Null)))
-       ((position 34) (placeholder $34) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded updated))))
-       ((position 35) (placeholder $35) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 36) (placeholder $36) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 37) (placeholder $37) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded !))))
-       ((position 38) (placeholder $38) (name ()) (db_type bool)
-        (dialect_type (boolean)) (value ((Encoded true))))
-       ((position 39) (placeholder $39) (name ()) (db_type int)
         (dialect_type (integer)) (value ((Encoded 1))))
+       ((position 31) (placeholder $31) (name ()) (db_type int)
+        (dialect_type (integer)) (value ((Encoded 0))))
+       ((position 32) (placeholder $32) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 33) (placeholder $33) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 100))))
+       ((position 34) (placeholder $34) (name ()) (db_type int)
+        (dialect_type (integer)) (value ((Encoded 0))))
+       ((position 35) (placeholder $35) (name (input_rows_limit)) (db_type int)
+        (dialect_type (integer)) (value ((Encoded 20))))
+       ((position 36) (placeholder $36) (name ()) (db_type bool)
+        (dialect_type (boolean)) (value ((Encoded true))))
+       ((position 37) (placeholder $37) (name ()) (db_type "option(text)")
+        (dialect_type (text)) (value (Null)))
+       ((position 38) (placeholder $38) (name ()) (db_type text)
+        (dialect_type (text)) (value ((Encoded updated))))
+       ((position 39) (placeholder $39) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 0))))
        ((position 40) (placeholder $40) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 41) (placeholder $41) (name ()) (db_type float)
+       ((position 41) (placeholder $41) (name ()) (db_type text)
+        (dialect_type (text)) (value ((Encoded !))))
+       ((position 42) (placeholder $42) (name ()) (db_type bool)
+        (dialect_type (boolean)) (value ((Encoded true))))
+       ((position 43) (placeholder $43) (name ()) (db_type int)
+        (dialect_type (integer)) (value ((Encoded 1))))
+       ((position 44) (placeholder $44) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 1))))
+       ((position 45) (placeholder $45) (name ()) (db_type float)
         (dialect_type ("double precision")) (value ((Encoded 1.5))))
-       ((position 42) (placeholder $42) (name ()) (db_type numeric)
+       ((position 46) (placeholder $46) (name ()) (db_type numeric)
         (dialect_type (numeric)) (value ((Encoded 0.1234))))
-       ((position 43) (placeholder $43) (name (mega_label)) (db_type text)
+       ((position 47) (placeholder $47) (name (mega_label)) (db_type text)
         (dialect_type (text)) (value ((Encoded mega))))
-       ((position 44) (placeholder $44) (name ()) (db_type bytes)
+       ((position 48) (placeholder $48) (name ()) (db_type bytes)
         (dialect_type (bytea)) (value ((Encoded "\\x6d656761"))))
-       ((position 45) (placeholder $45) (name ()) (db_type date)
+       ((position 49) (placeholder $49) (name ()) (db_type date)
         (dialect_type (date)) (value ((Encoded 2026-09-30))))
-       ((position 46) (placeholder $46) (name ()) (db_type timestamp)
+       ((position 50) (placeholder $50) (name ()) (db_type timestamp)
         (dialect_type ("timestamp with time zone"))
         (value ((Encoded 1970-01-01T00:00:00-00:00))))
-       ((position 47) (placeholder $47) (name ()) (db_type uuid)
+       ((position 51) (placeholder $51) (name ()) (db_type uuid)
         (dialect_type (uuid))
         (value ((Encoded 550e8400-e29b-41d4-a716-446655440000))))
-       ((position 48) (placeholder $48) (name ()) (db_type "option(mega_text)")
+       ((position 52) (placeholder $52) (name ()) (db_type "option(mega_text)")
         (dialect_type (text)) (value ((Encoded mapped))))
-       ((position 49) (placeholder $49) (name ()) (db_type bool)
-        (dialect_type (boolean)) (value ((Encoded true))))
-       ((position 50) (placeholder $50) (name ()) (db_type bool)
-        (dialect_type (boolean)) (value ((Encoded true))))
-       ((position 51) (placeholder $51) (name ()) (db_type int)
-        (dialect_type (integer)) (value ((Encoded 1))))
-       ((position 52) (placeholder $52) (name ()) (db_type bool)
-        (dialect_type (boolean)) (value ((Encoded true))))
        ((position 53) (placeholder $53) (name ()) (db_type bool)
         (dialect_type (boolean)) (value ((Encoded true))))
        ((position 54) (placeholder $54) (name ()) (db_type bool)
         (dialect_type (boolean)) (value ((Encoded true))))
-       ((position 55) (placeholder $55) (name ()) (db_type bool)
+       ((position 55) (placeholder $55) (name ()) (db_type int)
+        (dialect_type (integer)) (value ((Encoded 1))))
+       ((position 56) (placeholder $56) (name ()) (db_type bool)
         (dialect_type (boolean)) (value ((Encoded true))))
-       ((position 56) (placeholder $56) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
        ((position 57) (placeholder $57) (name ()) (db_type bool)
         (dialect_type (boolean)) (value ((Encoded true))))
-       ((position 58) (placeholder $58) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 58) (placeholder $58) (name ()) (db_type bool)
+        (dialect_type (boolean)) (value ((Encoded true))))
        ((position 59) (placeholder $59) (name ()) (db_type bool)
         (dialect_type (boolean)) (value ((Encoded true))))
        ((position 60) (placeholder $60) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 61) (placeholder $61) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 61) (placeholder $61) (name ()) (db_type bool)
+        (dialect_type (boolean)) (value ((Encoded true))))
        ((position 62) (placeholder $62) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 63) (placeholder $63) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 2))))
-       ((position 64) (placeholder $64) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded -1))))
-       ((position 65) (placeholder $65) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded Ada))))
-       ((position 66) (placeholder $66) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded Edsger))))
-       ((position 67) (placeholder $67) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded unknown))))
-       ((position 68) (placeholder $68) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 69) (placeholder $69) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1000))))
-       ((position 70) (placeholder $70) (name ()) (db_type int)
-        (dialect_type (integer)) (value ((Encoded 1))))
+       ((position 63) (placeholder $63) (name ()) (db_type bool)
+        (dialect_type (boolean)) (value ((Encoded true))))
+       ((position 64) (placeholder $64) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 65) (placeholder $65) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 66) (placeholder $66) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 1))))
+       ((position 67) (placeholder $67) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 2))))
+       ((position 68) (placeholder $68) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded -1))))
+       ((position 69) (placeholder $69) (name ()) (db_type text)
+        (dialect_type (text)) (value ((Encoded Ada))))
+       ((position 70) (placeholder $70) (name ()) (db_type text)
+        (dialect_type (text)) (value ((Encoded Edsger))))
        ((position 71) (placeholder $71) (name ()) (db_type text)
+        (dialect_type (text)) (value ((Encoded unknown))))
+       ((position 72) (placeholder $72) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 73) (placeholder $73) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 1000))))
+       ((position 74) (placeholder $74) (name ()) (db_type int)
+        (dialect_type (integer)) (value ((Encoded 1))))
+       ((position 75) (placeholder $75) (name ()) (db_type text)
         (dialect_type (text)) (value ((Encoded ,))))
-       ((position 72) (placeholder $72) (name ()) (db_type "option(text)")
+       ((position 76) (placeholder $76) (name ()) (db_type "option(text)")
         (dialect_type (text)) (value ((Encoded optional))))
-       ((position 73) (placeholder $73) (name ()) (db_type "array_list(int64)")
+       ((position 77) (placeholder $77) (name ()) (db_type "array_list(int64)")
         (dialect_type (bigint[])) (value ((Encoded "{\"1\"}"))))
-       ((position 74) (placeholder $74) (name ())
+       ((position 78) (placeholder $78) (name ())
         (db_type "timestamp without time zone")
         (dialect_type ("\"pg_catalog\".\"timestamp\""))
         (value ((Encoded "2026-09-30 12:34:56.000789"))))
-       ((position 75) (placeholder $75) (name ()) (db_type interval)
+       ((position 79) (placeholder $79) (name ()) (db_type interval)
         (dialect_type ("\"pg_catalog\".\"interval\""))
         (value ((Encoded "14 mons 3 days 4:05:06.000007"))))
-       ((position 76) (placeholder $76) (name ()) (db_type int64)
+       ((position 80) (placeholder $80) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 77) (placeholder $77) (name ()) (db_type "array(int64)")
+       ((position 81) (placeholder $81) (name ()) (db_type "array(int64)")
         (dialect_type (bigint[])) (value ((Encoded "[0:1]={\"1\",NULL}"))))
-       ((position 78) (placeholder $78) (name ()) (db_type int)
+       ((position 82) (placeholder $82) (name ()) (db_type int)
         (dialect_type (integer)) (value ((Encoded 5))))
-       ((position 79) (placeholder $79) (name ()) (db_type int)
+       ((position 83) (placeholder $83) (name ()) (db_type int)
         (dialect_type (integer)) (value ((Encoded 0))))
-       ((position 80) (placeholder $80) (name ()) (db_type bool)
+       ((position 84) (placeholder $84) (name ()) (db_type bool)
         (dialect_type (boolean)) (value ((Encoded true))))
-       ((position 81) (placeholder $81) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 82) (placeholder $82) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 83) (placeholder $83) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 9))))
-       ((position 84) (placeholder $84) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1))))
        ((position 85) (placeholder $85) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 1))))
        ((position 86) (placeholder $86) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
+        (dialect_type (bigint)) (value ((Encoded 1))))
        ((position 87) (placeholder $87) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
+        (dialect_type (bigint)) (value ((Encoded 9))))
        ((position 88) (placeholder $88) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 100))))
+        (dialect_type (bigint)) (value ((Encoded 1))))
        ((position 89) (placeholder $89) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 100))))
+        (dialect_type (bigint)) (value ((Encoded 1))))
        ((position 90) (placeholder $90) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
        ((position 91) (placeholder $91) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 100))))
+        (dialect_type (bigint)) (value ((Encoded 0))))
        ((position 92) (placeholder $92) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 93) (placeholder $93) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 94) (placeholder $94) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 2))))
-       ((position 95) (placeholder $95) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded -1))))
-       ((position 96) (placeholder $96) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 3))))
-       ((position 97) (placeholder $97) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 4))))
-       ((position 98) (placeholder $98) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 99) (placeholder $99) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 100))))
-       ((position 100) (placeholder $100) (name ()) (db_type int)
-        (dialect_type (integer)) (value ((Encoded 1))))
-       ((position 101) (placeholder $101) (name ()) (db_type int)
-        (dialect_type (integer)) (value ((Encoded 1))))
-       ((position 102) (placeholder $102) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded different))))
-       ((position 103) (placeholder $103) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded %v%))))
+       ((position 93) (placeholder $93) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 100))))
+       ((position 94) (placeholder $94) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 95) (placeholder $95) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 100))))
+       ((position 96) (placeholder $96) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 97) (placeholder $97) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 1))))
+       ((position 98) (placeholder $98) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 2))))
+       ((position 99) (placeholder $99) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded -1))))
+       ((position 100) (placeholder $100) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 3))))
+       ((position 101) (placeholder $101) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 4))))
+       ((position 102) (placeholder $102) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 103) (placeholder $103) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 100))))
        ((position 104) (placeholder $104) (name ()) (db_type int)
-        (dialect_type (integer)) (value ((Encoded 0))))
+        (dialect_type (integer)) (value ((Encoded 1))))
        ((position 105) (placeholder $105) (name ()) (db_type int)
         (dialect_type (integer)) (value ((Encoded 1))))
-       ((position 106) (placeholder $106) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 106) (placeholder $106) (name ()) (db_type text)
+        (dialect_type (text)) (value ((Encoded different))))
        ((position 107) (placeholder $107) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded x))))
-       ((position 108) (placeholder $108) (name ()) (db_type text)
-        (dialect_type (text)) (value ((Encoded %))))
-       ((position 109) (placeholder $109) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
+        (dialect_type (text)) (value ((Encoded %v%))))
+       ((position 108) (placeholder $108) (name ()) (db_type int)
+        (dialect_type (integer)) (value ((Encoded 0))))
+       ((position 109) (placeholder $109) (name ()) (db_type int)
+        (dialect_type (integer)) (value ((Encoded 1))))
        ((position 110) (placeholder $110) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 111) (placeholder $111) (name ()) (db_type int64)
+       ((position 111) (placeholder $111) (name ()) (db_type text)
+        (dialect_type (text)) (value ((Encoded x))))
+       ((position 112) (placeholder $112) (name ()) (db_type text)
+        (dialect_type (text)) (value ((Encoded %))))
+       ((position 113) (placeholder $113) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 112) (placeholder $112) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 113) (placeholder $113) (name ()) (db_type int)
-        (dialect_type (integer)) (value ((Encoded 0))))
        ((position 114) (placeholder $114) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 115) (placeholder $115) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 116) (placeholder $116) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 117) (placeholder $117) (name ()) (db_type float)
+        (dialect_type ("double precision")) (value ((Encoded 0))))
+       ((position 118) (placeholder $118) (name ()) (db_type int)
+        (dialect_type (integer)) (value ((Encoded 0))))
+       ((position 119) (placeholder $119) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))))
      (output
       (Query_output (cardinality Many)
@@ -2477,8 +2665,12 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
             t1."person_id" AS "v1",
             t1."label" AS "v2"
           FROM "mega_events" AS t1
+          CROSS JOIN "mega_events" AS t2
           WHERE
-            (t1."person_id" = t0."id")
+            (
+              (t1."id" = t2."id")
+              AND (t1."person_id" = t0."id")
+            )
           ORDER BY
             t1."id" ASC NULLS LAST
           LIMIT ?1
@@ -2618,16 +2810,31 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
                 WHEN TRUE THEN t1."id"
                 ELSE ?34
               END) > ?35)
+              AND (CAST((
+                SELECT
+                  AVG(CAST(CAST(t2."float_value" AS INTEGER) AS REAL))
+                FROM "mega_events" AS t2
+                WHERE
+                  (t2."person_id" = t0."id")
+              ) AS INTEGER) IS NOT NULL)
+              AND ((
+                SELECT
+                  AVG(CAST(CAST(CAST(t2."value" AS INTEGER) AS INTEGER) AS REAL))
+                FROM "mega_events" AS t2
+                WHERE
+                  (t2."person_id" = t0."id")
+              ) IS NOT NULL)
+              AND (CAST(t1."value" AS REAL) > ?36)
               AND (CURRENT_TIMESTAMP = CURRENT_TIMESTAMP)
             ) THEN t1."value"
-            ELSE ?36
-          END)), ?37)
+            ELSE ?37
+          END)), ?38)
         FROM "mega_events" AS t1
       )
     FROM "public"."mega_people" AS t0
     WHERE
       (
-        (t0."name" = ?38)
+        (t0."name" = ?39)
         AND (EXISTS (
           SELECT
             1
@@ -2638,7 +2845,7 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
                 t2."id" AS "id"
               FROM "public"."mega_people" AS t2
               WHERE
-                (t2."name" = ?38)
+                (t2."name" = ?39)
             ) AS s0
             UNION
             SELECT *
@@ -2647,7 +2854,7 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
                 t2."id" AS "id"
               FROM "public"."mega_people" AS t2
               WHERE
-                (t2."id" > ?39)
+                (t2."id" > ?40)
             ) AS s0
           ) AS t1
           WHERE
@@ -2658,9 +2865,9 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
       t0."id",
       t0."name"
     HAVING
-      (COUNT(*) > ?40)
-    LIMIT ?41
-    OFFSET ?42
+      (COUNT(*) > ?41)
+    LIMIT ?42
+    OFFSET ?43
     |}];
   Stdlib.print_endline @@ Sexp.to_string_hum @@ Statement.sexp_of_inspection inspection;
   [%expect
@@ -2737,19 +2944,21 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
         (dialect_type (INTEGER)) (value ((Encoded 0))))
        ((position 35) (placeholder ?35) (name ()) (db_type int64)
         (dialect_type (INTEGER)) (value ((Encoded 0))))
-       ((position 36) (placeholder ?36) (name ()) (db_type int)
+       ((position 36) (placeholder ?36) (name ()) (db_type float)
+        (dialect_type (REAL)) (value ((Encoded 0))))
+       ((position 37) (placeholder ?37) (name ()) (db_type int)
         (dialect_type (INTEGER)) (value ((Encoded 0))))
-       ((position 37) (placeholder ?37) (name ()) (db_type int64)
+       ((position 38) (placeholder ?38) (name ()) (db_type int64)
         (dialect_type (INTEGER)) (value ((Encoded 0))))
-       ((position 38) (placeholder ?38) (name (mega_label)) (db_type text)
+       ((position 39) (placeholder ?39) (name (mega_label)) (db_type text)
         (dialect_type (TEXT)) (value ((Encoded mega))))
-       ((position 39) (placeholder ?39) (name ()) (db_type int64)
-        (dialect_type (INTEGER)) (value ((Encoded 0))))
        ((position 40) (placeholder ?40) (name ()) (db_type int64)
         (dialect_type (INTEGER)) (value ((Encoded 0))))
-       ((position 41) (placeholder ?41) (name (input_rows_limit)) (db_type int)
+       ((position 41) (placeholder ?41) (name ()) (db_type int64)
+        (dialect_type (INTEGER)) (value ((Encoded 0))))
+       ((position 42) (placeholder ?42) (name (input_rows_limit)) (db_type int)
         (dialect_type (INTEGER)) (value ((Encoded 20))))
-       ((position 42) (placeholder ?42) (name (input_rows_offset)) (db_type int)
+       ((position 43) (placeholder ?43) (name (input_rows_offset)) (db_type int)
         (dialect_type (INTEGER)) (value ((Encoded 1))))))
      (output
       (Query_output (cardinality Many)
@@ -2774,6 +2983,9 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
     {|
     WITH RECURSIVE
       "c0" AS (
+        UPDATE public.mega_maintenance SET enabled = CAST(E'true' AS boolean) WHERE FALSE
+      ),
+      "c1" AS (
         MERGE INTO "mega_cleanup" AS t0
         USING "mega_expired" AS t1
         ON (t0."id" = t1."person_id")
@@ -2790,12 +3002,12 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
         WHEN NOT MATCHED THEN
           DO NOTHING
       ),
-      "c1" AS (
+      "c2" AS (
         UPDATE "mega_maintenance"
         SET
           "enabled" = CAST(E'true' AS boolean)
       ),
-      "c2" (
+      "c3" (
         "field_1"
       ) AS (
         SELECT
@@ -2803,11 +3015,11 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
         UNION ALL
         SELECT
           (t0."field_1" + CAST(E'1' AS bigint))
-        FROM "c2" AS t0
+        FROM "c3" AS t0
         WHERE
           (t0."field_1" < CAST(E'4' AS bigint))
       ),
-      "c3" (
+      "c4" (
         "id",
         "label"
       ) AS (
@@ -2866,27 +3078,35 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
         UNION ALL
         SELECT *
         FROM (
-          SELECT
-            t0."id",
-            t0."label"
-          FROM (SELECT
-            "v"."column1" AS "id",
-            "v"."column2" AS "label"
-          FROM (VALUES
-            (
-              CAST(E'1' AS bigint),
-              CAST(E'one' AS text)
-            ),
-            (
-              CAST(E'2' AS bigint),
-              CAST(E'two' AS text)
-            )
-          ) AS "v") AS t0
+          SELECT *
+          FROM (
+            SELECT
+              t0."id",
+              t0."label"
+            FROM (SELECT
+              "v"."column1" AS "id",
+              "v"."column2" AS "label"
+            FROM (VALUES
+              (
+                CAST(E'1' AS bigint),
+                CAST(E'one' AS text)
+              ),
+              (
+                CAST(E'2' AS bigint),
+                CAST(E'two' AS text)
+              )
+            ) AS "v") AS t0
+          ) AS s0
+          UNION ALL
+          SELECT *
+          FROM (
+            SELECT CAST(E'0' AS bigint) AS field_1, CAST(E'raw input' AS text) AS label WHERE FALSE
+          ) AS s0
         ) AS s0
         ORDER BY
           "field_1" ASC
       ),
-      "c4" (
+      "c5" (
         "id",
         "person_id",
         "label"
@@ -2923,7 +3143,7 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
         LEFT JOIN "mega_events" AS t4
           ON (t0."id" = t4."id")
       ),
-      "c5" (
+      "c6" (
         "count_all",
         "count_id",
         "count_distinct",
@@ -2968,7 +3188,7 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
         WHERE
           (t0."id" > CAST(E'0' AS bigint))
       ),
-      "c6" (
+      "c7" (
         "id",
         "label"
       ) AS (
@@ -2984,7 +3204,7 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
           "id",
           "label"
       ),
-      "c7" (
+      "c8" (
         "id",
         "person_id",
         "label",
@@ -2999,7 +3219,15 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
           "label",
           "score"
       ),
-      "c8" (
+      "c9" (
+        "id",
+        "person_id",
+        "label",
+        "score"
+      ) AS (
+        DELETE FROM public.mega_expired WHERE FALSE AND score = CAST(E'0' AS integer) RETURNING id, person_id, label, score
+      ),
+      "c10" (
         "id",
         "person_id",
         "label",
@@ -3009,7 +3237,7 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
         SET
           "score" = (t0."score" + t1."score"),
           "label" = (t0."label" || CAST(E' archived' AS text))
-        FROM "c7" AS t1
+        FROM "c8" AS t1
         WHERE
           (t0."id" = t1."id")
         RETURNING
@@ -3018,7 +3246,7 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
           t0."label",
           t0."score"
       ),
-      "c9" (
+      "c11" (
         "id",
         "person_id",
         "label",
@@ -3035,7 +3263,7 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
           t0."person_id",
           t0."label",
           t0."score"
-        FROM "c7" AS t0
+        FROM "c8" AS t0
         ON CONFLICT (
           "person_id",
           "score"
@@ -3052,7 +3280,7 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
           "label",
           "score"
       ),
-      "c10" (
+      "c12" (
         "person_id",
         "score"
       ) AS NOT MATERIALIZED (
@@ -3064,10 +3292,21 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
             FROM (
               SELECT *
               FROM (
-                SELECT
-                  t0."person_id",
-                  t0."score"
-                FROM "c7" AS t0
+                SELECT *
+                FROM (
+                  SELECT
+                    t0."person_id",
+                    t0."score"
+                  FROM "c8" AS t0
+                ) AS s0
+                UNION ALL
+                SELECT *
+                FROM (
+                  SELECT
+                    t0."person_id",
+                    t0."score"
+                  FROM "c9" AS t0
+                ) AS s0
               ) AS s0
               UNION ALL
               SELECT *
@@ -3075,7 +3314,7 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
                 SELECT
                   t0."person_id",
                   t0."score"
-                FROM "c8" AS t0
+                FROM "c10" AS t0
               ) AS s0
               ORDER BY
                 "person_id" ASC,
@@ -3088,10 +3327,21 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
               FROM (
                 SELECT *
                 FROM (
-                  SELECT
-                    t0."person_id",
-                    t0."score"
-                  FROM "c7" AS t0
+                  SELECT *
+                  FROM (
+                    SELECT
+                      t0."person_id",
+                      t0."score"
+                    FROM "c8" AS t0
+                  ) AS s0
+                  UNION ALL
+                  SELECT *
+                  FROM (
+                    SELECT
+                      t0."person_id",
+                      t0."score"
+                    FROM "c9" AS t0
+                  ) AS s0
                 ) AS s0
                 UNION
                 SELECT *
@@ -3099,7 +3349,7 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
                   SELECT
                     t0."person_id",
                     t0."score"
-                  FROM "c8" AS t0
+                  FROM "c10" AS t0
                 ) AS s0
                 ORDER BY
                   "person_id" ASC,
@@ -3111,7 +3361,7 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
                 SELECT
                   t0."person_id",
                   t0."score"
-                FROM "c8" AS t0
+                FROM "c10" AS t0
               ) AS s0
             ) AS s0
             ORDER BY
@@ -3121,10 +3371,21 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
           EXCEPT
           SELECT *
           FROM (
-            SELECT
-              t0."person_id",
-              t0."score"
-            FROM "c7" AS t0
+            SELECT *
+            FROM (
+              SELECT
+                t0."person_id",
+                t0."score"
+              FROM "c8" AS t0
+            ) AS s0
+            UNION ALL
+            SELECT *
+            FROM (
+              SELECT
+                t0."person_id",
+                t0."score"
+              FROM "c9" AS t0
+            ) AS s0
           ) AS s0
           ORDER BY
             "person_id" ASC,
@@ -3138,7 +3399,7 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
             SELECT
               t0."person_id",
               t0."score"
-            FROM "c8" AS t0
+            FROM "c10" AS t0
           ) AS s0
           EXCEPT ALL
           SELECT *
@@ -3146,7 +3407,7 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
             SELECT
               t0."person_id",
               t0."score"
-            FROM "c8" AS t0
+            FROM "c10" AS t0
           ) AS s0
           ORDER BY
             "person_id" ASC,
@@ -3156,7 +3417,7 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
           "person_id" ASC,
           "score" DESC
       ),
-      "c11" (
+      "c13" (
         "field_1",
         "field_2",
         "field_3",
@@ -3175,10 +3436,10 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
           t0."label",
           (t1."field_4" + CAST(E'1' AS integer))
         FROM "mega_events" AS t0
-        INNER JOIN "c11" AS t1
+        INNER JOIN "c13" AS t1
           ON (t0."id" > t1."field_1")
       ),
-      "c12" (
+      "c14" (
         "person_id",
         "event_count",
         "total_score"
@@ -3187,10 +3448,10 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
           t0."person_id",
           COUNT(*),
           SUM(t0."score")
-        FROM "c10" AS t0
-        LEFT JOIN "c9" AS t1
+        FROM "c12" AS t0
+        LEFT JOIN "c11" AS t1
           ON (t0."person_id" = t1."person_id")
-        LEFT JOIN "c11" AS t2
+        LEFT JOIN "c13" AS t2
           ON (t0."person_id" = t2."field_2")
         WHERE
           (
@@ -3278,22 +3539,33 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
         UNION ALL
         SELECT *
         FROM (
-          SELECT
-            t5."id" AS "id",
-            t5."label" AS "label"
-          FROM (SELECT
-            "v"."column1" AS "id",
-            "v"."column2" AS "label"
-          FROM (VALUES
-            (
-              CAST(E'1' AS bigint),
-              CAST(E'one' AS text)
-            ),
-            (
-              CAST(E'2' AS bigint),
-              CAST(E'two' AS text)
-            )
-          ) AS "v") AS t5
+          SELECT *
+          FROM (
+            SELECT
+              t5."id" AS "id",
+              t5."label" AS "label"
+            FROM (SELECT
+              "v"."column1" AS "id",
+              "v"."column2" AS "label"
+            FROM (VALUES
+              (
+                CAST(E'1' AS bigint),
+                CAST(E'one' AS text)
+              ),
+              (
+                CAST(E'2' AS bigint),
+                CAST(E'two' AS text)
+              )
+            ) AS "v") AS t5
+          ) AS s0
+          UNION ALL
+          SELECT *
+          FROM (
+            SELECT "__typed_sql_raw"."c0" AS "id",
+            "__typed_sql_raw"."c1" AS "label" FROM (
+    SELECT CAST(E'0' AS bigint) AS field_1, CAST(E'raw input' AS text) AS label WHERE FALSE
+    ) AS "__typed_sql_raw" ("c0", "c1")
+          ) AS s0
         ) AS s0
         ORDER BY
           "id" ASC
@@ -3304,7 +3576,7 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
           t5."score" AS "field_2"
         FROM "public"."mega_people" AS t5
       ) AS t3,
-      "c12" AS t4
+      "c14" AS t4
     WHERE
       (
         (t0."id" = t4."person_id")
@@ -3326,14 +3598,14 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
         AND ((EXISTS (
           SELECT
             1
-          FROM "c2" AS t5
+          FROM "c3" AS t5
           WHERE
             (t5."field_1" = t0."id")
         )) = CAST(E'true' AS boolean))
         AND ((EXISTS (
           SELECT
             1
-          FROM "c11" AS t5
+          FROM "c13" AS t5
           WHERE
             (t5."field_2" = t0."id")
         )) = CAST(E'true' AS boolean))
@@ -3351,7 +3623,7 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
         AND ((EXISTS (
           SELECT
             1
-          FROM "c3" AS t5
+          FROM "c4" AS t5
           WHERE
             (t5."id" = t0."id")
         )) = CAST(E'true' AS boolean))
@@ -3382,8 +3654,8 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
         AND ((EXISTS (
           SELECT
             1
-          FROM "c4" AS t5
-          INNER JOIN "c4" AS t6
+          FROM "c5" AS t5
+          INNER JOIN "c5" AS t6
             ON (t5."id" = t6."id")
           WHERE
             (t5."person_id" = t0."id")
@@ -3391,14 +3663,14 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
         AND ((EXISTS (
           SELECT
             1
-          FROM "c5" AS t5
+          FROM "c6" AS t5
           WHERE
             (t5."count_all" > CAST(E'0' AS bigint))
         )) = CAST(E'true' AS boolean))
         AND ((EXISTS (
           SELECT
             1
-          FROM "c6" AS t5
+          FROM "c7" AS t5
           WHERE
             (t5."id" > CAST(E'0' AS bigint))
         )) = CAST(E'true' AS boolean))
@@ -3481,8 +3753,12 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
               t5."person_id" AS "v1",
               t5."label" AS "v2"
             FROM "mega_events" AS t5
+            CROSS JOIN "mega_events" AS t6
             WHERE
-              (t5."person_id" = t0."id")
+              (
+                (t5."id" = t6."id")
+                AND (t5."person_id" = t0."id")
+              )
             ORDER BY
               t5."id" ASC
             LIMIT CAST(E'5' AS integer)
@@ -3627,6 +3903,21 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
                 WHEN TRUE THEN t5."id"
                 ELSE CAST(E'0' AS bigint)
               END) > CAST(E'0' AS bigint))
+              AND (CAST((
+                SELECT
+                  AVG(CAST(CAST(t6."float_value" AS bigint) AS double precision))
+                FROM "mega_events" AS t6
+                WHERE
+                  (t6."person_id" = t0."id")
+              ) AS integer) IS NOT NULL)
+              AND ((
+                SELECT
+                  AVG(CAST(CAST(CAST(t6."value" AS bigint) AS integer) AS double precision))
+                FROM "mega_events" AS t6
+                WHERE
+                  (t6."person_id" = t0."id")
+              ) IS NOT NULL)
+              AND (CAST(t5."value" AS double precision) > CAST(E'0' AS double precision))
               AND (CURRENT_TIMESTAMP = CURRENT_TIMESTAMP)
             ) THEN t5."value"
             ELSE CAST(E'0' AS integer)
@@ -3669,8 +3960,12 @@ let%expect_test "SQLite mega query debug SQL substitutes input values" =
             t1."person_id" AS "v1",
             t1."label" AS "v2"
           FROM "mega_events" AS t1
+          CROSS JOIN "mega_events" AS t2
           WHERE
-            (t1."person_id" = t0."id")
+            (
+              (t1."id" = t2."id")
+              AND (t1."person_id" = t0."id")
+            )
           ORDER BY
             t1."id" ASC NULLS LAST
           LIMIT 5
@@ -3810,6 +4105,21 @@ let%expect_test "SQLite mega query debug SQL substitutes input values" =
                 WHEN TRUE THEN t1."id"
                 ELSE 0
               END) > 0)
+              AND (CAST((
+                SELECT
+                  AVG(CAST(CAST(t2."float_value" AS INTEGER) AS REAL))
+                FROM "mega_events" AS t2
+                WHERE
+                  (t2."person_id" = t0."id")
+              ) AS INTEGER) IS NOT NULL)
+              AND ((
+                SELECT
+                  AVG(CAST(CAST(CAST(t2."value" AS INTEGER) AS INTEGER) AS REAL))
+                FROM "mega_events" AS t2
+                WHERE
+                  (t2."person_id" = t0."id")
+              ) IS NOT NULL)
+              AND (CAST(t1."value" AS REAL) > 0.0)
               AND (CURRENT_TIMESTAMP = CURRENT_TIMESTAMP)
             ) THEN t1."value"
             ELSE 0
