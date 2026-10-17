@@ -1,4 +1,8 @@
 (library
  (name typed_sql_backend)
  (public_name typed-sql.backend)
- (libraries base ptime typed-sql typed-sql.private))
+ (libraries base ptime typed-sql typed-sql.private)
+ (instrumentation
+  (backend bisect_ppx --conditional)
+  (deps
+   (env_var BISECT_ENABLE))))

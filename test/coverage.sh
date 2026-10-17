@@ -16,9 +16,18 @@ rm -rf "$coverage_data" "$coverage_dir/html"
 mkdir -p "$coverage_data"
 export BISECT_FILE="$coverage_data/bisect"
 
+set -- --expect lib/
+if [ "$mode" = mega ]; then
+  export BISECT_ENABLE=YES
+  set -- "$@" --expect backend/ --expect caqti-lwt/typed_sql_caqti_lwt.ml
+else
+  export BISECT_ENABLE=NO
+fi
+
 if [ "$mode" = mega ]; then
   targets="
 test/.typed_sql_mega_coverage_tests.inline-tests/inline-test-runner.exe
+test/.typed_sql_backend_expect_tests.inline-tests/inline-test-runner.exe
 caqti-lwt/test/mega_coverage_server_test.exe
 "
 else
@@ -49,6 +58,8 @@ if [ "$mode" = mega ]; then
     cd test
     ../_build/default/test/.typed_sql_mega_coverage_tests.inline-tests/inline-test-runner.exe \
       inline-test-runner typed_sql_mega_coverage_tests -strict -source-tree-root ..
+    ../_build/default/test/.typed_sql_backend_expect_tests.inline-tests/inline-test-runner.exe \
+      inline-test-runner typed_sql_backend_expect_tests -strict -source-tree-root ..
   )
   bash test/postgresql.sh mega-coverage
 else
@@ -84,10 +95,10 @@ else
   fi
 fi
 
-summary="$(bisect-ppx-report summary --per-file --expect lib/ --coverage-path "$coverage_data")"
+summary="$(bisect-ppx-report summary --per-file "$@" --coverage-path "$coverage_data")"
 printf '%s\n' "$summary"
-# --expect checks completeness but does not restrict the report to lib/.
-# Schema tests also load instrumented libraries; keep the core threshold
+# --expect checks completeness but does not restrict the report to those paths.
+# Other libraries may also be instrumented; keep the core threshold
 # based on every raw point in lib/, without including other packages.
 coverage="$(printf '%s\n' "$summary" | awk '
   $4 ~ /^lib\// {
@@ -100,7 +111,7 @@ coverage="$(printf '%s\n' "$summary" | awk '
     printf "%.10f", 100 * covered / total
   }')"
 printf 'Core lib coverage: %.2f%%\n' "$coverage"
-bisect-ppx-report html --expect lib/ --coverage-path "$coverage_data" -o "$coverage_dir/html"
+bisect-ppx-report html "$@" --coverage-path "$coverage_data" -o "$coverage_dir/html"
 case "$mode" in
   public) threshold=96.5 ;;
   all) threshold=99.0 ;;
@@ -109,5 +120,28 @@ case "$mode" in
     threshold=67.0
     ;;
 esac
+coverage_status=0
 awk -v coverage="$coverage" -v threshold="$threshold" \
-  'BEGIN { if (coverage + 0 < threshold) exit 1 }'
+  'BEGIN { if (coverage + 0 < threshold) exit 1 }' || coverage_status=$?
+projection_status=0
+if [ "$mode" = mega ]; then
+  projection_coverage="$(printf '%s\n' "$summary" | awk '
+    $4 == "lib/projection.ml" {
+      value = $1
+      gsub(/%/, "", value)
+      print value
+    }
+  ')"
+  if [ -z "$projection_coverage" ]; then
+    printf 'Mega projection.ml coverage was not reported\n' >&2
+    projection_status=1
+  else
+    printf 'Mega projection.ml coverage: %.2f%%\n' "$projection_coverage"
+    awk -v coverage="$projection_coverage" \
+      'BEGIN { if (coverage + 0 < 67.0) exit 1 }' || projection_status=$?
+  fi
+fi
+printf 'HTML report: %s\n' "$coverage_dir/html/index.html"
+if [ "$coverage_status" -ne 0 ] || [ "$projection_status" -ne 0 ]; then
+  exit 1
+fi

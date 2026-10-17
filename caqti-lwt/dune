@@ -12,5 +12,9 @@
   typed-sql
   typed-sql.backend
   unix)
+ (instrumentation
+  (backend bisect_ppx --conditional)
+  (deps
+   (env_var BISECT_ENABLE)))
  (preprocess
   (pps ppx_let)))

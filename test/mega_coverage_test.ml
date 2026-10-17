@@ -785,7 +785,40 @@ let person_result_projection person =
         &&. (Event.person_id event =. Person.id person))
       |> order_by (fun (event, _) -> Event.id event) `Asc
       |> limit 5
-      |> select (fun (event, _) -> Event.projection event))
+      |> select (fun (event, _) ->
+        let%map.Projection (id, person_id), label = Event.projection event
+        and active = Projection.expr (Expr.constant Db_type.bool true)
+        and integer_value = Projection.expr (Event.value event)
+        and nullable_integer = Projection.expr (Event.nullable_value event)
+        and float_value = Projection.expr (Event.float_value event)
+        and integer_as_float =
+          Projection.expr (Expr.cast_int_to_float (Event.value event))
+        and nullable_float = Projection.expr (Event.nullable_float_value event)
+        and nullable_id = Projection.expr (Event.nullable_id event)
+        and maximum_int64 = Projection.expr (Expr.constant Db_type.int64 Int64.max_value)
+        and happened_on = Projection.expr (Event.happened_on event)
+        and external_id = Projection.expr (Event.external_id event)
+        and mapped_label = Projection.expr (Event.mapped_label event)
+        and nullable_label = Projection.expr (Event.nullable_label event)
+        and timestamp = Projection.expr Expr.current_timestamp
+        and pure_value = Projection.return "projection-pure" in
+        ( id
+        , person_id
+        , label
+        , active
+        , integer_value
+        , nullable_integer
+        , float_value
+        , integer_as_float
+        , nullable_float
+        , nullable_id
+        , maximum_int64
+        , happened_on
+        , external_id
+        , mapped_label
+        , nullable_label
+        , timestamp
+        , pure_value )))
   in
   let aggregate_events =
     Query.(
@@ -2182,7 +2215,20 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                 JSONB_BUILD_ARRAY(
                   m0."v0",
                   m0."v1",
-                  m0."v2"
+                  m0."v2",
+                  m0."v3",
+                  m0."v4",
+                  m0."v5",
+                  m0."v6",
+                  m0."v7",
+                  m0."v8",
+                  m0."v9",
+                  m0."v10",
+                  m0."v11",
+                  m0."v12",
+                  m0."v13",
+                  m0."v14",
+                  m0."v15"
                 )
               ),
               JSONB_BUILD_ARRAY()
@@ -2191,7 +2237,20 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
             SELECT
               t5."id" AS "v0",
               t5."person_id" AS "v1",
-              t5."label" AS "v2"
+              t5."label" AS "v2",
+              $82 AS "v3",
+              t5."value" AS "v4",
+              t5."nullable_value" AS "v5",
+              t5."float_value" AS "v6",
+              CAST(t5."value" AS double precision) AS "v7",
+              t5."nullable_float_value" AS "v8",
+              t5."nullable_id" AS "v9",
+              $83 AS "v10",
+              t5."happened_on" AS "v11",
+              t5."external_id" AS "v12",
+              t5."mapped_label" AS "v13",
+              t5."nullable_label" AS "v14",
+              CURRENT_TIMESTAMP AS "v15"
             FROM "mega_events" AS t5
             CROSS JOIN "mega_events" AS t6
             WHERE
@@ -2201,7 +2260,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
               )
             ORDER BY
               t5."id" ASC
-            LIMIT $82
+            LIMIT $84
           ) AS m0
         )
         AS TEXT
@@ -2258,9 +2317,9 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                       WHERE
                         (
                           (t6."person_id" = t0."id")
-                          AND (t6."value" > $83)
+                          AND (t6."value" > $85)
                         )
-                    )) = $84)
+                    )) = $86)
                   )
                 ),
                 JSONB_BUILD_ARRAY()
@@ -2274,34 +2333,34 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
         SELECT
           COALESCE(SUM((CASE
             WHEN (
-              (t5."id" = (t5."id" + $85))
-              AND ((t5."id" - $86) = $87)
-              AND ((t5."id" * $88) = t5."id")
-              AND ((t5."id" / NULLIF($89, 0)) = t5."id")
-              AND (t5."id" <> $90)
-              AND (t5."id" <> $91)
-              AND (t5."id" < $92)
-              AND (t5."id" <= $93)
-              AND (t5."id" >= $94)
+              (t5."id" = (t5."id" + $87))
+              AND ((t5."id" - $88) = $89)
+              AND ((t5."id" * $90) = t5."id")
+              AND ((t5."id" / NULLIF($91, 0)) = t5."id")
+              AND (t5."id" <> $92)
+              AND (t5."id" <> $93)
+              AND (t5."id" < $94)
               AND (t5."id" <= $95)
               AND (t5."id" >= $96)
+              AND (t5."id" <= $97)
+              AND (t5."id" >= $98)
               AND (t5."nullable_id" IS NULL)
               AND (t5."nullable_id" IS NOT NULL)
               AND (t5."id" IN (
-                $97,
-                $98
+                $99,
+                $100
               ))
-              AND (t5."id" NOT IN ($99))
-              AND (t5."id" IN ($100))
               AND (t5."id" NOT IN ($101))
-              AND (t5."id" BETWEEN $102 AND $103)
+              AND (t5."id" IN ($102))
+              AND (t5."id" NOT IN ($103))
+              AND (t5."id" BETWEEN $104 AND $105)
               AND (t5."id" IN (
                 SELECT
                   t6."id"
                 FROM "mega_events" AS t6
                 WHERE
                   (t6."id" = t5."id")
-                LIMIT $104
+                LIMIT $106
               ))
               AND (t5."id" NOT IN (
                 SELECT
@@ -2309,7 +2368,7 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                 FROM "mega_events" AS t6
                 WHERE
                   (t6."id" = t5."id")
-                LIMIT $105
+                LIMIT $107
               ))
               AND (EXISTS (
                 SELECT
@@ -2325,24 +2384,24 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                 WHERE
                   (t6."person_id" = t5."person_id")
               ))
-              AND (t5."label" IS DISTINCT FROM $106)
-              AND (t5."label" LIKE $107)
-              AND (CHAR_LENGTH(t5."label") > $108)
+              AND (t5."label" IS DISTINCT FROM $108)
+              AND (t5."label" LIKE $109)
+              AND (CHAR_LENGTH(t5."label") > $110)
               AND ((
                 SELECT
                   t6."nullable_id"
                 FROM "mega_events" AS t6
                 WHERE
                   (t6."id" = t5."id")
-                LIMIT $109
+                LIMIT $111
               ) = t5."id")
-              AND (NOT (t5."id" > $110))
-              AND ((LOWER(t5."label") || $111) LIKE $112)
-              AND (COALESCE(t5."nullable_id", $113) > $114)
+              AND (NOT (t5."id" > $112))
+              AND ((LOWER(t5."label") || $113) LIKE $114)
+              AND (COALESCE(t5."nullable_id", $115) > $116)
               AND ((CASE
                 WHEN TRUE THEN t5."id"
-                ELSE $115
-              END) > $116)
+                ELSE $117
+              END) > $118)
               AND (CAST((
                 SELECT
                   AVG(CAST(CAST(t6."float_value" AS bigint) AS double precision))
@@ -2357,11 +2416,11 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
                 WHERE
                   (t6."person_id" = t0."id")
               ) IS NOT NULL)
-              AND (CAST(t5."value" AS double precision) > $117)
+              AND (CAST(t5."value" AS double precision) > $119)
               AND (CURRENT_TIMESTAMP = CURRENT_TIMESTAMP)
             ) THEN t5."value"
-            ELSE $118
-          END)), $119)
+            ELSE $120
+          END)), $121)
         FROM "mega_events" AS t5
       )
     |}];
@@ -2537,81 +2596,85 @@ let%expect_test "PostgreSQL mega query compiles nested DML and relational paths"
         (dialect_type (bigint)) (value ((Encoded 1))))
        ((position 81) (placeholder $81) (name ()) (db_type "array(int64)")
         (dialect_type (bigint[])) (value ((Encoded "[0:1]={\"1\",NULL}"))))
-       ((position 82) (placeholder $82) (name ()) (db_type int)
-        (dialect_type (integer)) (value ((Encoded 5))))
-       ((position 83) (placeholder $83) (name ()) (db_type int)
-        (dialect_type (integer)) (value ((Encoded 0))))
-       ((position 84) (placeholder $84) (name ()) (db_type bool)
+       ((position 82) (placeholder $82) (name ()) (db_type bool)
         (dialect_type (boolean)) (value ((Encoded true))))
-       ((position 85) (placeholder $85) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 86) (placeholder $86) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1))))
+       ((position 83) (placeholder $83) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 9223372036854775807))))
+       ((position 84) (placeholder $84) (name ()) (db_type int)
+        (dialect_type (integer)) (value ((Encoded 5))))
+       ((position 85) (placeholder $85) (name ()) (db_type int)
+        (dialect_type (integer)) (value ((Encoded 0))))
+       ((position 86) (placeholder $86) (name ()) (db_type bool)
+        (dialect_type (boolean)) (value ((Encoded true))))
        ((position 87) (placeholder $87) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 9))))
+        (dialect_type (bigint)) (value ((Encoded 1))))
        ((position 88) (placeholder $88) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 1))))
        ((position 89) (placeholder $89) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1))))
+        (dialect_type (bigint)) (value ((Encoded 9))))
        ((position 90) (placeholder $90) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
+        (dialect_type (bigint)) (value ((Encoded 1))))
        ((position 91) (placeholder $91) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
+        (dialect_type (bigint)) (value ((Encoded 1))))
        ((position 92) (placeholder $92) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 100))))
-       ((position 93) (placeholder $93) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 100))))
-       ((position 94) (placeholder $94) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 93) (placeholder $93) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 94) (placeholder $94) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 100))))
        ((position 95) (placeholder $95) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 100))))
        ((position 96) (placeholder $96) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
        ((position 97) (placeholder $97) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 1))))
-       ((position 98) (placeholder $98) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 2))))
-       ((position 99) (placeholder $99) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded -1))))
-       ((position 100) (placeholder $100) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 3))))
-       ((position 101) (placeholder $101) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 4))))
-       ((position 102) (placeholder $102) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 103) (placeholder $103) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 100))))
-       ((position 104) (placeholder $104) (name ()) (db_type int)
+       ((position 98) (placeholder $98) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 99) (placeholder $99) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 1))))
+       ((position 100) (placeholder $100) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 2))))
+       ((position 101) (placeholder $101) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded -1))))
+       ((position 102) (placeholder $102) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 3))))
+       ((position 103) (placeholder $103) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 4))))
+       ((position 104) (placeholder $104) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 105) (placeholder $105) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 100))))
+       ((position 106) (placeholder $106) (name ()) (db_type int)
         (dialect_type (integer)) (value ((Encoded 1))))
-       ((position 105) (placeholder $105) (name ()) (db_type int)
+       ((position 107) (placeholder $107) (name ()) (db_type int)
         (dialect_type (integer)) (value ((Encoded 1))))
-       ((position 106) (placeholder $106) (name ()) (db_type text)
+       ((position 108) (placeholder $108) (name ()) (db_type text)
         (dialect_type (text)) (value ((Encoded different))))
-       ((position 107) (placeholder $107) (name ()) (db_type text)
+       ((position 109) (placeholder $109) (name ()) (db_type text)
         (dialect_type (text)) (value ((Encoded %v%))))
-       ((position 108) (placeholder $108) (name ()) (db_type int)
+       ((position 110) (placeholder $110) (name ()) (db_type int)
         (dialect_type (integer)) (value ((Encoded 0))))
-       ((position 109) (placeholder $109) (name ()) (db_type int)
+       ((position 111) (placeholder $111) (name ()) (db_type int)
         (dialect_type (integer)) (value ((Encoded 1))))
-       ((position 110) (placeholder $110) (name ()) (db_type int64)
+       ((position 112) (placeholder $112) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 111) (placeholder $111) (name ()) (db_type text)
+       ((position 113) (placeholder $113) (name ()) (db_type text)
         (dialect_type (text)) (value ((Encoded x))))
-       ((position 112) (placeholder $112) (name ()) (db_type text)
+       ((position 114) (placeholder $114) (name ()) (db_type text)
         (dialect_type (text)) (value ((Encoded %))))
-       ((position 113) (placeholder $113) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 114) (placeholder $114) (name ()) (db_type int64)
-        (dialect_type (bigint)) (value ((Encoded 0))))
        ((position 115) (placeholder $115) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
        ((position 116) (placeholder $116) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))
-       ((position 117) (placeholder $117) (name ()) (db_type float)
+       ((position 117) (placeholder $117) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 118) (placeholder $118) (name ()) (db_type int64)
+        (dialect_type (bigint)) (value ((Encoded 0))))
+       ((position 119) (placeholder $119) (name ()) (db_type float)
         (dialect_type ("double precision")) (value ((Encoded 0))))
-       ((position 118) (placeholder $118) (name ()) (db_type int)
+       ((position 120) (placeholder $120) (name ()) (db_type int)
         (dialect_type (integer)) (value ((Encoded 0))))
-       ((position 119) (placeholder $119) (name ()) (db_type int64)
+       ((position 121) (placeholder $121) (name ()) (db_type int64)
         (dialect_type (bigint)) (value ((Encoded 0))))))
      (output
       (Query_output (cardinality Many)
@@ -2654,7 +2717,20 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
               JSON_ARRAY(
                 m0."v0",
                 m0."v1",
-                m0."v2"
+                m0."v2",
+                m0."v3",
+                m0."v4",
+                m0."v5",
+                m0."v6",
+                m0."v7",
+                m0."v8",
+                m0."v9",
+                m0."v10",
+                m0."v11",
+                m0."v12",
+                m0."v13",
+                m0."v14",
+                m0."v15"
               )
             ),
             JSON_ARRAY()
@@ -2663,7 +2739,20 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
           SELECT
             t1."id" AS "v0",
             t1."person_id" AS "v1",
-            t1."label" AS "v2"
+            t1."label" AS "v2",
+            ?1 AS "v3",
+            t1."value" AS "v4",
+            t1."nullable_value" AS "v5",
+            t1."float_value" AS "v6",
+            CAST(t1."value" AS REAL) AS "v7",
+            t1."nullable_float_value" AS "v8",
+            t1."nullable_id" AS "v9",
+            ?2 AS "v10",
+            t1."happened_on" AS "v11",
+            t1."external_id" AS "v12",
+            t1."mapped_label" AS "v13",
+            t1."nullable_label" AS "v14",
+            CURRENT_TIMESTAMP AS "v15"
           FROM "mega_events" AS t1
           CROSS JOIN "mega_events" AS t2
           WHERE
@@ -2673,7 +2762,7 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
             )
           ORDER BY
             t1."id" ASC NULLS LAST
-          LIMIT ?1
+          LIMIT ?3
         ) AS m0
       ),
       (
@@ -2727,9 +2816,9 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
                     WHERE
                       (
                         (t2."person_id" = t0."id")
-                        AND (t2."value" > ?2)
+                        AND (t2."value" > ?4)
                       )
-                  )) = ?3)
+                  )) = ?5)
                 )
               ),
               JSON_ARRAY()
@@ -2741,34 +2830,34 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
         SELECT
           COALESCE(SUM((CASE
             WHEN (
-              (t1."id" = (t1."id" + ?4))
-              AND ((t1."id" - ?5) = ?6)
-              AND ((t1."id" * ?7) = t1."id")
-              AND ((t1."id" / NULLIF(?8, 0)) = t1."id")
-              AND (t1."id" <> ?9)
-              AND (t1."id" <> ?10)
-              AND (t1."id" < ?11)
-              AND (t1."id" <= ?12)
-              AND (t1."id" >= ?13)
+              (t1."id" = (t1."id" + ?6))
+              AND ((t1."id" - ?7) = ?8)
+              AND ((t1."id" * ?9) = t1."id")
+              AND ((t1."id" / NULLIF(?10, 0)) = t1."id")
+              AND (t1."id" <> ?11)
+              AND (t1."id" <> ?12)
+              AND (t1."id" < ?13)
               AND (t1."id" <= ?14)
               AND (t1."id" >= ?15)
+              AND (t1."id" <= ?16)
+              AND (t1."id" >= ?17)
               AND (t1."nullable_id" IS NULL)
               AND (t1."nullable_id" IS NOT NULL)
               AND (t1."id" IN (
-                ?16,
-                ?17
+                ?18,
+                ?19
               ))
-              AND (t1."id" NOT IN (?18))
-              AND (t1."id" IN (?19))
               AND (t1."id" NOT IN (?20))
-              AND (t1."id" BETWEEN ?21 AND ?22)
+              AND (t1."id" IN (?21))
+              AND (t1."id" NOT IN (?22))
+              AND (t1."id" BETWEEN ?23 AND ?24)
               AND (t1."id" IN (
                 SELECT
                   t2."id"
                 FROM "mega_events" AS t2
                 WHERE
                   (t2."id" = t1."id")
-                LIMIT ?23
+                LIMIT ?25
               ))
               AND (t1."id" NOT IN (
                 SELECT
@@ -2776,7 +2865,7 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
                 FROM "mega_events" AS t2
                 WHERE
                   (t2."id" = t1."id")
-                LIMIT ?24
+                LIMIT ?26
               ))
               AND (EXISTS (
                 SELECT
@@ -2792,24 +2881,24 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
                 WHERE
                   (t2."person_id" = t1."person_id")
               ))
-              AND (t1."label" IS NOT ?25)
-              AND (t1."label" LIKE ?26)
-              AND (LENGTH(t1."label") > ?27)
+              AND (t1."label" IS NOT ?27)
+              AND (t1."label" LIKE ?28)
+              AND (LENGTH(t1."label") > ?29)
               AND ((
                 SELECT
                   t2."nullable_id"
                 FROM "mega_events" AS t2
                 WHERE
                   (t2."id" = t1."id")
-                LIMIT ?28
+                LIMIT ?30
               ) = t1."id")
-              AND (NOT (t1."id" > ?29))
-              AND ((LOWER(t1."label") || ?30) LIKE ?31)
-              AND (COALESCE(t1."nullable_id", ?32) > ?33)
+              AND (NOT (t1."id" > ?31))
+              AND ((LOWER(t1."label") || ?32) LIKE ?33)
+              AND (COALESCE(t1."nullable_id", ?34) > ?35)
               AND ((CASE
                 WHEN TRUE THEN t1."id"
-                ELSE ?34
-              END) > ?35)
+                ELSE ?36
+              END) > ?37)
               AND (CAST((
                 SELECT
                   AVG(CAST(CAST(t2."float_value" AS INTEGER) AS REAL))
@@ -2824,17 +2913,17 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
                 WHERE
                   (t2."person_id" = t0."id")
               ) IS NOT NULL)
-              AND (CAST(t1."value" AS REAL) > ?36)
+              AND (CAST(t1."value" AS REAL) > ?38)
               AND (CURRENT_TIMESTAMP = CURRENT_TIMESTAMP)
             ) THEN t1."value"
-            ELSE ?37
-          END)), ?38)
+            ELSE ?39
+          END)), ?40)
         FROM "mega_events" AS t1
       )
     FROM "public"."mega_people" AS t0
     WHERE
       (
-        (t0."name" = ?39)
+        (t0."name" = ?41)
         AND (EXISTS (
           SELECT
             1
@@ -2845,7 +2934,7 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
                 t2."id" AS "id"
               FROM "public"."mega_people" AS t2
               WHERE
-                (t2."name" = ?39)
+                (t2."name" = ?41)
             ) AS s0
             UNION
             SELECT *
@@ -2854,7 +2943,7 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
                 t2."id" AS "id"
               FROM "public"."mega_people" AS t2
               WHERE
-                (t2."id" > ?40)
+                (t2."id" > ?42)
             ) AS s0
           ) AS t1
           WHERE
@@ -2865,100 +2954,104 @@ let%expect_test "SQLite choose_dialect branch compiles the shared output" =
       t0."id",
       t0."name"
     HAVING
-      (COUNT(*) > ?41)
-    LIMIT ?42
-    OFFSET ?43
+      (COUNT(*) > ?43)
+    LIMIT ?44
+    OFFSET ?45
     |}];
   Stdlib.print_endline @@ Sexp.to_string_hum @@ Statement.sexp_of_inspection inspection;
   [%expect
     {|
     ((dialect Sqlite)
      (parameters
-      (((position 1) (placeholder ?1) (name ()) (db_type int)
+      (((position 1) (placeholder ?1) (name ()) (db_type bool)
+        (dialect_type (INTEGER)) (value ((Encoded 1))))
+       ((position 2) (placeholder ?2) (name ()) (db_type int64)
+        (dialect_type (INTEGER)) (value ((Encoded 9223372036854775807))))
+       ((position 3) (placeholder ?3) (name ()) (db_type int)
         (dialect_type (INTEGER)) (value ((Encoded 5))))
-       ((position 2) (placeholder ?2) (name ()) (db_type int)
+       ((position 4) (placeholder ?4) (name ()) (db_type int)
         (dialect_type (INTEGER)) (value ((Encoded 0))))
-       ((position 3) (placeholder ?3) (name ()) (db_type bool)
-        (dialect_type (INTEGER)) (value ((Encoded 1))))
-       ((position 4) (placeholder ?4) (name ()) (db_type int64)
-        (dialect_type (INTEGER)) (value ((Encoded 1))))
-       ((position 5) (placeholder ?5) (name ()) (db_type int64)
+       ((position 5) (placeholder ?5) (name ()) (db_type bool)
         (dialect_type (INTEGER)) (value ((Encoded 1))))
        ((position 6) (placeholder ?6) (name ()) (db_type int64)
-        (dialect_type (INTEGER)) (value ((Encoded 9))))
+        (dialect_type (INTEGER)) (value ((Encoded 1))))
        ((position 7) (placeholder ?7) (name ()) (db_type int64)
         (dialect_type (INTEGER)) (value ((Encoded 1))))
        ((position 8) (placeholder ?8) (name ()) (db_type int64)
-        (dialect_type (INTEGER)) (value ((Encoded 1))))
+        (dialect_type (INTEGER)) (value ((Encoded 9))))
        ((position 9) (placeholder ?9) (name ()) (db_type int64)
-        (dialect_type (INTEGER)) (value ((Encoded 0))))
+        (dialect_type (INTEGER)) (value ((Encoded 1))))
        ((position 10) (placeholder ?10) (name ()) (db_type int64)
-        (dialect_type (INTEGER)) (value ((Encoded 0))))
+        (dialect_type (INTEGER)) (value ((Encoded 1))))
        ((position 11) (placeholder ?11) (name ()) (db_type int64)
-        (dialect_type (INTEGER)) (value ((Encoded 100))))
-       ((position 12) (placeholder ?12) (name ()) (db_type int64)
-        (dialect_type (INTEGER)) (value ((Encoded 100))))
-       ((position 13) (placeholder ?13) (name ()) (db_type int64)
         (dialect_type (INTEGER)) (value ((Encoded 0))))
+       ((position 12) (placeholder ?12) (name ()) (db_type int64)
+        (dialect_type (INTEGER)) (value ((Encoded 0))))
+       ((position 13) (placeholder ?13) (name ()) (db_type int64)
+        (dialect_type (INTEGER)) (value ((Encoded 100))))
        ((position 14) (placeholder ?14) (name ()) (db_type int64)
         (dialect_type (INTEGER)) (value ((Encoded 100))))
        ((position 15) (placeholder ?15) (name ()) (db_type int64)
         (dialect_type (INTEGER)) (value ((Encoded 0))))
        ((position 16) (placeholder ?16) (name ()) (db_type int64)
-        (dialect_type (INTEGER)) (value ((Encoded 1))))
-       ((position 17) (placeholder ?17) (name ()) (db_type int64)
-        (dialect_type (INTEGER)) (value ((Encoded 2))))
-       ((position 18) (placeholder ?18) (name ()) (db_type int64)
-        (dialect_type (INTEGER)) (value ((Encoded -1))))
-       ((position 19) (placeholder ?19) (name ()) (db_type int64)
-        (dialect_type (INTEGER)) (value ((Encoded 3))))
-       ((position 20) (placeholder ?20) (name ()) (db_type int64)
-        (dialect_type (INTEGER)) (value ((Encoded 4))))
-       ((position 21) (placeholder ?21) (name ()) (db_type int64)
-        (dialect_type (INTEGER)) (value ((Encoded 0))))
-       ((position 22) (placeholder ?22) (name ()) (db_type int64)
         (dialect_type (INTEGER)) (value ((Encoded 100))))
-       ((position 23) (placeholder ?23) (name ()) (db_type int)
+       ((position 17) (placeholder ?17) (name ()) (db_type int64)
+        (dialect_type (INTEGER)) (value ((Encoded 0))))
+       ((position 18) (placeholder ?18) (name ()) (db_type int64)
         (dialect_type (INTEGER)) (value ((Encoded 1))))
-       ((position 24) (placeholder ?24) (name ()) (db_type int)
+       ((position 19) (placeholder ?19) (name ()) (db_type int64)
+        (dialect_type (INTEGER)) (value ((Encoded 2))))
+       ((position 20) (placeholder ?20) (name ()) (db_type int64)
+        (dialect_type (INTEGER)) (value ((Encoded -1))))
+       ((position 21) (placeholder ?21) (name ()) (db_type int64)
+        (dialect_type (INTEGER)) (value ((Encoded 3))))
+       ((position 22) (placeholder ?22) (name ()) (db_type int64)
+        (dialect_type (INTEGER)) (value ((Encoded 4))))
+       ((position 23) (placeholder ?23) (name ()) (db_type int64)
+        (dialect_type (INTEGER)) (value ((Encoded 0))))
+       ((position 24) (placeholder ?24) (name ()) (db_type int64)
+        (dialect_type (INTEGER)) (value ((Encoded 100))))
+       ((position 25) (placeholder ?25) (name ()) (db_type int)
         (dialect_type (INTEGER)) (value ((Encoded 1))))
-       ((position 25) (placeholder ?25) (name ()) (db_type text)
+       ((position 26) (placeholder ?26) (name ()) (db_type int)
+        (dialect_type (INTEGER)) (value ((Encoded 1))))
+       ((position 27) (placeholder ?27) (name ()) (db_type text)
         (dialect_type (TEXT)) (value ((Encoded different))))
-       ((position 26) (placeholder ?26) (name ()) (db_type text)
+       ((position 28) (placeholder ?28) (name ()) (db_type text)
         (dialect_type (TEXT)) (value ((Encoded %v%))))
-       ((position 27) (placeholder ?27) (name ()) (db_type int)
+       ((position 29) (placeholder ?29) (name ()) (db_type int)
         (dialect_type (INTEGER)) (value ((Encoded 0))))
-       ((position 28) (placeholder ?28) (name ()) (db_type int)
+       ((position 30) (placeholder ?30) (name ()) (db_type int)
         (dialect_type (INTEGER)) (value ((Encoded 1))))
-       ((position 29) (placeholder ?29) (name ()) (db_type int64)
+       ((position 31) (placeholder ?31) (name ()) (db_type int64)
         (dialect_type (INTEGER)) (value ((Encoded 0))))
-       ((position 30) (placeholder ?30) (name ()) (db_type text)
+       ((position 32) (placeholder ?32) (name ()) (db_type text)
         (dialect_type (TEXT)) (value ((Encoded x))))
-       ((position 31) (placeholder ?31) (name ()) (db_type text)
+       ((position 33) (placeholder ?33) (name ()) (db_type text)
         (dialect_type (TEXT)) (value ((Encoded %))))
-       ((position 32) (placeholder ?32) (name ()) (db_type int64)
-        (dialect_type (INTEGER)) (value ((Encoded 0))))
-       ((position 33) (placeholder ?33) (name ()) (db_type int64)
-        (dialect_type (INTEGER)) (value ((Encoded 0))))
        ((position 34) (placeholder ?34) (name ()) (db_type int64)
         (dialect_type (INTEGER)) (value ((Encoded 0))))
        ((position 35) (placeholder ?35) (name ()) (db_type int64)
         (dialect_type (INTEGER)) (value ((Encoded 0))))
-       ((position 36) (placeholder ?36) (name ()) (db_type float)
+       ((position 36) (placeholder ?36) (name ()) (db_type int64)
+        (dialect_type (INTEGER)) (value ((Encoded 0))))
+       ((position 37) (placeholder ?37) (name ()) (db_type int64)
+        (dialect_type (INTEGER)) (value ((Encoded 0))))
+       ((position 38) (placeholder ?38) (name ()) (db_type float)
         (dialect_type (REAL)) (value ((Encoded 0))))
-       ((position 37) (placeholder ?37) (name ()) (db_type int)
+       ((position 39) (placeholder ?39) (name ()) (db_type int)
         (dialect_type (INTEGER)) (value ((Encoded 0))))
-       ((position 38) (placeholder ?38) (name ()) (db_type int64)
-        (dialect_type (INTEGER)) (value ((Encoded 0))))
-       ((position 39) (placeholder ?39) (name (mega_label)) (db_type text)
-        (dialect_type (TEXT)) (value ((Encoded mega))))
        ((position 40) (placeholder ?40) (name ()) (db_type int64)
         (dialect_type (INTEGER)) (value ((Encoded 0))))
-       ((position 41) (placeholder ?41) (name ()) (db_type int64)
+       ((position 41) (placeholder ?41) (name (mega_label)) (db_type text)
+        (dialect_type (TEXT)) (value ((Encoded mega))))
+       ((position 42) (placeholder ?42) (name ()) (db_type int64)
         (dialect_type (INTEGER)) (value ((Encoded 0))))
-       ((position 42) (placeholder ?42) (name (input_rows_limit)) (db_type int)
+       ((position 43) (placeholder ?43) (name ()) (db_type int64)
+        (dialect_type (INTEGER)) (value ((Encoded 0))))
+       ((position 44) (placeholder ?44) (name (input_rows_limit)) (db_type int)
         (dialect_type (INTEGER)) (value ((Encoded 20))))
-       ((position 43) (placeholder ?43) (name (input_rows_offset)) (db_type int)
+       ((position 45) (placeholder ?45) (name (input_rows_offset)) (db_type int)
         (dialect_type (INTEGER)) (value ((Encoded 1))))))
      (output
       (Query_output (cardinality Many)
@@ -3742,7 +3835,20 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
                 JSONB_BUILD_ARRAY(
                   m0."v0",
                   m0."v1",
-                  m0."v2"
+                  m0."v2",
+                  m0."v3",
+                  m0."v4",
+                  m0."v5",
+                  m0."v6",
+                  m0."v7",
+                  m0."v8",
+                  m0."v9",
+                  m0."v10",
+                  m0."v11",
+                  m0."v12",
+                  m0."v13",
+                  m0."v14",
+                  m0."v15"
                 )
               ),
               JSONB_BUILD_ARRAY()
@@ -3751,7 +3857,20 @@ let%expect_test "PostgreSQL mega query debug SQL substitutes input values" =
             SELECT
               t5."id" AS "v0",
               t5."person_id" AS "v1",
-              t5."label" AS "v2"
+              t5."label" AS "v2",
+              CAST(E'true' AS boolean) AS "v3",
+              t5."value" AS "v4",
+              t5."nullable_value" AS "v5",
+              t5."float_value" AS "v6",
+              CAST(t5."value" AS double precision) AS "v7",
+              t5."nullable_float_value" AS "v8",
+              t5."nullable_id" AS "v9",
+              CAST(E'9223372036854775807' AS bigint) AS "v10",
+              t5."happened_on" AS "v11",
+              t5."external_id" AS "v12",
+              t5."mapped_label" AS "v13",
+              t5."nullable_label" AS "v14",
+              CURRENT_TIMESTAMP AS "v15"
             FROM "mega_events" AS t5
             CROSS JOIN "mega_events" AS t6
             WHERE
@@ -3949,7 +4068,20 @@ let%expect_test "SQLite mega query debug SQL substitutes input values" =
               JSON_ARRAY(
                 m0."v0",
                 m0."v1",
-                m0."v2"
+                m0."v2",
+                m0."v3",
+                m0."v4",
+                m0."v5",
+                m0."v6",
+                m0."v7",
+                m0."v8",
+                m0."v9",
+                m0."v10",
+                m0."v11",
+                m0."v12",
+                m0."v13",
+                m0."v14",
+                m0."v15"
               )
             ),
             JSON_ARRAY()
@@ -3958,7 +4090,20 @@ let%expect_test "SQLite mega query debug SQL substitutes input values" =
           SELECT
             t1."id" AS "v0",
             t1."person_id" AS "v1",
-            t1."label" AS "v2"
+            t1."label" AS "v2",
+            1 AS "v3",
+            t1."value" AS "v4",
+            t1."nullable_value" AS "v5",
+            t1."float_value" AS "v6",
+            CAST(t1."value" AS REAL) AS "v7",
+            t1."nullable_float_value" AS "v8",
+            t1."nullable_id" AS "v9",
+            9223372036854775807 AS "v10",
+            t1."happened_on" AS "v11",
+            t1."external_id" AS "v12",
+            t1."mapped_label" AS "v13",
+            t1."nullable_label" AS "v14",
+            CURRENT_TIMESTAMP AS "v15"
           FROM "mega_events" AS t1
           CROSS JOIN "mega_events" AS t2
           WHERE

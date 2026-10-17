@@ -80,6 +80,49 @@ let run conn =
       let aggregates_nonempty =
         List.exists aggregate_rows ~f:(fun values -> not (List.is_empty values))
       in
+      let decoded_typed_event =
+        List.exists
+          events
+          ~f:
+            (fun
+              ( id
+              , event_person_id
+              , label
+              , active
+              , integer_value
+              , nullable_integer
+              , float_value
+              , integer_as_float
+              , nullable_float
+              , nullable_id
+              , maximum_int64
+              , happened_on
+              , external_id
+              , mapped_label
+              , nullable_label
+              , timestamp
+              , pure_value )
+            ->
+            Int64.equal id 10L
+            && Int64.equal event_person_id 1L
+            && String.equal label "event"
+            && Bool.equal active true
+            && Int.equal integer_value 2
+            && Option.is_none nullable_integer
+            && Float.equal float_value 1.5
+            && Float.equal integer_as_float 2.
+            && Option.is_none nullable_float
+            && Option.equal Int64.equal nullable_id (Some 10L)
+            && Int64.equal maximum_int64 Int64.max_value
+            && String.equal (Typed_sql.Date.to_string happened_on) "2026-09-30"
+            && String.equal
+                 (Typed_sql.Uuid.to_string external_id)
+                 "550e8400-e29b-41d4-a716-446655440000"
+            && Option.equal String.equal mapped_label (Some "mapped")
+            && Option.equal String.equal nullable_label (Some "optional")
+            && Int.(String.length (Ptime.to_rfc3339 timestamp) > 10)
+            && String.equal pure_value "projection-pure")
+      in
       let aggregate_value_is_zero =
         match aggregate_value with
         | Some value -> Int64.equal value 0L
@@ -91,6 +134,7 @@ let run conn =
            && String.equal name "ada!"
            && has_events
            && Int.equal (List.length events) 1
+           && decoded_typed_event
            && aggregates_nonempty
            && aggregate_value_is_zero)
       then
