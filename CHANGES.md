@@ -2,6 +2,77 @@
 
 ## В разработке
 
+## 0.5.1 — 17 октября 2026
+
+### Добавлено
+
+- Экспериментальный пакет `typed-sql-ppx`: quotations `%pgsql.query` и
+  `%pgsql.query.object` строят `Result_query.t` для SELECT и DML RETURNING,
+  `%pgsql.command` — `Command.t` для INSERT/UPDATE/DELETE без результата.
+  Подготовленный кеш PostgreSQL используется без доступа к БД при компиляции;
+  PPX и его runtime не зависят от PGOCaml, запросы выполняются существующими
+  adapters Caqti PostgreSQL и PG’OCaml.
+- Прямые `%pgsql.statement` и `%pgsql.statement.object` создают статический
+  `Statement.t`. Форма `fun input_pattern -> SQL` задаёт runtime input:
+  одиночное значение, tuple или запись; getters читают значения при binding,
+  а SQL компилируется при определении Statement. Поддержаны optional binds,
+  `${expression}`, `nullable-results`, scalar/tuple/object output и
+  `Affected_rows.t` для команд без RETURNING.
+- Публичный `Raw_sql.Postgresql` для ручной композиции доверенного SQL:
+  `unsafe_sql`, typed `bind`, `select`, `returning`, `command` и аппликативный
+  `Raw_sql.Output`. Holes принимают только bind slots и constants; compiler
+  проверяет SQL-descriptors и nullable-представления, binding — принадлежность
+  слотов Statement. Значения сохраняются как bind parameters.
+- Композиция raw SELECT с DSL через set operations, derived tables и CTE;
+  raw DML поддерживает PostgreSQL RETURNING и effect-only CTE. Сохраняются
+  детерминированная нумерация параметров, shared slots, shape и сведения
+  об именах и типах выходных колонок в `Statement.inspect`.
+- Общая библиотека логических metadata `typed-sql-ppx.cache` и query cache v2:
+  kind SELECT/RETURNING/command и ограничения вложения, без OID и имён
+  PG’OCaml codecs. `typed-sql-pgocaml-queries` собирает новые quotations;
+  `codegen --target typed-sql-ppx` создаёт отдельный embedded PPX-provider.
+- Независимые registry позволяют совместно подключать совместимый PG’OCaml
+  PPX и новый cached PPX, постепенно перенося запросы одного приложения.
+
+### Изменено
+
+- Новый cached PPX использует descriptors и codecs typed-sql: `int4` — `int`,
+  numeric — `Decimal.t`, date — `Date.t`, timestamptz — `Ptime.t`, timestamp —
+  `Local_timestamp.t`, interval — `Interval.t`, arrays — `Pg_array.t`.
+  Enum/domain и прочие native-типы сохраняют точные named descriptors.
+  Совместимый `typed-sql-pgocaml-ppx` сохраняет прежние PG’OCaml-представления
+  и читает кеши v1/v2; для новых quotations требуется кеш v2.
+- Raw SQL остаётся PostgreSQL-only. SELECT с data-modifying CTE или внешним
+  row lock допускается только на верхнем уровне; неподдержанные kind,
+  вложения и SQL-descriptors возвращают явные ошибки. Для raw-контракта
+  добавлен `Compile_error.Invalid_raw_sql`; исчерпывающие сопоставления ошибок
+  компиляции должны учитывать этот вариант.
+- Мегазапрос расширен raw/DSL-композицией и дополнительными сценариями.
+  `make coverage-mega` объединяет inline, backend и PostgreSQL integration
+  coverage, отдельно показывает backend/adapter и проверяет покрытие
+  `projection.ml`. Порог public coverage 96,5% и общий порог 99% сохранены.
+
+### Исправлено
+
+- Compiler проверяет SQL-типы арифметики, числовых агрегатов и текстовых
+  функций, даже если mapped codecs имеют совместимые OCaml-представления.
+  Совпадение OCaml-типа больше не позволяет обойти требования SQL-операции.
+- PostgreSQL multiset передаёт JSON/JSONB через явный CAST к text, сохраняя
+  различие JSON null и SQL NULL внутри позиционных строк.
+- `Statement.debug_sql` добавляет перевод строки перед терминатором после
+  возможного завершающего SQL line comment, чтобы комментарий не поглощал `;`.
+
+### Документация и тесты
+
+- Руководство по cached quotations: Dune, подготовка metadata, runtime input,
+  совместная работа PPX, object → record и поэтапная миграция с `pgocaml_ppx`.
+- Обзор 40 сценариев SQLx с OCaml-реализациями, отдельными SQL snapshots,
+  проверкой MDX и динамическими raw fragments; сравнение относится к API
+  и семантике запросов, а не к производительности.
+- Regression, compile-fail и PostgreSQL-тесты raw SQL и нового PPX:
+  descriptors, nullable binds, чужие slots, границы вложения, codecs,
+  одноразовое построение Statement и выполнение через оба adapters.
+
 ## 0.5.0 — 15 октября 2026
 
 ### Добавлено

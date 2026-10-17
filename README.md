@@ -41,15 +41,15 @@ SQL со значениями для `psql` или SQLite и выполнить 
 Настройка и примеры — в [руководстве PPX](ppx/README.md), пробная замена в
 существующем приложении — в [пошаговой инструкции](ppx/TRY_IN_APP.md).
 
-В рабочей ветке добавлен `typed-sql-ppx`: `%pgsql.query`, `.query.object` и
-`.command` из кеша строят typed-sql queries для Caqti или PGOCaml.
-[Подключение, static input и миграция](query-ppx/README.md). Этот пакет пока
-не входит в опубликованный v0.5.0 ниже.
+Начиная с v0.5.1 экспериментальный `typed-sql-ppx` строит typed-sql queries
+для Caqti или PGOCaml из кеша: `%pgsql.query`, `.query.object` и `.command`.
+Quotations `.statement` и `.statement.object` создают готовый статический
+Statement с runtime input. [Подключение, static input и миграция](query-ppx/README.md).
 
 ## Установка из GitHub
 
-Все восемь пакетов находятся в одном репозитории и требуют одинаковую версию.
-Скрипт ниже устанавливает текущий релиз `v0.5.0`, а если пакеты уже установлены —
+Все девять пакетов находятся в одном репозитории и требуют одинаковую версию.
+Скрипт ниже устанавливает текущий релиз `v0.5.1`, а если пакеты уже установлены —
 обновляет их до этой версии, предварительно заменяя существующие pin:
 
 <!-- $MDX skip -->
@@ -63,9 +63,10 @@ typed_sql_packages=(
   typed-sql-schema-caqti-lwt
   typed-sql-schema-pgocaml-lwt
   typed-sql-pgocaml-ppx
+  typed-sql-ppx
 )
 for package in "${typed_sql_packages[@]}"; do
-  opam pin add -yn "$package" 'git+https://github.com/prekel/typed-sql.git#v0.5.0'
+  opam pin add -yn "$package" 'git+https://github.com/prekel/typed-sql.git#v0.5.1'
 done
 opam install "${typed_sql_packages[@]}"
 ```

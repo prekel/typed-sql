@@ -2,9 +2,9 @@
 
 Экспериментальный пакет `typed-sql-ppx` строит запросы для существующих
 adapters typed-sql. Сборка и LSP не подключаются к PostgreSQL. Здесь используется
-только кеш Prepare/Describe; snapshot схемы не подходит. API пока находится
-в рабочей ветке и не входит в v0.5.0: для пробы используйте текущие исходники
-ядра, schema, PPX, online-инструмента и выбранного adapter одной ревизии.
+только кеш Prepare/Describe; snapshot схемы не подходит. Пакет доступен
+начиная с v0.5.1; используйте одинаковую версию ядра, schema, PPX,
+online-инструмента и выбранного adapter. API остаётся экспериментальным.
 
 - `[%pgsql.query "..."]` → `Result_query.t`, scalar или tuple.
 - `[%pgsql.query.object "..."]` → `Result_query.t`, объект с методами полей.
