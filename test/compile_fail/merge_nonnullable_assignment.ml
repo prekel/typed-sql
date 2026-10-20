@@ -11,7 +11,6 @@ let _ =
       merge
       |> on Condition.true_
       |> when_not_matched_insert
-           Assignments.(
-             empty |> set_expr title (Expr.constant (Db_type.option Db_type.text) None)))
+           Assignment.[ expr title (Expr.constant (Db_type.option Db_type.text) None) ])
     |> command)
 ;;

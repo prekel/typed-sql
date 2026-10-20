@@ -8,5 +8,8 @@ module Item = struct
   let name = Column.v_exn table "name" Db_type.text
 end
 
-let command = Update.(table Item.table |> default Item.name |> all_rows |> command)
+let command =
+  Update.(table Item.table |> set Assignment.[ default Item.name ] |> all_rows |> command)
+;;
+
 let _ = Statement.command ~dialect:Dialect.sqlite command

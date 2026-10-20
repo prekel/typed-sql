@@ -1,6 +1,7 @@
 (library
  (name typed_sql_expect_tests)
  (modules
+  assignment_test
   capability_test
   constraint_error_test
   boundary_regression_test

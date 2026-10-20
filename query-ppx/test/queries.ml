@@ -129,7 +129,9 @@ let dsl_insert =
     and name = params.column Item.name ~get:snd in
     params.command
       Insert.(
-        into Item.table |> set_expr Item.id id |> set_expr Item.name name |> command))
+        into Item.table
+        |> values Assignment.[ expr Item.id id; expr Item.name name ]
+        |> command))
 ;;
 
 let nullable_people =

@@ -2,6 +2,51 @@
 
 ## В разработке
 
+## 0.5.2 — 20 октября 2026
+
+### Добавлено
+
+- Общий `Assignment` для INSERT, UPDATE, UPSERT и MERGE: типизированные
+  константы и expressions, оператор `:=`, optional-пропуски и PostgreSQL
+  `DEFAULT`. Immutable-списки назначений можно повторно использовать
+  в разных builders; значения остаются bind parameters.
+
+### Изменено
+
+- Несовместимое изменение DML API: `Insert.values`, `Update.set` и
+  `Insert.Conflict_update.set` принимают списки `Assignment.t` вместо
+  последовательных назначений отдельных колонок. Прежние `Insert.set`,
+  `Insert.set_expr`, `Insert.default`, `Update.set_expr`, `Update.default`
+  и методы `set_opt` / `set_expr_opt` удалены; прежняя форма
+  `Insert.Conflict_update.set_expr` также удалена.
+- `Insert.rows` принимает списки назначений вместо callbacks.
+  `Merge.Assignments` удалён; ветви MERGE принимают общие списки
+  `Assignment.t`. Для перехода используйте [руководство по Assignment](doc/assignments.md).
+- `Update.set_nullable_expr` сохранён как явное разрешение присвоить
+  nullable-выражение обязательной колонке; нарушение `NOT NULL` возвращается
+  через канал ошибок execution adapter.
+- Schema codegen использует квалифицированный
+  `let%map.Typed_sql_codegen.Projection` без отдельного открытия `Let_syntax`.
+
+### Исправлено
+
+- INSERT и UPDATE проверяют владельца целевой колонки даже при одинаковом
+  phantom row type у разных таблиц. Чужой descriptor возвращает
+  `Invalid_assignment_source`; проверка действует также для
+  `Update.set_nullable_expr`.
+- `make test-postgres` на PostgreSQL 15–16 пропускает мегазапрос с `MERGE`
+  внутри `WITH`, как и остальные интеграционные MERGE-тесты, требующие 17+.
+
+### Документация и тесты
+
+- Добавлено руководство по общим назначениям и миграции DML; примеры
+  README, руководств и обзоров query builders переведены на новый API.
+- Расширены odoc-комментарии публичного API ядра, backend, adapters,
+  schema и PPX: ограничения, типы и смысл диагностик.
+- Regression и compile-fail тесты проверяют переиспользование назначений,
+  optional-пропуски, владельца колонки, типы, nullability и ограничения
+  диалектов.
+
 ## 0.5.1 — 17 октября 2026
 
 ### Добавлено

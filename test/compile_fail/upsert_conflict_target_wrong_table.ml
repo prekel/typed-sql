@@ -12,7 +12,7 @@ let account_id = Column.v_exn accounts "id" Db_type.int64
 let _ =
   Insert.(
     into items
-    |> set item_id 1L
+    |> values Assignment.[ value item_id 1L ]
     |> on_conflict (Conflict_target.column account_id)
     |> do_nothing
     |> command)

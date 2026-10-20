@@ -6,8 +6,7 @@
 `Statement.Dynamic`; см. [описание динамических statements](dynamic_statements.md).
 
 У statement есть два разных времени жизни значений. OCaml-значение, переданное
-прямо в DSL через оператор с `$`, `Expr.constant`, `Insert.set` или
-`Update.set`, захватывается один раз при создании `Statement.t`. Это константа
+прямо в DSL через оператор с `$`, `Expr.constant`, `Assignment.value`, захватывается один раз при создании `Statement.t`. Это константа
 statement:
 
 ```ocaml

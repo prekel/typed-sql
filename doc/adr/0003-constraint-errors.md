@@ -64,7 +64,7 @@ descriptors и обработчик результата.
 ```ocaml
 let statement =
   Statement.command ~dialect:Dialect.sqlite
-    Insert.(into Child.table |> set Child.parent_id_column 999L |> command)
+    Insert.(into Child.table |> values Assignment.[ value Child.parent_id_column 999L ] |> command)
 
 let classify = function
   | Error
@@ -88,7 +88,7 @@ let result =
 let statement =
   Statement.command ~dialect:Dialect.sqlite
     Insert.(into Deferred_child.table
-            |> set Deferred_child.id_column 999L
+            |> values Assignment.[ value Deferred_child.id_column 999L ]
             |> command)
 
 let possible =

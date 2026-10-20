@@ -44,40 +44,15 @@ type ('row, +'requirements) conflict =
   }
 
 module Conflict_update = struct
-  type 'row assignment =
-    | Assignment :
-        ('row, 'base, 'value) Column.t * Ast.assignment_value
-        -> 'row assignment
-
   type ('row, +'requirements) t =
-    { assignments : 'row assignment list
+    { assignments : ('row, 'requirements) Assignment.t list
     ; where_ : Ast.condition option
     }
 
   let empty = { assignments = []; where_ = None }
 
-  let set_expr column expression update =
-    { update with
-      assignments =
-        update.assignments
-        @ [ Assignment (column, Ast.Expression (Expr.node expression)) ]
-    }
-  ;;
-
-  let set column value update =
-    set_expr column (Expr.constant (Column.db_type column) value) update
-  ;;
-
-  let set_opt column value update =
-    match value with
-    | None -> update
-    | Some value -> set column value update
-  ;;
-
-  let set_expr_opt column expression update =
-    match expression with
-    | None -> update
-    | Some expression -> set_expr column expression update
+  let set assignments update =
+    { update with assignments = update.assignments @ assignments }
   ;;
 
   let where condition update =
@@ -103,21 +78,15 @@ let into table =
   }
 ;;
 
-let set_expr column expression insert =
-  let assignment =
-    { Ast.source_id = Table_ref.source_id insert.reference
-    ; column = Column.name column
-    ; target_type = Db_type.Pack (Column.db_type column)
-    ; value = Ast.Expression (Expr.node expression)
-    }
-  in
+let values assignments insert =
+  let assignments = Assignment.ast insert.reference assignments in
   let input =
     match insert.input with
     | Ast.Rows rows ->
       let rows =
         match List.rev rows with
-        | [] -> [ [ assignment ] ]
-        | row :: rest -> List.rev ((row @ [ assignment ]) :: rest)
+        | [] -> [ assignments ]
+        | row :: rest -> List.rev ((row @ assignments) :: rest)
       in
       Ast.Rows rows
     | Ast.Select_rows _ | Ast.Mixed_sources -> Ast.Mixed_sources
@@ -125,41 +94,9 @@ let set_expr column expression insert =
   { insert with input }
 ;;
 
-let set column value insert =
-  set_expr column (Expr.constant (Column.db_type column) value) insert
-;;
-
-let default column insert =
-  let assignment =
-    { Ast.source_id = Table_ref.source_id insert.reference
-    ; column = Column.name column
-    ; target_type = Db_type.Pack (Column.db_type column)
-    ; value = Ast.Default
-    }
-  in
-  let input =
-    match insert.input with
-    | Ast.Rows rows ->
-      let rows =
-        match List.rev rows with
-        | [] -> [ [ assignment ] ]
-        | row :: rest -> List.rev ((row @ [ assignment ]) :: rest)
-      in
-      Ast.Rows rows
-    | Ast.Select_rows _ | Ast.Mixed_sources -> Ast.Mixed_sources
-  in
-  { insert with input }
-;;
-
-let rows table builders =
-  let empty = into table in
-  let input =
-    List.fold builders ~init:(Ast.Rows []) ~f:(fun input build ->
-      match input, (build empty).input with
-      | Ast.Rows accumulated, Ast.Rows rows -> Ast.Rows (accumulated @ rows)
-      | _ -> Ast.Mixed_sources)
-  in
-  { empty with input }
+let rows table rows =
+  let insert = into table in
+  { insert with input = Ast.Rows (List.map rows ~f:(Assignment.ast insert.reference)) }
 ;;
 
 let from_select columns query insert =
@@ -200,14 +137,7 @@ let do_update make_update conflict =
   let insert = conflict.insert in
   let excluded = Table_ref.create (Table_ref.table insert.reference) in
   let update : _ Conflict_update.t = make_update ~existing:insert.reference ~excluded in
-  let assignments =
-    List.map update.assignments ~f:(fun (Conflict_update.Assignment (column, value)) ->
-      { Ast.source_id = Column.source_id_for insert.reference column
-      ; column = Column.name column
-      ; target_type = Db_type.Pack (Column.db_type column)
-      ; value
-      })
-  in
+  let assignments = Assignment.ast insert.reference update.assignments in
   { insert with
     conflict =
       Some

@@ -1175,11 +1175,13 @@ create.insertInto(AUTHOR, AUTHOR.ID, AUTHOR.LAST_NAME)
     (let target = Insert.Conflict_target.column Author.id_column in
      Insert.(
        into Author.table
-       |> set Author.id_column 3
-       |> set Author.last_name_column "Koontz"
+       |> values
+            Assignment.
+              [ value Author.id_column 3; value Author.last_name_column "Koontz" ]
        |> on_conflict target
        |> do_update (fun ~existing:_ ~excluded:_ ->
-         Conflict_update.empty |> Conflict_update.set Author.last_name_column "Koontz")
+         Conflict_update.empty
+         |> Conflict_update.set Assignment.[ value Author.last_name_column "Koontz" ])
        |> command))
 val jq14 : (unit, Affected_rows.t, Dialect.both) Statement.t = <abstr>
 ```
@@ -1254,7 +1256,7 @@ end
       table Book_archive.table
       |> from Book.table ~f:(fun target source update ->
         update
-        |> set_expr Book_archive.title_column (Book.title source)
+        |> set Assignment.[ expr Book_archive.title_column (Book.title source) ]
         |> where (fun _ -> Expr.column target Book_archive.id_column =. Book.id source))
       |> command)
 val jq15 : (unit, Affected_rows.t, Dialect.both) Statement.t = <abstr>
@@ -2729,8 +2731,9 @@ Record1<Integer> inserted =
     ~dialect:Dialect.portable
     Insert.(
       into Book.table
-      |> set Book.title_column "New title"
-      |> set Book.author_id_column 1
+      |> values
+           Assignment.
+             [ value Book.title_column "New title"; value Book.author_id_column 1 ]
       |> returning (fun book ->
         let open Projection.Let_syntax in
         let+ projected_left = Projection.expr (Book.id book)
@@ -2786,9 +2789,13 @@ create.update(BOOK)
       table Book.table
       |> from Book.table ~f:(fun target source update ->
         update
-        |> set_expr
-             Book.published_in_column
-             Expr.Int.Infix.(Book.published_in target +. Expr.constant Db_type.int 1)
+        |> set
+             Assignment.
+               [ expr
+                   Book.published_in_column
+                   Expr.Int.Infix.(
+                     Book.published_in target +. Expr.constant Db_type.int 1)
+               ]
         |> where (fun _ -> Book.id target =. Book.id source))
       |> where (fun book -> Book.published_in book <$ 1950)
       |> command)
@@ -2915,12 +2922,12 @@ create.mergeInto(BOOK_ARCHIVE)
         merge
         |> on (Book_archive.id target =. Book.id source)
         |> when_matched_update
-             Assignments.(empty |> set_expr Book_archive.title_column (Book.title source))
+             Assignment.[ expr Book_archive.title_column (Book.title source) ]
         |> when_not_matched_insert
-             Assignments.(
-               empty
-               |> set_expr Book_archive.id_column (Book.id source)
-               |> set_expr Book_archive.title_column (Book.title source)))
+             Assignment.
+               [ expr Book_archive.id_column (Book.id source)
+               ; expr Book_archive.title_column (Book.title source)
+               ])
       |> command)
 val jq40 : (unit, Affected_rows.t, [ `Postgresql ]) Statement.t = <abstr>
 ```
@@ -3408,14 +3415,16 @@ RETURNING ID, TITLE
     ~dialect:Dialect.portable
     Insert.(
       into Book.table
-      |> set Book.id_column 9
-      |> set Book.title_column "Updated"
-      |> set Book.author_id_column 1
+      |> values
+           Assignment.
+             [ value Book.id_column 9
+             ; value Book.title_column "Updated"
+             ; value Book.author_id_column 1
+             ]
       |> on_conflict (Conflict_target.column Book.id_column)
       |> do_update (fun ~existing:_ ~excluded ->
-        Conflict_update.set_expr
-          Book.title_column
-          (Book.title excluded)
+        Conflict_update.set
+          Assignment.[ expr Book.title_column (Book.title excluded) ]
           Conflict_update.empty)
       |> returning (fun book ->
         let open Projection.Let_syntax in
@@ -3706,7 +3715,7 @@ UPDATE BOOK SET PUBLISHED_IN = 2020 WHERE PUBLISHED_IN < 1900 RETURNING ID, PUBL
     ~dialect:Dialect.portable
     Update.(
       table Book.table
-      |> set Book.published_in_column 2020
+      |> set Assignment.[ value Book.published_in_column 2020 ]
       |> where (fun book -> Book.published_in book <$ 1900)
       |> returning (fun book ->
         let open Projection.Let_syntax in
@@ -3751,16 +3760,16 @@ INSERT INTO BOOK (ID, TITLE, AUTHOR_ID) VALUES (101, 'A', 1), (102, 'B', 1)
     ~dialect:Dialect.portable
     (Insert.rows
        Book.table
-       [ (fun row ->
-           row
-           |> Insert.set Book.id_column 101
-           |> Insert.set Book.title_column "A"
-           |> Insert.set Book.author_id_column 1)
-       ; (fun row ->
-           row
-           |> Insert.set Book.id_column 102
-           |> Insert.set Book.title_column "B"
-           |> Insert.set Book.author_id_column 1)
+       [ Assignment.
+           [ value Book.id_column 101
+           ; value Book.title_column "A"
+           ; value Book.author_id_column 1
+           ]
+       ; Assignment.
+           [ value Book.id_column 102
+           ; value Book.title_column "B"
+           ; value Book.author_id_column 1
+           ]
        ]
      |> Insert.command)
 val jq56 : (unit, Affected_rows.t, Dialect.both) Statement.t = <abstr>

@@ -129,8 +129,9 @@ module User_profile = struct
   let unique_constraints = []
 
   let projection table_ref =
-    let open Typed_sql_codegen.Projection.Let_syntax in
-    let%map id = Typed_sql_codegen.Projection.expr (id table_ref) in
+    let%map.Typed_sql_codegen.Projection id =
+      Typed_sql_codegen.Projection.expr (id table_ref)
+    in
     { id }
   ;;
 end
@@ -353,8 +354,8 @@ module Advanced = struct
   let unique_constraints = []
 
   let projection table_ref =
-    let open Typed_sql_codegen.Projection.Let_syntax in
-    let%map local_value = Typed_sql_codegen.Projection.expr (local_value table_ref)
+    let%map.Typed_sql_codegen.Projection local_value =
+      Typed_sql_codegen.Projection.expr (local_value table_ref)
     and float_value = Typed_sql_codegen.Projection.expr (float_value table_ref)
     and duration = Typed_sql_codegen.Projection.expr (duration table_ref)
     and payload = Typed_sql_codegen.Projection.expr (payload table_ref)
@@ -407,8 +408,9 @@ module Table = struct
   let unique_constraints = []
 
   let projection table_ref =
-    let open Typed_sql_codegen.Projection.Let_syntax in
-    let%map id = Typed_sql_codegen.Projection.expr (id table_ref) in
+    let%map.Typed_sql_codegen.Projection id =
+      Typed_sql_codegen.Projection.expr (id table_ref)
+    in
     { id }
   ;;
 end
@@ -434,8 +436,9 @@ module Typed_sql_codegen_2 = struct
   let unique_constraints = []
 
   let projection table_ref =
-    let open Typed_sql_codegen.Projection.Let_syntax in
-    let%map id = Typed_sql_codegen.Projection.expr (id table_ref) in
+    let%map.Typed_sql_codegen.Projection id =
+      Typed_sql_codegen.Projection.expr (id table_ref)
+    in
     { id }
   ;;
 end
@@ -624,8 +627,8 @@ module User_profile_2 = struct
   let unique_constraints = []
 
   let projection table_ref =
-    let open Typed_sql_codegen.Projection.Let_syntax in
-    let%map id = Typed_sql_codegen.Projection.expr (id table_ref)
+    let%map.Typed_sql_codegen.Projection id =
+      Typed_sql_codegen.Projection.expr (id table_ref)
     and id_column_2 = Typed_sql_codegen.Projection.expr (id_column_2 table_ref)
     and display_name = Typed_sql_codegen.Projection.expr (display_name table_ref)
     and display_name_2 = Typed_sql_codegen.Projection.expr (display_name_2 table_ref)
@@ -680,8 +683,9 @@ module User_profile_3 = struct
   let unique_constraints = []
 
   let projection table_ref =
-    let open Typed_sql_codegen.Projection.Let_syntax in
-    let%map id = Typed_sql_codegen.Projection.expr (id table_ref) in
+    let%map.Typed_sql_codegen.Projection id =
+      Typed_sql_codegen.Projection.expr (id table_ref)
+    in
     { id }
   ;;
 end

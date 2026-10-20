@@ -80,9 +80,12 @@ let () =
   let sql =
     Insert.(
       into Advanced.table
-      |> set_expr
-           Advanced.float_value_column
-           (Expr.constant Schema_test_codecs.Local_float.db_type 12.5)
+      |> values
+           Assignment.
+             [ expr
+                 Advanced.float_value_column
+                 (Expr.constant Schema_test_codecs.Local_float.db_type 12.5)
+             ]
       |> command)
     |> Compiler.compile_command ~dialect:Dialect.postgresql
     |> Result.map_error ~f:Compile_error.to_string

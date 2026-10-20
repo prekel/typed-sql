@@ -902,8 +902,9 @@ let run_goldens ~postgresql conn =
         Cte.with_command R.command_effect ~f:(fun () ->
           Insert.(
             into Q.Person.table
-            |> default Q.Person.id_column
-            |> set Q.Person.name_column "Grace"
+            |> values
+                 Assignment.
+                   [ default Q.Person.id_column; value Q.Person.name_column "Grace" ]
             |> command))
       in
       let command_cte = Statement.command ~dialect:Dialect.postgresql command_cte in
@@ -963,10 +964,13 @@ let run_goldens ~postgresql conn =
   let conditional_update =
     Update.(
       table Q.Person.table
-      |> set_opt Q.Person.name_column None
-      |> set_opt Q.Person.nickname_column (Some None)
-      |> set_expr_opt Q.Person.id_column None
-      |> set_expr_opt Q.Person.id_column (Some (Expr.constant Db_type.int64 2L))
+      |> set
+           Assignment.
+             [ value_opt Q.Person.name_column None
+             ; value_opt Q.Person.nickname_column (Some None)
+             ; expr_opt Q.Person.id_column None
+             ; expr_opt Q.Person.id_column (Some (Expr.constant Db_type.int64 2L))
+             ]
       |> where (fun person -> Q.Person.id person =$ 1L)
       |> command)
   in
@@ -1095,8 +1099,7 @@ let run ~postgresql conn =
       ~dialect:Dialect.portable
       Insert.(
         into Item.table
-        |> set Item.id_column 4L
-        |> set Item.name_column "Edsger"
+        |> values Assignment.[ value Item.id_column 4L; value Item.name_column "Edsger" ]
         |> command)
   in
   let* _ = Adapter.run ~conn insert () >>= adapter_or_fail in
@@ -1123,16 +1126,19 @@ let run ~postgresql conn =
       ~dialect:Dialect.portable
       Insert.(
         into Codec_item.table
-        |> set Codec_item.id_column 1L
-        |> set Codec_item.boolean_column true
-        |> set Codec_item.integer_column 42
-        |> set Codec_item.float_column 1.5
-        |> set Codec_item.text_column "O'Reilly"
-        |> set Codec_item.bytes_column bytes
-        |> set Codec_item.date_column date
-        |> set Codec_item.timestamp_column timestamp
-        |> set Codec_item.uuid_column uuid
-        |> set Codec_item.nullable_column None
+        |> values
+             Assignment.
+               [ value Codec_item.id_column 1L
+               ; value Codec_item.boolean_column true
+               ; value Codec_item.integer_column 42
+               ; value Codec_item.float_column 1.5
+               ; value Codec_item.text_column "O'Reilly"
+               ; value Codec_item.bytes_column bytes
+               ; value Codec_item.date_column date
+               ; value Codec_item.timestamp_column timestamp
+               ; value Codec_item.uuid_column uuid
+               ; value Codec_item.nullable_column None
+               ]
         |> command)
   in
   let* _ = Adapter.run ~conn codec_insert () >>= adapter_or_fail in
@@ -1306,8 +1312,7 @@ let run ~postgresql conn =
       ~dialect:Dialect.portable
       Insert.(
         into Item.table
-        |> set Item.id_column 1L
-        |> set Item.name_column "ignored"
+        |> values Assignment.[ value Item.id_column 1L; value Item.name_column "ignored" ]
         |> on_conflict_do_nothing
         |> command)
   in
@@ -1376,7 +1381,10 @@ let postgres_only conn =
   let insert_numeric amount =
     Statement.command
       ~dialect:Dialect.postgresql
-      Insert.(into Numeric_item.table |> set Numeric_item.amount_column amount |> command)
+      Insert.(
+        into Numeric_item.table
+        |> values Assignment.[ value Numeric_item.amount_column amount ]
+        |> command)
   in
   let* _ =
     Adapter.run ~conn (insert_numeric (decimal_exn "9223372036854775807")) ()
@@ -1402,10 +1410,12 @@ let postgres_only conn =
       ~dialect:Dialect.postgresql
       Insert.(
         into Constraint_item.table
-        |> set Constraint_item.id_column id
-        |> set Constraint_item.parent_column parent
-        |> set Constraint_item.value_column value
-        |> set Constraint_item.note_column note
+        |> values
+             [ Assignment.value Constraint_item.id_column id
+             ; Assignment.value Constraint_item.parent_column parent
+             ; Assignment.value Constraint_item.value_column value
+             ; Assignment.value Constraint_item.note_column note
+             ]
         |> command)
   in
   let expect_constraint kind result =
@@ -1457,7 +1467,10 @@ let postgres_only conn =
   let trigger code =
     Statement.command
       ~dialect:Dialect.postgresql
-      Insert.(into Sqlstate_item.table |> set Sqlstate_item.code_column code |> command)
+      Insert.(
+        into Sqlstate_item.table
+        |> values Assignment.[ value Sqlstate_item.code_column code ]
+        |> command)
   in
   let* () =
     Lwt_list.iter_s
@@ -1517,7 +1530,10 @@ let postgres_only conn =
   let deferred_insert =
     Statement.command
       ~dialect:Dialect.postgresql
-      Insert.(into Deferred_child.table |> set Deferred_child.id_column 999L |> command)
+      Insert.(
+        into Deferred_child.table
+        |> values Assignment.[ value Deferred_child.id_column 999L ]
+        |> command)
   in
   let* commit_error =
     Adapter.transaction ~conn ~f:(fun conn -> Adapter.run ~conn deferred_insert ())
@@ -1797,16 +1813,19 @@ let test_rich_schema_types conn =
       ~dialect:Dialect.postgresql
       Insert.(
         into table
-        |> set float_column 12.5
-        |> set interval_column duration
-        |> set json_column json
-        |> set array_column numbers
-        |> set host_column host
-        |> set inet_column inet_value
-        |> set rational_column rational
-        |> set geometry_column (1., 2.)
-        |> set mood_column "happy"
-        |> set username_column "Ada"
+        |> values
+             Assignment.
+               [ value float_column 12.5
+               ; value interval_column duration
+               ; value json_column json
+               ; value array_column numbers
+               ; value host_column host
+               ; value inet_column inet_value
+               ; value rational_column rational
+               ; value geometry_column (1., 2.)
+               ; value mood_column "happy"
+               ; value username_column "Ada"
+               ]
         |> command)
   in
   let* _ = Adapter.run ~conn insert () >>= adapter_or_fail in
@@ -1878,10 +1897,13 @@ module Average_fixture = struct
       table blogs
       |> with_target ~f:(fun target update ->
         update
-        |> set_expr
-             optional_rating
-             (Expr.cast_float_to_int_nullable
-                (Expr.scalar_subquery_nullable (average target))))
+        |> set
+             Assignment.
+               [ expr
+                   optional_rating
+                   (Expr.cast_float_to_int_nullable
+                      (Expr.scalar_subquery_nullable (average target)))
+               ])
       |> all_rows
       |> command)
   ;;

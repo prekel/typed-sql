@@ -33,8 +33,7 @@ let base_command () =
     |> using Source.table ~f:(fun target source merge ->
       merge
       |> on (Target.id target =. Source.id source)
-      |> when_matched_update
-           Assignments.(empty |> set_expr Target.value_column (Source.id source))))
+      |> when_matched_update Assignment.[ expr Target.value_column (Source.id source) ]))
   |> Merge.command
   |> structured_command
 ;;
@@ -89,7 +88,7 @@ let compiled_merge value =
       |> using Source.table ~f:(fun target source merge ->
         merge
         |> on (Target.id target =. Source.id source)
-        |> when_matched_update Assignments.(empty |> set Target.value_column value)))
+        |> when_matched_update [ Assignment.value Target.value_column value ]))
     |> Merge.command
   in
   compile (structured_command command)

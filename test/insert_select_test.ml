@@ -197,7 +197,7 @@ let%test_module "INSERT from SELECT" =
         Insert.(
           into Archive.table
           |> from_select columns source
-          |> set Archive.id_column 7L
+          |> values Assignment.[ value Archive.id_column 7L ]
           |> command)
       in
       String.equal (error command) "INSERT cannot combine VALUES and SELECT sources"
@@ -207,7 +207,7 @@ let%test_module "INSERT from SELECT" =
       let command =
         Insert.(
           into Archive.table
-          |> set Archive.id_column 7L
+          |> values Assignment.[ value Archive.id_column 7L ]
           |> from_select columns source
           |> command)
       in
@@ -219,7 +219,7 @@ let%test_module "INSERT from SELECT" =
         Insert.(
           into Archive.table
           |> from_select columns source
-          |> default Archive.id_column
+          |> values Assignment.[ default Archive.id_column ]
           |> command)
       in
       match Compiler.compile_command ~dialect:Dialect.postgresql command with
@@ -231,7 +231,9 @@ let%test_module "INSERT from SELECT" =
     let%test "multi-row VALUES cannot contain a SELECT source" =
       let command =
         Insert.(
-          rows Archive.table [ (fun row -> from_select columns source row) ] |> command)
+          rows Archive.table [ Assignment.[ value Archive.id_column 7L ] ]
+          |> from_select columns source
+          |> command)
       in
       String.equal (error command) "INSERT cannot combine VALUES and SELECT sources"
     ;;

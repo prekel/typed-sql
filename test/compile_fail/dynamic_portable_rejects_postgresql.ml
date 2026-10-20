@@ -6,5 +6,5 @@ let id = Column.v_exn table "id" Db_type.int
 
 let statement =
   Statement.Dynamic.command ~dialect:Dialect.portable (fun () ->
-    Insert.(into table |> default id |> command))
+    Insert.(into table |> values Assignment.[ default id ] |> command))
 ;;

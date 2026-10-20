@@ -1526,13 +1526,16 @@ let run conn =
   let codec_insert =
     Insert.(
       into Codec_value.table
-      |> set Codec_value.boolean_column codec_value.boolean
-      |> set Codec_value.integer_column codec_value.integer
-      |> set Codec_value.integer_64_column codec_value.integer_64
-      |> set Codec_value.floating_column codec_value.floating
-      |> set Codec_value.text_column codec_value.text
-      |> set Codec_value.bytes_column codec_value.bytes
-      |> set Codec_value.nullable_text_column codec_value.nullable_text
+      |> values
+           Assignment.
+             [ value Codec_value.boolean_column codec_value.boolean
+             ; value Codec_value.integer_column codec_value.integer
+             ; value Codec_value.integer_64_column codec_value.integer_64
+             ; value Codec_value.floating_column codec_value.floating
+             ; value Codec_value.text_column codec_value.text
+             ; value Codec_value.bytes_column codec_value.bytes
+             ; value Codec_value.nullable_text_column codec_value.nullable_text
+             ]
       |> returning Codec_value.projection)
   in
   let* decoded_codec =
@@ -1577,10 +1580,13 @@ let run conn =
   let inserted =
     Insert.(
       into Person.table
-      |> set Person.id_column 4L
-      |> set Person.name_column "Edsger"
-      |> set Person.role_column `Guest
-      |> set Person.nickname_column None
+      |> values
+           Assignment.
+             [ value Person.id_column 4L
+             ; value Person.name_column "Edsger"
+             ; value Person.role_column `Guest
+             ; value Person.nickname_column None
+             ]
       |> returning Person.projection)
   in
   let* inserted = Typed_sql_caqti_lwt.fetch_one ~conn inserted >>= adapter_or_fail in
@@ -1589,7 +1595,7 @@ let run conn =
   let update =
     Update.(
       table Person.table
-      |> set Person.name_column "Dijkstra"
+      |> set Assignment.[ value Person.name_column "Dijkstra" ]
       |> where (fun person -> Person.id person =$ 4L)
       |> command)
   in
@@ -1615,8 +1621,11 @@ let run conn =
   let codec_encode_failure =
     Insert.(
       into Mapped_failure.table
-      |> set Mapped_failure.encode_column "bad"
-      |> set Mapped_failure.decode_column "ok"
+      |> values
+           Assignment.
+             [ value Mapped_failure.encode_column "bad"
+             ; value Mapped_failure.decode_column "ok"
+             ]
       |> command)
   in
   observed := None;
@@ -1680,18 +1689,18 @@ let run conn =
     Insert.(
       rows
         Person.table
-        [ (fun row ->
-            row
-            |> set Person.id_column 5L
-            |> set Person.name_column "Barbara"
-            |> set Person.role_column `Admin
-            |> set Person.nickname_column (Some "Barb"))
-        ; (fun row ->
-            row
-            |> set Person.role_column `Guest
-            |> set Person.id_column 6L
-            |> set Person.nickname_column None
-            |> set Person.name_column "Margaret")
+        [ Assignment.
+            [ value Person.id_column 5L
+            ; value Person.name_column "Barbara"
+            ; value Person.role_column `Admin
+            ; value Person.nickname_column (Some "Barb")
+            ]
+        ; Assignment.
+            [ value Person.role_column `Guest
+            ; value Person.id_column 6L
+            ; value Person.nickname_column None
+            ; value Person.name_column "Margaret"
+            ]
         ]
       |> returning Person.projection)
   in
@@ -1705,8 +1714,11 @@ let run conn =
   let conditional_update =
     Update.(
       table Person.table
-      |> set_opt Person.name_column None
-      |> set_opt Person.nickname_column (Some None)
+      |> set
+           Assignment.
+             [ value_opt Person.name_column None
+             ; value_opt Person.nickname_column (Some None)
+             ]
       |> where (fun person -> Person.id person =$ 5L)
       |> command)
   in
@@ -1731,7 +1743,7 @@ let run conn =
       table Person.table
       |> from Department.table ~f:(fun person department update ->
         update
-        |> set_expr Person.name_column (Department.name department)
+        |> set Assignment.[ expr Person.name_column (Department.name department) ]
         |> where (fun _ -> Person.id person =. Department.person_id department))
       |> returning Person.projection)
   in
@@ -1841,10 +1853,13 @@ let run conn =
   let duplicate =
     Insert.(
       into Person.table
-      |> set Person.id_column 1L
-      |> set Person.name_column "Duplicate"
-      |> set Person.role_column `Guest
-      |> set Person.nickname_column None
+      |> values
+           Assignment.
+             [ value Person.id_column 1L
+             ; value Person.name_column "Duplicate"
+             ; value Person.role_column `Guest
+             ; value Person.nickname_column None
+             ]
       |> command)
   in
   observed := None;
@@ -1866,10 +1881,13 @@ let run conn =
   let ignored_duplicate =
     Insert.(
       into Person.table
-      |> set Person.id_column 1L
-      |> set Person.name_column "Ignored"
-      |> set Person.role_column `Guest
-      |> set Person.nickname_column None
+      |> values
+           Assignment.
+             [ value Person.id_column 1L
+             ; value Person.name_column "Ignored"
+             ; value Person.role_column `Guest
+             ; value Person.nickname_column None
+             ]
       |> on_conflict_do_nothing
       |> command)
   in
@@ -1883,21 +1901,29 @@ let run conn =
   let upsert_person name =
     Insert.(
       into Person.table
-      |> set Person.id_column 77L
-      |> set Person.name_column name
-      |> set Person.role_column `Guest
-      |> set Person.nickname_column None
+      |> values
+           Assignment.
+             [ value Person.id_column 77L
+             ; value Person.name_column name
+             ; value Person.role_column `Guest
+             ; value Person.nickname_column None
+             ]
       |> on_conflict (Conflict_target.column Person.id_column)
       |> do_update (fun ~existing ~excluded ->
         Conflict_update.(
           empty
-          |> set_expr
-               Person.name_column
-               (Expr.concat
-                  (Person.name existing)
-                  (Expr.concat (Expr.constant Db_type.text "/") (Person.name excluded)))
-          |> set_expr Person.role_column (Person.role excluded)
-          |> set_expr Person.nickname_column (Person.nickname excluded)))
+          |> set
+               Assignment.
+                 [ expr
+                     Person.name_column
+                     (Expr.concat
+                        (Person.name existing)
+                        (Expr.concat
+                           (Expr.constant Db_type.text "/")
+                           (Person.name excluded)))
+                 ; expr Person.role_column (Person.role excluded)
+                 ; expr Person.nickname_column (Person.nickname excluded)
+                 ]))
       |> returning Person.projection)
   in
   let* inserted =
@@ -1923,10 +1949,13 @@ let run conn =
   let transaction_insert id name =
     Insert.(
       into Person.table
-      |> set Person.id_column id
-      |> set Person.name_column name
-      |> set Person.role_column `Guest
-      |> set Person.nickname_column None
+      |> values
+           Assignment.
+             [ value Person.id_column id
+             ; value Person.name_column name
+             ; value Person.role_column `Guest
+             ; value Person.nickname_column None
+             ]
       |> command)
   in
   let* rolled_back =
@@ -1969,7 +1998,10 @@ let run conn =
   if not (Option.value_map present ~default:false ~f:(Int64.equal 98L)) then
     failwith "successful transaction did not commit";
   let deferred_insert =
-    Insert.(into Deferred_child.table |> set Deferred_child.id_column 999L |> command)
+    Insert.(
+      into Deferred_child.table
+      |> values Assignment.[ value Deferred_child.id_column 999L ]
+      |> command)
   in
   let* deferred_commit =
     Typed_sql_caqti_lwt.transaction ~conn ~f:(fun transaction_conn ->
@@ -1994,8 +2026,9 @@ let run conn =
   let timestamp_insert =
     Insert.(
       into Event.table
-      |> set Event.id_column 1L
-      |> set Event.occurred_at_column timestamp
+      |> values
+           Assignment.
+             [ value Event.id_column 1L; value Event.occurred_at_column timestamp ]
       |> returning (fun event -> Projection.expr (Event.occurred_at event)))
   in
   let* decoded_timestamp =
@@ -2006,8 +2039,11 @@ let run conn =
   let current_timestamp_insert =
     Insert.(
       into Event.table
-      |> set Event.id_column 2L
-      |> set_expr Event.occurred_at_column Expr.current_timestamp
+      |> values
+           Assignment.
+             [ value Event.id_column 2L
+             ; expr Event.occurred_at_column Expr.current_timestamp
+             ]
       |> command)
   in
   let* _ =
@@ -2071,8 +2107,11 @@ let run conn =
   let date_insert =
     Insert.(
       into Calendar_day.table
-      |> set Calendar_day.id_column 1L
-      |> set Calendar_day.date_column calendar_date
+      |> values
+           Assignment.
+             [ value Calendar_day.id_column 1L
+             ; value Calendar_day.date_column calendar_date
+             ]
       |> returning (fun day -> Projection.expr (Calendar_day.date day)))
   in
   let* decoded_date =
@@ -2084,8 +2123,9 @@ let run conn =
   let uuid_insert =
     Insert.(
       into Resource.table
-      |> set Resource.id_column 1L
-      |> set Resource.external_id_column uuid
+      |> values
+           Assignment.
+             [ value Resource.id_column 1L; value Resource.external_id_column uuid ]
       |> returning (fun resource -> Projection.expr (Resource.external_id resource)))
   in
   let* decoded_uuid =
@@ -2148,14 +2188,14 @@ let upsert_test conn =
       (Projection.expr (Expr.column row role))
       (Projection.expr (Expr.column row note))
   in
-  let row id_value key_value version_value builder =
-    Insert.(
-      builder
-      |> set id id_value
-      |> set key key_value
-      |> set version version_value
-      |> set role `Guest
-      |> set note None)
+  let row id_value key_value version_value =
+    Assignment.
+      [ value id id_value
+      ; value key key_value
+      ; value version version_value
+      ; value role `Guest
+      ; value note None
+      ]
   in
   let* () =
     Connection.exec
@@ -2173,10 +2213,13 @@ let upsert_test conn =
       |> do_update (fun ~existing ~excluded ->
         Conflict_update.(
           empty
-          |> set_expr version (Expr.column excluded version)
-          |> set_expr role (Expr.column excluded role)
-          |> set_opt note (Some None)
-          |> set_expr_opt key None
+          |> set
+               Assignment.
+                 [ expr version (Expr.column excluded version)
+                 ; expr role (Expr.column excluded role)
+                 ; value_opt note (Some None)
+                 ; expr_opt key None
+                 ]
           |> where (Expr.column excluded version >. Expr.column existing version)
           |> where (Expr.column excluded key <>$ "skip")))
       |> returning projection)
@@ -2202,7 +2245,9 @@ let upsert_test conn =
       |> on_conflict target
       |> do_update (fun ~existing ~excluded:_ ->
         Conflict_update.(
-          empty |> set version 100L |> where (Expr.column existing note =$ Some "never")))
+          empty
+          |> set Assignment.[ value version 100L ]
+          |> where (Expr.column existing note =$ Some "never")))
       |> returning projection)
   in
   let* skipped = fetch null_predicate in
@@ -2223,11 +2268,14 @@ let upsert_test conn =
         in
         Conflict_update.(
           empty
-          |> set_expr version (Expr.column excluded version)
-          |> set_opt role (Some `Admin)
-          |> set_expr_opt
-               note
-               (Some (Expr.constant (Db_type.option Db_type.text) (Some "changed")))
+          |> set
+               Assignment.
+                 [ expr version (Expr.column excluded version)
+                 ; value_opt role (Some `Admin)
+                 ; expr_opt
+                     note
+                     (Some (Expr.constant (Db_type.option Db_type.text) (Some "changed")))
+                 ]
           |> where exists))
       |> returning projection)
   in
@@ -2255,7 +2303,7 @@ let dynamic_test conn =
   let id = Column.v_exn table "id" Db_type.int in
   let insert =
     Statement.Dynamic.command ~dialect:Dialect.sqlite (fun value ->
-      Insert.(into table |> set id value |> command))
+      Insert.(into table |> values [ Assignment.value id value ] |> command))
   in
   let* _ = Adapter.run ~conn insert 1 >>= adapter_or_fail in
   let* _ = Adapter.run ~conn insert 2 >>= adapter_or_fail in
@@ -2327,7 +2375,10 @@ let dynamic_test conn =
    | _ -> failwith "foreign source did not reach adapter");
   let invalid =
     Statement.Dynamic.command ~dialect:Dialect.sqlite (fun value ->
-      Insert.(into table |> set id value |> set id value |> command))
+      Insert.(
+        into table
+        |> values [ Assignment.value id value; Assignment.value id value ]
+        |> command))
   in
   let* error = Adapter.run ~conn invalid 3 in
   (match error with
@@ -2361,10 +2412,13 @@ module Average_fixture = struct
       table blogs
       |> with_target ~f:(fun target update ->
         update
-        |> set_expr
-             optional_rating
-             (Expr.cast_float_to_int_nullable
-                (Expr.scalar_subquery_nullable (average target))))
+        |> set
+             Assignment.
+               [ expr
+                   optional_rating
+                   (Expr.cast_float_to_int_nullable
+                      (Expr.scalar_subquery_nullable (average target)))
+               ])
       |> all_rows
       |> command)
   ;;
@@ -2665,7 +2719,7 @@ let test_dml_correlation conn =
   let returning =
     Update.(
       table parent_table
-      |> set value 7L
+      |> set [ Assignment.value value 7L ]
       |> all_rows
       |> returning (fun parent ->
         Projection.both
@@ -2802,7 +2856,8 @@ let test_constraint_error_helpers conn =
   let insert =
     Statement.command
       ~dialect:Dialect.portable
-      Insert.(into table |> set email "ada@example.com" |> command)
+      Insert.(
+        into table |> values Assignment.[ value email "ada@example.com" ] |> command)
   in
   let* _ = Adapter.run ~conn insert () >>= adapter_or_fail in
   let* duplicate = Adapter.run ~conn insert () in

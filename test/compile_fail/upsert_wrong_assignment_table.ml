@@ -12,9 +12,9 @@ let other_id = Column.v_exn other "id" Db_type.int64
 let _ =
   Insert.(
     into table
-    |> set id 1L
+    |> values Assignment.[ value id 1L ]
     |> on_conflict (Conflict_target.column id)
     |> do_update (fun ~existing:_ ~excluded:_ ->
-      Conflict_update.(empty |> set other_id 2L))
+      Conflict_update.(empty |> set Assignment.[ value other_id 2L ]))
     |> command)
 ;;

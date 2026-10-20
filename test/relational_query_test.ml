@@ -977,7 +977,7 @@ let%test_unit "a CTE can supply UPDATE FROM" =
         table Person.table
         |> from_cte people ~f:(fun person selected update ->
           update
-          |> set_expr Person.name_column (Selected_person.name selected)
+          |> set Assignment.[ expr Person.name_column (Selected_person.name selected) ]
           |> where (fun _ -> Person.id person =. Selected_person.id selected))
         |> command))
   in
@@ -1042,7 +1042,7 @@ let%test_unit "a derived relation can supply UPDATE FROM" =
       table Person.table
       |> from_derived active_people ~f:(fun person selected update ->
         update
-        |> set_expr Person.name_column (Selected_person.name selected)
+        |> set Assignment.[ expr Person.name_column (Selected_person.name selected) ]
         |> where (fun _ -> Person.id person =. Selected_person.id selected))
       |> command)
   in
@@ -1062,7 +1062,7 @@ let%test_unit "an inferred relation can supply UPDATE FROM" =
       table Person.table
       |> from_relation inferred_active_people ~f:(fun person (id, name) update ->
         update
-        |> set_expr Person.name_column name
+        |> set Assignment.[ expr Person.name_column name ]
         |> where (fun _ -> Person.id person =. id))
       |> command)
   in
@@ -1085,7 +1085,7 @@ let%test_unit "multiple UPDATE FROM sources preserve their append order" =
         update
         |> from Person.table ~f:(fun _ second update ->
           update
-          |> set_expr Person.name_column (Person.name second)
+          |> set Assignment.[ expr Person.name_column (Person.name second) ]
           |> where (fun _ -> Person.id person =. Person.id first)))
       |> command)
   in
@@ -1108,8 +1108,7 @@ let%test_unit "CTEs attach to compound SELECTs and RETURNING statements" =
     Cte.with_result not_materialized_people ~f:(fun _ ->
       Insert.(
         into Person.table
-        |> default Person.id_column
-        |> set Person.name_column "Ada"
+        |> values Assignment.[ default Person.id_column; value Person.name_column "Ada" ]
         |> returning Person.projection))
   in
   let compound_sql =
@@ -1128,8 +1127,7 @@ let inserted_people =
     ~columns:Selected_person.projection
     Insert.(
       into Person.table
-      |> default Person.id_column
-      |> set Person.name_column "Ada"
+      |> values Assignment.[ default Person.id_column; value Person.name_column "Ada" ]
       |> returning Person.projection)
 ;;
 
@@ -1179,15 +1177,18 @@ let%expect_test "PostgreSQL data-modifying CTEs can feed a SELECT" =
 
 let command_effect =
   Postgresql.Cte.command
-    Update.(table Person.table |> default Person.name_column |> all_rows |> command)
+    Update.(
+      table Person.table
+      |> set Assignment.[ default Person.name_column ]
+      |> all_rows
+      |> command)
 ;;
 
 let%expect_test "PostgreSQL data-modifying CTE commands precede outer DML" =
   Cte.with_command command_effect ~f:(fun () ->
     Insert.(
       into Person.table
-      |> default Person.id_column
-      |> set Person.name_column "Grace"
+      |> values Assignment.[ default Person.id_column; value Person.name_column "Grace" ]
       |> command))
   |> compile_dialect_command_exn Dialect.postgresql
   |> Compiled_command.sql
@@ -1675,8 +1676,8 @@ let%test_unit "duplicate UPDATE assignments remain compile errors" =
   let command =
     Update.(
       table Person.table
-      |> set Person.name_column "Ada"
-      |> set Person.name_column "Grace"
+      |> set
+           Assignment.[ value Person.name_column "Ada"; value Person.name_column "Grace" ]
       |> all_rows
       |> command)
   in

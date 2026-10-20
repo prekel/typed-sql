@@ -1,8 +1,11 @@
 open! Base
 
+(** A scanned quotation and source location used to report collection failures. *)
 type t =
   { query : Query_bind.t
+    (** Scanned literal with rewritten SQL and source substitutions. *)
   ; loc : Ppxlib.Location.t
+    (** Original quotation location for located PPX diagnostics. *)
   }
 
 (** Decode a legacy or typed SQL quotation; no code is evaluated. *)
@@ -18,4 +21,6 @@ val statement_payload_exn
   -> Ppxlib.payload
   -> Ppxlib.pattern option * string list * string * Ppxlib.Location.t
 
+(** Collect literal legacy and typed quotations from an OCaml structure.
+    No code is evaluated; malformed payloads raise located PPX errors. *)
 val collect_exn : Ppxlib.structure -> t list

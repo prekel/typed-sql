@@ -1,15 +1,20 @@
 # Быстрый старт
 
-Таблица объявляется модулем с абстрактным phantom row type:
+Таблица объявляется модулем с отдельным phantom row type.
+Дескрипторы колонок связаны с этим типом:
 
 ```ocaml
+open! Base
 open Typed_sql
 open Infix
 
 module Person = struct
   type row
 
-  type t = { id : int64; name : string }
+  type t =
+    { id : int64
+    ; name : string
+    }
 
   let table : row Table.t = Table.v_exn "people"
   let id_column = Column.v_exn table "id" Db_type.int64
@@ -31,10 +36,10 @@ end
 
 ```ocaml
 let projection row =
-  let open Projection.Let_syntax in
-  let%map id = Projection.expr (Person.id row)
+  let%map.Projection id = Projection.expr (Person.id row)
   and name = Projection.expr (Person.name row) in
   { Person.id; name }
+;;
 ```
 
 `Projection.return` добавляет OCaml-значение без SQL-колонки. В итоговой
@@ -48,12 +53,12 @@ Ungrouped aggregate строится через отдельный `Query.Aggreg
 let totals =
   Query.Aggregate.(from Person.table)
   |> Query.aggregate_one (fun person ->
-    let open Aggregate_projection.Let_syntax in
-    let%map count = Aggregate_projection.count_all
+    let%map.Aggregate_projection count = Aggregate_projection.count_all
     and last_name =
       Aggregate_projection.max Db_type.Orderable.text (Person.name person)
     in
     count, last_name)
+;;
 ```
 
 `Aggregate_projection.Let_syntax` рекомендуется для сборки нескольких
@@ -77,15 +82,13 @@ SQLite и отклоняется при компиляции.
 let first_name_or_default =
   let candidate =
     Query.(
-      from Person.table
-      |> order_by Person.id `Asc
-      |> limit 1
-      |> select_scalar Person.name)
+      from Person.table |> order_by Person.id `Asc |> limit 1 |> select_scalar Person.name)
   in
   Query.select_one
     (Expr.coalesce
        (Expr.scalar_subquery candidate)
        ~default:(Expr.constant Db_type.text "unknown"))
+;;
 ```
 
 Такой результат имеет кардинальность `Cardinality.exactly_one`.
@@ -164,6 +167,7 @@ let tied_people =
         |> order_by Person.name `Asc
         |> Postgresql.Query.fetch_with_ties_param page_size
         |> select Person.projection))
+;;
 ```
 
 Операция возвращает `Cardinality.many`, потому что ties могут увеличить число
@@ -177,13 +181,15 @@ let tied_people =
 
 ```ocaml
 let claim_people =
-  Statement.query_many ~dialect:Dialect.postgresql (
+  Statement.query_many
+    ~dialect:Dialect.postgresql
     Query.(
       from Person.table
       |> order_by Person.id `Asc
       |> limit 5
       |> Postgresql.Query.for_update ~skip_locked:true
-      |> select Person.projection))
+      |> select Person.projection)
+;;
 ```
 
 Builder допускает `for_update` до или после сортировки и ограничения; SQL
@@ -206,12 +212,13 @@ let numbers =
         from_cte_relation numbers
         |> where (fun number -> number <$ 5)
         |> select_relation (fun number ->
-          Derived_table.Fields.expr
-            Expr.Int.Infix.(number +. Expr.constant Db_type.int 1))))
+          Derived_table.Fields.expr Expr.Int.Infix.(number +. Expr.constant Db_type.int 1))))
+;;
 
 let number_query =
   Cte.with_result numbers ~f:(fun numbers ->
     Query.(from_cte_relation numbers |> select Projection.expr))
+;;
 ```
 
 `Query.select_one_relation` позволяет задать literal anchor без `FROM`. Для
@@ -223,10 +230,7 @@ Callback конструктора вызывается при инициализ
 проверить до выполнения:
 
 ```ocaml
-let sql =
-  Statement.sql
-    ~dialect:Postgresql
-    Find_by_name.statement
+let sql = Statement.sql ~dialect:Postgresql Find_by_name.statement
 ```
 
 `Statement.sql` и `Statement.sql_exn` принимают
@@ -276,13 +280,14 @@ DML использует такое же локальное открытие bui
 
 ```ocaml
 let insert_once =
-  Statement.command ~dialect:Dialect.portable (
+  Statement.command
+    ~dialect:Dialect.portable
     Insert.(
       into Person.table
-      |> set Person.id_column 1L
-      |> set Person.name_column "Ada"
+      |> values Assignment.[ value Person.id_column 1L; value Person.name_column "Ada" ]
       |> on_conflict_do_nothing
-      |> command))
+      |> command)
+;;
 ```
 
 `Insert.on_conflict_do_nothing` переносим между PostgreSQL и SQLite. Для

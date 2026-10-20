@@ -12,8 +12,6 @@ let _ =
   Merge.(
     into table
     |> using other ~f:(fun _ _ merge ->
-      merge
-      |> on Condition.true_
-      |> when_matched_update Assignments.(empty |> set other_id 1L))
+      merge |> on Condition.true_ |> when_matched_update Assignment.[ value other_id 1L ])
     |> command)
 ;;

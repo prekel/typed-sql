@@ -12,7 +12,7 @@ end
 let returned =
   Insert.(
     into Item.table
-    |> set Item.id_column 1
+    |> values Assignment.[ value Item.id_column 1 ]
     |> returning (fun item -> Projection.expr (Item.id item)))
 ;;
 

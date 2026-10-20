@@ -60,13 +60,12 @@ let merge () =
     |> using Source.table ~f:(fun target source merge ->
       merge
       |> on (Target.id target =. Source.id source)
-      |> when_matched_update
-           Assignments.(empty |> set_expr Target.title_column (Source.title source))
+      |> when_matched_update Assignment.[ expr Target.title_column (Source.title source) ]
       |> when_not_matched_insert
-           Assignments.(
-             empty
-             |> set_expr Target.id_column (Source.id source)
-             |> set_expr Target.title_column (Source.title source))))
+           Assignment.
+             [ expr Target.id_column (Source.id source)
+             ; expr Target.title_column (Source.title source)
+             ]))
 ;;
 
 let source_relation =
@@ -104,13 +103,13 @@ let%test_module "MERGE rendering" =
           |> when_matched_delete ~condition:(Source.title source =$ "deleted")
           |> when_not_matched_insert
                ~condition:(Source.id source >$ 0L)
-               Assignments.(
-                 empty
-                 |> set_expr Target.id_column (Source.id source)
-                 |> set_expr Target.title_column (Source.title source))
+               Assignment.
+                 [ expr Target.id_column (Source.id source)
+                 ; expr Target.title_column (Source.title source)
+                 ]
           |> when_matched_update
                ~condition:(Target.title target <>. Source.title source)
-               Assignments.(empty |> set_expr Target.title_column (Source.title source))
+               Assignment.[ expr Target.title_column (Source.title source) ]
           |> when_matched_do_nothing
           |> when_not_matched_do_nothing)
         |> command)
@@ -144,7 +143,7 @@ let%test_module "MERGE rendering" =
           merge
           |> on (Target.id target =. Target.id source)
           |> when_matched_update
-               Assignments.(empty |> set_expr Target.title_column (Target.title source)))
+               Assignment.[ expr Target.title_column (Target.title source) ])
         |> command)
       |> sql
       |> Stdlib.print_endline;
@@ -166,9 +165,8 @@ let%test_module "MERGE rendering" =
           merge
           |> on (Target.id target =. Source.id source)
           |> when_matched_update
-               Assignments.(
-                 empty |> default Target.title_column |> set Target.note_column None)
-          |> when_not_matched_insert Assignments.(empty |> default Target.id_column))
+               Assignment.[ default Target.title_column; value Target.note_column None ]
+          |> when_not_matched_insert Assignment.[ default Target.id_column ])
         |> command)
       |> sql
       |> Stdlib.print_endline;
@@ -224,7 +222,7 @@ let%test_module "MERGE rendering" =
           |> using Source.table ~f:(fun _ _ merge ->
             merge
             |> on Condition.true_
-            |> when_matched_update Assignments.(empty |> set column "'user value'"))
+            |> when_matched_update Assignment.[ value column "'user value'" ])
           |> command)
       in
       let rendered = sql command in
@@ -244,7 +242,7 @@ let%test_module "MERGE relation sources" =
           merge
           |> on (Target.id target =. Source.id source)
           |> when_matched_update
-               Assignments.(empty |> set_expr Target.title_column (Source.title source)))
+               Assignment.[ expr Target.title_column (Source.title source) ])
         |> command)
       |> sql
       |> Stdlib.print_endline;
@@ -276,7 +274,7 @@ let%test_module "MERGE relation sources" =
         |> using_relation relation ~f:(fun target (id, title) merge ->
           merge
           |> on (Target.id target =. id)
-          |> when_matched_update Assignments.(empty |> set_expr Target.title_column title))
+          |> when_matched_update Assignment.[ expr Target.title_column title ])
         |> command)
       |> sql
       |> Stdlib.print_endline;
@@ -314,7 +312,7 @@ let%test_module "MERGE relation sources" =
           |> on (Target.id target =. Source.id source &&. (Source.id source >$ 2L))
           |> when_matched_update
                ~condition:(Source.title source <>$ "ignored")
-               Assignments.(empty |> set Target.title_column "updated"))
+               Assignment.[ value Target.title_column "updated" ])
         |> command)
       |> sql
       |> Stdlib.print_endline;
@@ -386,20 +384,14 @@ let%test_module "MERGE branch validation" =
     ;;
 
     let%test "UPDATE branch requires an assignment" =
-      match
-        compile_message
-          (branch (fun _ _ -> Merge.when_matched_update Merge.Assignments.empty))
-      with
+      match compile_message (branch (fun _ _ -> Merge.when_matched_update [])) with
       | Error message ->
         String.equal message "MERGE branch 1 UPDATE must assign at least one column"
       | Ok _ -> false
     ;;
 
     let%test "INSERT branch requires an assignment" =
-      match
-        compile_message
-          (branch (fun _ _ -> Merge.when_not_matched_insert Merge.Assignments.empty))
-      with
+      match compile_message (branch (fun _ _ -> Merge.when_not_matched_insert [])) with
       | Error message ->
         String.equal message "MERGE branch 1 INSERT must assign at least one column"
       | Ok _ -> false
@@ -409,8 +401,7 @@ let%test_module "MERGE branch validation" =
       let command =
         branch (fun _ _ ->
           Merge.when_matched_update
-            Merge.Assignments.(
-              empty |> set Target.title_column "a" |> set Target.title_column "b"))
+            Assignment.[ value Target.title_column "a"; value Target.title_column "b" ])
       in
       match compile command with
       | Error (Compile_error.Duplicate_assignment column) ->
@@ -422,8 +413,7 @@ let%test_module "MERGE branch validation" =
       let command =
         branch (fun _ _ ->
           Merge.when_not_matched_insert
-            Merge.Assignments.(
-              empty |> set Target.id_column 1L |> default Target.id_column))
+            Assignment.[ value Target.id_column 1L; default Target.id_column ])
       in
       match compile command with
       | Error (Compile_error.Duplicate_assignment column) ->
@@ -437,8 +427,7 @@ let%test_module "MERGE branch validation" =
       match
         compile
           (branch (fun _ _ ->
-             Merge.when_matched_update
-               Merge.Assignments.(empty |> set other_title "foreign")))
+             Merge.when_matched_update Assignment.[ value other_title "foreign" ]))
       with
       | Error (Compile_error.Invalid_assignment_source _) -> true
       | Ok _ | Error _ -> false
@@ -468,7 +457,7 @@ let%test_module "MERGE branch validation" =
             merge
             |> when_not_matched_do_nothing
             |> when_matched_do_nothing
-            |> when_not_matched_insert Assignments.(empty |> set Target.id_column 1L)))
+            |> when_not_matched_insert Assignment.[ value Target.id_column 1L ]))
       in
       match compile_message command with
       | Error message ->
@@ -503,7 +492,7 @@ let%test_module "MERGE branch validation" =
       let command =
         branch (fun target _ ->
           Merge.when_not_matched_insert
-            Merge.Assignments.(empty |> set_expr Target.id_column (Target.id target)))
+            Assignment.[ expr Target.id_column (Target.id target) ])
       in
       match compile command with
       | Error (Compile_error.Foreign_source _) -> true
@@ -532,15 +521,15 @@ let%test_module "MERGE branch validation" =
       let command =
         branch (fun _ _ ->
           Merge.when_not_matched_insert
-            Merge.Assignments.(
-              empty
-              |> set_expr
-                   Target.note_column
-                   (Expr.scalar_subquery
-                      Query.(
-                        from Source.table
-                        |> limit_one
-                        |> select_scalar (fun _ -> Expr.constant Db_type.text "note")))))
+            Assignment.
+              [ expr
+                  Target.note_column
+                  (Expr.scalar_subquery
+                     Query.(
+                       from Source.table
+                       |> limit_one
+                       |> select_scalar (fun _ -> Expr.constant Db_type.text "note")))
+              ])
       in
       Result.is_ok (compile command)
     ;;
@@ -651,8 +640,7 @@ let%test_module "MERGE branch validation" =
                 Expr.max Db_type.Orderable.text (Target.title target)))
             |> Expr.scalar_subquery_nullable
           in
-          Merge.when_matched_update
-            Merge.Assignments.(empty |> set_expr Target.note_column title))
+          Merge.when_matched_update Assignment.[ expr Target.note_column title ])
       in
       match compile command with
       | Error (Compile_error.Aggregate_not_allowed _) -> true
@@ -664,8 +652,7 @@ let%test_module "MERGE branch validation" =
         branch (fun _ source ->
           let maximum = Expr.max Db_type.Orderable.int64 (Source.id source) in
           let value = Expr.coalesce maximum ~default:(Expr.constant Db_type.int64 0L) in
-          Merge.when_matched_update
-            Merge.Assignments.(empty |> set_expr Target.id_column value))
+          Merge.when_matched_update [ Assignment.expr Target.id_column value ])
       in
       match compile_message command with
       | Error message ->
@@ -717,8 +704,7 @@ let%test_module "MERGE branch validation" =
             |> Expr.scalar_subquery_nullable
           in
           let value = Expr.coalesce maximum ~default:(Expr.constant Db_type.int64 0L) in
-          Merge.when_not_matched_insert
-            Merge.Assignments.(empty |> set_expr Target.id_column value))
+          Merge.when_not_matched_insert [ Assignment.expr Target.id_column value ])
       in
       match compile_message command with
       | Error message ->
@@ -1134,8 +1120,7 @@ let%test_module "MERGE CTE placement" =
               |> using_cte_relation source ~f:(fun target (id, title) merge ->
                 merge
                 |> on (Target.id target =. id)
-                |> when_matched_update
-                     Assignments.(empty |> set_expr Target.title_column title))
+                |> when_matched_update Assignment.[ expr Target.title_column title ])
               |> command)
           in
           Cte.with_result (Postgresql.Cte.command command) ~f:(fun () ->
@@ -1154,8 +1139,9 @@ let%test_module "MERGE CTE placement" =
           ~columns:Source.projection
           Insert.(
             into Source.table
-            |> set Source.id_column 1L
-            |> set Source.title_column "imported"
+            |> values
+                 Assignment.
+                   [ value Source.id_column 1L; value Source.title_column "imported" ]
             |> returning Source.projection)
       in
       let command =
@@ -1286,7 +1272,10 @@ let%test_module "MERGE CTE placement" =
       let modified =
         Postgresql.Cte.command
           Update.(
-            table Source.table |> set Source.title_column "updated" |> all_rows |> command)
+            table Source.table
+            |> set Assignment.[ value Source.title_column "updated" ]
+            |> all_rows
+            |> command)
       in
       let command =
         Cte.with_command modified ~f:(fun () -> Merge.(merge () |> command))
@@ -1298,7 +1287,10 @@ let%test_module "MERGE CTE placement" =
       let modified =
         Postgresql.Cte.command
           Update.(
-            table Source.table |> set Source.title_column "updated" |> all_rows |> command)
+            table Source.table
+            |> set Assignment.[ value Source.title_column "updated" ]
+            |> all_rows
+            |> command)
       in
       let query =
         Cte.with_result modified ~f:(fun () ->
@@ -1376,9 +1368,9 @@ let%test_module "MERGE statement parameters" =
                    (Target.id target =. Source.id source &&. (Source.id source >=. cutoff))
               |> when_matched_update
                    ~condition:(Source.title source <>. condition)
-                   Assignments.(empty |> set_expr Target.title_column replacement)
+                   Assignment.[ expr Target.title_column replacement ]
               |> when_not_matched_insert
-                   Assignments.(empty |> set_expr Target.title_column replacement))
+                   Assignment.[ expr Target.title_column replacement ])
             |> command))
     ;;
 
@@ -1434,8 +1426,7 @@ let%test_module "MERGE statement parameters" =
               merge |> when_matched_delete
             else
               merge
-              |> when_matched_update
-                   Assignments.(empty |> set Target.title_column "updated"))
+              |> when_matched_update Assignment.[ value Target.title_column "updated" ])
           |> command))
     ;;
 
@@ -1469,8 +1460,8 @@ let%test_module "MERGE SQL structure properties" =
         |> using Source.table ~f:(fun target source merge ->
           merge
           |> on (Target.id target =. Source.id source)
-          |> when_matched_update Assignments.(empty |> set Target.title_column title)
-          |> when_not_matched_insert Assignments.(empty |> set Target.id_column id))
+          |> when_matched_update Assignment.[ value Target.title_column title ]
+          |> when_not_matched_insert Assignment.[ value Target.id_column id ])
         |> command)
     ;;
 
@@ -1497,7 +1488,7 @@ let%test_module "MERGE SQL structure properties" =
             let update merge =
               when_matched_update
                 ~condition:(Source.id source >$ 0L)
-                Assignments.(empty |> set Target.title_column "updated")
+                Assignment.[ value Target.title_column "updated" ]
                 merge
             in
             if first_delete then

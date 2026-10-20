@@ -29,14 +29,21 @@ let%test_module "DML aggregate scope" =
       Compiler.compile_command
         ~dialect:Dialect.postgresql
         Update.(
-          table Item.table |> set_expr Item.id Expr.count_all |> all_rows |> command)
+          table Item.table
+          |> set Assignment.[ expr Item.id Expr.count_all ]
+          |> all_rows
+          |> command)
       |> aggregate_error "UPDATE SET"
     ;;
 
     let%test "UPDATE SET accepts a local aggregate subquery" =
       Compiler.compile_command
         ~dialect:Dialect.portable
-        Update.(table Item.table |> set_expr Item.id (count ()) |> all_rows |> command)
+        Update.(
+          table Item.table
+          |> set Assignment.[ expr Item.id (count ()) ]
+          |> all_rows
+          |> command)
       |> Result.is_ok
     ;;
 
@@ -45,7 +52,7 @@ let%test_module "DML aggregate scope" =
         ~dialect:Dialect.postgresql
         Update.(
           table Item.table
-          |> set Item.id 1L
+          |> set Assignment.[ value Item.id 1L ]
           |> where (fun _ -> Expr.count_all >$ 0L)
           |> command)
       |> aggregate_error "UPDATE WHERE"
@@ -55,7 +62,10 @@ let%test_module "DML aggregate scope" =
       Compiler.compile_command
         ~dialect:Dialect.portable
         Update.(
-          table Item.table |> set Item.id 1L |> where (fun _ -> count () >$ 0L) |> command)
+          table Item.table
+          |> set Assignment.[ value Item.id 1L ]
+          |> where (fun _ -> count () >$ 0L)
+          |> command)
       |> Result.is_ok
     ;;
 
@@ -78,7 +88,7 @@ let%test_module "DML aggregate scope" =
         ~dialect:Dialect.postgresql
         Insert.(
           into Item.table
-          |> set Item.id 1L
+          |> values Assignment.[ value Item.id 1L ]
           |> returning (fun _ -> Projection.expr Expr.count_all))
       |> aggregate_error "INSERT RETURNING"
     ;;
@@ -88,7 +98,7 @@ let%test_module "DML aggregate scope" =
         ~dialect:Dialect.portable
         Insert.(
           into Item.table
-          |> set Item.id 1L
+          |> values Assignment.[ value Item.id 1L ]
           |> returning (fun _ -> Projection.expr (count ())))
       |> Result.is_ok
     ;;
@@ -98,7 +108,7 @@ let%test_module "DML aggregate scope" =
         ~dialect:Dialect.postgresql
         Update.(
           table Item.table
-          |> set Item.id 1L
+          |> set Assignment.[ value Item.id 1L ]
           |> all_rows
           |> returning (fun _ -> Projection.expr Expr.count_all))
       |> aggregate_error "UPDATE RETURNING"
@@ -109,7 +119,7 @@ let%test_module "DML aggregate scope" =
         ~dialect:Dialect.portable
         Update.(
           table Item.table
-          |> set Item.id 1L
+          |> set Assignment.[ value Item.id 1L ]
           |> all_rows
           |> returning (fun _ -> Projection.expr (count ())))
       |> Result.is_ok
@@ -148,7 +158,7 @@ let%test_module "DML aggregate scope" =
         Update.(
           table Item.table
           |> with_target ~f:(fun parent update ->
-            set_expr Item.id (outer_count parent) update)
+            set Assignment.[ expr Item.id (outer_count parent) ] update)
           |> all_rows
           |> command)
       |> aggregate_error "UPDATE SET"
@@ -167,7 +177,7 @@ let%test_module "DML aggregate scope" =
         ~dialect:Dialect.postgresql
         Update.(
           table Item.table
-          |> set Item.id 1L
+          |> set Assignment.[ value Item.id 1L ]
           |> all_rows
           |> returning (fun parent -> Projection.expr (outer_count parent)))
       |> aggregate_error "UPDATE RETURNING"
@@ -273,7 +283,7 @@ let%test_module "aggregate clause ownership" =
     let upsert f =
       Insert.(
         into Item.table
-        |> set Item.id 1L
+        |> values Assignment.[ value Item.id 1L ]
         |> on_conflict (Conflict_target.column Item.id)
         |> do_update f
         |> command)
@@ -283,7 +293,8 @@ let%test_module "aggregate clause ownership" =
       Compiler.compile_command
         ~dialect:Dialect.postgresql
         (upsert (fun ~existing ~excluded:_ ->
-           Insert.Conflict_update.(empty |> set_expr Item.id (outer_count existing))))
+           Insert.Conflict_update.(
+             empty |> set Assignment.[ expr Item.id (outer_count existing) ])))
       |> aggregate_error "ON CONFLICT DO UPDATE SET"
     ;;
 
@@ -291,7 +302,8 @@ let%test_module "aggregate clause ownership" =
       Compiler.compile_command
         ~dialect:Dialect.postgresql
         (upsert (fun ~existing:_ ~excluded ->
-           Insert.Conflict_update.(empty |> set_expr Item.id (outer_count excluded))))
+           Insert.Conflict_update.(
+             empty |> set Assignment.[ expr Item.id (outer_count excluded) ])))
       |> aggregate_error "ON CONFLICT DO UPDATE SET"
     ;;
 
@@ -299,7 +311,8 @@ let%test_module "aggregate clause ownership" =
       Compiler.compile_command
         ~dialect:Dialect.portable
         (upsert (fun ~existing:_ ~excluded:_ ->
-           Insert.Conflict_update.(empty |> set_expr Item.id (local_count ()))))
+           Insert.Conflict_update.(
+             empty |> set Assignment.[ expr Item.id (local_count ()) ])))
       |> Result.is_ok
     ;;
 
@@ -308,7 +321,9 @@ let%test_module "aggregate clause ownership" =
         ~dialect:Dialect.postgresql
         (upsert (fun ~existing ~excluded:_ ->
            Insert.Conflict_update.(
-             empty |> set Item.id 2L |> where (outer_count existing >$ 0L))))
+             empty
+             |> set Assignment.[ value Item.id 2L ]
+             |> where (outer_count existing >$ 0L))))
       |> aggregate_error "ON CONFLICT DO UPDATE WHERE"
     ;;
 
@@ -317,7 +332,9 @@ let%test_module "aggregate clause ownership" =
         ~dialect:Dialect.postgresql
         (upsert (fun ~existing:_ ~excluded ->
            Insert.Conflict_update.(
-             empty |> set Item.id 2L |> where (outer_count excluded >$ 0L))))
+             empty
+             |> set Assignment.[ value Item.id 2L ]
+             |> where (outer_count excluded >$ 0L))))
       |> aggregate_error "ON CONFLICT DO UPDATE WHERE"
     ;;
 
@@ -326,14 +343,15 @@ let%test_module "aggregate clause ownership" =
         ~dialect:Dialect.portable
         (upsert (fun ~existing:_ ~excluded:_ ->
            Insert.Conflict_update.(
-             empty |> set Item.id 2L |> where (local_count () >$ 0L))))
+             empty |> set Assignment.[ value Item.id 2L ] |> where (local_count () >$ 0L))))
       |> Result.is_ok
     ;;
 
     let%test "INSERT VALUES rejects a direct aggregate" =
       Compiler.compile_command
         ~dialect:Dialect.postgresql
-        Insert.(into Item.table |> set_expr Item.id Expr.count_all |> command)
+        Insert.(
+          into Item.table |> values Assignment.[ expr Item.id Expr.count_all ] |> command)
       |> aggregate_error "INSERT VALUES"
     ;;
 
@@ -343,8 +361,8 @@ let%test_module "aggregate clause ownership" =
         Insert.(
           rows
             Item.table
-            [ (fun row -> set Item.id 1L row)
-            ; (fun row -> set_expr Item.id Expr.count_all row)
+            [ Assignment.[ value Item.id 1L ]
+            ; Assignment.[ expr Item.id Expr.count_all ]
             ]
           |> command)
       |> aggregate_error "INSERT VALUES"
@@ -353,7 +371,10 @@ let%test_module "aggregate clause ownership" =
     let%test "INSERT VALUES permits a local subquery aggregate" =
       Compiler.compile_command
         ~dialect:Dialect.portable
-        Insert.(into Item.table |> set_expr Item.id (local_count ()) |> command)
+        Insert.(
+          into Item.table
+          |> values Assignment.[ expr Item.id (local_count ()) ]
+          |> command)
       |> Result.is_ok
     ;;
   end)
@@ -431,14 +452,19 @@ let%test_module "SQL identity" =
     let%test "UPDATE assignment checks the target descriptor" =
       Compiler.compile_command
         ~dialect:Dialect.postgresql
-        Update.(table Item.table |> set_expr left_column right |> all_rows |> command)
+        Update.(
+          table Item.table
+          |> set Assignment.[ expr left_column right ]
+          |> all_rows
+          |> command)
       |> mismatch
     ;;
 
     let%test "INSERT assignment checks the target descriptor" =
       Compiler.compile_command
         ~dialect:Dialect.postgresql
-        Insert.(into Item.table |> set_expr left_column right |> command)
+        Insert.(
+          into Item.table |> values Assignment.[ expr left_column right ] |> command)
       |> mismatch
     ;;
 
@@ -447,11 +473,12 @@ let%test_module "SQL identity" =
         ~dialect:Dialect.postgresql
         Insert.(
           into Item.table
-          |> set left_column "ready"
+          |> values Assignment.[ value left_column "ready" ]
           |> on_conflict (Conflict_target.column left_column)
           |> do_update (fun ~existing:_ ~excluded ->
             Conflict_update.(
-              empty |> set_expr left_column (Expr.column excluded right_column)))
+              empty
+              |> set Assignment.[ expr left_column (Expr.column excluded right_column) ]))
           |> command)
       |> mismatch
     ;;
@@ -1015,7 +1042,7 @@ let%test_module "named type boundaries" =
             merge
             |> on (Expr.column existing Item.id =. Expr.column incoming Item.id)
             |> when_matched_update
-                 Assignments.(empty |> set_expr target (Expr.column incoming source)))
+                 Assignment.[ expr target (Expr.column incoming source) ])
           |> command)
       |> mismatch
     ;;

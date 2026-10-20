@@ -433,7 +433,7 @@ let%test_module "correlated UPDATE alias scope" =
         Update.(
           table Item.table
           |> with_target ~f:(fun target update ->
-            update |> set_expr Item.rating (make target))
+            update |> set Assignment.[ expr Item.rating (make target) ])
           |> all_rows
           |> command)
       in
@@ -452,7 +452,7 @@ let%test_module "correlated UPDATE alias scope" =
       let command =
         Update.(
           table Item.table
-          |> set Item.rating 1
+          |> set Assignment.[ value Item.rating 1 ]
           |> with_target ~f:(fun target update -> update |> where (fun _ -> make target))
           |> command)
       in
@@ -682,7 +682,7 @@ let%test_unit "with_target preserves the immutable row scope" =
   let original =
     Update.(
       table Item.table
-      |> set Item.rating 7
+      |> set Assignment.[ value Item.rating 7 ]
       |> where (fun row -> Expr.column row Item.id =$ 1))
   in
   let changed =

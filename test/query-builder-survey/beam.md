@@ -1378,7 +1378,7 @@ UPDATE Invoice SET Total = 0 WHERE Total < 1 RETURNING InvoiceId
     ~dialect:Dialect.portable
     Update.(
       table Invoice.table
-      |> set Invoice.total_column 0.0
+      |> set Assignment.[ value Invoice.total_column 0.0 ]
       |> where (fun invoice -> Invoice.total invoice <$ 1.0)
       |> returning (fun invoice -> Projection.expr (Invoice.id invoice)))
 val beam20 : (unit, int list, Dialect.both) Statement.t = <abstr>

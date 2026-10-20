@@ -7,4 +7,6 @@ val payload
   -> Ppxlib.payload
   -> Ppxlib.expression * string list * string * Ppxlib.Location.t
 
+(** Reject unsupported legacy environment configuration with a located
+    PPX error. This check performs no database access. *)
 val check_environment : loc:Ppxlib.Location.t -> unit

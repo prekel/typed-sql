@@ -17,36 +17,6 @@ type ('row, 'source_ctx, 'stage, +'requirements) t =
   ; branches : Ast.merge_branch list
   }
 
-module Assignments = struct
-  type 'row assignment =
-    | Assignment :
-        ('row, 'base, 'value) Column.t * Ast.assignment_value
-        -> 'row assignment
-
-  type ('row, +'requirements) t = 'row assignment list
-
-  let empty = []
-
-  let set_expr column expression assignments =
-    assignments @ [ Assignment (column, Ast.Expression (Expr.node expression)) ]
-  ;;
-
-  let set column value assignments =
-    set_expr column (Expr.constant (Column.db_type column) value) assignments
-  ;;
-
-  let default column assignments = assignments @ [ Assignment (column, Ast.Default) ]
-
-  let ast reference assignments =
-    List.map assignments ~f:(fun (Assignment (column, value)) ->
-      { Ast.source_id = Column.source_id_for reference column
-      ; column = Column.name column
-      ; target_type = Db_type.Pack (Column.db_type column)
-      ; value
-      })
-  ;;
-end
-
 let into table =
   let reference = Table_ref.create table in
   { reference
@@ -132,7 +102,7 @@ let when_matched_update ?condition assignments merge =
   let branch =
     Ast.Matched
       { condition = Option.map condition ~f:Condition.node
-      ; action = Ast.Merge_update (Assignments.ast merge.reference assignments)
+      ; action = Ast.Merge_update (Assignment.ast merge.reference assignments)
       }
   in
   { merge with branches = merge.branches @ [ branch ] }
@@ -160,7 +130,7 @@ let when_not_matched_insert ?condition assignments merge =
   let branch =
     Ast.Not_matched
       { condition = Option.map condition ~f:Condition.node
-      ; action = Ast.Merge_insert (Assignments.ast merge.reference assignments)
+      ; action = Ast.Merge_insert (Assignment.ast merge.reference assignments)
       }
   in
   { merge with branches = merge.branches @ [ branch ] }

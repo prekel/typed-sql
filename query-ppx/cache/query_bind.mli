@@ -1,20 +1,26 @@
 open! Base
 
+(** A substitution scanning failure at a zero-based source byte offset. *)
 type error =
-  { offset : int
-  ; message : string
+  { offset : int (** Zero-based byte offset of the failure in the original SQL. *)
+  ; message : string (** Diagnostic explanation; not a machine-readable error code. *)
   }
 
+(** One OCaml expression with its nullable-conversion flag and source
+    span. [start] is inclusive and [stop] exclusive in the original quotation. *)
 type parameter =
   { expression : string
-  ; optional : bool
-  ; start : int
-  ; stop : int
+    (** OCaml expression text to splice into generated binding code. *)
+  ; optional : bool (** Whether the substitution uses nullable conversion. *)
+  ; start : int (** Inclusive source byte offset of the substitution. *)
+  ; stop : int (** Exclusive source byte offset of the substitution. *)
   }
 
+(** SQL rewritten to positional parameters and source-ordered bind occurrences. *)
 type t =
   { sql : string
-  ; parameters : parameter list
+    (** SQL rewritten to positional placeholders; OCaml values stay separate. *)
+  ; parameters : parameter list (** Bind occurrences in SQL/source order. *)
   }
 
 (** Scan OCaml substitutions without parsing SQL expressions or inferring types.

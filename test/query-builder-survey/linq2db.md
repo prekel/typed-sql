@@ -702,9 +702,12 @@ var changed = db.GetTable<Book>()
         |> from Book.table ~f:(fun _target source update ->
           let open Expr.Int64.Infix in
           update
-          |> set_expr
-               Book.published_in_column
-               (Book.published_in source +. Expr.constant Db_type.int64 1L)
+          |> set
+               Assignment.
+                 [ expr
+                     Book.published_in_column
+                     (Book.published_in source +. Expr.constant Db_type.int64 1L)
+                 ]
           |> where (fun book ->
             Book.id book =. Book.id source &&. (Book.published_in book <. cutoff)))
         |> command))

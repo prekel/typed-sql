@@ -135,7 +135,8 @@ let update_statement =
       |> from_select columns all_source
       |> on_conflict (Conflict_target.column Target.id_column)
       |> do_update (fun ~existing:_ ~excluded ->
-        Conflict_update.(empty |> set_expr Target.name_column (Target.name excluded)))
+        Conflict_update.(
+          empty |> set Assignment.[ expr Target.name_column (Target.name excluded) ]))
       |> returning (fun row -> Projection.expr (Target.id row)))
 ;;
 

@@ -1076,13 +1076,17 @@ let (sql, values) = query.build(PostgresQueryBuilder);
     params.command
       Insert.(
         into Posts.table
-        |> set_expr Posts.id_column id
-        |> set_expr Posts.user_id_column user_id
-        |> set_expr Posts.title_column title
+        |> values
+             Assignment.
+               [ expr Posts.id_column id
+               ; expr Posts.user_id_column user_id
+               ; expr Posts.title_column title
+               ]
         |> on_conflict (Conflict_target.column Posts.id_column)
         |> do_update (fun ~existing:_ ~excluded ->
           Conflict_update.empty
-          |> Conflict_update.set_expr Posts.title_column (Posts.title excluded))
+          |> Conflict_update.set
+               Assignment.[ expr Posts.title_column (Posts.title excluded) ])
         |> command))
 val seaquery14 :
   (int64 * int64 * string, Affected_rows.t, Dialect.both) Statement.t =
@@ -1145,7 +1149,7 @@ let (sql, values) = query.build(PostgresQueryBuilder);
     params.query_many
       Update.(
         table Posts.table
-        |> set_expr Posts.title_column title
+        |> set Assignment.[ expr Posts.title_column title ]
         |> where (fun post -> Posts.user_id post =. user_id)
         |> returning (fun post -> Projection.expr (Posts.id post))))
 val seaquery15 : (string * int64, int64 list, Dialect.both) Statement.t =
@@ -1320,13 +1324,17 @@ WHERE posts.title IS DISTINCT FROM EXCLUDED.title
     ~dialect:Dialect.portable
     Insert.(
       into Posts.table
-      |> set Posts.id_column 8L
-      |> set Posts.user_id_column 2L
-      |> set Posts.title_column "Revised"
+      |> values
+           Assignment.
+             [ value Posts.id_column 8L
+             ; value Posts.user_id_column 2L
+             ; value Posts.title_column "Revised"
+             ]
       |> on_conflict (Conflict_target.column Posts.id_column)
       |> do_update (fun ~existing ~excluded ->
         Conflict_update.empty
-        |> Conflict_update.set_expr Posts.title_column (Posts.title excluded)
+        |> Conflict_update.set
+             Assignment.[ expr Posts.title_column (Posts.title excluded) ]
         |> Conflict_update.where
              (Expr.is_distinct_from (Posts.title existing) (Posts.title excluded)))
       |> command)
@@ -1379,7 +1387,7 @@ RETURNING posts.id
       table Posts.table
       |> from Users.table ~f:(fun post user update ->
         update
-        |> set_expr Posts.title_column (Users.name user)
+        |> set Assignment.[ expr Posts.title_column (Users.name user) ]
         |> where (fun _ -> Posts.user_id post =. Users.id user &&. (Users.id user =$ 2L)))
       |> returning (fun post -> Projection.expr (Posts.id post)))
 val seaquery19 : (unit, int64 list, Dialect.both) Statement.t = <abstr>

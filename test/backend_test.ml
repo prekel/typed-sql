@@ -112,7 +112,8 @@ let%test_unit "command shapes expose their stable representation" =
   let table : unit Table.t = Table.v_exn "items" in
   let id = Column.v_exn table "id" Db_type.int64 in
   let compiled =
-    Insert.(into table |> set id 1L |> command) |> compile_command_exn Dialect.Sqlite
+    Insert.(into table |> values Assignment.[ value id 1L ] |> command)
+    |> compile_command_exn Dialect.Sqlite
   in
   let shape = B.Compiled_command.shape compiled in
   assert (
@@ -257,10 +258,12 @@ let%test_unit "UPSERT shape excludes values and bind slots follow SQL order" =
   let make dialect value filtered =
     Insert.(
       into table
-      |> set id value
+      |> values [ Assignment.value id value ]
       |> on_conflict (Conflict_target.column id)
       |> do_update (fun ~existing ~excluded:_ ->
-        let action = Conflict_update.(empty |> set id Int64.(value + 1L)) in
+        let action =
+          Conflict_update.(empty |> set [ Assignment.value id Int64.(value + 1L) ])
+        in
         if filtered then
           Conflict_update.(
             action |> where (Expr.column existing id >$ Int64.(value + 2L)))

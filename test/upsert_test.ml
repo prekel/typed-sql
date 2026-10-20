@@ -16,22 +16,25 @@ let ok result =
 ;;
 
 let compile dialect command = Compiler.compile_portable_command ~dialect command
-let insert () = Insert.(into table |> set id 1L |> set name "Ada")
+let insert () = Insert.(into table |> values Assignment.[ value id 1L; value name "Ada" ])
 let update f = Insert.(insert () |> on_conflict target |> do_update f)
 
 let conditional_upsert =
   Insert.(
     rows
       table
-      [ (fun row -> row |> set id 1L |> set name "Ada")
-      ; (fun row -> row |> set name "Grace" |> set id 2L)
+      [ Assignment.[ value id 1L; value name "Ada" ]
+      ; Assignment.[ value name "Grace"; value id 2L ]
       ]
     |> on_conflict target
     |> do_update (fun ~existing ~excluded ->
       Conflict_update.(
         empty
-        |> set_expr name (Expr.upper (Expr.column excluded name))
-        |> set_opt nickname (Some None)
+        |> set
+             Assignment.
+               [ expr name (Expr.upper (Expr.column excluded name))
+               ; value_opt nickname (Some None)
+               ]
         |> where (Expr.column existing id >$ 0L)
         |> where (Expr.column existing name <>. Expr.column excluded name)))
     |> returning (fun row ->
@@ -157,15 +160,17 @@ let%test_module "targeted DO NOTHING rendering" =
 ;;
 
 let%test_unit "optional fields and predicates preserve immutable actions" =
-  let action = Insert.Conflict_update.(empty |> set name "Ada") in
+  let action = Insert.Conflict_update.(empty |> set Assignment.[ value name "Ada" ]) in
   let optional =
     Insert.Conflict_update.(
-      action |> set_opt nickname None |> set_expr_opt id None |> where Condition.true_)
+      action
+      |> set Assignment.[ value_opt nickname None; expr_opt id None ]
+      |> where Condition.true_)
   in
   let changed =
     Insert.Conflict_update.(
       action
-      |> set_expr_opt id (Some (Expr.constant Db_type.int64 3L))
+      |> set Assignment.[ expr_opt id (Some (Expr.constant Db_type.int64 3L)) ]
       |> where Condition.false_)
   in
   List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
@@ -180,7 +185,7 @@ let%test_unit "optional fields and predicates preserve immutable actions" =
     let empty =
       Insert.(
         update (fun ~existing:_ ~excluded:_ ->
-          Conflict_update.(empty |> set_opt name None))
+          Conflict_update.(empty |> set Assignment.[ value_opt name None ]))
         |> command)
       |> compile dialect
     in
@@ -201,7 +206,7 @@ let%test_unit "conflict columns retain their owning table" =
       insert ()
       |> on_conflict target
       |> do_update (fun ~existing:_ ~excluded:_ ->
-        Conflict_update.(empty |> set other_id 2L))
+        Conflict_update.(empty |> set Assignment.[ value other_id 2L ]))
       |> command)
   in
   List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
@@ -224,7 +229,8 @@ let%test_unit "escaped references cannot reach VALUES, RETURNING or other action
     update (fun ~existing:row ~excluded:proposed ->
       existing := Some row;
       excluded := Some proposed;
-      Insert.Conflict_update.(empty |> set_expr name (Expr.column proposed name)))
+      Insert.Conflict_update.(
+        empty |> set Assignment.[ expr name (Expr.column proposed name) ]))
   in
   List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
     List.iter
@@ -235,18 +241,21 @@ let%test_unit "escaped references cannot reach VALUES, RETURNING or other action
           | Error (Compile_error.Foreign_source _) -> ()
           | _ -> failwith "escaped reference was accepted"
         in
-        Insert.(original |> set_expr nickname expression |> command)
+        Insert.(original |> values Assignment.[ expr nickname expression ] |> command)
         |> compile dialect
         |> rejected;
         Insert.(
           update (fun ~existing:_ ~excluded:_ ->
-            Conflict_update.(empty |> set_expr nickname expression))
+            Conflict_update.(empty |> set Assignment.[ expr nickname expression ]))
           |> command)
         |> compile dialect
         |> rejected;
         Insert.(
           update (fun ~existing:_ ~excluded:_ ->
-            Conflict_update.(empty |> set name "new" |> where (Expr.is_null expression)))
+            Conflict_update.(
+              empty
+              |> set Assignment.[ value name "new" ]
+              |> where (Expr.is_null expression)))
           |> command)
         |> compile dialect
         |> rejected);
@@ -268,19 +277,21 @@ let print_invalid_action action =
 
 let%expect_test "duplicate UPSERT assignment is rejected" =
   print_invalid_action (fun ~existing:_ ~excluded:_ ->
-    Insert.Conflict_update.(empty |> set name "one" |> set name "two"));
+    Insert.Conflict_update.(
+      empty |> set Assignment.[ value name "one"; value name "two" ]));
   [%expect {| column name is assigned more than once |}]
 ;;
 
 let%expect_test "aggregate UPSERT assignment is rejected" =
   print_invalid_action (fun ~existing:_ ~excluded:_ ->
-    Insert.Conflict_update.(empty |> set_expr id Expr.count_all));
+    Insert.Conflict_update.(empty |> set Assignment.[ expr id Expr.count_all ]));
   [%expect {| aggregate expressions are not allowed in ON CONFLICT DO UPDATE SET |}]
 ;;
 
 let%expect_test "aggregate UPSERT predicate is rejected" =
   print_invalid_action (fun ~existing:_ ~excluded:_ ->
-    Insert.Conflict_update.(empty |> set name "one" |> where (Expr.count_all >$ 0L)));
+    Insert.Conflict_update.(
+      empty |> set Assignment.[ value name "one" ] |> where (Expr.count_all >$ 0L)));
   [%expect {| aggregate expressions are not allowed in ON CONFLICT DO UPDATE WHERE |}]
 ;;
 
@@ -302,7 +313,7 @@ let%test_unit "nested aggregates and correlated predicates remain valid" =
       in
       Insert.Conflict_update.(
         empty
-        |> set_expr name (Expr.column excluded name)
+        |> set Assignment.[ expr name (Expr.column excluded name) ]
         |> where (Expr.is_null count ||. exists)))
   in
   List.iter [ Dialect.Postgresql; Dialect.Sqlite ] ~f:(fun dialect ->
@@ -325,14 +336,15 @@ let%test_unit "capability traversal includes conflict assignments and WHERE" =
   let make action = Insert.(update action |> command) in
   ignore
     (make (fun ~existing:_ ~excluded:_ ->
-       Insert.Conflict_update.(empty |> set_expr count valid))
+       Insert.Conflict_update.(empty |> set Assignment.[ expr count valid ]))
      |> compile Dialect.Sqlite
      |> ok);
   List.iter
     [ make (fun ~existing:_ ~excluded:_ ->
-        Insert.Conflict_update.(empty |> set_expr count unsupported))
+        Insert.Conflict_update.(empty |> set Assignment.[ expr count unsupported ]))
     ; make (fun ~existing:_ ~excluded:_ ->
-        Insert.Conflict_update.(empty |> set name "x" |> where (Expr.is_null unsupported)))
+        Insert.Conflict_update.(
+          empty |> set Assignment.[ value name "x" ] |> where (Expr.is_null unsupported)))
     ]
     ~f:(fun command ->
       ignore (Compiler.compile_command ~dialect:Dialect.postgresql command |> ok))
@@ -343,7 +355,7 @@ let lowered_conflict_command =
     update (fun ~existing ~excluded ->
       Conflict_update.(
         empty
-        |> set_expr name (Expr.case [] ~else_:(Expr.column excluded name))
+        |> set Assignment.[ expr name (Expr.case [] ~else_:(Expr.column excluded name)) ]
         |> where
              (Expr.is_distinct_from
                 (Expr.column existing nickname)

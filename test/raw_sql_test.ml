@@ -714,7 +714,7 @@ let%test_module "raw CTEs in DSL commands" =
         Cte.with_command definition ~f:(fun () ->
           Update.(
             table Row.table
-            |> set Row.column 1
+            |> set Assignment.[ value Row.column 1 ]
             |> where (fun _ -> Condition.false_)
             |> command))
       in
@@ -1028,7 +1028,10 @@ let%test_module "raw queries in static statements" =
       let command =
         Cte.with_command (Postgresql.Cte.command cleanup) ~f:(fun () ->
           Update.(
-            table Person.table |> set Person.name_column "updated" |> all_rows |> command))
+            table Person.table
+            |> set Assignment.[ value Person.name_column "updated" ]
+            |> all_rows
+            |> command))
       in
       let statement = Statement.command ~dialect:Dialect.postgresql command in
       let _, inspection = Statement.inspect_exn ~dialect:Postgresql statement in

@@ -18,6 +18,8 @@ let _ =
   Update.(
     table Person.table
     |> from Department.table ~f:(fun _ department update ->
-      update |> set_expr Person.name (Expr.column department Person.name) |> all_rows)
+      update
+      |> set Assignment.[ expr Person.name (Expr.column department Person.name) ]
+      |> all_rows)
     |> command)
 ;;

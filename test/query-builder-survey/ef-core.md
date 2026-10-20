@@ -933,7 +933,7 @@ await context.Blogs
         setters.SetProperty(x => x.Blog.Rating, x => x.NewRating));
 ```
 
-`AVG` игнорирует `NULL`; пустая коллекция и коллекция только из `NULL` дают `NULL`. `set_nullable_expr` явно разрешает присваивание nullable-выражения колонке `NOT NULL`: запрос компилируется, а БД возвращает ошибку ограничения через канал ошибок адаптера. Неуспешный UPDATE не меняет данные. Для nullable-колонки применяется обычный `set_expr`.
+`AVG` игнорирует `NULL`; пустая коллекция и коллекция только из `NULL` дают `NULL`. `set_nullable_expr` явно разрешает присваивание nullable-выражения колонке `NOT NULL`: запрос компилируется, а БД возвращает ошибку ограничения через канал ошибок адаптера. Неуспешный UPDATE не меняет данные. Для nullable-колонки применяется обычный `Assignment.expr`.
 
 Переносимый `avg_int` преобразует вход в floating-point. PostgreSQL-семейство `Postgresql.Numeric.avg_int` сохраняет точный `numeric` результат. Числовой `CAST` использует семантику выбранной БД: округление, переполнение и потеря точности не унифицируются.
 
@@ -2199,9 +2199,12 @@ var changed = await context.Blogs
       table Blog.table
       |> from Blog.table ~f:(fun target source update ->
         update
-        |> set_expr
-             Blog.rating_column
-             Expr.Int.Infix.(Blog.rating target +. Expr.constant Db_type.int 1)
+        |> set
+             Assignment.
+               [ expr
+                   Blog.rating_column
+                   Expr.Int.Infix.(Blog.rating target +. Expr.constant Db_type.int 1)
+               ]
         |> where (fun _ -> Blog.id target =. Blog.id source))
       |> where (fun target -> Blog.rating target <$ 3)
       |> command)

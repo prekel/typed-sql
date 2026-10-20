@@ -59,9 +59,12 @@ let insert_dsl ~conn (item : Item.t) =
       ~dialect:Dialect.postgresql
       Insert.(
         into Item.table
-        |> set Item.id_column item.id
-        |> set Item.name_column item.name
-        |> set Item.note_column item.note
+        |> values
+             Assignment.
+               [ value Item.id_column item.id
+               ; value Item.name_column item.name
+               ; value Item.note_column item.note
+               ]
         |> command)
   in
   let* result = Adapter.run ~conn statement () in
@@ -75,8 +78,9 @@ let update_dsl ~conn (item : Item.t) =
       ~dialect:Dialect.postgresql
       Update.(
         table Item.table
-        |> set Item.name_column item.name
-        |> set Item.note_column item.note
+        |> set
+             Assignment.
+               [ value Item.name_column item.name; value Item.note_column item.note ]
         |> where (fun row -> Item.id row =$ item.id)
         |> command)
   in

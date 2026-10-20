@@ -140,7 +140,6 @@ PGDATABASE=typed_sql_schema_fixture_test \
   dune exec --root . schema-pgocaml-lwt/test/postgresql_schema_test.exe
 dune exec --root . caqti-lwt/test/postgresql_test.exe
 TYPED_SQL_PG_EXPECT=1 dune build --root . @runtest-typed_sql_postgresql_expect_tests
-dune exec --root . caqti-lwt/test/mega_coverage_server_test.exe
 dune exec --root . caqti-lwt/test/insert_select_test.exe -- --postgres
 dune exec --root . pgocaml-lwt/test/postgresql_test.exe
 "$pg_bindir/createdb" typed_sql_ppx_test
@@ -188,10 +187,12 @@ grep -Fq '"postgresql_type_modifier": 470286339' "$workdir/ppx_caqti_schema.json
 grep -Fq '"name": "int2"' "$workdir/ppx_caqti_schema.json"
 grep -Fq '"name": "int4"' "$workdir/ppx_caqti_schema.json"
 if [[ "$server_version" -ge 170000 ]]; then
+  # The mega query includes MERGE inside WITH, which requires PostgreSQL 17+.
+  dune exec --root . caqti-lwt/test/mega_coverage_server_test.exe
   dune exec --root . caqti-lwt/test/merge_test.exe
   dune exec --root . pgocaml-lwt/test/merge_test.exe
 else
-  echo "Skipping MERGE integration tests: PostgreSQL 17+ required, got $server_version"
+  echo "Skipping MERGE and mega-query integration tests: PostgreSQL 17+ required, got $server_version"
 fi
 if [[ "${TYPED_SQL_PREPARE_BENCH:-0}" == 1 ]]; then
   dune exec --root . pgocaml-lwt/test/prepare_bench.exe

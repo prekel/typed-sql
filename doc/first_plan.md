@@ -871,9 +871,7 @@ PostgreSQL в `UPDATE ... RETURNING` использует output list той ж�
 
 ```ocaml
 Insert.(
-  Cpe.insert ()
-  |> set Cpe.name "router-1"
-  |> set Cpe.typ `Router)
+  Cpe.insert () |> values Assignment.[ value Cpe.name "router-1"; value Cpe.typ `Router ])
 ```
 
 до `RETURNING` это:
@@ -905,7 +903,7 @@ Db.fetch_one ~conn
 ```ocaml
 Update.(
   Cpe.update ()
-  |> set Cpe.name "router-2"
+  |> set Assignment.[ value Cpe.name "router-2" ]
   |> where (fun c -> Cpe.id c =: id)
   |> returning Cpe.projection)
 |> Db.fetch_one ~conn
@@ -1755,7 +1753,7 @@ Cpe.id c =. Cpe.name c
 ```
 
 ```ocaml
-Update.(Cpe.update () |> set Cpe.id "hello")
+Update.(Cpe.update () |> set Assignment.[ value Cpe.id "hello" ])
 ```
 
 ```ocaml

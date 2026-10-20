@@ -1261,15 +1261,14 @@ let compile_command_exn dialect command =
 let insert_returning_query =
   Insert.(
     into Person.table
-    |> set Person.id_column 42L
-    |> set Person.name_column "Ada"
+    |> values Assignment.[ value Person.id_column 42L; value Person.name_column "Ada" ]
     |> returning (fun person -> Projection.expr (Person.id person)))
 ;;
 
 let update_command =
   Update.(
     table Person.table
-    |> set Person.name_column "Grace"
+    |> set Assignment.[ value Person.name_column "Grace" ]
     |> where (fun person -> Person.id person =$ 42L)
     |> command)
 ;;
@@ -1321,8 +1320,8 @@ let multi_row_insert =
   Insert.(
     rows
       Person.table
-      [ (fun row -> row |> set Person.id_column 1L |> set Person.name_column "Ada")
-      ; (fun row -> row |> set Person.name_column "Grace" |> set Person.id_column 2L)
+      [ Assignment.[ value Person.id_column 1L; value Person.name_column "Ada" ]
+      ; Assignment.[ value Person.name_column "Grace"; value Person.id_column 2L ]
       ]
     |> command)
 ;;
@@ -1330,14 +1329,16 @@ let multi_row_insert =
 let default_insert =
   Insert.(
     into Person.table
-    |> default Person.id_column
-    |> set Person.name_column "Ada"
+    |> values Assignment.[ default Person.id_column; value Person.name_column "Ada" ]
     |> command)
 ;;
 
 let insert_do_nothing =
   Insert.(
-    into Person.table |> set Person.id_column 1L |> on_conflict_do_nothing |> command)
+    into Person.table
+    |> values Assignment.[ value Person.id_column 1L ]
+    |> on_conflict_do_nothing
+    |> command)
 ;;
 
 let conflict_target = Insert.Conflict_target.column Person.id_column
@@ -1345,7 +1346,7 @@ let conflict_target = Insert.Conflict_target.column Person.id_column
 let targeted_do_nothing =
   Insert.(
     into Person.table
-    |> set Person.id_column 1L
+    |> values Assignment.[ value Person.id_column 1L ]
     |> on_conflict conflict_target
     |> do_nothing
     |> command)
@@ -1354,18 +1355,20 @@ let targeted_do_nothing =
 let do_update_insert =
   Insert.(
     into Person.table
-    |> set Person.id_column 1L
-    |> set Person.name_column "Ada"
+    |> values Assignment.[ value Person.id_column 1L; value Person.name_column "Ada" ]
     |> on_conflict conflict_target
     |> do_update (fun ~existing ~excluded ->
       Conflict_update.(
         empty
-        |> set_expr
-             Person.name_column
-             (Expr.concat
-                (Person.name existing)
-                (Expr.concat_value (Person.name excluded) "!"))
-        |> set Person.id_column 2L))
+        |> set
+             Assignment.
+               [ expr
+                   Person.name_column
+                   (Expr.concat
+                      (Person.name existing)
+                      (Expr.concat_value (Person.name excluded) "!"))
+               ; value Person.id_column 2L
+               ]))
     |> returning (fun person -> Projection.pair (Person.id person) (Person.name person)))
 ;;
 
@@ -1374,13 +1377,17 @@ let update_from_command =
     table Person.table
     |> from Department.table ~f:(fun person department update ->
       update
-      |> set_expr Person.name_column (Department.name department)
+      |> set Assignment.[ expr Person.name_column (Department.name department) ]
       |> where (fun _ -> Person.id person =. Department.person_id department))
     |> command)
 ;;
 
 let default_update_command =
-  Update.(table Person.table |> default Person.name_column |> all_rows |> command)
+  Update.(
+    table Person.table
+    |> set Assignment.[ default Person.name_column ]
+    |> all_rows
+    |> command)
 ;;
 
 let compile_default_command_exn command =
@@ -1597,15 +1604,15 @@ let incomplete_insert_rows_error =
   Insert.(
     rows
       Person.table
-      [ (fun row -> row |> set Person.id_column 1L |> set Person.name_column "Ada")
-      ; (fun row -> row |> set Person.id_column 2L)
+      [ Assignment.[ value Person.id_column 1L; value Person.name_column "Ada" ]
+      ; Assignment.[ value Person.id_column 2L ]
       ]
     |> command)
   |> Compiler.compile_command ~dialect:Dialect.sqlite
 ;;
 
 let empty_insert_row_error =
-  Insert.(rows Person.table [ Fn.id; Fn.id ] |> command)
+  Insert.(rows Person.table [ []; [] ] |> command)
   |> Compiler.compile_command ~dialect:Dialect.sqlite
 ;;
 
@@ -1615,7 +1622,7 @@ let duplicate_conflict_target_error =
   in
   Insert.(
     into Person.table
-    |> set Person.id_column 1L
+    |> values Assignment.[ value Person.id_column 1L ]
     |> on_conflict duplicate_target
     |> do_nothing
     |> command)
@@ -1625,7 +1632,7 @@ let duplicate_conflict_target_error =
 let empty_conflict_update_error =
   Insert.(
     into Person.table
-    |> set Person.id_column 1L
+    |> values Assignment.[ value Person.id_column 1L ]
     |> on_conflict (Conflict_target.column Person.id_column)
     |> do_update (fun ~existing:_ ~excluded:_ -> Conflict_update.empty)
     |> command)
@@ -1662,10 +1669,13 @@ let%expect_test "empty conflict update diagnostic" =
 let%expect_test "conditional UPDATE assignments distinguish omission from NULL" =
   Update.(
     table Person.table
-    |> set_opt Person.name_column None
-    |> set_opt Person.nickname_column (Some None)
-    |> set_expr_opt Person.id_column None
-    |> set_expr_opt Person.id_column (Some (Expr.constant Db_type.int64 2L))
+    |> set
+         Assignment.
+           [ value_opt Person.name_column None
+           ; value_opt Person.nickname_column (Some None)
+           ; expr_opt Person.id_column None
+           ; expr_opt Person.id_column (Some (Expr.constant Db_type.int64 2L))
+           ]
     |> where (fun person -> Person.id person =$ 1L)
     |> command)
   |> compile_command_exn Dialect.Sqlite
@@ -3140,7 +3150,7 @@ let%test_unit
   let command =
     Update.(
       table Person.table
-      |> set_expr Person.nickname_column unsupported_scalar
+      |> set Assignment.[ expr Person.nickname_column unsupported_scalar ]
       |> all_rows
       |> command)
   in
@@ -3150,7 +3160,7 @@ let%test_unit
   let returning =
     Update.(
       table Person.table
-      |> set Person.name_column "Ada"
+      |> set Assignment.[ value Person.name_column "Ada" ]
       |> all_rows
       |> returning (fun _ -> Projection.expr unsupported_scalar))
   in
@@ -3204,7 +3214,7 @@ let current_timestamp_query =
 let current_timestamp_insert =
   Insert.(
     into Event.table
-    |> set_expr Event.occurred_at_column Expr.current_timestamp
+    |> values Assignment.[ expr Event.occurred_at_column Expr.current_timestamp ]
     |> command)
 ;;
 
@@ -3363,10 +3373,12 @@ let%test_unit "public edge paths preserve normalized semantics" =
     | Error error -> failwith (Compile_error.to_string error)
   in
   assert (String.is_substring (Compiled_query.sql repeated_having) ~substring:"AND ");
-  Insert.(rows Person.table [] |> set Person.id_column 7L |> command)
+  Insert.(
+    rows Person.table [] |> values Assignment.[ value Person.id_column 7L ] |> command)
   |> compile_command_exn Dialect.Sqlite
   |> ignore;
-  Insert.(rows Person.table [] |> default Person.id_column |> command)
+  Insert.(
+    rows Person.table [] |> values Assignment.[ default Person.id_column ] |> command)
   |> Compiler.compile_command ~dialect:Dialect.postgresql
   |> ( function
    | Ok compiled -> compiled

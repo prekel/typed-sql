@@ -59,8 +59,7 @@ module Search_people = struct
 end
 ```
 
-В динамическом callback операторы с `$`, `Expr.constant`, `Insert.set` и
-`Update.set` получают значения текущего input. Они всё равно создают bind
+В динамическом callback операторы с `$`, `Expr.constant`, `Assignment.value` получают значения текущего input. Они всё равно создают bind
 parameters и не интерполируют значения в SQL. В отличие от статического
 `Statement.with_parameters` с `params.query_many`, отдельный `params` здесь не
 нужен: запрос целиком перестраивается для вызова.

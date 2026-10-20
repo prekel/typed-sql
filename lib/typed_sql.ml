@@ -33,6 +33,7 @@ module Raw_sql = Typed_sql_private.Raw_sql
 module Derived_table = Typed_sql_private.Derived_table
 module Values = Typed_sql_private.Values
 module Cte = Typed_sql_private.Cte
+module Assignment = Typed_sql_private.Assignment
 module Insert = Typed_sql_private.Insert
 module Update = Typed_sql_private.Update
 module Delete = Typed_sql_private.Delete

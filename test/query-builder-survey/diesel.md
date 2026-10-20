@@ -941,13 +941,17 @@ let saved = diesel::insert_into(posts::table)
     params.expect_one
       Insert.(
         into Posts.table
-        |> set_expr Posts.id_column id
-        |> set_expr Posts.user_id_column user_id
-        |> set_expr Posts.title_column title
+        |> values
+             Assignment.
+               [ expr Posts.id_column id
+               ; expr Posts.user_id_column user_id
+               ; expr Posts.title_column title
+               ]
         |> on_conflict (Conflict_target.column Posts.id_column)
         |> do_update (fun ~existing:_ ~excluded ->
           Conflict_update.empty
-          |> Conflict_update.set_expr Posts.title_column (Posts.title excluded))
+          |> Conflict_update.set
+               Assignment.[ expr Posts.title_column (Posts.title excluded) ])
         |> returning (fun post ->
           let open Projection.Let_syntax in
           let+ projected_left = Projection.expr (Posts.id post)
@@ -1013,7 +1017,7 @@ let changed = diesel::update(posts::table.filter(posts::user_id.eq(user_id)))
     params.query_many
       Update.(
         table Posts.table
-        |> set_expr Posts.title_column title
+        |> set Assignment.[ expr Posts.title_column title ]
         |> where (fun post -> Posts.user_id post =. user_id)
         |> returning (fun post ->
           let open Projection.Let_syntax in

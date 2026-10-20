@@ -71,8 +71,7 @@ let insert_person =
     ~dialect:Dialect.portable
     Insert.(
       into Person.table
-      |> set Person.id_column 7L
-      |> set Person.name_column "Ada"
+      |> values Assignment.[ value Person.id_column 7L; value Person.name_column "Ada" ]
       |> command)
 ;;
 

@@ -10,5 +10,8 @@ end
 
 let _ =
   Update.(
-    table Person.table |> set_opt Person.nickname (Some "Ada") |> all_rows |> command)
+    table Person.table
+    |> set Assignment.[ value_opt Person.nickname (Some "Ada") ]
+    |> all_rows
+    |> command)
 ;;

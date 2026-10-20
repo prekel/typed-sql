@@ -1,4 +1,7 @@
 open! Base
+
+(** Validated identifiers shared with the query DSL; schema metadata does
+    not introduce a separate SQL naming convention. *)
 module Identifier = Typed_sql.Identifier
 
 (** Dialect-neutral metadata used by schema introspection and code generation. *)
@@ -6,55 +9,69 @@ module Schema_ir : sig
   (** Portable column representations known to the generator. [Unsupported]
       preserves a database type name so introspection never guesses a codec. *)
   type db_type =
-    | Bool
-    | Int
-    | Int64
-    | Float
-    | Numeric
-    | Text
-    | Bytes
-    | Date
-    | Timestamp
-    | Timestamp_without_timezone
-    | Interval
-    | Json
-    | Jsonb
-    | Uuid
+    | Bool (** SQL boolean. *)
+    | Int (** SQL integer represented by the DSL as a checked 32-bit OCaml int. *)
+    | Int64 (** SQL integer represented as int64. *)
+    | Float (** SQL floating-point representation. *)
+    | Numeric (** Exact PostgreSQL numeric. *)
+    | Text (** SQL text. *)
+    | Bytes (** Binary data. *)
+    | Date (** Calendar date without time of day. *)
+    | Timestamp (** Timestamp with time zone. *)
+    | Timestamp_without_timezone (** Local timestamp without time-zone conversion. *)
+    | Interval (** PostgreSQL month/day/time interval. *)
+    | Json (** PostgreSQL json. *)
+    | Jsonb (** PostgreSQL jsonb. *)
+    | Uuid (** Universally unique identifier. *)
     | Enum of
-        { schema : Identifier.t
-        ; name : Identifier.t
-        ; labels : string list
-        }
+        { schema : Identifier.t (** Schema containing the native enum type. *)
+        ; name : Identifier.t (** Native enum type name. *)
+        ; labels : string list (** Allowed labels in catalog declaration order. *)
+        } (** A nominal enum type with labels in catalog declaration order. *)
     | Domain of
-        { schema : Identifier.t
-        ; name : Identifier.t
+        { schema : Identifier.t (** Schema containing the native domain. *)
+        ; name : Identifier.t (** Native domain name. *)
         ; base : db_type
-        }
-    | Array of db_type
+          (** Underlying logical representation; domain constraints remain server-enforced. *)
+        } (** A nominal domain retaining its underlying logical representation. *)
+    | Array of db_type (** Array retaining the logical element representation. *)
     | Named of
-        { schema : Identifier.t
-        ; name : Identifier.t
-        }
+        { schema : Identifier.t (** Schema containing the preserved native type. *)
+        ; name : Identifier.t (** Native type name, without claiming a supported codec. *)
+        } (** Native SQL type identity; the representation is interpreted separately. *)
     | Unsupported of string
+    (** Original database type text, retained without guessing a codec. *)
 
   (** Exact nested native types, independent of portable DSL representations. *)
   type postgresql_type_info =
-    { schema : Identifier.t
-    ; name : Identifier.t
+    { schema : Identifier.t (** Exact native type schema. *)
+    ; name : Identifier.t (** Exact native type name. *)
     ; kind : postgresql_type_kind
+      (** Native structure, including nested domain/array metadata. *)
     }
 
+  (** Native catalog structure. Opaque types retain identity without claiming
+      that a supported transport codec exists. *)
   and postgresql_type_kind =
-    | Native_scalar
-    | Native_enum of string list
-    | Native_domain of postgresql_type_info
-    | Native_array of postgresql_type_info
-    | Native_opaque
+    | Native_scalar (** A built-in scalar from native metadata. *)
+    | Native_enum of string list (** Enum labels in catalog order. *)
+    | Native_domain of postgresql_type_info (** Exact nested base type of a domain. *)
+    | Native_array of postgresql_type_info (** Exact nested element type of an array. *)
+    | Native_opaque (** Native identity whose structure or codec is not supported here. *)
 
+  (** Immutable column metadata, including portable and optional exact SQL types. *)
   type column
+
+  (** Ordered referencing and referenced columns for one foreign key. *)
   type foreign_key
+
+  (** A possibly named ordered unique column set, independent of the primary key. *)
   type unique_constraint
+
+  (** Immutable table metadata with ordered columns and relational constraints. *)
   type table
+
+  (** An ordered schema snapshot; construction does not access a database. *)
   type t
 
   (** Construct a schema from tables in dependency-independent declaration
@@ -204,15 +221,20 @@ end
 
 (** Generate table, column, accessor and projection descriptors as OCaml source. *)
 module Schema_codegen : sig
+  (** Descriptor generation failures. Empty tables cannot produce a usable
+      projection; unsupported types require a supported descriptor or generator rule. *)
   type error =
     | Empty_table of Identifier.t
+    (** A table has no columns from which to generate a projection. *)
     | Unsupported_type of
-        { table : Identifier.t
+        { table : Identifier.t (** Table whose column cannot be generated. *)
         ; column : Identifier.t
-        ; database_type : string
-        }
-    | Invalid_rules of string
+          (** Column without a supported representation or override. *)
+        ; database_type : string (** Preserved native/unsupported type description. *)
+        } (** A column has no supported generated representation or matching rule. *)
+    | Invalid_rules of string (** Generator-rule configuration is invalid. *)
 
+  (** A validated ordered override rule for choosing a generated codec module. *)
   type rule
 
   (** Parse ordered generator rules. Each rule has [priority], [sql_type],

@@ -45,6 +45,7 @@ end
 
 (** Calendar dates without a time of day or time zone. *)
 module Date : sig
+  (** A validated calendar date; no time-zone or time-of-day component is stored. *)
   type t
 
   (** Construct a valid proleptic Gregorian date in Ptime's year range
@@ -79,8 +80,12 @@ end
 
 (** Calendar date and time without any time-zone conversion. *)
 module Local_timestamp : sig
+  (** A validated local date and time with microsecond precision, without a UTC offset. *)
   type t
 
+  (** Construct a local timestamp. Hours must be in [0..23], minutes and
+      seconds in [0..59], and microseconds in [0..999999]; invalid components
+      return an error. Leap seconds are not represented. *)
   val create
     :  date:Date.t
     -> hour:int
@@ -89,25 +94,46 @@ module Local_timestamp : sig
     -> microsecond:int
     -> (t, string) Result.t
 
+  (** Return the calendar date without time-zone conversion. *)
   val date : t -> Date.t
+
+  (** Return the hour in [0..23]. *)
   val hour : t -> int
+
+  (** Return the minute in [0..59]. *)
   val minute : t -> int
+
+  (** Return the second in [0..59]. *)
   val second : t -> int
+
+  (** Return the fractional second in microseconds, in [0..999999]. *)
   val microsecond : t -> int
 
   (** Parse PostgreSQL ISO DateStyle text, without a time-zone suffix. *)
   val of_string : string -> (t, string) Result.t
 
+  (** Format [YYYY-MM-DD HH:MM:SS], adding six fractional digits when
+      the microsecond component is nonzero. No time-zone suffix is emitted. *)
   val to_string : t -> string
 end
 
 (** PostgreSQL interval components; months and days are kept distinct. *)
 module Interval : sig
+  (** Signed month, day and microsecond components; no calendar conversion
+      or normalization between these units is performed. *)
   type t
 
+  (** Keep the supplied signed components unchanged. A month is not
+      converted to a fixed number of days, nor a day to a fixed duration. *)
   val create : months:int -> days:int -> microseconds:int64 -> t
+
+  (** Return the signed month component. *)
   val months : t -> int
+
+  (** Return the signed day component. *)
   val days : t -> int
+
+  (** Return the signed time component in microseconds. *)
   val microseconds : t -> int64
 
   (** Parse PostgreSQL's default [postgres] IntervalStyle text. Other
@@ -115,11 +141,15 @@ module Interval : sig
       outside the ranges of [int] months/days or [int64] microseconds. *)
   val of_string : string -> (t, string) Result.t
 
+  (** Format month and day components followed by a signed time component,
+      using PostgreSQL [postgres] interval syntax and six fractional digits. *)
   val to_string : t -> string
 end
 
 (** Rectangular PostgreSQL arrays with nullable elements and preserved bounds. *)
 module Pg_array : sig
+  (** A rectangular array in row-major order. Dimensions and lower bounds
+      have equal lengths; elements include SQL [NULL] independently of array nullability. *)
   type 'a t
 
   (** Reject negative dimensions, mismatched element counts, and dimensions
@@ -131,8 +161,14 @@ module Pg_array : sig
     -> elements:'a option list
     -> ('a t, string) Result.t
 
+  (** Return dimension lengths in outermost-to-innermost order. Empty
+      arrays have no dimensions. *)
   val dimensions : 'a t -> int list
+
+  (** Return one SQL lower bound per dimension; bounds need not start at one. *)
   val lower_bounds : 'a t -> int list
+
+  (** Return flattened row-major elements; [None] denotes a SQL [NULL] element. *)
   val elements : 'a t -> 'a option list
 
   (** Parse PostgreSQL array text with an element decoder. Quoted and escaped
@@ -153,6 +189,7 @@ end
 
 (** Universally unique identifiers in canonical hexadecimal form. *)
 module Uuid : sig
+  (** A validated UUID stored in lowercase canonical form. *)
   type t
 
   (** Parse a UUID written as 8-4-4-4-12 hexadecimal digits. Uppercase digits
@@ -172,6 +209,8 @@ end
 (** Exact PostgreSQL [numeric] value. Finite values are compared by value,
     without preserving input scale; [NaN] compares equal to [NaN]. *)
 module Decimal : sig
+  (** An exact finite decimal or PostgreSQL special numeric value.
+      Construction does not round through an OCaml floating-point value. *)
   type t
 
   (** Parse finite decimal or exponent notation, [NaN], or signed [Infinity].
@@ -216,6 +255,7 @@ module Db_type : sig
   (** Evidence that a portable scalar type supports SQL [MIN] and [MAX].
       The witness must match the expression's OCaml value type. *)
   module Orderable : sig
+    (** Evidence that an expression type has a supported portable SQL ordering. *)
     type 'a t
 
     (** Ordered SQL integer represented as [int]. *)
@@ -279,6 +319,9 @@ module Db_type : sig
       [repr] supplies the transport codec. [array] preserves SQL dimensions and
       nullable elements. *)
   module Postgresql : sig
+    (** Associate a qualified SQL type identity with a transport codec.
+        This does not create or validate a database type; the caller must supply
+        a representation accepted by that PostgreSQL type. *)
     val named : schema:Identifier.t -> name:Identifier.t -> 'a t -> 'a t
 
     (** Elements must have a non-null scalar representation. Compilation rejects
@@ -304,7 +347,12 @@ module Db_type : sig
         [postgres] [IntervalStyle]. Unsupported values return an error. *)
     val decode_text : 'a t -> string -> ('a, string) Result.t
 
+    (** PostgreSQL [json] transported as JSON text. SQL [NULL] requires an
+        outer option descriptor; JSON [null] is an ordinary JSON value. *)
     val json : Yojson.Safe.t t
+
+    (** PostgreSQL [jsonb]. Storage normalization and supported JSON values
+        are enforced by PostgreSQL; this descriptor does not preserve JSON text layout. *)
     val jsonb : Yojson.Safe.t t
 
     (** Timestamp without time zone; text decoding requires ISO [DateStyle]. *)
@@ -392,11 +440,15 @@ end
     are embedded with [Expr.scalar_subquery] or membership predicates; execute a
     top-level value through [Result_query] instead. *)
 module Scalar_query : sig
+  (** A deferred one-column SELECT. Its OCaml value type and dialect
+      requirements are retained; scalar embedding may introduce nullability. *)
   type ('a, +'requirements) t
 end
 
 (** A validated runtime parameter for [LIMIT] or [OFFSET]. *)
 module Pagination_parameter : sig
+  (** A runtime integer slot whose value must be non-negative. Validation
+      happens when a statement is bound, before database access. *)
   type +'requirements t
 
   (** A validated nullable runtime parameter for PostgreSQL [LIMIT] or [OFFSET]. *)
@@ -674,9 +726,16 @@ module Expr : sig
       The compiler requires matching numeric SQL descriptors; mapped codecs
       do not bypass this check. *)
   module Int : sig
+    (** SQL arithmetic operators with the overflow and descriptor rules of
+        the enclosing numeric module. *)
     module Infix : sig
+      (** Add two SQL expressions; database arithmetic and overflow rules apply. *)
       val ( +. ) : (int, 'r) t -> (int, 'r) t -> (int, 'r) t
+
+      (** Subtract the right SQL expression from the left. *)
       val ( -. ) : (int, 'r) t -> (int, 'r) t -> (int, 'r) t
+
+      (** Multiply two SQL expressions; database arithmetic and overflow rules apply. *)
       val ( *. ) : (int, 'r) t -> (int, 'r) t -> (int, 'r) t
 
       (** Division returns [None] for a zero divisor in both dialects. *)
@@ -689,9 +748,16 @@ module Expr : sig
       inexact [REAL]. Result decoding does not protect subsequent calculations
       or comparisons from that loss of precision. *)
   module Int64 : sig
+    (** SQL arithmetic operators with the overflow and descriptor rules of
+        the enclosing numeric module. *)
     module Infix : sig
+      (** Add two SQL expressions; database arithmetic and overflow rules apply. *)
       val ( +. ) : (int64, 'r) t -> (int64, 'r) t -> (int64, 'r) t
+
+      (** Subtract the right SQL expression from the left. *)
       val ( -. ) : (int64, 'r) t -> (int64, 'r) t -> (int64, 'r) t
+
+      (** Multiply two SQL expressions; database arithmetic and overflow rules apply. *)
       val ( *. ) : (int64, 'r) t -> (int64, 'r) t -> (int64, 'r) t
 
       (** Division returns [None] for a zero divisor in both dialects. *)
@@ -701,9 +767,16 @@ module Expr : sig
 
   (** Type-safe arithmetic over SQL floating-point values. *)
   module Float : sig
+    (** SQL arithmetic operators with the overflow and descriptor rules of
+        the enclosing numeric module. *)
     module Infix : sig
+      (** Add two SQL expressions; database arithmetic and overflow rules apply. *)
       val ( +. ) : (float, 'r) t -> (float, 'r) t -> (float, 'r) t
+
+      (** Subtract the right SQL expression from the left. *)
       val ( -. ) : (float, 'r) t -> (float, 'r) t -> (float, 'r) t
+
+      (** Multiply two SQL expressions; database arithmetic and overflow rules apply. *)
       val ( *. ) : (float, 'r) t -> (float, 'r) t -> (float, 'r) t
 
       (** Division returns [None] for a zero divisor in both dialects. *)
@@ -766,6 +839,8 @@ end
 (** A nullable runtime bind slot with a base-typed view for a guarded predicate.
     Both views refer to the same SQL parameter. *)
 module Optional_parameter : sig
+  (** Two typed views of one nullable bind slot. The non-null view is
+      exposed only inside a guard built by [Query.where_optional_param]. *)
   type ('value, +'requirements) t
 
   (** Refer to the nullable bind value outside [Query.where_optional_param]. *)
@@ -832,35 +907,48 @@ module Projection : sig
   (** Applicative syntax. Prefer [let%map.Projection] with [ppx_let]; use
       [let+] and [and+] where the PPX is unavailable. *)
   module Let_syntax : sig
+    (** Return a decoded constant without adding a SQL output field. *)
     val return : 'a -> ('a, 'requirements) t
 
+    (** Applicative infix operators with the same left-to-right field order
+        as [Projection]. *)
     include
       Base.Applicative.Applicative_infix2
       with type ('a, 'requirements) t := ('a, 'requirements) t
 
+    (** Mapping syntax that changes only the decoded OCaml result. *)
     val ( let+ ) : ('a, 'requirements) t -> ('a -> 'b) -> ('b, 'requirements) t
 
+    (** Combine projections in left-to-right SQL field order. *)
     val ( and+ )
       :  ('a, 'requirements) t
       -> ('b, 'requirements) t
       -> ('a * 'b, 'requirements) t
 
+    (** Operations used by [ppx_let] for applicative composition. *)
     module Let_syntax : sig
+      (** Return a decoded constant without adding a SQL output field. *)
       val return : 'a -> ('a, 'requirements) t
+
+      (** Transform the decoded value without changing selected SQL fields. *)
       val map : ('a, 'requirements) t -> f:('a -> 'b) -> ('b, 'requirements) t
 
+      (** Concatenate SQL fields from left to right and decode a pair. *)
       val both
         :  ('a, 'requirements) t
         -> ('b, 'requirements) t
         -> ('a * 'b, 'requirements) t
 
+      (** Mapping syntax that changes only the decoded OCaml result. *)
       val ( let+ ) : ('a, 'requirements) t -> ('a -> 'b) -> ('b, 'requirements) t
 
+      (** Combine projections in left-to-right SQL field order. *)
       val ( and+ )
         :  ('a, 'requirements) t
         -> ('b, 'requirements) t
         -> ('a * 'b, 'requirements) t
 
+      (** Empty namespace required by the [ppx_let] expansion protocol. *)
       module Open_on_rhs : sig end
     end
   end
@@ -870,6 +958,8 @@ end
     expression; the compiler separately checks that referenced sources belong
     to the query and that the aggregate is local. *)
 module Aggregate_projection : sig
+  (** A result decoder that contains at least one aggregate expression;
+      SQL grouping and source scope are checked by the compiler. *)
   type ('a, +'requirements) t
 
   (** Change only the decoded OCaml result; retain the SQL aggregates. *)
@@ -883,18 +973,28 @@ module Aggregate_projection : sig
       There is no [return]: a value without an aggregate would break the
       guarantee that this projection contains an aggregate. *)
   module Let_syntax : sig
+    (** Mapping syntax that changes only the decoded OCaml result. *)
     val ( let+ ) : ('a, 'r) t -> ('a -> 'b) -> ('b, 'r) t
+
+    (** Combine projections in left-to-right SQL field order. *)
     val ( and+ ) : ('a, 'r) t -> ('b, 'r) t -> ('a * 'b, 'r) t
 
+    (** Operations used by [ppx_let] for applicative composition. *)
     module Let_syntax : sig
       (** The operations used by [ppx_let]; they have the semantics of [map]
           and [both] above. *)
       val map : ('a, 'r) t -> f:('a -> 'b) -> ('b, 'r) t
 
+      (** Concatenate SQL fields from left to right and decode a pair. *)
       val both : ('a, 'r) t -> ('b, 'r) t -> ('a * 'b, 'r) t
+
+      (** Mapping syntax that changes only the decoded OCaml result. *)
       val ( let+ ) : ('a, 'r) t -> ('a -> 'b) -> ('b, 'r) t
+
+      (** Combine projections in left-to-right SQL field order. *)
       val ( and+ ) : ('a, 'r) t -> ('b, 'r) t -> ('a * 'b, 'r) t
 
+      (** Empty namespace required by the [ppx_let] expansion protocol. *)
       module Open_on_rhs : sig end
     end
   end
@@ -967,17 +1067,18 @@ end
 module Cardinality : sig
   (** No useful upper bound is known. This does not mean that the SELECT must
       return multiple rows. *)
-  type many = [ `Many ]
+  type many = [ `Many (** No upper row bound is imposed. *) ]
 
   (** The SELECT can return zero or one row. [Query.limit_one] establishes this
       proof. *)
-  type at_most_one = [ `At_most_one ]
+  type at_most_one =
+    [ `At_most_one (** The SELECT is proven to return at most one row. *) ]
 
   (** The SELECT is guaranteed to return one row. An [exactly_one] result is
       also accepted by APIs requiring [at_most_one]. *)
   type exactly_one =
-    [ `At_most_one
-    | `Exactly_one
+    [ `At_most_one (** The SELECT is proven to return at most one row. *)
+    | `Exactly_one (** The SELECT is proven to return exactly one row. *)
     ]
 end
 
@@ -1004,29 +1105,47 @@ end
 (** Typed raw PostgreSQL statements. SQL text is a trusted boundary; values
     must enter through [bind], never through string interpolation. *)
 module Raw_sql : sig
+  (** Positional result decoders for trusted raw SQL. Field declarations
+      describe the actual SQL output; no SQL type inference is performed. *)
   module Output : sig
+    (** An applicative output layout and decoder. Its field order must match
+        the raw SQL result order exactly. *)
     type ('a, +'requirements) t
 
     (** One positional output field. Names describe SQL output and do not
         introduce table sources or SQL expressions into the caller's scope. *)
     val field : name:Identifier.t -> 'a Db_type.t -> ('a, 'requirements) t
 
+    (** Applicative decoding operations. [return] adds no field, [map] changes
+        only decoding, and composition concatenates fields from left to right. *)
     include Base.Applicative.S2 with type ('a, 'r) t := ('a, 'r) t
 
+    (** Operations used by [ppx_let] for applicative composition. *)
     module Let_syntax : sig
+      (** Return a decoded constant without adding a SQL output field. *)
       val return : 'a -> ('a, 'r) t
 
+      (** Operations used by [ppx_let] for applicative composition. *)
       module Let_syntax : sig
+        (** Return a decoded constant without adding a SQL output field. *)
         val return : 'a -> ('a, 'r) t
+
+        (** Transform the decoded value without changing selected SQL fields. *)
         val map : ('a, 'r) t -> f:('a -> 'b) -> ('b, 'r) t
+
+        (** Concatenate SQL fields from left to right and decode a pair. *)
         val both : ('a, 'r) t -> ('b, 'r) t -> ('a * 'b, 'r) t
 
+        (** Empty namespace required by the [ppx_let] expansion protocol. *)
         module Open_on_rhs : sig end
       end
     end
   end
 
+  (** Raw PostgreSQL syntax with typed bind holes. The caller owns syntax
+      and output declarations; values passed through [bind] remain parameters. *)
   module Postgresql : sig
+    (** One trusted SQL fragment or typed bind hole, retaining dialect requirements. *)
     type +'requirements part
 
     (** Trusted SQL syntax. Fragments must not introduce their own bind
@@ -1063,12 +1182,15 @@ end
     descriptors define the relation exposed to its enclosing query; the
     compiler verifies that they match the SELECT output. *)
 module Derived_table : sig
+  (** A SELECT paired with an explicit table descriptor for its exposed columns. *)
   type ('row, +'requirements) t
 
   (** A structural description of fields exposed by an inferred relation.
       Unlike [Projection.t], this type has no [map]: every field remains a SQL
       expression that can be referenced by an enclosing query. *)
   module Fields : sig
+    (** A structural field layout with ordinary and null-extended accessor
+        shapes. Composition preserves SQL field order and the OCaml pair structure. *)
     type ('fields, 'nullable_fields, 'requirements) t
 
     (** Expose one expression as a relation field. Its SQL name is assigned
@@ -1116,12 +1238,15 @@ end
     column descriptors name the virtual relation; they do not cause a read from
     a database table. Literal cell values remain bind parameters. *)
 module Values : sig
+  (** A deferred nonempty VALUES relation with an explicit column descriptor. *)
   type ('row, +'requirements) t
 
   (** Structurally typed rows. Every row in [create] has the same field shape;
       the compiler also checks the ordered database types, including
       nullability and mapped codec identity, against the declared columns. *)
   module Row : sig
+    (** The same structural field description used by inferred derived relations;
+        nullable accessors account for outer-join null extension. *)
     type ('fields, 'nullable_fields, 'requirements) t =
       ('fields, 'nullable_fields, 'requirements) Derived_table.Fields.t
 
@@ -1152,6 +1277,8 @@ module Values : sig
   (** A dynamically shaped row cell. Its type is checked against the declared
       column descriptors during compilation. *)
   module Cell : sig
+    (** An existentially packaged cell expression. Its position and SQL
+        descriptor are checked against the declared VALUES columns at compilation. *)
     type +'requirements t
 
     (** Package one typed expression for a dynamic row; compilation checks its
@@ -1200,14 +1327,14 @@ module Cte : sig
   (** PostgreSQL and SQLite materialization hints for a non-recursive SELECT
       CTE. SQLite requires version 3.35 or later. *)
   type materialization =
-    [ `Materialized
-    | `Not_materialized
+    [ `Materialized (** Request a materialized CTE evaluation boundary. *)
+    | `Not_materialized (** Permit the database to inline the CTE where supported. *)
     ]
 
   (** Choose duplicate-eliminating or duplicate-preserving recursion. *)
   type recursion =
-    [ `Union
-    | `Union_all
+    [ `Union (** Eliminate duplicate recursive rows using UNION. *)
+    | `Union_all (** Preserve duplicate recursive rows using UNION ALL. *)
     ]
 
   (** Define a non-recursive CTE from a typed relation. A CTE handle describes
@@ -1274,6 +1401,8 @@ module Query : sig
       joins, and filters, but has no grouping, [HAVING], or pagination. Finish
       it with [aggregate_one]; the compiler still checks source locality. *)
   module Aggregate : sig
+    (** An unfinished ungrouped aggregate SELECT. The context tracks visible
+        sources; finishing requires a nonempty aggregate projection. *)
     type ('ctx, +'requirements) t
 
     (** Start with a table. *)
@@ -1796,12 +1925,46 @@ module Query : sig
     -> ('result, Result_query.select, Cardinality.many, 'requirements) Result_query.t
 end
 
+(** Typed assignments shared by INSERT, UPDATE, conflict updates, and MERGE.
+    Assignments retain column ownership, but acquire target source identity only
+    when attached to a builder. Values always remain bind parameters. *)
+module Assignment : sig
+  (** An assignment or omitted entry for one phantom table row type.
+      Compilation checks actual descriptor ownership, SQL type and source scope. *)
+  type ('row, +'requirements) t
+
+  (** Assign a typed expression. Nullability is part of the column value
+      type; SQL descriptor compatibility is checked during compilation. *)
+  val expr : ('row, 'base, 'value) Column.t -> ('value, 'r) Expr.t -> ('row, 'r) t
+
+  (** Infix form of [expr], with the same ownership and SQL-type checks. *)
+  val ( := ) : ('row, 'base, 'value) Column.t -> ('value, 'r) Expr.t -> ('row, 'r) t
+
+  (** Capture a constant in the current AST. For changing input in a static
+      statement, use [expr] with an expression declared through [Parameters]. *)
+  val value : ('row, 'base, 'value) Column.t -> 'value -> ('row, 'r) t
+
+  (** SQL DEFAULT excludes SQLite, including when used inside a VALUES row. *)
+  val default : ('row, 'base, 'value) Column.t -> ('row, [> `Not_sqlite ]) t
+
+  (** None omits the assignment. Some None writes SQL NULL to a nullable column.
+      Omitted entries do not count toward duplicate or nonempty checks. *)
+  val value_opt : ('row, 'base, 'value) Column.t -> 'value option -> ('row, 'r) t
+
+  (** Omit the assignment for [None]; otherwise use [expr]. An expression
+      containing SQL [NULL] still counts as a present assignment. *)
+  val expr_opt
+    :  ('row, 'base, 'value) Column.t
+    -> ('value, 'r) Expr.t option
+    -> ('row, 'r) t
+end
+
 (** Immutable INSERT builders. *)
 module Insert : sig
   (** An INSERT builder. The compiler rejects empty rows, duplicate target
       columns, different column sets across VALUES rows, and mixing VALUES
-      assignments with a SELECT source. Values passed to [set] are current-AST
-      constants encoded as bind values. *)
+      assignments with a SELECT source. Values passed to [Assignment.value] are
+      current-AST constants encoded as bind values. *)
   type ('row, +'requirements) t
 
   (** Non-empty ordered target columns for [from_select]. The order must match
@@ -1809,6 +1972,8 @@ module Insert : sig
       row type; compilation also checks their table descriptor, uniqueness,
       and exact database types, including nullability and mapped codecs. *)
   module Columns : sig
+    (** An ordered nonempty target list. The compiler checks uniqueness and
+        exact correspondence with the SELECT projection. *)
     type 'row t
 
     (** Start a nonempty ordered target list. *)
@@ -1823,6 +1988,8 @@ module Insert : sig
       same phantom row type as the INSERT target; compilation also verifies
       that its owning table descriptor matches the target table. *)
   module Conflict_target : sig
+    (** An ordered nonempty conflict key. Existence of a matching unique
+        constraint or index is checked by the database. *)
     type 'row t
 
     (** Start a conflict target with one column. *)
@@ -1845,40 +2012,9 @@ module Insert : sig
         action that still has no assignments after optional fields are omitted. *)
     val empty : ('row, 'requirements) t
 
-    (** Append an OCaml constant assignment captured in the current AST. The
-        constant is encoded as a bind value. Duplicate columns and columns
-        owned by another table descriptor are rejected. *)
-    val set
-      :  ('row, 'base, 'value) Column.t
-      -> 'value
-      -> ('row, 'requirements) t
-      -> ('row, 'requirements) t
-
-    (** Append an expression assignment. The [existing] and [excluded]
-        references are visible, including inside correlated subqueries.
-        Compilation checks the assignment's SQL type. Columns owned by another
-        table descriptor and aggregates owned by this update are rejected,
-        including inside correlated subqueries. Local subquery aggregates are
-        allowed. *)
-    val set_expr
-      :  ('row, 'base, 'value) Column.t
-      -> ('value, 'requirements) Expr.t
-      -> ('row, 'requirements) t
-      -> ('row, 'requirements) t
-
-    (** Omit [None]; [Some None] assigns SQL NULL to a nullable column. *)
-    val set_opt
-      :  ('row, 'base, 'value) Column.t
-      -> 'value option
-      -> ('row, 'requirements) t
-      -> ('row, 'requirements) t
-
-    (** Omit [None], or append the supplied typed expression. *)
-    val set_expr_opt
-      :  ('row, 'base, 'value) Column.t
-      -> ('value, 'requirements) Expr.t option
-      -> ('row, 'requirements) t
-      -> ('row, 'requirements) t
+    (** Append assignments in order. Target ownership, SQL types, source scope,
+        duplicates, and nonemptiness are checked during compilation. *)
+    val set : ('row, 'r) Assignment.t list -> ('row, 'r) t -> ('row, 'r) t
 
     (** Restrict the conflict update. Repeated calls combine with SQL AND.
         Without a predicate, every conflicting row is updated. FALSE or NULL
@@ -1895,46 +2031,20 @@ module Insert : sig
   (** Start an INSERT containing one empty row. *)
   val into : 'row Table.t -> ('row, 'requirements) t
 
-  (** Assign a column from an OCaml constant captured in the current AST. The
-      constant is encoded as a bind value. In a static statement, use
-      [set_expr] with [Parameters] for runtime input. *)
-  val set
-    :  ('row, 'base, 'value) Column.t
-    -> 'value
-    -> ('row, 'requirements) t
-    -> ('row, 'requirements) t
+  (** Append assignments to the current VALUES row. Empty rows, duplicate
+      columns, foreign descriptors, and out-of-scope expressions are rejected
+      during compilation. Omitted assignments contribute no column. *)
+  val values : ('row, 'r) Assignment.t list -> ('row, 'r) t -> ('row, 'r) t
 
-  (** Assign a column from a typed expression. Compilation checks its SQL type
-      against the column. VALUES cannot reference the target or excluded row,
-      and direct aggregates are rejected; independent scalar subqueries with
-      local aggregates are allowed. *)
-  val set_expr
-    :  ('row, 'base, 'value) Column.t
-    -> ('value, 'requirements) Expr.t
-    -> ('row, 'requirements) t
-    -> ('row, 'requirements) t
-
-  (** Assign SQL [DEFAULT] to a column without inventing an OCaml value. This
-      excludes SQLite because it does not support [DEFAULT]
-      inside a [VALUES] row. *)
-  val default
-    :  ('row, 'base, 'value) Column.t
-    -> ('row, ([> `Not_sqlite ] as 'requirements)) t
-    -> ('row, 'requirements) t
-
-  (** Build a multi-row INSERT. Each function receives an empty row builder.
-      Rows may call [set], [set_expr], or [default] in any order, but every row
-      must assign the same set of columns. *)
-  val rows
-    :  'row Table.t
-    -> (('row, 'requirements) t -> ('row, 'requirements) t) list
-    -> ('row, 'requirements) t
+  (** Each row must assign the same nonempty column set. Row order and the
+      first row's column order are preserved. *)
+  val rows : 'row Table.t -> ('row, 'r) Assignment.t list list -> ('row, 'r) t
 
   (** Replace the untouched empty VALUES row with a SELECT source. The SELECT
       may contain CTEs or set operations, but cannot refer to the INSERT target
       without introducing it as its own source. Compilation checks target
       ownership, uniqueness, and ordered database types, including nullability
-      and mapped codec identity. Mixing this source with [set], [default], or
+      and mapped codec identity. Mixing this source with [values] or
       [rows] is rejected; conflict actions and [returning] remain available. *)
   val from_select
     :  'row Columns.t
@@ -2000,24 +2110,10 @@ module Update : sig
   (** Start an UPDATE without assignments or row scope. *)
   val table : 'row Table.t -> ('row, unscoped, 'requirements) t
 
-  (** Assign a column from an OCaml constant captured in the current AST. The
-      constant is encoded as a bind value. In a static statement, use
-      [set_expr] with [Parameters] for runtime input. *)
-  val set
-    :  ('row, 'base, 'value) Column.t
-    -> 'value
-    -> ('row, 'scope, 'requirements) t
-    -> ('row, 'scope, 'requirements) t
-
-  (** Assign a column from a typed expression. The compiler checks its SQL type
-      against the column and rejects references outside the visible scope.
-      Aggregates owned by this UPDATE are rejected, including inside correlated
-      subqueries; local subquery aggregates are allowed. *)
-  val set_expr
-    :  ('row, 'base, 'value) Column.t
-    -> ('value, 'requirements) Expr.t
-    -> ('row, 'scope, 'requirements) t
-    -> ('row, 'scope, 'requirements) t
+  (** Append assignments, retaining the row-scope proof. Source scope,
+      SQL types, column ownership, duplicates, and nonemptiness are checked
+      during compilation. *)
+  val set : ('row, 'r) Assignment.t list -> ('row, 'scope, 'r) t -> ('row, 'scope, 'r) t
 
   (** Explicitly assign a nullable expression to a non-nullable column.
       SQL [NULL] is preserved; constraint violations are execution errors
@@ -2034,29 +2130,6 @@ module Update : sig
     :  f:('row Table_ref.t -> ('row, 'scope, 'r) t -> ('row, 'new_scope, 'r) t)
     -> ('row, 'scope, 'r) t
     -> ('row, 'new_scope, 'r) t
-
-  (** Assign SQL [DEFAULT] to a column. This excludes SQLite
-      because SQLite does not support [UPDATE SET DEFAULT]. *)
-  val default
-    :  ('row, 'base, 'value) Column.t
-    -> ('row, 'scope, ([> `Not_sqlite ] as 'requirements)) t
-    -> ('row, 'scope, 'requirements) t
-
-  (** Conditionally assign an OCaml constant captured in the current AST.
-      [None] leaves the builder unchanged. For a nullable column, [Some None]
-      writes SQL [NULL]. *)
-  val set_opt
-    :  ('row, 'base, 'value) Column.t
-    -> 'value option
-    -> ('row, 'scope, 'requirements) t
-    -> ('row, 'scope, 'requirements) t
-
-  (** Conditionally assign an expression. [None] leaves the builder unchanged. *)
-  val set_expr_opt
-    :  ('row, 'base, 'value) Column.t
-    -> ('value, 'requirements) Expr.t option
-    -> ('row, 'scope, 'requirements) t
-    -> ('row, 'scope, 'requirements) t
 
   (** Add one table to [UPDATE ... FROM] and configure the update while its
       reference is in lexical scope. The callback receives the target, the new
@@ -2188,39 +2261,6 @@ module Merge : sig
       for [returning]. Only [ready] builders can accept branches or finish. *)
   type ('row, 'source_ctx, 'stage, +'requirements) t
 
-  (** Typed assignments for one UPDATE or INSERT branch. Compilation checks
-      that descriptors belong to the target, columns are distinct, and at
-      least one assignment exists. *)
-  module Assignments : sig
-    type ('row, +'requirements) t
-
-    (** Start an assignment list. *)
-    val empty : ('row, 'requirements) t
-
-    (** Append an OCaml value captured as a bind parameter. *)
-    val set
-      :  ('row, 'base, 'value) Column.t
-      -> 'value
-      -> ('row, 'requirements) t
-      -> ('row, 'requirements) t
-
-    (** Append an expression with the target column's value type and
-        nullability. UPDATE sees target and source; INSERT sees only source,
-        including references inside scalar subqueries. Compilation checks the
-        assignment's SQL type independently of mapped codec identity. *)
-    val set_expr
-      :  ('row, 'base, 'value) Column.t
-      -> ('value, 'requirements) Expr.t
-      -> ('row, 'requirements) t
-      -> ('row, 'requirements) t
-
-    (** Assign SQL DEFAULT without constructing an OCaml value. *)
-    val default
-      :  ('row, 'base, 'value) Column.t
-      -> ('row, 'requirements) t
-      -> ('row, 'requirements) t
-  end
-
   (** Start with a base-table target. USING and ON must be established before
       finalization; an empty branch list is a compilation error. *)
   val into : 'row Table.t -> ('row, unit, without_source, [> `Not_sqlite ]) t
@@ -2309,7 +2349,7 @@ module Merge : sig
       A branch without [condition] must be the last of its matched kind. *)
   val when_matched_update
     :  ?condition:'requirements Condition.t
-    -> ('row, 'requirements) Assignments.t
+    -> ('row, 'requirements) Assignment.t list
     -> ('row, 'source_ctx, ready, 'requirements) t
     -> ('row, 'source_ctx, ready, 'requirements) t
 
@@ -2330,7 +2370,7 @@ module Merge : sig
       A branch without [condition] must be the last of its unmatched kind. *)
   val when_not_matched_insert
     :  ?condition:'requirements Condition.t
-    -> ('row, 'requirements) Assignments.t
+    -> ('row, 'requirements) Assignment.t list
     -> ('row, 'source_ctx, ready, 'requirements) t
     -> ('row, 'source_ctx, ready, 'requirements) t
 
@@ -2366,26 +2406,37 @@ module Dialect : sig
   type portable = []
 
   (** PostgreSQL-only expressions exclude SQLite. *)
-  type postgresql = [ `Not_sqlite ]
+  type postgresql =
+    [ `Not_sqlite (** Exclude SQLite from the expression or statement requirements. *) ]
 
   (** SQLite-only expressions exclude PostgreSQL. *)
-  type sqlite = [ `Not_postgres ]
+  type sqlite =
+    [ `Not_postgres
+      (** Exclude PostgreSQL from the expression or statement requirements. *)
+    ]
 
   (** A statement compiled for both dialects. *)
   type both =
-    [ `Postgresql
-    | `Sqlite
+    [ `Postgresql (** A plan compiled for PostgreSQL. *)
+    | `Sqlite (** A plan compiled for SQLite. *)
     ]
 
   (** Relate excluded dialects in a query to the dialects compiled for its
       statement. *)
   type (_, _) supports =
     | Portable : (portable, both) supports
+    (** Compile the same portable AST for PostgreSQL and SQLite. *)
     | Concrete_postgresql : (postgresql, [ `Postgresql ]) supports
-    | Concrete_sqlite : (sqlite, [ `Sqlite ]) supports
+    (** Compile only for PostgreSQL. *)
+    | Concrete_sqlite : (sqlite, [ `Sqlite ]) supports (** Compile only for SQLite. *)
 
+  (** Evidence for compiling a portable statement for both supported dialects. *)
   val portable : (portable, both) supports
+
+  (** Evidence for compiling a PostgreSQL-only statement. *)
   val postgresql : (postgresql, [ `Postgresql ]) supports
+
+  (** Evidence for compiling a SQLite-only statement. *)
   val sqlite : (sqlite, [ `Sqlite ]) supports
 
   (** Return the stable lowercase dialect name used in diagnostics. *)
@@ -2620,6 +2671,8 @@ module Postgresql : sig
       -> (Decimal.t option, 'r) Aggregate_projection.t
   end
 
+  (** PostgreSQL SELECT clauses, including locking, nullable pagination
+      and duplicate-preserving set operations. *)
   module Query : sig
     (** A query-local table occurrence selected by [for_update]. *)
     type target
@@ -2716,6 +2769,8 @@ module Postgresql : sig
       -> ('result, Result_query.select, Cardinality.many, 'requirements) Result_query.t
   end
 
+  (** Data-modifying CTE definitions restricted to the outermost PostgreSQL
+      WITH scope. Referenced relations still use ordinary typed CTE descriptors. *)
   module Cte : sig
     (** Define a data-modifying CTE with [RETURNING]. The CTE relation is
         described by [table] and [columns], and may be used by the enclosing
@@ -2739,6 +2794,7 @@ module Postgresql : sig
       -> (unit, 'requirements) Cte.definition
   end
 
+  (** PostgreSQL expression operators whose semantics require native arrays. *)
   module Expr : sig
     (** Compare a scalar with an array using PostgreSQL [= ANY]. An empty array
         matches no rows; [NULL] elements retain SQL three-valued semantics.
@@ -2760,30 +2816,35 @@ end
 (** Portable integrity errors reported by execution adapters. Object names are
     diagnostic fields from the database, not identities inferred from a query. *)
 module Constraint_error : sig
+  (** Portable integrity categories. Classification comes from driver
+      diagnostics; it is not inferred from the statement being executed. *)
   type kind =
-    | Unique
-    | Foreign_key
-    | Not_null
-    | Check
-    | Restrict
-    | Exclusion
+    | Unique (** A unique key or primary-key constraint was violated. *)
+    | Foreign_key (** A referencing or referenced row violates a foreign key. *)
+    | Not_null (** SQL NULL was supplied where it is forbidden. *)
+    | Check (** A CHECK constraint rejected the row. *)
+    | Restrict (** A referenced row cannot be changed because of a restriction. *)
+    | Exclusion (** A PostgreSQL exclusion constraint rejected the row. *)
     | Other (** An integrity violation without a more specific classification. *)
 
   (** Any diagnostic field may be absent. In particular, SQLite usually does
       not identify the violated foreign key. Messages and details may contain
       database values; applications choose how to log or display them. *)
   type t =
-    { kind : kind
+    { kind : kind (** Portable integrity category reported by the adapter. *)
     ; message : string (** Driver diagnostic for logging, not for matching. *)
-    ; sqlstate : string option
+    ; sqlstate : string option (** SQLSTATE reported by the database, when available. *)
     ; constraint_name : string option
-    ; schema_name : string option
-    ; table_name : string option
-    ; column_name : string option
-    ; detail : string option
-    ; hint : string option
+      (** Reported constraint name; absent names are not inferred. *)
+    ; schema_name : string option (** Reported schema containing the violated object. *)
+    ; table_name : string option (** Reported table containing the violated object. *)
+    ; column_name : string option (** Reported column involved in the violation. *)
+    ; detail : string option (** Optional backend detail; may contain database values. *)
+    ; hint : string option (** Optional backend suggestion; intended for diagnostics. *)
     }
 
+  (** Construct diagnostics from fields reported by a backend. Omitted
+      fields remain absent; no object names are inferred or validated here. *)
   val create
     :  ?sqlstate:string
     -> ?constraint_name:string
@@ -2820,9 +2881,9 @@ module Compile_error : sig
       exposed to an adapter. *)
   type t =
     | Mismatched_sql_type of
-        { context : string
-        ; expected : string
-        ; actual : string
+        { context : string (** SQL operation or clause whose descriptors disagree. *)
+        ; expected : string (** Required SQL descriptor, formatted for diagnostics. *)
+        ; actual : string (** Encountered SQL descriptor, formatted for diagnostics. *)
         }
     (** Operands or an assignment have incompatible SQL types despite their
         compatible OCaml representations. Codec identity is not SQL identity. *)
@@ -2857,10 +2918,12 @@ module Compile_error : sig
     | Empty_merge_assignments of
         { branch : int (** One-based index of the empty branch. *)
         ; action : [ `Insert | `Update ]
+          (** Action whose effective assignment list is empty. *)
         } (** A MERGE INSERT or UPDATE branch has no assignments. *)
     | Unreachable_merge_branch of
         { branch : int (** One-based index of the unreachable branch. *)
         ; kind : [ `Matched | `Not_matched ]
+          (** Branch category already covered by an unconditional branch. *)
         } (** A branch follows an unconditional branch of the same kind. *)
     | Invalid_merge of string (** A MERGE violates a structural invariant. *)
     | Invalid_cte_placement
@@ -2881,8 +2944,8 @@ module Compile_error : sig
     | Mixed_insert_sources
     (** An INSERT builder combined VALUES assignments and a SELECT source. *)
     | Mismatched_insert_select_projection of
-        { expected : string list
-        ; actual : string list
+        { expected : string list (** Target-column fingerprints in declared order. *)
+        ; actual : string list (** SELECT-output fingerprints in projection order. *)
         }
     (** Target columns and SELECT projection have different ordered database
         type fingerprints, including nullability and mapped codec identity. *)
@@ -2892,8 +2955,8 @@ module Compile_error : sig
     | Duplicate_conflict_target of Identifier.t
     (** The same column occurs more than once in a conflict target. *)
     | Invalid_conflict_target_source of
-        { expected : int
-        ; actual : int
+        { expected : int (** Source identity of the INSERT target. *)
+        ; actual : int (** Source identity carried by the conflicting column. *)
         } (** A conflict target column belongs to another table source. *)
     | Empty_conflict_update (** [ON CONFLICT DO UPDATE] contains no assignments. *)
     | Invalid_assignment_source of
@@ -2931,32 +2994,32 @@ module Compile_error : sig
     | Duplicate_relation_column of Identifier.t
     (** A relation exposes one column name more than once. *)
     | Mismatched_relation_projection of
-        { expected : string list
-        ; actual : string list
+        { expected : string list (** Declared relation-column fingerprints in order. *)
+        ; actual : string list (** Query-output fingerprints in projection order. *)
         }
     (** Relation descriptor and query output have different database-type
         sequences. *)
     | Mismatched_set_projection of
-        { expected : string list
-        ; actual : string list
+        { expected : string list (** Left operand output fingerprints. *)
+        ; actual : string list (** Right operand output fingerprints. *)
         }
     (** The two operands of a set operation have different database-type
         sequences. *)
     | Invalid_set_order_field of
-        { field : string
-        ; matches : int
+        { field : string (** Requested output name for final set ordering. *)
+        ; matches : int (** Number of matching left-output fields; must be exactly one. *)
         }
     (** A final set-operation ordering field does not identify exactly one
         output field. *)
     | Mismatched_values_row_arity of
-        { row : int
-        ; expected : int
-        ; actual : int
+        { row : int (** One-based index of the mismatched row. *)
+        ; expected : int (** Number of declared relation columns. *)
+        ; actual : int (** Number of fields in this row. *)
         } (** A one-based row has a different field count from the relation. *)
     | Mismatched_values_row_types of
-        { row : int
-        ; expected : string list
-        ; actual : string list
+        { row : int (** One-based index of the mismatched row. *)
+        ; expected : string list (** Declared column fingerprints in order. *)
+        ; actual : string list (** This row's field fingerprints in order. *)
         }
     (** A one-based row has database types different from the declared
                columns, in projection order. *)
@@ -3000,8 +3063,13 @@ type 'supports sql_dialect =
 (** Opaque applicative value returned by a parameter declaration. Its SQL
     value becomes available only inside a mapping operation. *)
 module Parameters : sig
+  (** An applicative parameter declaration scoped to one statement input.
+      Combining declarations shares their slots without evaluating SQL. *)
   type ('input, 'requirements, 'value) t
 
+  (** Applicative operations on declarations. [return] allocates no slot;
+      composition combines declarations from left to right, and [map] exposes
+      their typed SQL values to the statement builder. *)
   include
     Applicative.S3
     with type ('value, 'input, 'requirements) t := ('input, 'requirements, 'value) t
@@ -3009,45 +3077,56 @@ module Parameters : sig
   (** Applicative syntax. Prefer [let%map.Parameters ... and ...]
       with [ppx_let]; use [let+] and [and+] where the PPX is unavailable. *)
   module Let_syntax : sig
+    (** Lift a value without declaring a runtime parameter slot. *)
     val return : 'value -> ('input, 'requirements, 'value) t
 
+    (** Applicative infix operators for combining parameter declarations. *)
     include
       Applicative.Applicative_infix3
       with type ('value, 'input, 'requirements) t := ('input, 'requirements, 'value) t
 
+    (** Map over declared SQL values without adding parameter slots. *)
     val ( let+ )
       :  ('input, 'requirements, 'value) t
       -> ('value -> 'result)
       -> ('input, 'requirements, 'result) t
 
+    (** Combine declarations from left to right, retaining shared slot identities. *)
     val ( and+ )
       :  ('input, 'requirements, 'left) t
       -> ('input, 'requirements, 'right) t
       -> ('input, 'requirements, 'left * 'right) t
 
+    (** Operations used by [ppx_let] for applicative composition. *)
     module Let_syntax : sig
+      (** Lift a value without declaring a runtime parameter slot. *)
       val return : 'value -> ('input, 'requirements, 'value) t
 
+      (** Expose declared SQL values to [f], retaining their parameter slots. *)
       val map
         :  ('input, 'requirements, 'value) t
         -> f:('value -> 'result)
         -> ('input, 'requirements, 'result) t
 
+      (** Combine declarations and return their SQL values as a pair. *)
       val both
         :  ('input, 'requirements, 'left) t
         -> ('input, 'requirements, 'right) t
         -> ('input, 'requirements, 'left * 'right) t
 
+      (** Map over declared SQL values without adding parameter slots. *)
       val ( let+ )
         :  ('input, 'requirements, 'value) t
         -> ('value -> 'result)
         -> ('input, 'requirements, 'result) t
 
+      (** Combine declarations from left to right, retaining shared slot identities. *)
       val ( and+ )
         :  ('input, 'requirements, 'left) t
         -> ('input, 'requirements, 'right) t
         -> ('input, 'requirements, 'left * 'right) t
 
+      (** Empty namespace required by the [ppx_let] expansion protocol. *)
       module Open_on_rhs : sig end
     end
   end
@@ -3107,19 +3186,22 @@ module Statement : sig
   (** A diagnostic representation of a bound value. [Encoded] is not a SQL
       literal and must not be substituted into the SQL template. *)
   type parameter_value =
-    | Null
+    | Null (** An encoded SQL NULL, distinct from an unbound diagnostic value. *)
     | Encoded of string
+    (** Codec output for diagnostics, not an executable SQL literal. *)
   [@@deriving sexp_of]
 
   (** One distinct placeholder in SQL order. [dialect_type] is the PostgreSQL
       SQL type, or the SQLite storage class when a value has been bound. *)
   type parameter =
-    { position : int
-    ; placeholder : string
-    ; name : string option
-    ; db_type : string
+    { position : int (** One-based bind position in rendered SQL. *)
+    ; placeholder : string (** Dialect placeholder, such as [$1] or [?1]. *)
+    ; name : string option (** Optional diagnostic name assigned by the declaration. *)
+    ; db_type : string (** Backend-independent codec description. *)
     ; dialect_type : string option
+      (** Resolved native SQL type or bound SQLite storage class, if known. *)
     ; value : parameter_value option
+      (** Encoded diagnostic value, absent when no input was bound. *)
     }
   [@@deriving sexp_of]
 
@@ -3128,39 +3210,46 @@ module Statement : sig
       result storage classes depend on runtime values, so [dialect_type] is
       provided only for PostgreSQL. *)
   type output_column =
-    { position : int
-    ; name : string option
-    ; db_type : string
+    { position : int (** One-based position in the SQL output list. *)
+    ; name : string option (** Direct source-column or raw-output name, if available. *)
+    ; db_type : string (** Backend-independent result codec description. *)
     ; dialect_type : string option
+      (** PostgreSQL native output type; absent for SQLite. *)
     }
   [@@deriving sexp_of]
 
   (** Cardinality of the statement result. [One] and [Optional] include
       statements whose cardinality is checked at execution time. *)
   type row_cardinality =
-    [ `Many
-    | `One
-    | `Optional
+    [ `Many (** Decode any number of rows into a list. *)
+    | `One (** Require exactly one row at execution. *)
+    | `Optional (** Require zero or one row at execution. *)
     ]
   [@@deriving sexp_of]
 
+  (** The resolved output contract: ordered query columns and execution
+      cardinality, or an affected-row command result. *)
   type output =
     | Query_output of
-        { cardinality : row_cardinality
-        ; columns : output_column list
-        }
+        { cardinality : row_cardinality (** Cardinality selected for execution. *)
+        ; columns : output_column list (** SQL output columns in decoder order. *)
+        } (** Returned column layout and required execution cardinality. *)
     | Command_output
+    (** No returned columns; execution produces an affected-row result. *)
   [@@deriving sexp_of]
 
+  (** Whether a statement returns decoded rows or only an affected-row result. *)
   type statement_kind =
-    [ `Query
-    | `Command
+    [ `Query (** Return decoded rows with the declared execution cardinality. *)
+    | `Command (** Return an affected-row result without decoded rows. *)
     ]
   [@@deriving sexp_of]
 
+  (** Whether an AST is compiled at definition time or built and compiled
+      from input during resolution. *)
   type statement_mode =
-    [ `Static
-    | `Dynamic
+    [ `Static (** Reuse the AST compiled when the statement was defined. *)
+    | `Dynamic (** Construct and compile an AST for each runtime input. *)
     ]
   [@@deriving sexp_of]
 
@@ -3170,35 +3259,46 @@ module Statement : sig
   type statement_tree =
     | Leaf of
         { kind : statement_kind
-        ; mode : statement_mode
-        }
+          (** Whether this leaf returns rows or an affected-row result. *)
+        ; mode : statement_mode (** Static or input-dependent AST construction. *)
+        } (** A statement definition with no further structural choice. *)
     | Input_choice of
         { selected : bool option
+          (** Selected input branch, or [None] when the branch was not visited. *)
         ; if_true : statement_tree
+          (** Structure of the true branch, even when not selected. *)
         ; if_false : statement_tree
-        }
+          (** Structure of the false branch, even when not selected. *)
+        } (** Alternative statement branches selected by a runtime input predicate. *)
     | Dialect_choice of
         { selected : Dialect.t option
-        ; postgresql : statement_tree
-        ; sqlite : statement_tree
-        }
+          (** Selected dialect, or [None] in an unvisited branch. *)
+        ; postgresql : statement_tree (** Structure of the PostgreSQL branch. *)
+        ; sqlite : statement_tree (** Structure of the SQLite branch. *)
+        } (** Alternative statement branches selected by the connection dialect. *)
   [@@deriving sexp_of]
 
+  (** Diagnostics for the selected execution branch and dialect. Parameter
+      values are present only when inspection has bound an input. *)
   type inspection =
-    { dialect : Dialect.t
-    ; parameters : parameter list
-    ; output : output
+    { dialect : Dialect.t (** Dialect selected for this inspection. *)
+    ; parameters : parameter list (** Distinct bind slots in SQL order. *)
+    ; output : output (** Resolved result layout and execution cardinality. *)
     ; tree : statement_tree
+      (** Branch structure with choices marked only where evaluated. *)
     }
   [@@deriving sexp_of]
 
+  (** Statement-resolution failures or a mapped codec failure encountered
+      while encoding a diagnostic parameter value. *)
   type inspection_error =
     | Statement_error of sql_error
+    (** Statement resolution failed before diagnostic encoding. *)
     | Codec_error of
-        { position : int
-        ; name : string option
-        ; message : string
-        }
+        { position : int (** One-based position of the parameter that failed encoding. *)
+        ; name : string option (** Optional diagnostic name of the failed parameter. *)
+        ; message : string (** Codec-provided explanation of the encoding failure. *)
+        } (** A bound parameter could not be encoded for diagnostic inspection. *)
   [@@deriving sexp_of]
 
   (** A failure while producing copyable diagnostic SQL. [Resolution_failure]
@@ -3206,11 +3306,12 @@ module Statement : sig
       a bound value that cannot be written with the same SQL meaning. *)
   type debug_sql_error =
     | Resolution_failure of inspection_error
+    (** Inspection failed before literal rendering could finish. *)
     | Unrepresentable_literal of
-        { position : int
-        ; name : string option
-        ; reason : string
-        }
+        { position : int (** One-based bind position without an equivalent literal. *)
+        ; name : string option (** Optional diagnostic name of the parameter. *)
+        ; reason : string (** Why rendering a literal would lose SQL meaning. *)
+        } (** A bound value cannot be rendered as an equivalent SQL literal. *)
   [@@deriving sexp_of]
 
   (** Raised by [sql_exn] for SQL rendering failures other than compilation. *)

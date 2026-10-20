@@ -3,10 +3,14 @@ open! Base
 (** Introspect PostgreSQL with an existing Lwt PG'OCaml module. The functor
     preserves that module's connection type. *)
 module Make (P : PGOCaml_generic.PGOCAML_GENERIC with type 'a monad = 'a Lwt.t) : sig
+  (** Invalid schema metadata or a driver exception encountered while reading catalogs. *)
   type error =
     | Schema of string
+    (** Catalog metadata could not be converted to a valid schema snapshot. *)
     | Pgocaml_error of exn
+    (** The PG'OCaml driver raised while reading schema metadata. *)
 
+  (** Return a human-readable introspection error. *)
   val error_to_string : error -> string
 
   (** Read application tables and constraints. Ordinary unique column indexes
@@ -21,8 +25,10 @@ end
     connection type. *)
 type error =
   | Schema of string
-  | Pgocaml_error of exn
+  (** Catalog metadata could not be converted to a valid schema snapshot. *)
+  | Pgocaml_error of exn (** The PG'OCaml driver raised while reading schema metadata. *)
 
+(** Return a human-readable introspection error. *)
 val error_to_string : error -> string
 
 (** Read application tables and constraints with the same index and SQL-type

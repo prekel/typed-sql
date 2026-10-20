@@ -49,7 +49,7 @@ Statement с runtime input. [Подключение, static input и мигра�
 ## Установка из GitHub
 
 Все девять пакетов находятся в одном репозитории и требуют одинаковую версию.
-Скрипт ниже устанавливает текущий релиз `v0.5.1`, а если пакеты уже установлены —
+Скрипт ниже устанавливает текущий релиз `v0.5.2`, а если пакеты уже установлены —
 обновляет их до этой версии, предварительно заменяя существующие pin:
 
 <!-- $MDX skip -->
@@ -66,7 +66,7 @@ typed_sql_packages=(
   typed-sql-ppx
 )
 for package in "${typed_sql_packages[@]}"; do
-  opam pin add -yn "$package" 'git+https://github.com/prekel/typed-sql.git#v0.5.1'
+  opam pin add -yn "$package" 'git+https://github.com/prekel/typed-sql.git#v0.5.2'
 done
 opam install "${typed_sql_packages[@]}"
 ```
@@ -103,9 +103,7 @@ let find_people =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let%map.Parameters name = params.column Person.name_col ~get:(fun input -> input.name)
     and maximum_rows =
-      params.non_negative_int
-        ~name:"maximum_rows"
-        ~get:(fun input -> input.maximum_rows)
+      params.non_negative_int ~name:"maximum_rows" ~get:(fun input -> input.maximum_rows)
     in
     params.query_many
       Query.(
@@ -117,11 +115,15 @@ let find_people =
           let%map.Projection id = Projection.expr (Person.id person)
           and name = Projection.expr (Person.name person) in
           id, name)))
+;;
 ```
 
 `Query.(...)` локально открывает только query-builder и сохраняет видимой
 границу DSL. `select` ставится последним: он задаёт projection и превращает
 builder в готовый `Result_query.t`.
+
+Общие назначения для DML и переход со старого API описаны в
+[руководстве по Assignment](doc/assignments.md).
 
 ## Составные проекции
 
@@ -134,12 +136,13 @@ let person_projection person =
   let%map.Projection id = Projection.expr (Person.id person)
   and name = Projection.expr (Person.name person) in
   id, name
+;;
 
 let person_summary person =
   let%map.Aggregate_projection row_count = Aggregate_projection.count_all
-  and smallest_id =
-    Aggregate_projection.min Db_type.Orderable.int64 (Person.id person) in
+  and smallest_id = Aggregate_projection.min Db_type.Orderable.int64 (Person.id person) in
   row_count, smallest_id
+;;
 ```
 
 Для параметров используется та же форма:
@@ -153,13 +156,16 @@ let person_projection person =
   let+ id = Projection.expr (Person.id person)
   and+ name = Projection.expr (Person.name person) in
   id, name
+;;
 
 let person_summary person =
   let open Aggregate_projection.Let_syntax in
   let+ row_count = Aggregate_projection.count_all
   and+ smallest_id =
-    Aggregate_projection.min Db_type.Orderable.int64 (Person.id person) in
+    Aggregate_projection.min Db_type.Orderable.int64 (Person.id person)
+  in
   row_count, smallest_id
+;;
 ```
 
 `with_parameters` вызывает callback один раз при создании значения, а
@@ -183,7 +189,7 @@ let person_summary person =
 или `sqlite`; неподдерживаемый диалект отклоняется при
 проверке типов. Значения в SQL не интерполируются:
 
-Операторы с `$`, `Expr.constant`, `Insert.set` и `Update.set` захватывают
+Операторы с `$`, `Expr.constant`, `Assignment.value` захватывают
 константы времени создания statement. Меняющиеся между вызовами значения
 вводятся через `params` и используются как expressions операторами с точкой.
 Input может быть обычным кортежем, кортежем с метками или record; полные
@@ -209,9 +215,8 @@ non-null views указывают на один bind slot. Nullable pagination �
 
 ```ocaml
 let choose_statement postgresql_statement sqlite_statement =
-  Statement.choose_dialect
-    ~postgresql:postgresql_statement
-    ~sqlite:sqlite_statement
+  Statement.choose_dialect ~postgresql:postgresql_statement ~sqlite:sqlite_statement
+;;
 ```
 
 Обе ветки должны иметь одинаковые типы input и output. Результат имеет
@@ -219,10 +224,7 @@ portable dialect и адаптер выбирает нужный заранее 
 по dialect соединения.
 
 ```ocaml
-let sql =
-  Statement.sql
-    ~dialect:Postgresql
-    find_people
+let sql = Statement.sql ~dialect:Postgresql find_people
 ```
 
 ```ocaml
@@ -250,6 +252,7 @@ let department_name person =
       |> where (fun department -> Department.person_id department =. Person.id person)
       |> limit 1
       |> select_scalar Department.name)
+;;
 ```
 
 Для уже nullable expression есть `Expr.scalar_subquery_nullable`: SQL не
@@ -263,15 +266,15 @@ let department_name person =
 let has_department person =
   Query.(
     from Department.table
-    |> where (fun department ->
-      Department.person_id department =. Person.id person)
+    |> where (fun department -> Department.person_id department =. Person.id person)
     |> exists_expr)
+;;
 
 let people_with_department =
   Query.(
     from Person.table
-    |> select (fun person ->
-      Projection.pair (Person.name person) (has_department person)))
+    |> select (fun person -> Projection.pair (Person.name person) (has_department person)))
+;;
 ```
 
 ## Вложенные коллекции
@@ -288,14 +291,12 @@ let people_with_departments =
       let departments =
         Query.(
           from Department.table
-          |> where (fun department ->
-            Department.person_id department =. Person.id person)
+          |> where (fun department -> Department.person_id department =. Person.id person)
           |> order_by Department.name `Asc
           |> select (fun department -> Projection.expr (Department.name department)))
       in
-      Projection.both
-        (Projection.expr (Person.name person))
-        (Query.multiset departments)))
+      Projection.both (Projection.expr (Person.name person)) (Query.multiset departments)))
+;;
 ```
 
 `Projection.multiset_agg` собирает строки текущей aggregate-группы. Его
@@ -308,6 +309,7 @@ let comments article comment =
     ~filter:(Comment.article_id comment =. Article.id article)
     ~order_by:[ Aggregate_order.asc (Comment.created_at comment) ]
     (Comment.projection comment)
+;;
 ```
 
 Обе операции возвращают пустой список при отсутствии строк и поддерживают
@@ -330,12 +332,14 @@ let active_people =
     |> where (fun person -> Person.name person =$ "Ada")
     |> select_relation (fun person ->
       Derived_table.Fields.pair (Person.id person) (Person.name person)))
+;;
 
 let query =
   Query.(
     from_relation active_people
     |> where (fun (id, _name) -> id >$ 10L)
     |> select (fun (id, name) -> Projection.pair id name))
+;;
 ```
 
 `Derived_table.Fields` намеренно не имеет аналога `Projection.map`: результат
@@ -365,11 +369,12 @@ let selected_ids =
     ~columns:(fun row -> Projection.expr (Selected_id.id row))
     ~first:(Values.Row.expr (Expr.constant Db_type.int64 1L))
     ~rest:[ Values.Row.expr (Expr.constant Db_type.int64 3L) ]
+;;
 
 let selected_people =
   Query.(
-    from_values selected_ids
-    |> select (fun row -> Projection.expr (Selected_id.id row)))
+    from_values selected_ids |> select (fun row -> Projection.expr (Selected_id.id row)))
+;;
 ```
 
 Когда нужны заданные вручную SQL-имена и descriptors, низкоуровневый
@@ -391,10 +396,8 @@ let selected_people =
 
 ```ocaml
 let combine_ids first_ids second_ids =
-  Query.union
-    ~order_by:[ (Column.name Book.id_column, `Asc) ]
-    first_ids
-    second_ids
+  Query.union ~order_by:[ Column.name Book.id_column, `Asc ] first_ids second_ids
+;;
 ```
 
 Поле должно быть выбрано ровно один раз простой колонкой в левой ветви
@@ -424,12 +427,13 @@ let numbers =
         from_cte_relation numbers
         |> where (fun number -> number <$ 5)
         |> select_relation (fun number ->
-          Derived_table.Fields.expr
-            Expr.Int.Infix.(number +. Expr.constant Db_type.int 1))))
+          Derived_table.Fields.expr Expr.Int.Infix.(number +. Expr.constant Db_type.int 1))))
+;;
 
 let number_query =
   Cte.with_result numbers ~f:(fun numbers ->
     Query.(from_cte_relation numbers |> select Projection.expr))
+;;
 ```
 
 Для нескольких полей используйте вложенные `Derived_table.Fields.both` и
@@ -451,8 +455,8 @@ let tied_people =
         from Person.table
         |> order_by Person.name `Asc
         |> Postgresql.Query.fetch_with_ties_param page_size
-        |> select (fun person ->
-          Projection.pair (Person.id person) (Person.name person))))
+        |> select (fun person -> Projection.pair (Person.id person) (Person.name person))))
+;;
 ```
 
 Вызов `limit`, `limit_param` или `fetch_with_ties` позже в pipeline заменяет
@@ -481,17 +485,19 @@ let insert =
   Insert.(
     rows
       Person.table
-      [ (fun row -> row |> set Person.id_col 1L |> set Person.name_col "Ada")
-      ; (fun row -> row |> set Person.id_col 2L |> set Person.name_col "Grace")
+      [ Assignment.[ value Person.id_col 1L; value Person.name_col "Ada" ]
+      ; Assignment.[ value Person.id_col 2L; value Person.name_col "Grace" ]
       ]
     |> command)
+;;
 
 let rename =
   Update.(
     table Person.table
-    |> set Person.name_col "Ada Lovelace"
+    |> set Assignment.[ value Person.name_col "Ada Lovelace" ]
     |> where (fun person -> Person.id person =$ 1L)
     |> command)
+;;
 ```
 
 Для `INSERT ... SELECT` задайте целевые колонки в порядке проекции источника.
@@ -509,32 +515,34 @@ module Archive = struct
 end
 
 let archive_people =
-  Statement.command ~dialect:Dialect.portable (
-    let source =
-      Query.(
-        from Person.table
-        |> select (fun person ->
-          Projection.pair (Person.id person) (Person.name person)))
-    in
-    let columns = Insert.Columns.(column Archive.id_col |> add Archive.name_col) in
-    Insert.(
-      into Archive.table
-      |> from_select columns source
-      |> on_conflict_do_nothing
-      |> command))
+  Statement.command
+    ~dialect:Dialect.portable
+    (let source =
+       Query.(
+         from Person.table
+         |> select (fun person -> Projection.pair (Person.id person) (Person.name person)))
+     in
+     let columns = Insert.Columns.(column Archive.id_col |> add Archive.name_col) in
+     Insert.(
+       into Archive.table
+       |> from_select columns source
+       |> on_conflict_do_nothing
+       |> command))
+;;
 ```
 
 Идемпотентная вставка для поддерживаемых dialect записывается в основном API:
 
 ```ocaml
 let insert_once =
-  Statement.command ~dialect:Dialect.portable (
+  Statement.command
+    ~dialect:Dialect.portable
     Insert.(
       into Person.table
-      |> set Person.id_col 1L
-      |> set Person.name_col "Ada"
+      |> values Assignment.[ value Person.id_col 1L; value Person.name_col "Ada" ]
       |> on_conflict_do_nothing
-      |> command))
+      |> command)
+;;
 ```
 
 Для атомарного insert-or-update задаётся непустой conflict target. Callback
@@ -546,16 +554,15 @@ let upsert_person id name =
   let target = Insert.Conflict_target.column Person.id_col in
   Insert.(
     into Person.table
-    |> set Person.id_col id
-    |> set Person.name_col name
+    |> values Assignment.[ value Person.id_col id; value Person.name_col name ]
     |> on_conflict target
     |> do_update (fun ~existing ~excluded ->
       Conflict_update.(
         empty
-        |> set_expr Person.name_col (Person.name excluded)
+        |> set Assignment.[ Person.name_col := Person.name excluded ]
         |> where (Person.name existing <>. Person.name excluded)))
-    |> returning (fun person ->
-      Projection.pair (Person.id person) (Person.name person)))
+    |> returning (fun person -> Projection.pair (Person.id person) (Person.name person)))
+;;
 ```
 
 Составной target записывается как
@@ -568,8 +575,8 @@ let upsert_person id name =
 для одной строки используйте `params.expect_optional` внутри
 `Statement.with_parameters ~dialect:Dialect.portable`. Без
 `where` обновляется каждая
-конфликтующая строка. `set_opt` и `set_expr_opt` пропускают `None`;
-`set_opt nullable_col (Some None)` записывает NULL.
+конфликтующая строка. `Assignment.value_opt` и `Assignment.expr_opt` пропускают `None`;
+`Assignment.value_opt nullable_col (Some None)` записывает NULL.
 
 Conflict target описывает колонки уникального ключа. Наличие подходящего
 ограничения проверяет БД; partial indexes и именованные constraints пока не
@@ -586,10 +593,8 @@ assignments принадлежат таблице INSERT, даже если ра
 
 ```ocaml
 let run_people conn =
-  Typed_sql_caqti_lwt.run
-    ~conn
-    find_people
-    { name = "Ada"; maximum_rows = 100 }
+  Typed_sql_caqti_lwt.run ~conn find_people { name = "Ada"; maximum_rows = 100 }
+;;
 ```
 
 Чтобы найти запросы, на которых заметна стоимость DSL compilation, Caqti
@@ -602,18 +607,15 @@ let profiler = Typed_sql_caqti_lwt.Profiler.create ()
 let observer = Typed_sql_caqti_lwt.Profiler.observer profiler
 
 let fetch_people conn input =
-  Typed_sql_caqti_lwt.run
-    ~observer
-    ~name:"people.by_name"
-    ~conn
-    find_people
-    input
+  Typed_sql_caqti_lwt.run ~observer ~name:"people.by_name" ~conn find_people input
+;;
 
 let print_profile () =
   Stdlib.Format.printf
     "%a%!"
     Typed_sql_caqti_lwt.Profiler.pp
     (Typed_sql_caqti_lwt.Profiler.snapshot profiler)
+;;
 ```
 
 Событие измеряет подготовку Caqti request, database round trip и декодирование.
@@ -626,8 +628,8 @@ let print_profile () =
 ```ocaml
 let insert_in_transaction conn =
   Typed_sql_caqti_lwt.transaction ~conn ~f:(fun conn ->
-    Typed_sql_caqti_lwt.run ~conn insert_once ()
-    |> Lwt.map (Result.map ~f:(fun _ -> ())))
+    Typed_sql_caqti_lwt.run ~conn insert_once () |> Lwt.map (Result.map ~f:(fun _ -> ())))
+;;
 ```
 
 Чтобы получить OCaml-код из живой PostgreSQL-базы, задайте параметры
@@ -672,8 +674,10 @@ let save_schema conn =
   |> Lwt.map
        (Result.map ~f:(fun schema ->
           Stdlib.Out_channel.with_open_bin "schema.json" (fun channel ->
-            Stdlib.output_string channel
+            Stdlib.output_string
+              channel
               (Typed_sql_schema.Schema_snapshot.to_string schema))))
+;;
 ```
 
 Для PG’OCaml соединения доступен
@@ -812,12 +816,16 @@ cases на PostgreSQL и SQLite, и удаляет кластер после п�
 TYPED_SQL_PG_CONFIG=/path/to/postgresql-15/bin/pg_config make test-postgres
 ```
 
+На PostgreSQL 15–16 пропускаются интеграционные MERGE-тесты и мегазапрос с
+`MERGE` внутри `WITH`: они требуют PostgreSQL 17+.
+
 Нужны утилиты выбранной версии (`pg_config`, `initdb`, `pg_ctl`, `createdb`,
 `psql`), opam-пакет `caqti-driver-postgresql` и системная библиотека
 разработки `libpq`.
 На Ubuntu для сборки SQLite driver нужен системный пакет `libsqlite3-dev`.
 
-Проверены PostgreSQL 15.19 и 18.6. Nullable scalar subquery возвращает `None`
+Проверены PostgreSQL 15.19 и 18.6 с PG’OCaml 4.3.0 (OCaml 4.14.1) и
+4.4.0 (OCaml 5.1.1). Nullable scalar subquery возвращает `None`
 как при отсутствии строки, так и при SQL `NULL` в найденной строке.
 PG'OCaml сообщает число затронутых строк как `Affected_rows.Unknown`. Native
 PostgreSQL JSON и array codecs остаются за пределами portable API; вложенные
@@ -861,10 +869,11 @@ let run_cached conn statement input =
   Lwt.finalize
     (fun () -> Adapter.Prepared_cache.run cache statement input)
     (fun () ->
-      let* closed = Adapter.Prepared_cache.close cache in
-      match closed with
-      | Ok () -> Lwt.return_unit
-      | Error error -> Lwt.fail_with (Adapter.error_to_string error))
+       let* closed = Adapter.Prepared_cache.close cache in
+       match closed with
+       | Ok () -> Lwt.return_unit
+       | Error error -> Lwt.fail_with (Adapter.error_to_string error))
+;;
 ```
 
 Ключ кэша включает SQL и упорядоченные PostgreSQL-типы параметров. При

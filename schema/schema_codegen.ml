@@ -675,7 +675,10 @@ let generate_table ~rules ~types ~module_name (table : Schema_ir.table) =
     let record =
       List.map columns ~f:(fun (_, name, _, _) -> name) |> String.concat ~sep:"; "
     in
-    let bindings = "    let%map " ^ String.chop_prefix_exn bindings ~prefix:"    and " in
+    let bindings =
+      "    let%map.Typed_sql_codegen.Projection "
+      ^ String.chop_prefix_exn bindings ~prefix:"    and "
+    in
     Ok
       (String.concat
          [ "module "
@@ -693,7 +696,6 @@ let generate_table ~rules ~types ~module_name (table : Schema_ir.table) =
          ; metadata "unique_constraints" unique_constraints
          ; "\n"
          ; "  let projection table_ref =\n"
-         ; "    let open Typed_sql_codegen.Projection.Let_syntax in\n"
          ; bindings
          ; " in\n    { "
          ; record

@@ -1,5 +1,6 @@
 open! Base
 
-(** Register the two PG'OCaml expression extensions. Snapshot reads happen
-    only for these extensions; compilation never opens a database connection. *)
+(** Register [pgsql] and [pgsql.object] expression extensions. Expansion
+    uses the single embedded schema or query-cache provider; it never opens
+    a database connection or reads a snapshot file. *)
 val register : unit -> unit

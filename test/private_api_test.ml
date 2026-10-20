@@ -2142,7 +2142,7 @@ let%test_module "corrupt result kinds report their invariant" =
       let returning =
         Insert.(
           into table
-          |> set id 1
+          |> values Assignment.[ value id 1 ]
           |> returning (fun row -> Projection.expr (Expr.column row id)))
       in
       let corrupt_returning =

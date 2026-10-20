@@ -8,5 +8,5 @@ module Item = struct
   let id = Column.v_exn table "id" Db_type.int
 end
 
-let command = Insert.(into Item.table |> default Item.id |> command)
+let command = Insert.(into Item.table |> values Assignment.[ default Item.id ] |> command)
 let _ = Statement.command ~dialect:Dialect.sqlite command

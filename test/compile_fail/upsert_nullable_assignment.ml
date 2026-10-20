@@ -11,9 +11,10 @@ let nullable = Column.nullable_v_exn table "nickname" Db_type.text
 let _ =
   Insert.(
     into table
-    |> set id 1L
+    |> values Assignment.[ value id 1L ]
     |> on_conflict (Conflict_target.column id)
     |> do_update (fun ~existing:_ ~excluded ->
-      Conflict_update.(empty |> set_expr name (Expr.column excluded nullable)))
+      Conflict_update.(
+        empty |> set Assignment.[ expr name (Expr.column excluded nullable) ]))
     |> command)
 ;;

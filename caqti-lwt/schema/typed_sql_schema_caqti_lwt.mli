@@ -3,9 +3,12 @@ open! Base
 (** Errors from schema introspection, separate from statement execution errors. *)
 type error =
   | Unsupported_dialect of string
+  (** The connected driver has no supported introspection dialect. *)
   | Schema of string
-  | Caqti of Caqti.Error.t
+  (** Catalog metadata could not be converted to a valid schema snapshot. *)
+  | Caqti of Caqti.Error.t (** The Caqti driver rejected a catalog operation. *)
 
+(** Return a human-readable introspection error. *)
 val error_to_string : error -> string
 
 (** Read application tables and constraints from a SQLite or PostgreSQL

@@ -9,6 +9,7 @@ open! Base
     SELECT and RETURNING use list output; commands without RETURNING use affected-row output.
     The object form requires returned rows. *)
 
+(** Validated offline Prepare/Describe metadata used by quotation expansion. *)
 module Query_cache = Typed_sql_ppx_cache.Query_cache
 
 (** Register one embedded query cache. Exactly one registration is required

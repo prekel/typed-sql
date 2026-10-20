@@ -72,7 +72,8 @@ let selected_statement =
 let insert_statement =
   Statement.with_parameters ~dialect:Dialect.portable (fun ~params ->
     let%map.Parameters inserted_id = params.expr ~name:"id" Db_type.int ~get:Fn.id in
-    params.command Insert.(into items |> set_expr id inserted_id |> command))
+    params.command
+      Insert.(into items |> values Assignment.[ expr id inserted_id ] |> command))
 ;;
 
 type optional_filter_input = { name : string option }
@@ -347,7 +348,7 @@ let%test_unit "PostgreSQL statements render with their selected dialect" =
   let command =
     Statement.command
       ~dialect:Dialect.postgresql
-      Insert.(into items |> set id 1 |> command)
+      Insert.(into items |> values Assignment.[ value id 1 ] |> command)
   in
   ignore (Statement.sql_exn ~dialect:Postgresql command)
 ;;
@@ -591,7 +592,7 @@ let%expect_test "foreign source diagnostic" =
 let%test_unit "compiled SQL printers return the canonical execution text" =
   let query = query () |> compile Dialect.Postgresql |> ok_exn in
   let command =
-    Insert.(into items |> set id 1 |> command)
+    Insert.(into items |> values Assignment.[ value id 1 ] |> command)
     |> Compiler.compile_command ~dialect:Dialect.sqlite
     |> ok_exn
   in
@@ -744,11 +745,12 @@ let%test_unit "foreign sources are rejected in projection, sorting, JOIN and DML
     check
       (Compiler.compile_portable_command
          ~dialect
-         Insert.(into items |> set_expr id expression |> command));
+         Insert.(into items |> values Assignment.[ expr id expression ] |> command));
     check
       (Compiler.compile_portable_command
          ~dialect
-         Update.(table items |> set_expr id expression |> all_rows |> command));
+         Update.(
+           table items |> set Assignment.[ expr id expression ] |> all_rows |> command));
     check
       (Compiler.compile_portable_command
          ~dialect
@@ -757,7 +759,9 @@ let%test_unit "foreign sources are rejected in projection, sorting, JOIN and DML
       (Compiler.compile_portable
          ~dialect
          Insert.(
-           into items |> set id 1 |> returning (fun _ -> Projection.expr expression))))
+           into items
+           |> values Assignment.[ value id 1 ]
+           |> returning (fun _ -> Projection.expr expression))))
 ;;
 
 let print_compile_error result =
@@ -782,7 +786,7 @@ let%expect_test "duplicate assignment diagnostic" =
   print_compile_error
     (Compiler.compile_command
        ~dialect:Dialect.sqlite
-       Insert.(into items |> set id 1 |> set id 2 |> command));
+       Insert.(into items |> values Assignment.[ value id 1; value id 2 ] |> command));
   [%expect {| column id is assigned more than once |}]
 ;;
 
@@ -802,8 +806,8 @@ let%expect_test "negative offset diagnostic" =
 let updated_returning =
   Update.(
     table items
-    |> set_expr id (Expr.constant Db_type.int 2)
-    |> set name (Some "updated")
+    |> set
+         Assignment.[ expr id (Expr.constant Db_type.int 2); value name (Some "updated") ]
     |> where (fun row -> Expr.column row id >$ 0)
     |> where (fun row -> Expr.column row id <$ 3)
     |> returning projection)
@@ -899,7 +903,7 @@ let%test_unit "builders are immutable and all_rows clears filters" =
       assert (equal_dialect (Compiled_command.dialect compiled) dialect);
       Compiled_command.sql compiled
     in
-    let update = Update.(table items |> set id 1) in
+    let update = Update.(table items |> set Assignment.[ value id 1 ]) in
     assert (
       String.equal
         (render

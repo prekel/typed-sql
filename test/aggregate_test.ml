@@ -323,7 +323,7 @@ let%test_unit "SQLite rejects numeric values in RETURNING projections" =
   let returning =
     Insert.(
       into Item.table
-      |> set Item.int_column 1
+      |> values Assignment.[ value Item.int_column 1 ]
       |> returning (fun item -> Projection.expr (Item.numeric_value item)))
   in
   match Compiler.compile ~dialect:Dialect.sqlite returning with

@@ -501,10 +501,9 @@ let outbox_insert =
   Insert.(
     rows
       Outbox.table
-      [ (fun row ->
-          row |> set Outbox.id_column 101L |> set Outbox.label_column "inserted")
-      ; (fun row ->
-          row |> set Outbox.label_column "also inserted" |> set Outbox.id_column 102L)
+      [ Assignment.[ value Outbox.id_column 101L; value Outbox.label_column "inserted" ]
+      ; Assignment.
+          [ value Outbox.label_column "also inserted"; value Outbox.id_column 102L ]
       ]
     |> on_conflict_do_nothing
     |> returning Outbox.projection)
@@ -754,13 +753,13 @@ let cleanup_effect =
         |> on (Expr.column target cleanup_id_column =. Expired.person_id source)
         |> when_matched_update
              ~condition:(Expired.id source <. Expr.column target cleanup_id_column)
-             Assignments.(empty |> set_expr cleanup_id_column (Expired.id source))
+             Assignment.[ expr cleanup_id_column (Expired.id source) ]
         |> when_matched_delete
              ~condition:(Expired.id source >. Expr.column target cleanup_id_column)
         |> when_matched_do_nothing
         |> when_not_matched_insert
              ~condition:(Expired.id source >. Expired.id source)
-             Assignments.(empty |> set_expr cleanup_id_column (Expired.id source))
+             Assignment.[ expr cleanup_id_column (Expired.id source) ]
         |> when_not_matched_do_nothing)
       |> command)
 ;;
@@ -769,7 +768,7 @@ let maintenance_effect =
   Postgresql.Cte.command
     Update.(
       table Maintenance.table
-      |> set Maintenance.enabled_column true
+      |> set Assignment.[ value Maintenance.enabled_column true ]
       |> all_rows
       |> command)
 ;;
@@ -1088,20 +1087,23 @@ let final_update
               |> fun name -> Expr.concat_value name "!"
             in
             update
-            |> set Person.active_column true
-            |> set_opt Person.nickname_column (Some None)
-            |> set_expr_opt
-                 Person.bio_column
-                 (Some (Expr.to_nullable (Expr.constant Db_type.text "updated")))
-            |> default Person.status_column
-            |> set_expr
-                 Person.score_column
-                 Expr.Int64.Infix.(
-                   Person.score person
-                   +. Expr.coalesce
-                        (Summary.total_score totals)
-                        ~default:(Expr.constant Db_type.int64 0L))
-            |> set_expr Person.name_column updated_name
+            |> set
+                 Assignment.
+                   [ value Person.active_column true
+                   ; value_opt Person.nickname_column (Some None)
+                   ; expr_opt
+                       Person.bio_column
+                       (Some (Expr.to_nullable (Expr.constant Db_type.text "updated")))
+                   ; default Person.status_column
+                   ; expr
+                       Person.score_column
+                       Expr.Int64.Infix.(
+                         Person.score person
+                         +. Expr.coalesce
+                              (Summary.total_score totals)
+                              ~default:(Expr.constant Db_type.int64 0L))
+                   ; expr Person.name_column updated_name
+                   ]
             |> where (fun _ ->
               Person.id person
               =. Summary.person_id totals
@@ -1186,13 +1188,18 @@ let mega_query
                         table Archive.table
                         |> from_cte deleted ~f:(fun archive removed update ->
                           update
-                          |> set_expr
-                               Archive.score_column
-                               Expr.Int.Infix.(
-                                 Archive.score archive +. Deleted.score removed)
-                          |> set_expr
-                               Archive.label_column
-                               (Expr.concat_value (Archive.label archive) " archived")
+                          |> set
+                               Assignment.
+                                 [ expr
+                                     Archive.score_column
+                                     Expr.Int.Infix.(
+                                       Archive.score archive +. Deleted.score removed)
+                                 ; expr
+                                     Archive.label_column
+                                     (Expr.concat_value
+                                        (Archive.label archive)
+                                        " archived")
+                                 ]
                           |> where (fun _ -> Archive.id archive =. Deleted.id removed))
                         |> returning Archive.projection)
                     in
@@ -1230,10 +1237,13 @@ let mega_query
                           |> do_update (fun ~existing ~excluded ->
                             Conflict_update.(
                               empty
-                              |> set_opt Audit.label_column (Some "expired")
-                              |> set_expr_opt
-                                   Audit.score_column
-                                   (Some (Audit.score excluded))
+                              |> set
+                                   Assignment.
+                                     [ value_opt Audit.label_column (Some "expired")
+                                     ; expr_opt
+                                         Audit.score_column
+                                         (Some (Audit.score excluded))
+                                     ]
                               |> where (Audit.score existing =. Audit.score excluded)))
                           |> returning Audit.projection)
                       in

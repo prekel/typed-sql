@@ -11,7 +11,6 @@ let _ =
       merge
       |> on Condition.true_
       |> when_matched_update
-           Assignments.(
-             empty |> set_expr title (Expr.constant Db_type.text "not nullable")))
+           Assignment.[ expr title (Expr.constant Db_type.text "not nullable") ])
     |> command)
 ;;

@@ -134,16 +134,16 @@ database types. `Postgresql.Cte.returning` и
 Реализованы multi-row `INSERT`, SQL `DEFAULT`, scoped `UPDATE`/`DELETE`,
 `RETURNING`, `UPDATE ... FROM` и условные assignments для PATCH. Multi-row
 builder проверяет пустые строки, повторные columns и одинаковый набор columns
-во всех строках. `Update.set_opt` различает «не менять» и запись `NULL` для
+во всех строках. `Assignment.value_opt` различает «не менять» и запись `NULL` для
 nullable columns.
 
 Portable UPSERT API для PostgreSQL и SQLite поддерживает global и
 target-specific `DO NOTHING`, составной conflict target и `DO UPDATE` с
 типизированными ссылками на existing/excluded rows. В 0.2.0
-`Insert.Conflict_update.(empty |> set_expr ... |> where ...)` задаёт
+`Insert.Conflict_update.(empty |> set assignments |> where ...)` задаёт
 assignments и предикат обновления. Повторные предикаты объединяются через
 `AND`; пропущенное обновление не возвращает строку в `RETURNING`.
-Builder поддерживает `set_opt` и `set_expr_opt`. UPSERT совместим с
+Builder поддерживает `Assignment.value_opt` и `Assignment.expr_opt`. UPSERT совместим с
 multi-row `VALUES` и `RETURNING`; пустые или повторные update assignments и
 повторные target columns отклоняются compiler. SQLite не поддерживает
 `DEFAULT` внутри `VALUES` и `UPDATE SET DEFAULT`. Эти builders добавляют

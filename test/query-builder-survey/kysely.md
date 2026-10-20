@@ -953,9 +953,12 @@ Runtime значения вставки объявлены typed bind-парам
     params.expect_one
       Insert.(
         into Person.table
-        |> set_expr Person.first_name_column first_name
-        |> set_expr Person.last_name_column last_name
-        |> set_expr Person.age_column age
+        |> values
+             Assignment.
+               [ expr Person.first_name_column first_name
+               ; expr Person.last_name_column last_name
+               ; expr Person.age_column age
+               ]
         |> returning (fun person ->
           let open Projection.Let_syntax in
           let+ projected_left = Projection.expr (Person.id person)
@@ -1020,7 +1023,7 @@ await db.updateTable('person')
         |> from Person.table ~f:(fun _target source update ->
           let open Expr.Int.Infix in
           update
-          |> set_expr Person.age_column (Person.age source +. years)
+          |> set Assignment.[ expr Person.age_column (Person.age source +. years) ]
           |> where (fun target ->
             Person.id target =. person_id &&. (Person.id target =. Person.id source)))
         |> returning (fun person ->
@@ -1664,6 +1667,7 @@ let kysely23 : ([ `Age | `Id ], (int64 * int) list, Dialect.both) Statement.t =
           let+ projected_left = Projection.expr (Person.id person)
           and+ projected_right = Projection.expr (Person.age person) in
           projected_left, projected_right)))
+;;
 ```
 
 #### SQL typed-sql (PostgreSQL, сортировка по age)
@@ -2866,6 +2870,7 @@ let kysely40 : (String.t, int64 list, Dialect.both) Statement.t =
         from Person.table
         |> where (fun person -> Expr.upper (Person.first_name person) =. uppercase_name)
         |> select (fun person -> Projection.expr (Person.id person))))
+;;
 ```
 
 #### SQL typed-sql (PostgreSQL)
@@ -3046,15 +3051,15 @@ await db.insertInto('pet')
 ```ocaml
 # let kysely43 =
   Statement.Dynamic.command ~dialect:Dialect.portable (fun rows ->
-    let row_builders =
-      List.map rows ~f:(fun (owner_id, name, species) row ->
-        Insert.(
-          row
-          |> set Pet.name_column name
-          |> set Pet.species_column species
-          |> set Pet.owner_id_column owner_id))
+    let assignments =
+      List.map rows ~f:(fun (owner_id, name, species) ->
+        Assignment.
+          [ value Pet.name_column name
+          ; value Pet.species_column species
+          ; value Pet.owner_id_column owner_id
+          ])
     in
-    Insert.command (Insert.rows Pet.table row_builders))
+    Insert.(rows Pet.table assignments |> command))
 val kysely43 :
   ((int64 * string * string) list, Affected_rows.t, Dialect.both) Statement.t =
   <abstr>
@@ -3200,9 +3205,12 @@ await db.insertInto('pet')
     params.command
       Insert.(
         into Pet.table
-        |> set_expr Pet.name_column name
-        |> set_expr Pet.species_column species
-        |> set_expr Pet.owner_id_column owner_id
+        |> values
+             Assignment.
+               [ expr Pet.name_column name
+               ; expr Pet.species_column species
+               ; expr Pet.owner_id_column owner_id
+               ]
         |> on_conflict (Conflict_target.column Pet.name_column)
         |> do_nothing
         |> command))
@@ -3269,13 +3277,17 @@ await db.insertInto('pet')
     params.expect_optional
       Insert.(
         into Pet.table
-        |> set_expr Pet.name_column name
-        |> set_expr Pet.species_column species
-        |> set_expr Pet.owner_id_column owner_id
+        |> values
+             Assignment.
+               [ expr Pet.name_column name
+               ; expr Pet.species_column species
+               ; expr Pet.owner_id_column owner_id
+               ]
         |> on_conflict (Conflict_target.column Pet.name_column)
         |> do_update (fun ~existing ~excluded ->
           Conflict_update.empty
-          |> Conflict_update.set_expr Pet.species_column (Pet.species excluded)
+          |> Conflict_update.set
+               Assignment.[ expr Pet.species_column (Pet.species excluded) ]
           |> Conflict_update.where (Pet.species excluded <>. Pet.species existing))
         |> returning (fun pet ->
           let open Projection.Let_syntax in
@@ -3426,7 +3438,7 @@ await db.updateTable('person')
         table Person.table
         |> from Pet.table ~f:(fun _target pet update ->
           update
-          |> set_expr Person.first_name_column (Pet.name pet)
+          |> set Assignment.[ expr Person.first_name_column (Pet.name pet) ]
           |> where (fun person ->
             Person.id person =. person_id &&. (Pet.owner_id pet =. Person.id person)))
         |> command))
@@ -3582,18 +3594,18 @@ await db.mergeInto('person')
         merge
         |> on (Person.id target =. Person_import.id source)
         |> when_matched_update
-             Assignments.(
-               empty
-               |> set_expr Person.first_name_column (Person_import.first_name source)
-               |> set_expr Person.last_name_column (Person_import.last_name source)
-               |> set_expr Person.age_column (Person_import.age source))
+             Assignment.
+               [ expr Person.first_name_column (Person_import.first_name source)
+               ; expr Person.last_name_column (Person_import.last_name source)
+               ; expr Person.age_column (Person_import.age source)
+               ]
         |> when_not_matched_insert
-             Assignments.(
-               empty
-               |> set_expr Person.id_column (Person_import.id source)
-               |> set_expr Person.first_name_column (Person_import.first_name source)
-               |> set_expr Person.last_name_column (Person_import.last_name source)
-               |> set_expr Person.age_column (Person_import.age source)))
+             Assignment.
+               [ expr Person.id_column (Person_import.id source)
+               ; expr Person.first_name_column (Person_import.first_name source)
+               ; expr Person.last_name_column (Person_import.last_name source)
+               ; expr Person.age_column (Person_import.age source)
+               ])
       |> command)
 val kysely50 : (unit, Affected_rows.t, [ `Postgresql ]) Statement.t = <abstr>
 ```

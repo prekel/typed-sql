@@ -203,7 +203,10 @@ let test_queries conn =
   let insert_numeric amount =
     Statement.command
       ~dialect:Dialect.postgresql
-      Insert.(into Numeric_item.table |> set Numeric_item.amount_column amount |> command)
+      Insert.(
+        into Numeric_item.table
+        |> values Assignment.[ value Numeric_item.amount_column amount ]
+        |> command)
   in
   let* _ =
     Adapter.run ~conn (insert_numeric (decimal_exn "9223372036854775807")) () >>= or_fail
@@ -244,7 +247,10 @@ let test_sqlstates conn =
   let trigger code =
     Statement.command
       ~dialect:Dialect.postgresql
-      Insert.(into Sqlstate_item.table |> set Sqlstate_item.code_column code |> command)
+      Insert.(
+        into Sqlstate_item.table
+        |> values Assignment.[ value Sqlstate_item.code_column code ]
+        |> command)
   in
   let equal_kind left right =
     match left, right with
@@ -310,16 +316,19 @@ let test_codecs conn =
       ~dialect:Dialect.postgresql
       Insert.(
         into Item.table
-        |> set Item.id_column 1L
-        |> set Item.boolean_column true
-        |> set Item.integer_column 42
-        |> set Item.float_column 1.5
-        |> set Item.text_column "O'Reilly"
-        |> set Item.bytes_column bytes
-        |> set Item.date_column date
-        |> set Item.timestamp_column timestamp
-        |> set Item.uuid_column uuid
-        |> set Item.nullable_column None
+        |> values
+             Assignment.
+               [ value Item.id_column 1L
+               ; value Item.boolean_column true
+               ; value Item.integer_column 42
+               ; value Item.float_column 1.5
+               ; value Item.text_column "O'Reilly"
+               ; value Item.bytes_column bytes
+               ; value Item.date_column date
+               ; value Item.timestamp_column timestamp
+               ; value Item.uuid_column uuid
+               ; value Item.nullable_column None
+               ]
         |> command)
   in
   let* _ = Adapter.run ~conn insert () >>= or_fail in
@@ -405,16 +414,19 @@ let test_transactions conn =
       ~dialect:Dialect.postgresql
       Insert.(
         into Item.table
-        |> set Item.id_column id
-        |> set Item.boolean_column false
-        |> set Item.integer_column 0
-        |> set Item.float_column 0.
-        |> set Item.text_column "transaction"
-        |> set Item.bytes_column (Bytes.of_string "")
-        |> set Item.date_column (date_exn "2024-01-01")
-        |> set Item.timestamp_column (timestamp_exn "2024-01-01T00:00:00Z")
-        |> set Item.uuid_column (uuid_exn "123e4567-e89b-12d3-a456-426614174000")
-        |> set Item.nullable_column None
+        |> values
+             Assignment.
+               [ value Item.id_column id
+               ; value Item.boolean_column false
+               ; value Item.integer_column 0
+               ; value Item.float_column 0.
+               ; value Item.text_column "transaction"
+               ; value Item.bytes_column (Bytes.of_string "")
+               ; value Item.date_column (date_exn "2024-01-01")
+               ; value Item.timestamp_column (timestamp_exn "2024-01-01T00:00:00Z")
+               ; value Item.uuid_column (uuid_exn "123e4567-e89b-12d3-a456-426614174000")
+               ; value Item.nullable_column None
+               ]
         |> command)
   in
   let* committed =
@@ -506,7 +518,8 @@ let test_constraint_error_helpers conn =
   let insert =
     Statement.command
       ~dialect:Dialect.postgresql
-      Insert.(into table |> set email "ada@example.com" |> command)
+      Insert.(
+        into table |> values Assignment.[ value email "ada@example.com" ] |> command)
   in
   let* _ = Adapter.run ~conn insert () >>= or_fail in
   let* duplicate = Adapter.run ~conn insert () in
@@ -681,7 +694,8 @@ let test_prepared_cache conn =
   let insert =
     Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->
       let%map.Parameters id = params.column ~name:"id" cached_id ~get:Fn.id in
-      params.command Insert.(into cached_items |> set_expr cached_id id |> command))
+      params.command
+        Insert.(into cached_items |> values Assignment.[ expr cached_id id ] |> command))
   in
   let* _ = Adapter.Prepared_cache.run transaction_cache insert 1L >>= or_fail in
   let* duplicate = Adapter.Prepared_cache.run transaction_cache insert 1L in
@@ -769,13 +783,16 @@ let test_rich_types conn =
       ~dialect:Dialect.postgresql
       Insert.(
         into table
-        |> set local_column 12.5
-        |> set interval_column duration
-        |> set json_column (`Assoc [ "ok", `Bool true ])
-        |> set array_column numbers
-        |> set inet_column inet
-        |> set rational_column rational
-        |> set geometry_column (3., 4.)
+        |> values
+             Assignment.
+               [ value local_column 12.5
+               ; value interval_column duration
+               ; value json_column (`Assoc [ "ok", `Bool true ])
+               ; value array_column numbers
+               ; value inet_column inet
+               ; value rational_column rational
+               ; value geometry_column (3., 4.)
+               ]
         |> command)
   in
   let* _ = Adapter.run ~conn insert () >>= or_fail in

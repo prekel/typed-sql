@@ -24,9 +24,15 @@ let table table =
   }
 ;;
 
-let set_expr column expression update =
+let set assignments update =
+  { update with
+    assignments = update.assignments @ Assignment.ast update.reference assignments
+  }
+;;
+
+let set_nullable_expr column expression update =
   let assignment =
-    { Ast.source_id = Table_ref.source_id update.reference
+    { Ast.source_id = Column.source_id_for update.reference column
     ; column = Column.name column
     ; target_type = Db_type.Pack (Column.db_type column)
     ; value = Ast.Expression (Expr.node expression)
@@ -36,34 +42,6 @@ let set_expr column expression update =
 ;;
 
 let with_target ~f update = f update.reference update
-let set_nullable_expr = set_expr
-
-let set column value update =
-  set_expr column (Expr.constant (Column.db_type column) value) update
-;;
-
-let default column update =
-  let assignment =
-    { Ast.source_id = Table_ref.source_id update.reference
-    ; column = Column.name column
-    ; target_type = Db_type.Pack (Column.db_type column)
-    ; value = Ast.Default
-    }
-  in
-  { update with assignments = update.assignments @ [ assignment ] }
-;;
-
-let set_opt column value update =
-  match value with
-  | None -> update
-  | Some value -> set column value update
-;;
-
-let set_expr_opt column expression update =
-  match expression with
-  | None -> update
-  | Some expression -> set_expr column expression update
-;;
 
 let from table ~f update =
   let reference = Table_ref.create table in

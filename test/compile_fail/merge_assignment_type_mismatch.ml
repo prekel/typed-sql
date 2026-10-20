@@ -10,6 +10,6 @@ let _ =
     |> using table ~f:(fun _ _ merge ->
       merge
       |> on Condition.true_
-      |> when_not_matched_insert Assignments.(empty |> set id "not an integer"))
+      |> when_not_matched_insert Assignment.[ value id "not an integer" ])
     |> command)
 ;;

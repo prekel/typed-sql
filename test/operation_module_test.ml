@@ -60,9 +60,12 @@ module Create_person = struct
       params.command
         Insert.(
           into Person.table
-          |> set_expr Person.id_column id
-          |> set_expr Person.name_column name
-          |> set_expr Person.email_column email
+          |> values
+               Assignment.
+                 [ expr Person.id_column id
+                 ; expr Person.name_column name
+                 ; expr Person.email_column email
+                 ]
           |> command))
   ;;
 end

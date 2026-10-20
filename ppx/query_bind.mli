@@ -1,8 +1,11 @@
 open! Base
 
+(** Rewritten SQL and one bind occurrence per positional placeholder.
+    Parameters retain source spans in the original quotation. *)
 type t =
   { sql : string
-  ; parameters : Sql.parameter list
+    (** SQL rewritten to positional placeholders; OCaml values stay separate. *)
+  ; parameters : Sql.parameter list (** Bind occurrences in SQL/source order. *)
   }
 
 (** Rewrite only OCaml substitutions, preserving all other SQL bytes. Each

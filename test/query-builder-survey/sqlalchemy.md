@@ -890,7 +890,7 @@ stmt = (
     ~dialect:Dialect.portable
     Insert.(
       into User_account.table
-      |> set User_account.name_column "sandy"
+      |> values Assignment.[ value User_account.name_column "sandy" ]
       |> returning (fun user -> Projection.expr (User_account.id user)))
 val sqlalchemy13 : (unit, int64 list, Dialect.both) Statement.t = <abstr>
 ```
@@ -947,17 +947,20 @@ stmt = update(user_table).values(fullname=first_email)
       table User_account.table
       |> from User_account.table ~f:(fun target source update ->
         update
-        |> set_expr
-             User_account.fullname_column
-             (Expr.scalar_subquery_nullable
-                Query.(
-                  from Address.table
-                  |> where (fun address ->
-                    Address.user_id address =. User_account.id target)
-                  |> order_by Address.id `Asc
-                  |> limit_one
-                  |> select_scalar (fun address ->
-                    Expr.to_nullable (Address.email address))))
+        |> set
+             Assignment.
+               [ expr
+                   User_account.fullname_column
+                   (Expr.scalar_subquery_nullable
+                      Query.(
+                        from Address.table
+                        |> where (fun address ->
+                          Address.user_id address =. User_account.id target)
+                        |> order_by Address.id `Asc
+                        |> limit_one
+                        |> select_scalar (fun address ->
+                          Expr.to_nullable (Address.email address))))
+               ]
         |> where (fun _ -> User_account.id target =. User_account.id source))
       |> all_rows
       |> command)
@@ -1960,14 +1963,14 @@ stmt = insert(user_table).values(
     ~dialect:Dialect.portable
     (Insert.rows
        User_account.table
-       [ (fun row ->
-           row
-           |> Insert.set User_account.name_column "sandy"
-           |> Insert.set User_account.fullname_column (Some "Sandy Cheeks"))
-       ; (fun row ->
-           row
-           |> Insert.set User_account.name_column "spongebob"
-           |> Insert.set User_account.fullname_column (Some "SpongeBob SquarePants"))
+       [ Assignment.
+           [ value User_account.name_column "sandy"
+           ; value User_account.fullname_column (Some "Sandy Cheeks")
+           ]
+       ; Assignment.
+           [ value User_account.name_column "spongebob"
+           ; value User_account.fullname_column (Some "SpongeBob SquarePants")
+           ]
        ]
      |> Insert.command)
 val sqlalchemy31 : (unit, Affected_rows.t, Dialect.both) Statement.t =
@@ -2098,9 +2101,12 @@ stmt = (
       table User_account.table
       |> from Address.table ~f:(fun user address update ->
         update
-        |> set_expr
-             User_account.fullname_column
-             (Expr.to_nullable (Address.email address))
+        |> set
+             Assignment.
+               [ expr
+                   User_account.fullname_column
+                   (Expr.to_nullable (Address.email address))
+               ]
         |> where (fun _ -> User_account.id user =. Address.user_id address))
       |> command)
 val sqlalchemy33 : (unit, Affected_rows.t, Dialect.both) Statement.t =
@@ -2213,13 +2219,16 @@ stmt = insert_stmt.on_conflict_do_update(
     ~dialect:Dialect.portable
     Insert.(
       into User_account.table
-      |> set User_account.name_column "sandy"
-      |> set User_account.fullname_column (Some "Sandy Cheeks")
+      |> values
+           Assignment.
+             [ value User_account.name_column "sandy"
+             ; value User_account.fullname_column (Some "Sandy Cheeks")
+             ]
       |> on_conflict (Conflict_target.column User_account.name_column)
       |> do_update (fun ~existing:_ ~excluded ->
-        Conflict_update.set_expr
-          User_account.fullname_column
-          (User_account.fullname excluded)
+        Conflict_update.set
+          Assignment.
+            [ expr User_account.fullname_column (User_account.fullname excluded) ]
           Conflict_update.empty)
       |> command)
 val sqlalchemy35 : (unit, Affected_rows.t, Dialect.both) Statement.t =
@@ -2588,7 +2597,7 @@ stmt = select(updated.c.id, updated.c.fullname)
     (let updated =
        Update.(
          table User_account.table
-         |> set User_account.fullname_column (Some "Sandra")
+         |> set Assignment.[ value User_account.fullname_column (Some "Sandra") ]
          |> where (fun user ->
            User_account.name user =. Expr.constant Db_type.text "sandy")
          |> returning (fun user ->
@@ -2976,9 +2985,12 @@ FROM address WHERE user_account.id = address.user_id AND address.id = :address_i
       table User_account.table
       |> from Address.table ~f:(fun user address update ->
         update
-        |> set_expr
-             User_account.fullname_column
-             (Expr.to_nullable (Address.email address))
+        |> set
+             Assignment.
+               [ expr
+                   User_account.fullname_column
+                   (Expr.to_nullable (Address.email address))
+               ]
         |> where (fun _ ->
           User_account.id user =. Address.user_id address &&. (Address.id address =$ 1L)))
       |> command)
@@ -3024,14 +3036,17 @@ WHERE user_account.fullname IS DISTINCT FROM EXCLUDED.fullname
     ~dialect:Dialect.portable
     Insert.(
       into User_account.table
-      |> set User_account.name_column "sandy"
-      |> set User_account.fullname_column (Some "Sandy")
+      |> values
+           Assignment.
+             [ value User_account.name_column "sandy"
+             ; value User_account.fullname_column (Some "Sandy")
+             ]
       |> on_conflict (Conflict_target.column User_account.name_column)
       |> do_update (fun ~existing ~excluded ->
         Conflict_update.empty
-        |> Conflict_update.set_expr
-             User_account.fullname_column
-             (User_account.fullname excluded)
+        |> Conflict_update.set
+             Assignment.
+               [ expr User_account.fullname_column (User_account.fullname excluded) ]
         |> Conflict_update.where
              (Expr.is_distinct_from
                 (User_account.fullname existing)

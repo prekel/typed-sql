@@ -409,9 +409,10 @@ object → record на реальных запросах. Подключение
   4.3.0. Сборка и offline fixtures проверены на OCaml 4.14.1; scalar codecs,
   bind parameters, NULL, prepared cache и одинаковые snapshots обоих дамперов —
   на PostgreSQL 18.6. Сохранены проверки на OCaml 5.1.1 / PG’OCaml 4.4.0.
-- [ ] Проверить PostgreSQL 15, в том числе в связке с PG’OCaml 4.3.0:
-  повторить PostgreSQL-тесты codecs, prepared cache и schema dump. Проверки
-  на PostgreSQL 18.6 не заменяют эту проверку минимальной версии сервера.
+- [x] Проверить PostgreSQL 15, в том числе в связке с PG’OCaml 4.3.0:
+  полный интеграционный прогон на PostgreSQL 15.19 и 18.6 прошёл с PG’OCaml
+  4.3.0 / OCaml 4.14.1 и 4.4.0 / OCaml 5.1.1, включая codecs, prepared cache
+  и schema dump. MERGE-сценарии и мегазапрос требуют PostgreSQL 17+.
 - [x] Проверить query builder и offline PPX в одной Lwt-транзакции на общем
   соединении через `Make (PGOCaml)`: оба направления чтения/записи,
   object → record, commit, явный rollback и rollback при исключении PPX.

@@ -4,10 +4,16 @@ open! Base
     constructors or unchecked conversions are exposed. Application code only
     needs [Typed_sql]. *)
 
+(** Exact numeric transport shared with the public decimal codec. *)
 module Decimal : sig
+  (** The exact decimal value carried by compiled numeric descriptors. *)
   type t
 
+  (** Parse the public decimal syntax, including PostgreSQL special values;
+      malformed or unrepresentable input returns [None]. *)
   val of_string : string -> t option
+
+  (** Return normalized decimal text accepted by the numeric transport codec. *)
   val to_string : t -> string
 end
 
@@ -38,16 +44,21 @@ module Db_type : sig
     | Timestamp : Ptime.t view (** SQL timestamp with time zone, normalized to UTC. *)
     | Uuid : string view (** Validated SQL UUID in canonical lowercase form. *)
     | Named :
-        { schema : string
-        ; name : string
+        { schema : string (** Validated type-schema name, without SQL quoting. *)
+        ; name : string (** Validated native type name, without SQL quoting. *)
         ; repr : 'a t
+          (** Transport representation; retain the enclosing nominal SQL identity. *)
         }
         -> 'a view
+    (** Native SQL type identity; the representation is interpreted separately. *)
     | Array :
         { encode : 'a -> (string, string) Result.t
+          (** Serialize a complete array using its validated public codec. *)
         ; decode : string -> ('a, string) Result.t
+          (** Decode PostgreSQL array text, preserving codec validation. *)
         }
         -> 'a view
+    (** A PostgreSQL array encoded and decoded by the retained public codec. *)
     | Option : 'a t -> 'a option view
     (** A nullable value whose non-null representation uses the nested codec. *)
     | Map :
@@ -127,7 +138,10 @@ module Compiled_query : sig
       {!Statement.resolve}. *)
   type 'a t
 
+  (** Return the dialect used to compile this plan. *)
   val dialect : 'a t -> Typed_sql.Dialect.t
+
+  (** Return SQL with dialect placeholders; parameter values remain separate. *)
   val sql : 'a t -> string
 
   (** Return the SQL template with parameter slots kept separate. *)
@@ -149,7 +163,10 @@ module Compiled_command : sig
       {!Statement.resolve}. *)
   type t
 
+  (** Return the dialect used to compile this command. *)
   val dialect : t -> Typed_sql.Dialect.t
+
+  (** Return SQL with dialect placeholders; parameter values remain separate. *)
   val sql : t -> string
 
   (** Return the SQL template with parameter slots kept separate. *)
@@ -165,24 +182,43 @@ end
 (** Resolve a statement for one input and connection dialect. Dynamic
     statements are built and compiled during this call. *)
 module Statement : sig
+  (** Execution cardinality and the corresponding OCaml output shape.
+      Adapters must enforce [One] and [Optional] when reading database rows. *)
   type (_, _) cardinality =
     | Many : ('row, 'row list) cardinality
+    (** Decode every returned row, including an empty result. *)
     | One : ('row, 'row) cardinality
+    (** Require exactly one row; other counts are execution errors. *)
     | Optional : ('row, 'row option) cardinality
+    (** Decode zero or one row; multiple rows are execution errors. *)
 
+  (** A resolved execution plan. Private constructors allow inspection
+      without allowing adapters to manufacture unchecked plans. *)
   type 'output execution = private
     | Query_execution :
         { cardinality : ('row, 'output) cardinality
+          (** Required row cardinality and corresponding output shape. *)
         ; compiled : 'row Compiled_query.t
+          (** Resolved SQL, bound values and typed result decoder plan. *)
         }
         -> 'output execution
+    (** Execute a row-returning plan and enforce its declared cardinality. *)
     | Command_execution : Compiled_command.t -> Typed_sql.Affected_rows.t execution
+    (** Execute a command and return its affected-row result. *)
 
+  (** Failures detected before driver execution. Compilation errors are
+      possible for dynamic statements; binding errors identify invalid inputs. *)
   type resolve_error =
     | Dialect_mismatch
+    (** The statement has no plan for the requested connection dialect. *)
     | Binding of Typed_sql.Statement.binding_error
+    (** Runtime input failed parameter validation. *)
     | Compilation of Typed_sql.Statement.definition_error
+    (** A dynamic AST failed compilation for the selected dialect. *)
 
+  (** Select the input/dialect branch, bind parameters and resolve an
+      execution plan. This operation performs no database access. Dynamic
+      callbacks run here; their AST is compiled for the requested dialect. *)
   val resolve
     :  dialect:Typed_sql.Dialect.t
     -> 'input

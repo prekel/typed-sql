@@ -1,8 +1,10 @@
 open! Base
 
+(** One OCaml substitution paired with the codec inferred from its SQL context. *)
 type parameter =
   { value : Sql.parameter
-  ; codec : Codec.t
+    (** The original source substitution, without evaluating its expression. *)
+  ; codec : Codec.t (** Resolved PG'OCaml transport conversion for this substitution. *)
   }
 
 (** Check predicates and infer each substitution's exact conversion context. *)

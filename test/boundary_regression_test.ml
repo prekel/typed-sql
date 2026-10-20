@@ -45,7 +45,7 @@ let%test_module "DML correlation" =
     let returning =
       Update.(
         table Parent.table
-        |> set Parent.value 7L
+        |> set Assignment.[ value Parent.value 7L ]
         |> all_rows
         |> returning (fun parent ->
           Projection.expr (Expr.scalar_subquery (correlated parent))))

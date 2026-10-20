@@ -119,13 +119,12 @@ let update_insert target source merge =
   Merge.(
     merge
     |> on (Target.id target =. Source.id source)
-    |> when_matched_update
-         Assignments.(empty |> set_expr Target.value_column (Source.value source))
+    |> when_matched_update Assignment.[ expr Target.value_column (Source.value source) ]
     |> when_not_matched_insert
-         Assignments.(
-           empty
-           |> set_expr Target.id_column (Source.id source)
-           |> set_expr Target.value_column (Source.value source)))
+         Assignment.
+           [ expr Target.id_column (Source.id source)
+           ; expr Target.value_column (Source.value source)
+           ])
 ;;
 
 let merge_source () = Merge.(into Target.table |> using Source.table ~f:update_insert)
@@ -154,13 +153,13 @@ let test_ordered_actions runner =
         |> when_matched_delete ~condition:(Source.action source =$ "delete")
         |> when_matched_do_nothing ~condition:(Source.action source =$ "keep")
         |> when_matched_update
-             Assignments.(empty |> set_expr Target.value_column (Source.value source))
+             Assignment.[ expr Target.value_column (Source.value source) ]
         |> when_not_matched_do_nothing ~condition:(Source.action source =$ "skip")
         |> when_not_matched_insert
-             Assignments.(
-               empty
-               |> set_expr Target.id_column (Source.id source)
-               |> set_expr Target.value_column (Source.value source)))
+             Assignment.
+               [ expr Target.id_column (Source.id source)
+               ; expr Target.value_column (Source.value source)
+               ])
       |> command)
   in
   let* affected = execute runner command in
@@ -244,9 +243,12 @@ let test_modifying_cte_source runner =
       ~columns:Source.projection
       Insert.(
         into Source.table
-        |> set Source.id_column 8L
-        |> set Source.value_column 80L
-        |> set Source.action_column "insert"
+        |> values
+             Assignment.
+               [ value Source.id_column 8L
+               ; value Source.value_column 80L
+               ; value Source.action_column "insert"
+               ]
         |> returning Source.projection)
   in
   let command =
@@ -324,10 +326,11 @@ let test_inferred_source runner =
       |> using_relation relation ~f:(fun target (id, value) merge ->
         merge
         |> on (Target.id target =. id)
-        |> when_matched_update Assignments.(empty |> set_expr Target.value_column value)
+        |> when_matched_update [ Assignment.expr Target.value_column value ]
         |> when_not_matched_insert
-             Assignments.(
-               empty |> set_expr Target.id_column id |> set_expr Target.value_column value))
+             [ Assignment.expr Target.id_column id
+             ; Assignment.expr Target.value_column value
+             ])
       |> command)
   in
   let* _ = execute runner command in
@@ -364,10 +367,10 @@ let test_recursive_derived_source runner =
         merge
         |> on (Target.id target =. Number.value source)
         |> when_not_matched_insert
-             Assignments.(
-               empty
-               |> set_expr Target.id_column (Number.value source)
-               |> set Target.value_column 10L))
+             Assignment.
+               [ expr Target.id_column (Number.value source)
+               ; value Target.value_column 10L
+               ])
       |> command)
   in
   let* _ = execute runner command in
@@ -406,10 +409,9 @@ let test_recursive_cte_input_and_merge_body runner =
               merge
               |> on (Target.id target =. id)
               |> when_not_matched_insert
-                   Assignments.(
-                     empty
-                     |> set_expr Target.id_column id
-                     |> set_expr Target.value_column value))
+                   [ Assignment.expr Target.id_column id
+                   ; Assignment.expr Target.value_column value
+                   ])
             |> returning (fun target _ -> Target.projection target))
       in
       Cte.with_result merged ~f:(fun changed ->
@@ -476,7 +478,7 @@ let test_cte_atomicity runner =
       ~columns:(fun row -> Projection.expr (Audit.id row))
       Insert.(
         into Audit.table
-        |> set Audit.id_column 99L
+        |> values Assignment.[ value Audit.id_column 99L ]
         |> returning (fun row -> Projection.expr (Audit.id row)))
   in
   let command =

@@ -712,7 +712,7 @@ var query = new Query("book")
     params.command
       Update.(
         table Book.table
-        |> set_expr Book.title_column title
+        |> set Assignment.[ expr Book.title_column title ]
         |> where (fun book ->
           Book.author_id book =. author_id &&. (Book.published_in book <. cutoff))
         |> command))
