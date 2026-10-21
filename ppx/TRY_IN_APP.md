@@ -41,6 +41,7 @@ TYPED_SQL_CHECKOUT=/absolute/path/to/typed-sql
 
 opam pin add --no-action --kind=path typed-sql "$TYPED_SQL_CHECKOUT"
 opam pin add --no-action --kind=path typed-sql-schema "$TYPED_SQL_CHECKOUT"
+opam pin add --no-action --kind=path typed-sql-ppx "$TYPED_SQL_CHECKOUT"
 opam pin add --no-action --kind=path typed-sql-pgocaml-lwt "$TYPED_SQL_CHECKOUT"
 opam pin add --no-action --kind=path typed-sql-schema-pgocaml-lwt "$TYPED_SQL_CHECKOUT"
 opam pin add --no-action --kind=path typed-sql-pgocaml-ppx "$TYPED_SQL_CHECKOUT"
@@ -181,6 +182,79 @@ opam exec -- typed-sql-pgocaml-queries check \
   src/db/**/*.ml
 ```
 
+## SQL из другого PPX
+
+Если SQL собирается другим PPX, например из общих fragments через
+`let%concat` и `[%concat ...]`, применяйте тот же preprocessing при
+`prepare` и `check` с параметром `--pp`. Этот параметр пока доступен
+в рабочей ветви, а в v0.5.2 его ещё нет; используйте path pins, описанные выше.
+
+Для `ppx_concat`, зарегистрированного через `Driver.register_transformation
+~preprocess_impl ~rules`, создайте `offline_sql_ppx/concat_driver.ml`:
+
+```ocaml
+open! Base
+
+let () = Ppxlib.Driver.standalone ()
+```
+
+В `offline_sql_ppx/dune` укажите установленную в приложении библиотеку PPX:
+
+```lisp
+(executable
+ (name concat_driver)
+ (modules concat_driver)
+ (libraries base ppxlib ppx_concat)
+ (link_flags -linkall))
+```
+
+`-linkall` включает модуль с регистрацией преобразования.
+Драйвер должен содержать preprocessing, создающий SQL, и оставлять `%pgsql`
+для сборщика. Не добавляйте сюда `pgocaml_ppx`, schema PPX или query-cache
+provider. Поэтому этот драйвер можно собрать до подготовки первого кеша:
+
+```sh
+opam exec -- dune build offline_sql_ppx/concat_driver.exe
+```
+
+Подготовка и проверка кеша используют одну команду preprocessing:
+
+```bash
+shopt -s globstar
+sql_pp='_build/default/offline_sql_ppx/concat_driver.exe -dump-ast --impl'
+
+opam exec -- typed-sql-pgocaml-queries prepare \
+  --output offline_sql_ppx/cache/queries.json \
+  --search-path public --pp "$sql_pp" src/db/**/*.ml
+
+opam exec -- typed-sql-pgocaml-queries check \
+  --cache offline_sql_ppx/cache/queries.json \
+  --search-path public --pp "$sql_pp" src/db/**/*.ml
+```
+
+`--pp` запускает shell-команду из текущего рабочего каталога и добавляет
+экранированный путь очередного `.ml` последним аргументом. Stdout должен
+содержать только OCaml source или binary AST; stderr остаётся каналом
+диагностик. В примере `-dump-ast` сохраняет исходные locations, включая номера
+строк после удаления `let%concat`. Текстовый вывод тоже принимается, но его
+номера строк относятся к результату preprocessing. Временные файлы удаляются
+после обработки. При ошибке команды или разбора её результата сборщик
+завершается до подключения к БД и сохраняет прежний кеш.
+
+Обычная сборка приложения продолжает использовать оба PPX:
+
+```lisp
+(preprocess (pps ppx_concat ppx_let app_queries_ppx app_deriving))
+```
+
+Ppxlib запускает `preprocess_impl` до правил раскрытия `%pgsql`, поэтому
+SQL fragments становятся литералами до поиска запроса в кеше. Используйте
+одинаковые версии, параметры и cookies `ppx_concat` в отдельном драйвере и
+обычной сборке; параметры драйвера можно включить в строку `--pp`.
+Изменение общего fragment требует повторной подготовки кеша, как изменение
+обычного SQL literal. Та же опция работает при подготовке кеша для новых
+`.query`, `.command` и `.statement` quotations.
+
 ## Сравнить результаты и проверить офлайн-сборку
 
 Оба каталога metadata могут существовать в проекте одновременно. Переключение
@@ -215,8 +289,8 @@ PPX или иные правила с обращением к БД, они со�
 
 Общие ограничения: статическая форма SQL, поддержанные codecs и флаги.
 `$@list`, `execute`, Custom Type Conversions пока не поддерживаются.
-Сборщик кеша также не видит quotations, создаваемые другими PPX; deriving,
-который только генерирует object → record converter, этому не мешает.
+Для quotations, создаваемых другими PPX, используйте `--pp`, описанный выше;
+deriving, который только генерирует object → record converter, этого не требует.
 Для outer JOIN при необходимости сохраните `"nullable-results"`.
 Подробнее о nullability и codecs — в [README](README.md).
 

@@ -95,8 +95,15 @@ PGDATABASE=my_app typed-sql-pgocaml-queries check \
 автоматического подключения к БД и fallback к собственному parser нет.
 
 Сборщик читает OCaml AST исходных файлов и принимает обычные и delimited literals.
-Он пока не видит quotations, создаваемые другими PPX, и не запускает другие
-preprocessors. Обычный deriving для object → record можно оставить в `pps`.
+Для SQL, который создаёт другой PPX, передайте в `prepare` и `check`
+`--pp COMMAND`: команда получает путь каждого исходного файла последним
+аргументом и выводит в stdout обработанный OCaml source или binary AST.
+Binary AST сохраняет исходные locations и проверяется загрузчиком ppxlib.
+Preprocessing выполняется до подключения к БД; ошибка не перезаписывает кеш.
+Без `--pp` другие preprocessors не запускаются. Пример отдельного драйвера
+с `ppx_concat` и его подключения — в
+[инструкции для приложения](TRY_IN_APP.md#sql-из-другого-ppx).
+Обычный deriving для object → record можно оставить в `pps`.
 Динамические `$@list`, флаг `execute`, custom converters и неподдержанные codecs
 остаются недоступны. Используйте native arrays как один bind parameter.
 Эвристика nullability совпадает с PG’OCaml: `attnotnull` для полей с происхождением,

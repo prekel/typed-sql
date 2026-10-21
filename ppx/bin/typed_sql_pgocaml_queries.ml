@@ -24,14 +24,82 @@ let read_file path =
     ~f:(fun () -> Stdlib.really_input_string channel (Stdlib.in_channel_length channel))
 ;;
 
-let sources paths =
+let parse_source ~path contents =
+  let lexbuf = Stdlib.Lexing.from_string contents in
+  Ppxlib.Location.init lexbuf path;
+  Ppxlib.Parse.implementation lexbuf
+;;
+
+let load_source ~path input =
+  let contents = read_file input in
+  (* Let ppxlib validate and migrate binary AST versions, retaining source locations. *)
+  let structure =
+    if String.is_prefix contents ~prefix:"Caml1999" then (
+      match
+        Ppxlib.Ast_io.read_binary input
+      with
+      | Error message -> reject ("preprocessing " ^ path ^ ": " ^ message)
+      | Ok input ->
+        (match Ppxlib.Ast_io.get_ast input with
+         | Impl structure -> structure
+         | Intf _ -> reject ("expected an implementation AST: " ^ path)))
+    else
+      parse_source ~path contents
+  in
+  let errors =
+    object
+      inherit Ppxlib.Ast_traverse.iter as super
+
+      method! extension ((name, payload) as extension) =
+        if String.equal name.txt "ocaml.error" then (
+          let message =
+            match payload with
+            | PStr
+                ({ pstr_desc =
+                     Pstr_eval
+                       ({ pexp_desc = Pexp_constant (Pconst_string (text, _, _)); _ }, _)
+                 ; _
+                 }
+                :: _) -> text
+            | _ -> "preprocessor returned an ocaml.error extension"
+          in
+          Ppxlib.Location.raise_errorf ~loc:name.loc "%s" message)
+        else
+          super#extension extension
+    end
+  in
+  errors#structure structure;
+  structure
+;;
+
+let source ?pp path =
+  match pp with
+  | None -> parse_source ~path (read_file path)
+  | Some command ->
+    let temporary = Stdlib.Filename.temp_file "typed-sql-pp-" ".ml" in
+    Exn.protect
+      ~finally:(fun () -> Stdlib.Sys.remove temporary)
+      ~f:(fun () ->
+        let command =
+          "("
+          ^ command
+          ^ " "
+          ^ Stdlib.Filename.quote path
+          ^ ") > "
+          ^ Stdlib.Filename.quote temporary
+        in
+        let status = Stdlib.Sys.command command in
+        if not (Int.equal status 0) then
+          reject (Printf.sprintf "preprocessing %s failed (exit code %d)" path status);
+        load_source ~path temporary)
+;;
+
+let sources ?pp paths =
   paths
   |> List.concat_map ~f:(fun path ->
     if not (String.is_suffix path ~suffix:".ml") then
       reject ("expected an .ml source: " ^ path);
-    let lexbuf = Stdlib.Lexing.from_string (read_file path) in
-    Ppxlib.Location.init lexbuf path;
-    P.Query_source.collect_exn (Ppxlib.Parse.implementation lexbuf))
+    P.Query_source.collect_exn (source ?pp path))
   |> List.dedup_and_sort ~compare:(fun a b ->
     String.compare a.P.Query_source.query.sql b.P.Query_source.query.sql)
 ;;
@@ -207,7 +275,7 @@ let write_atomic path contents =
 ;;
 
 let usage =
-  "Usage: typed-sql-pgocaml-queries (prepare --output CACHE | check --cache CACHE) [--search-path PATH] FILE.ml...\n       typed-sql-pgocaml-queries codegen [--target typed-sql-ppx] CACHE"
+  "Usage: typed-sql-pgocaml-queries (prepare --output CACHE | check --cache CACHE) [--search-path PATH] [--pp COMMAND] FILE.ml...\n       typed-sql-pgocaml-queries codegen [--target typed-sql-ppx] CACHE"
 ;;
 
 let run () =
@@ -219,12 +287,18 @@ let run () =
     let cache = read_file path |> C.of_string |> get in
     Stdlib.print_string (C.codegen ~target:`Pgocaml_ppx cache)
   | (("prepare" | "check") as command) :: arguments ->
-    let rec options cache search_path paths = function
+    let rec options cache search_path pp paths = function
       | [] ->
         (match cache, List.rev paths with
-         | Some cache, (_ :: _ as paths) -> cache, search_path, paths
+         | Some cache, (_ :: _ as paths) -> cache, search_path, pp, paths
          | _ -> reject usage)
-      | "--search-path" :: value :: rest -> options cache value paths rest
+      | "--search-path" :: value :: rest -> options cache value pp paths rest
+      | "--pp" :: command :: rest ->
+        if Option.is_some pp then
+          reject "preprocessor specified more than once";
+        if String.is_empty (String.strip command) then
+          reject "preprocessor command must not be empty";
+        options cache search_path (Some command) paths rest
       | flag :: value :: rest
         when String.equal
                flag
@@ -234,13 +308,13 @@ let run () =
                   "--cache") ->
         if Option.is_some cache then
           reject "cache path specified more than once";
-        options (Some value) search_path paths rest
+        options (Some value) search_path pp paths rest
       | path :: rest when not (String.is_prefix path ~prefix:"-") ->
-        options cache search_path (path :: paths) rest
+        options cache search_path pp (path :: paths) rest
       | _ -> reject usage
     in
-    let cache, search_path, paths = options None "public" [] arguments in
-    let queries = sources paths in
+    let cache, search_path, pp, paths = options None "public" None [] arguments in
+    let queries = sources ?pp paths in
     let expected =
       if String.equal command "check" then
         Some (read_file cache |> C.of_string |> get |> C.to_string)

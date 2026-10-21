@@ -32,6 +32,11 @@ sources=(src/db/**/*.ml)
 typed-sql-pgocaml-queries prepare --output src/db/queries.json "${sources[@]}"
 ```
 
+Если SQL создаёт другой PPX, добавьте одинаковый `--pp COMMAND` в `prepare`
+и `check`. Сборщик применит preprocessing до поиска quotations; обычная
+сборка должна раскрывать те же fragments. Подключение standalone-драйвера
+с `preprocess_impl` описано в [инструкции](../ppx/TRY_IN_APP.md#sql-из-другого-ppx).
+
 После изменения SQL или схемы повторите `prepare`. `check --cache` проверяет
 актуальность кеша с доступом к БД. Пользовательский SQL при подготовке не
 выполняется. Кеш v1 нужно обновить: новый PPX требует kind и placement из v2.

@@ -2,6 +2,12 @@
 
 ## В разработке
 
+- `typed-sql-pgocaml-queries prepare/check` поддерживают `--pp COMMAND`:
+  внешний preprocessing раскрывает SQL fragments и quotations до сбора кеша.
+  Принимаются OCaml source и binary AST; binary AST сохраняет исходные
+  locations. Добавлены офлайн- и PostgreSQL-проверки PPX с `preprocess_impl`,
+  включая `let%concat`, общие начало/конец SQL, binds и object output.
+
 ## 0.5.2 — 20 октября 2026
 
 ### Добавлено

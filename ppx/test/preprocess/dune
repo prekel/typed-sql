@@ -1,0 +1,57 @@
+(library
+ (name query_concat_test_ppx)
+ (optional)
+ (kind ppx_rewriter)
+ (modules concat)
+ (libraries base ppxlib))
+
+(executable
+ (name driver)
+ (optional)
+ (modules driver)
+ (libraries base ppxlib query_concat_test_ppx)
+ (link_flags -linkall))
+
+(executable
+ (name embedded_driver)
+ (optional)
+ (modules embedded_driver)
+ (libraries
+  base
+  ppxlib
+  query_concat_test_ppx
+  typed-sql-pgocaml-ppx
+  query_cache_test_ppx))
+
+(library
+ (name preprocessed_cache_queries)
+ (optional)
+ (modules concat_queries literal_queries)
+ (libraries base pgocaml)
+ (preprocess
+  (pps query_concat_test_ppx query_cache_test_ppx)))
+
+(rule
+ (alias runtest)
+ (package typed-sql-pgocaml-ppx)
+ (deps cli_test.sh concat_queries.ml ../query_cache/queries.json)
+ (action
+  (run
+   bash
+   %{dep:cli_test.sh}
+   %{exe:../../bin/typed_sql_pgocaml_queries.exe}
+   %{exe:driver.exe}
+   %{exe:embedded_driver.exe}
+   %{dep:concat_queries.ml}
+   %{dep:../query_cache/queries.json})))
+
+(alias
+ (name runtest)
+ (package typed-sql-pgocaml-ppx)
+ (deps preprocessed_cache_queries.cma))
+
+(executable
+ (name postgresql_test)
+ (optional)
+ (modules postgresql_test)
+ (libraries base pgocaml preprocessed_cache_queries))
