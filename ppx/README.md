@@ -322,6 +322,10 @@ Callback транзакции возвращает `Result.t Lwt.t`: `Ok` фик
   [полный список](../doc/ppx.md) описывает поддержанные формы.
 - Поддерживаются enum как `string`, domain через базовый codec и одномерные
   arrays. Многомерные arrays не поддерживаются.
+- Встроенный PostgreSQL `inet` использует `PGOCaml.inet` — пару
+  `Unix.inet_addr * int` с адресом и длиной префикса. Сохраняются IPv4/IPv6
+  и host bits; nullable-колонки и `$?address` используют внешний `option`.
+  Domains поверх `inet` и одномерные arrays используют тот же встроенный codec.
 - Nullability следует правилам PG’OCaml. Например, `count(*)` даёт
   `int64 option list`. Прямая NOT NULL колонка на nullable стороне outer JOIN
   сохраняет исходный тип: используйте флаг `"nullable-results"` перед SQL,

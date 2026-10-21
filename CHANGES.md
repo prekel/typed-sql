@@ -2,11 +2,22 @@
 
 ## В разработке
 
+## 0.5.3 — 21 октября 2026
+
+### Добавлено
+
 - `typed-sql-pgocaml-queries prepare/check` поддерживают `--pp COMMAND`:
   внешний preprocessing раскрывает SQL fragments и quotations до сбора кеша.
   Принимаются OCaml source и binary AST; binary AST сохраняет исходные
   locations. Добавлены офлайн- и PostgreSQL-проверки PPX с `preprocess_impl`,
   включая `let%concat`, общие начало/конец SQL, binds и object output.
+
+### Исправлено
+
+- Совместимый PG’OCaml PPX поддерживает встроенный PostgreSQL `inet`:
+  параметры и результаты используют `PGOCaml.inet` с сохранением IPv4/IPv6,
+  host bits и длины сетевого префикса. Поддержаны nullable-значения,
+  одномерные arrays и domains поверх `inet`; Custom Type Conversions не нужны.
 
 ## 0.5.2 — 20 октября 2026
 

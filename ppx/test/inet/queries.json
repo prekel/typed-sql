@@ -1,0 +1,141 @@
+{
+  "version": 2,
+  "role": "fixture",
+  "search_path": "public",
+  "queries": [
+    {
+      "sql": "SELECT $1::inet",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "inet",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "inet",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "inet",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT $1::inet[]",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_inet",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "inet",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "inet",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_inet",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "inet",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT $1::ppx_inet_domain",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "public",
+            "name": "ppx_inet_domain",
+            "kind": "domain",
+            "base": {
+              "schema": "pg_catalog",
+              "name": "inet",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "ppx_inet_domain",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "inet",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT address, optional_address FROM ppx_inet_table WHERE address = $1",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "inet",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "address",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "inet",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "optional_address",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "inet",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    }
+  ]
+}

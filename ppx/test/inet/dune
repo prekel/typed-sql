@@ -1,0 +1,52 @@
+(rule
+ (target inet_queries_ppx.ml)
+ (deps queries.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    %{exe:../../bin/typed_sql_pgocaml_queries.exe}
+    codegen
+    %{dep:queries.json}))))
+
+(library
+ (name inet_query_cache_test_ppx)
+ (optional)
+ (kind ppx_rewriter)
+ (modules inet_queries_ppx)
+ (libraries base typed-sql-pgocaml-ppx))
+
+(library
+ (name inet_queries)
+ (optional)
+ (modules queries)
+ (libraries base pgocaml)
+ (preprocess
+  (pps inet_query_cache_test_ppx)))
+
+(executable
+ (name main)
+ (optional)
+ (modules main)
+ (libraries base pgocaml unix inet_queries))
+
+(executable
+ (name driver)
+ (optional)
+ (modules driver)
+ (libraries base ppxlib typed-sql-pgocaml-ppx inet_query_cache_test_ppx))
+
+(rule
+ (alias runtest)
+ (package typed-sql-pgocaml-ppx)
+ (deps queries.ml)
+ (action
+  (setenv
+   PGHOST
+   /nonexistent/typed-sql-offline
+   (run %{exe:driver.exe} --impl %{dep:queries.ml} -null))))
+
+(alias
+ (name runtest)
+ (package typed-sql-pgocaml-ppx)
+ (deps inet_queries.cma))

@@ -168,6 +168,7 @@ dune build --root . ppx/bin/typed_sql_pgocaml_queries.exe ppx/test/cache_driver.
   ppx/test/query_cache/mixed_transaction_postgresql_test.exe \
   ppx/test/preprocess/driver.exe ppx/test/preprocess/embedded_driver.exe \
   ppx/test/preprocess/postgresql_test.exe \
+  ppx/test/inet/driver.exe ppx/test/inet/main.exe \
   ppx/runtime/typed_sql_pgocaml_runtime.cma
 build_dir="${DUNE_BUILD_DIR:-_build}"
 PGDATABASE=typed_sql_ppx_test bash ppx/test/query_cache_postgresql_test.sh \
@@ -181,6 +182,10 @@ PGDATABASE=typed_sql_ppx_test bash ppx/test/preprocess/postgresql_test.sh \
   "$build_dir/default/ppx/test/preprocess/driver.exe" \
   "$build_dir/default/ppx/test/preprocess/embedded_driver.exe" \
   "$build_dir/default/ppx/test/preprocess/postgresql_test.exe"
+PGDATABASE=typed_sql_ppx_test bash ppx/test/inet/postgresql_test.sh \
+  "$build_dir/default/ppx/bin/typed_sql_pgocaml_queries.exe" \
+  "$build_dir/default/ppx/test/inet/driver.exe" \
+  "$build_dir/default/ppx/test/inet/main.exe"
 PGDATABASE=typed_sql_ppx_test dune exec --root . caqti-lwt/schema/typed_sql_schema_dump.exe > "$workdir/ppx_caqti_schema.json"
 PGDATABASE=typed_sql_ppx_test dune exec --root . schema-pgocaml-lwt/typed_sql_pgocaml_schema_dump.exe > "$workdir/ppx_pgocaml_schema.json"
 diff -u "$workdir/ppx_caqti_schema.json" "$workdir/ppx_pgocaml_schema.json"

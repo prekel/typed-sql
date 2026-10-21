@@ -49,7 +49,7 @@ Statement с runtime input. [Подключение, static input и мигра�
 ## Установка из GitHub
 
 Все девять пакетов находятся в одном репозитории и требуют одинаковую версию.
-Скрипт ниже устанавливает текущий релиз `v0.5.2`, а если пакеты уже установлены —
+Скрипт ниже устанавливает текущий релиз `v0.5.3`, а если пакеты уже установлены —
 обновляет их до этой версии, предварительно заменяя существующие pin:
 
 <!-- $MDX skip -->
@@ -66,7 +66,7 @@ typed_sql_packages=(
   typed-sql-ppx
 )
 for package in "${typed_sql_packages[@]}"; do
-  opam pin add -yn "$package" 'git+https://github.com/prekel/typed-sql.git#v0.5.2'
+  opam pin add -yn "$package" 'git+https://github.com/prekel/typed-sql.git#v0.5.3'
 done
 opam install "${typed_sql_packages[@]}"
 ```

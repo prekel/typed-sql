@@ -16,19 +16,21 @@ deriving для object → record менять не нужно. В частно�
 `pgocaml_ppx`, чтобы зафиксировать исходное состояние. Для дальнейших проверок
 используйте тестовую БД с применёнными миграциями и ролью приложения.
 
-Режим кеша доступен начиная с v0.5.0. В opam switch приложения закрепите
-необходимые пакеты на этом теге:
+Режим кеша доступен начиная с v0.5.0. Для описанных ниже возможностей,
+включая `--pp` и `inet`, в opam switch приложения закрепите необходимые
+пакеты на текущем релизе v0.5.3:
 
 ```bash
 typed_sql_packages=(
   typed-sql
   typed-sql-schema
+  typed-sql-ppx
   typed-sql-pgocaml-lwt
   typed-sql-schema-pgocaml-lwt
   typed-sql-pgocaml-ppx
 )
 for package in "${typed_sql_packages[@]}"; do
-  opam pin add -yn "$package" 'git+https://github.com/prekel/typed-sql.git#v0.5.0'
+  opam pin add -yn "$package" 'git+https://github.com/prekel/typed-sql.git#v0.5.3'
 done
 opam install typed-sql-pgocaml-ppx typed-sql-schema-pgocaml-lwt
 ```
@@ -186,8 +188,7 @@ opam exec -- typed-sql-pgocaml-queries check \
 
 Если SQL собирается другим PPX, например из общих fragments через
 `let%concat` и `[%concat ...]`, применяйте тот же preprocessing при
-`prepare` и `check` с параметром `--pp`. Этот параметр пока доступен
-в рабочей ветви, а в v0.5.2 его ещё нет; используйте path pins, описанные выше.
+`prepare` и `check` с параметром `--pp`, доступным начиная с v0.5.3.
 
 Для `ppx_concat`, зарегистрированного через `Driver.register_transformation
 ~preprocess_impl ~rules`, создайте `offline_sql_ppx/concat_driver.ml`:

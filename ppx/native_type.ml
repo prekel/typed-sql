@@ -16,8 +16,14 @@ let scalar_codec = function
   | "int8" -> Some "int64"
   | "float4" | "float8" -> Some "float"
   | "text" | "varchar" | "bpchar" | "numeric" | "json" | "jsonb" -> Some "string"
-  | ("bytea" | "date" | "time" | "timestamp" | "timestamptz" | "interval" | "uuid") as
-    name -> Some name
+  | ( "bytea"
+    | "date"
+    | "time"
+    | "timestamp"
+    | "timestamptz"
+    | "interval"
+    | "uuid"
+    | "inet" ) as name -> Some name
   | _ -> None
 ;;
 
