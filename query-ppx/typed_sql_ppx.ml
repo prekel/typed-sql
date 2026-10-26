@@ -158,7 +158,7 @@ let expand ~object_ ~command ~statement ~loc payload =
       Shared.Query_source.statement_payload_exn ~loc payload
     else (
       let flags, source, sql_loc =
-        Shared.Query_source.payload_exn ~loc ~legacy:false payload
+        Shared.Query_source.payload_exn ~loc ~with_connection:false payload
       in
       None, flags, source, sql_loc)
   in

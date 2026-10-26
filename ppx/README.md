@@ -1,55 +1,46 @@
-# Offline-замена pgocaml_ppx
+# PG’OCaml quotations с подготовленным кешем
 
-`typed-sql-pgocaml-ppx` проверяет SQL по заранее сохранённой схеме PostgreSQL
-или использует сохранённые описания конкретных запросов через Prepare/Describe.
-Во время компиляции подключение к БД не требуется. Приложение сохраняет
-`[%pgsql ...]`, `[%pgsql.object ...]`, соединения и выполнение через `PGOCaml`.
-Переходить на query builder для этого не нужно.
+`typed-sql-pgocaml-ppx` раскрывает `[%pgsql ...]` и `[%pgsql.object ...]`
+по описаниям запросов, полученным через PostgreSQL Prepare/Describe.
+PostgreSQL проверяет SQL и определяет типы при явном запуске `prepare/check`.
+Компиляция и OCaml LSP используют встроенные metadata без подключения к БД.
+Запросы выполняются через модуль `PGOCaml` приложения.
 
-Пошаговая проверка на существующем проекте с переключением двух режимов —
-[как попробовать в приложении](TRY_IN_APP.md).
+[Проверка в приложении](TRY_IN_APP.md) и [публичный контракт](../doc/ppx.md).
+Для quotations, создающих `Statement.t`, `Result_query.t` и `Command.t`,
+используйте [typed-sql-ppx](../query-ppx/README.md).
 
-Пакет экспериментальный. Режим snapshot поддерживает описанное ниже подмножество
-SQL; режим кеша поручает проверку SQL PostgreSQL. В обоих режимах совместимость
-с upstream PPX ограничена поддержанными флагами и codecs. Текущая зависимость —
-`pgocaml >= 4.3.0`. PG’OCaml 4.3.0 требует OCaml младше 5.0;
-для этой связки используйте OCaml 4.14.1. На OCaml 5 используйте PG’OCaml 4.4.0
-или совместимую более новую версию.
+## Подготовить кеш
 
-У PG’OCaml 4.3.0 Unix-путь из `PGHOST` нужно передавать явно:
-`PGOCaml.connect ?host:(Stdlib.Sys.getenv_opt "PGHOST") ()`.
-Дампер делает это сам; offline PPX не создаёт соединений.
-
-## Режим кеша запросов: Prepare/Describe
-
-Это отдельный экспериментальный режим для переноса существующих quotations.
-PostgreSQL сам проверяет SQL и определяет типы; ограничения SQL parser,
-описанные ниже для режима snapshot, к нему не относятся. Ограничения codecs,
-статической формы SQL и поддержанных флагов сохраняются.
-
-После применения миграций явно перечислите исходные `.ml` файлы:
+Установите `typed-sql-pgocaml-ppx` и примените миграции тестовой БД.
+Подключение задаётся через `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`,
+`PGDATABASE`. Пароли не записывайте в Dune и JSON.
 
 ```sh
 PGDATABASE=my_app typed-sql-pgocaml-queries prepare \
   --output queries.json src/people.ml src/orders.ml
 ```
 
-Команда устанавливается вместе с `typed-sql-pgocaml-ppx`. Подключение задаётся
-через `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`. По умолчанию
-используется `search_path=public`; другой путь передайте через `--search-path`.
-Команда использует Prepare/Describe и каталоги PostgreSQL в read-only транзакции,
-не выполняя пользовательские запросы. DML также описывается без выполнения.
-Сначала должны существовать все используемые таблицы, типы и функции.
+Команда читает OCaml AST перечисленных файлов и описывает запросы в read-only
+транзакции. Пользовательский SQL, включая DML, не выполняется.
+По умолчанию `search_path=public`; другой путь передайте через `--search-path`.
 
-`queries.json` храните в репозитории. Это отдельный формат версии 2,
-не новая версия snapshot схемы. В нём есть SQL, логические типы,
-nullability и контекст роли/search path; нет OID, паролей и значений параметров.
-Совместимый PPX также читает старый формат v1 с сохранёнными codecs.
-Исходные имена OCaml-параметров и расположение quotations в ключ не входят.
-Каждое вхождение подстановки получает собственный номер `$1`, `$2` и далее.
-Изменение пробелов или комментариев SQL меняет ключ; семантической нормализации нет.
+`queries.json` версии 2 содержит точный SQL, порядок и логические типы параметров,
+поля результата, nullability, kind, ограничения вложения и контекст роли/search
+path. OID, credentials и значения параметров не сохраняются. Имена OCaml binds
+и locations не входят в ключ; пробелы и комментарии SQL входят.
+Каждое вхождение подстановки получает свой номер `$1`, `$2` и далее.
 
-Подключение вместо schema PPX:
+После изменения SQL или схемы запускайте `prepare` с полным списком файлов.
+Обновление атомарно: при ошибке прежний файл сохраняется. Проверка актуальности
+не меняет файлы и требует ту же БД, роль, search path и исходники:
+
+```sh
+PGDATABASE=my_app typed-sql-pgocaml-queries check \
+  --cache queries.json src/people.ml src/orders.ml
+```
+
+## Подключить к Dune
 
 ```lisp
 (rule
@@ -73,50 +64,62 @@ nullability и контекст роли/search path; нет OID, паролей
  (preprocess (pps app_queries_ppx)))
 ```
 
-Dune встраивает metadata в PPX-драйвер. Генерируемый `.ml` не нужно коммитить.
-`codegen`, сборка и OCaml LSP работают без подключения к БД и без чтения JSON
-во время раскрытия quotations, в том числе из другого рабочего каталога Zed.
-В одном драйвере подключайте ровно одну библиотеку metadata: query cache
-либо schema snapshot. Синтаксис запросов и object → record converters остаются
-прежними; соединения и транзакции по-прежнему принадлежат приложению.
+В каждом PPX-драйвере регистрируется ровно один query cache. Сгенерированный
+модуль встраивает JSON; при раскрытии quotation файлы не открываются, поэтому
+драйвер работает и из другого рабочего каталога. При отсутствии запроса
+сборка сообщает о необходимости запустить `prepare`.
 
-После изменения SQL или схемы снова запускайте `prepare`. Кеш обновляется
-атомарно только после успешного описания всех запросов. Проверка актуальности
-также требует БД и не меняет файлы:
+Храните JSON и правила Dune в репозитории. Генерируемый `.ml` Dune создаёт сам.
+Dune подключает `typed-sql-pgocaml-ppx.runtime` автоматически.
+При ручной компиляции результата PPX добавьте эту библиотеку явно.
 
-```sh
-PGDATABASE=my_app typed-sql-pgocaml-queries check \
-  --cache queries.json src/people.ml src/orders.ml
+## Quotations
+
+```ocaml
+open! Base
+
+let find conn id =
+  [%pgsql.object conn
+    "SELECT id, name, note FROM people WHERE id = $id"]
+;;
+
+let update conn id note =
+  [%pgsql conn
+    "UPDATE people SET note = $?note WHERE id = $id RETURNING note"]
+;;
+
+let remove conn id : unit =
+  [%pgsql conn "DELETE FROM people WHERE id = $id"]
+;;
 ```
 
-Передавайте тот же список исходников и `--search-path`, что при подготовке.
-`check` обнаруживает добавленные/удалённые запросы и изменения описаний, роли
-или search path. Полностью офлайн невозможно обнаружить изменение схемы БД.
-Отсутствующий запрос при компиляции вызывает ошибку с предложением обновить кеш;
-автоматического подключения к БД и fallback к собственному parser нет.
+`$value` принимает обязательное значение, `$?value` — `option`, `${expression}`
+и `$?{expression}` — OCaml expression. Каждое вхождение вычисляется один раз
+при вызове quotation. Значения передаются через bind parameters.
+Strings, quoted identifiers, dollar quotes и комментарии SQL не раскрывают binds.
 
-Сборщик читает OCaml AST исходных файлов и принимает обычные и delimited literals.
-Для SQL, который создаёт другой PPX, передайте в `prepare` и `check`
-`--pp COMMAND`: команда получает путь каждого исходного файла последним
-аргументом и выводит в stdout обработанный OCaml source или binary AST.
-Binary AST сохраняет исходные locations и проверяется загрузчиком ppxlib.
-Preprocessing выполняется до подключения к БД; ошибка не перезаписывает кеш.
-Без `--pp` другие preprocessors не запускаются. Пример отдельного драйвера
-с `ppx_concat` и его подключения — в
-[инструкции для приложения](TRY_IN_APP.md#sql-из-другого-ppx).
-Обычный deriving для object → record можно оставить в `pps`.
-Динамические `$@list`, флаг `execute`, конфигурация Custom Type Conversions
-и неподдержанные встроенные codecs остаются недоступны.
-Используйте native arrays как один bind parameter.
-Эвристика nullability совпадает с PG’OCaml: `attnotnull` для полей с происхождением,
-иначе nullable. Для outer JOIN и других конструкций, способных вернуть NULL
-в исходно NOT NULL колонке, явно используйте `"nullable-results"`.
-Настройки роли/search path и `standard_conforming_strings=on` должны соответствовать
-условиям выполнения приложения.
+Scalar SELECT возвращает список значений; несколько колонок дают tuples,
+`pgsql.object` — объекты с методами по именам полей. DML без RETURNING возвращает
+`unit`; object quotation требует поля результата. Некорректные имена методов
+и повторяющиеся имена отклоняются при компиляции.
+
+Nullability следует PG’OCaml: для поля с происхождением используется
+`pg_attribute.attnotnull`, для вычисляемых полей — nullable. Для outer JOIN,
+способного вернуть NULL в исходно обязательной колонке, добавьте флаг
+`"nullable-results"` перед SQL: он делает все поля результата optional.
+
+Встроенные codecs: bool, int2 (`int`), int4 (`int32`), int8 (`int64`), float4/8
+(`float`), text/varchar/bpchar/numeric/json/jsonb (`string`), bytea, date, time,
+timestamp, timestamptz, interval, uuid и inet — через функции PGOCaml.
+`inet` сохраняет адрес, IPv4/IPv6 host bits и длину префикса.
+
+Одномерные native arrays представлены как `'a option list`; nullable array
+имеет внешний option. NULL-элемент отличается от строки `"NULL"`. Многомерные
+arrays и явные нестандартные bounds при чтении возвращают `PGOCaml.Error`.
 
 ### Конвертеры пользовательских типов
 
-В режиме кеша пользовательские scalar, enum, domain и opaque types выбирают
+Пользовательские scalar, enum, domain и opaque types выбирают
 функции по собственному имени SQL-типа: `PGOCaml.string_of_typ123` для записи
 и `PGOCaml.typ123_of_string` для чтения. Domain не разворачивается до базового
 codec. Встроенные типы сохраняют прежние функции, например `int4 → int32`
@@ -135,11 +138,8 @@ module PGOCaml = struct
 end
 ```
 
-Выбор автоматический и не требует config. Это изменение прежнего контракта:
-для пользовательских enum/domain, ранее использовавших string/base codecs,
-нужно определить собственные функции. Старые v1-кеши читаются, но сохранённые
-codecs пересчитываются по текущим правилам; редактировать JSON не требуется.
-Отсутствие функций обнаруживает OCaml typechecker при сборке приложения.
+Выбор автоматический и не требует config. Отсутствие функций обнаруживает
+OCaml typechecker при сборке приложения.
 
 Для native arrays рекурсивно используются конвертеры элементов; domain над
 массивом использует одну собственную пару функций для всего значения.
@@ -154,272 +154,37 @@ domain в результате сервер обычно сообщает баз
 поэтому чтение использует `typ123_of_string`. PPX не восстанавливает утраченное
 имя domain по тексту SQL или имени колонки.
 
-Эти правила относятся к совместимому query-cache PPX. Режим snapshot сохраняет
-прежние string/base codecs, а `typed-sql-ppx` использует descriptors typed-sql.
 Sexp config, `load_custom_from` и `PGCUSTOM_CONVERTERS_CONFIG` не поддерживаются.
 
-Ниже описан сохраняющийся режим проверки по snapshot схемы.
+## SQL fragments и preprocessing
 
-## 1. Сохранить схему
+Если SQL создаётся другим PPX, применяйте одинаковый preprocessing при
+`prepare` и `check` через `--pp COMMAND`. Команда получает путь очередного
+`.ml` последним аргументом и выводит OCaml source или binary AST.
+Binary AST сохраняет locations. Ошибки preprocessing обнаруживаются до
+подключения к БД и не перезаписывают кеш.
 
-После применения миграций создайте snapshot версии 3:
+Пример отдельного драйвера `ppx_concat` — в
+[инструкции для приложения](TRY_IN_APP.md#sql-из-другого-ppx).
+Deriving, преобразующий object results в records, остаётся в обычном `pps`.
 
-```sh
-typed-sql-pgocaml-schema-dump postgresql:// > schema.json
-```
+## Выполнение и ограничения
 
-Дампер устанавливается с пакетом `typed-sql-schema-pgocaml-lwt`. Подключение
-настраивается через URI или переменные `PGHOST`, `PGPORT`, `PGUSER`,
-`PGPASSWORD`, `PGDATABASE`. БД нужна на этом шаге, но не при последующей сборке.
+Соединение, monad, транзакции и обработка ошибок принадлежат `PGOCaml`
+приложения. Сгенерированный код использует Prepare/Execute и переиспользует
+prepared statement для неизменного SQL. Runtime exceptions сохраняют
+PG’OCaml-контракт, включая SQLSTATE и ошибку nullability.
 
-Вместо него можно использовать `typed-sql-schema-dump` из
-`typed-sql-schema-caqti-lwt`: формат snapshot одинаковый. Используйте актуальный
-дампер, чтобы сохранить metadata для enum, domain и arrays.
+Для совместных транзакций с DSL используйте
+`Typed_sql_pgocaml_lwt.Make (PGOCaml)` и тот же connection.
+[Integration test](test/mixed_transaction_postgresql_test.ml) проверяет commit,
+rollback и object → record. Дополнительное соединение для PPX не требуется.
 
-Snapshot содержит описание схемы, а не данные таблиц или параметры подключения.
-Его можно хранить в репозитории. После изменения схемы обновляйте snapshot
-и пересобирайте приложение. Подробнее — [формат snapshot](../doc/schema_snapshot.md).
+SQL должен иметь статическую форму. `$@list`, флаг `execute`, произвольные
+флаги и конфигурация Custom Type Conversions не поддерживаются. Используйте
+native arrays как один bind parameter. Роль, search path, encoding и настройки
+PostgreSQL при выполнении должны соответствовать подготовке.
 
-## 2. Подключить PPX в Dune
-
-Нужны пакеты `typed-sql-schema` (команда `typed-sql-codegen`),
-`typed-sql-pgocaml-ppx`, `pgocaml` и `base` для примеров ниже.
-Дампер нужен только для получения snapshot.
-
-Минимальная структура каталога:
-
-```text
-dune
-schema.json
-queries.ml
-```
-
-Содержимое `dune`:
-
-```lisp
-(rule
- (target schema_ppx.ml)
- (deps schema.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run %{bin:typed-sql-codegen} --target pgocaml-ppx %{dep:schema.json}))))
-
-(library
- (name app_schema_ppx)
- (modules schema_ppx)
- (kind ppx_rewriter)
- (libraries base typed-sql-schema typed-sql-pgocaml-ppx))
-
-(library
- (name queries)
- (modules queries)
- (libraries base pgocaml)
- (preprocess (pps app_schema_ppx)))
-```
-
-Здесь списки `modules` разделяют сгенерированный PPX-модуль и код приложения.
-В существующем проекте можно разместить schema PPX в отдельном каталоге.
-
-Dune генерирует `schema_ppx.ml` и связывает схему с PPX-драйвером. При изменении
-`schema.json` драйвер пересобирается автоматически. Вручную генерировать
-или коммитить `schema_ppx.ml` не требуется.
-
-В приложении с upstream PPX замените `pgocaml_ppx` в `preprocess` на
-`app_schema_ppx`, сохранив остальные preprocessors, например `ppx_let`
-или свой deriving. Одновременно подключать оба SQL PPX нельзя: они регистрируют
-одинаковые extension names. В одном драйвере должна быть ровно одна schema PPX
-библиотека.
-
-Путь к JSON через флаг PPX передавать не нужно: схема встроена в драйвер.
-Это работает и при обработке файлов OCaml LSP в Zed. Для выполнения приложения
-файл snapshot и дампер не требуются.
-
-## 3. Писать запросы
-
-Примеры `queries.ml` предполагают таблицу `public.people` с колонками
-`id integer NOT NULL`, `name text NOT NULL`, `note varchar NULL`.
-Они используют обычный синхронный `PGOCaml`; соединением `dbh` управляет
-приложение.
-
-```ocaml
-open! Base
-
-let names dbh (id : int32) : string list =
-  [%pgsql dbh "SELECT name FROM people WHERE id = $id ORDER BY id"]
-;;
-
-let people dbh ~limit ~offset : (int32 * string * string option) list =
-  [%pgsql dbh
-    {sql|SELECT id, name, note FROM people
-         ORDER BY id LIMIT $limit OFFSET $offset|sql}]
-;;
-
-let rename dbh ~id ~name : unit =
-  [%pgsql dbh "UPDATE people SET name = $name WHERE id = $id"]
-;;
-
-let delete dbh ~id : int32 list =
-  [%pgsql dbh "DELETE FROM people WHERE id = $id RETURNING id"]
-;;
-```
-
-Одна колонка возвращается списком значений, несколько — списком tuples.
-INSERT/UPDATE/DELETE без RETURNING возвращают `unit`; с RETURNING действуют
-те же правила, что для SELECT. В приложении с монадным модулем `PGOCaml`
-результат остаётся в его монаде.
-
-### Объекты и существующий object → record converter
-
-```ocaml
-type person =
-  { identifier : int32
-  ; name : string
-  ; note : string option
-  }
-
-let person_of_pgocaml row =
-  { identifier = row#identifier; name = row#name; note = row#note }
-;;
-
-let find dbh ~id =
-  let rows =
-    [%pgsql.object dbh
-      {sql|SELECT id AS identifier, name, note
-           FROM people WHERE id = $id|sql}]
-  in
-  List.map rows ~f:person_of_pgocaml
-;;
-```
-
-Object methods получают имена колонок или aliases из `AS`. Они должны быть
-уникальными и допустимыми OCaml method names. Если существующий deriving
-приложения генерирует такой converter, его можно оставить: при совпадении
-типов методов вызов `List.map ... ~f:t_of_pgocaml` сохраняется.
-У `[%pgsql.object ...]` для DML обязательно наличие RETURNING.
-
-### Параметры и NULL
-
-| Синтаксис | Значение |
-| --- | --- |
-| `$id` | OCaml-переменная `id` |
-| `${Int32.succ id}` | OCaml-выражение |
-| `$?note` | Значение `option`: `None` отправляется как SQL NULL |
-| `$?{expression}` | OCaml-выражение типа `option` |
-
-Тип параметра выводится из SQL. Например, `integer` использует `int32`,
-`bigint` — `int64`, `smallint` — `int`, `numeric` — `string`,
-а LIMIT/OFFSET — `int64`. Значения передаются отдельно от SQL как bind parameters.
-Обычные OCaml-строки, `{|...|}` и `{sql|...|sql}` поддерживаются.
-
-`WHERE note = $?note` с `None` сохраняет SQL-семантику сравнения с NULL:
-это не проверка `IS NULL` и не удаление условия.
-
-Native array передаётся одним параметром и представлен как `'a option list`:
-
-```ocaml
-let find_many dbh (ids : int32 option list) : int32 list =
-  [%pgsql dbh "SELECT id FROM people WHERE id = ANY($ids) ORDER BY id"]
-;;
-```
-
-Здесь `[ Some 1l; Some 2l ]` — array из двух чисел, `[]` — пустой array,
-а `None` внутри списка — NULL-элемент. Для SQL NULL всего array используется
-optional-подстановка `$?ids` с внешним `option`.
-
-## Вместе с query builder в одной транзакции
-
-Подключите `typed-sql-pgocaml-lwt`, `typed-sql` и `lwt.unix` к библиотеке
-приложения. Quotations генерируют вызовы модуля с именем `PGOCaml`;
-query builder должен использовать адаптер того же модуля:
-
-```ocaml
-module PGOCaml = Typed_sql_pgocaml_lwt.Pgocaml
-module Adapter = Typed_sql_pgocaml_lwt.Make (PGOCaml)
-```
-
-Внутри `Adapter.transaction ~conn ~f` передавайте полученный `conn` как
-в `Adapter.run ~conn statement input`, так и в `[%pgsql conn ...]` или
-`[%pgsql.object conn ...]`. Quotations с таким модулем возвращают `Lwt.t`.
-Оба способа выполнения видят изменения друг друга до commit.
-
-Callback транзакции возвращает `Result.t Lwt.t`: `Ok` фиксирует все изменения,
-`Error` откатывает их. Исключение quotation также приводит к rollback
-и преобразуется в ошибку адаптера. Для прикладного Lwt-модуля `PGOCaml`
-используйте `Typed_sql_pgocaml_lwt.Make (PGOCaml)` с этим модулем;
-дополнительное соединение или вложенная транзакция для PPX не нужны.
-
-[Полный тест](test/mixed_transaction_postgresql_test.ml) показывает запись
-и чтение обоими способами, object → record, commit и два варианта rollback.
-Он запускается через `make test-postgres`; обычный `make test` не требует БД.
-
-## Ограничения и совместимость
-
-- **Форма SQL только статическая.** SQL, число placeholders и тип результата
-  фиксируются при компиляции. List-подстановки `$@ids` и их варианты пока
-  отклоняются. Native arrays через `ANY($ids)` сохраняют статическую форму.
-- Поддерживаются SELECT, INSERT/UPDATE/DELETE с RETURNING и без него,
-  WHERE с AND/OR/NOT, сравнениями и IS NULL, LIMIT/OFFSET, JOIN,
-  expressions, известные aggregates, GROUP BY/HAVING, подзапросы, CTE
-  и UNION/INTERSECT/EXCEPT, LATERAL derived SELECT, window functions,
-  unnest/generate_series в FROM и SELECT, ROWS FROM с ordinality, GROUP BY
-  по primary key, UPDATE FROM / DELETE USING. E-strings и dollar-quoted literals
-  также доступны. У каждой группы есть ограничения;
-  [полный список](../doc/ppx.md) описывает поддержанные формы.
-- В режиме snapshot поддерживаются enum как `string`, domain через базовый
-  codec и одномерные arrays. В режиме кеша пользовательские типы используют
-  [собственные конвертеры](#конвертеры-пользовательских-типов).
-  Многомерные arrays не поддерживаются.
-- Встроенный PostgreSQL `inet` использует `PGOCaml.inet` — пару
-  `Unix.inet_addr * int` с адресом и длиной префикса. Сохраняются IPv4/IPv6
-  и host bits; nullable-колонки и `$?address` используют внешний `option`.
-  Одномерные arrays используют тот же встроенный codec; domains в режиме
-  кеша требуют собственных конвертеров.
-- Nullability следует правилам PG’OCaml. Например, `count(*)` даёт
-  `int64 option list`. Прямая NOT NULL колонка на nullable стороне outer JOIN
-  сохраняет исходный тип: используйте флаг `"nullable-results"` перед SQL,
-  чтобы все поля результата стали `option`.
-- Неквалифицированные таблицы разрешаются в `public`. Для других схем пишите
-  `schema.table`. При выполнении схема и `search_path` соединения должны
-  соответствовать snapshot. Сервер проверяет ограничения данных и права доступа.
-- Поддержаны lower/upper, length, trim, позиционный substring, replace,
-  concat, abs/round, JSON extraction и IS DISTINCT FROM. Произвольные SQL
-  functions/operators, прочие table functions и regex-overloads substring пока
-  отклоняются. Обращения в БД для уточнения типов нет.
-- Несколько SRF в SELECT или функций в ROWS FROM разворачиваются совместно
-  с дополнением коротких результатов NULL. Для них доступны scalar wrappers,
-  вложенность в SELECT и aliases; действуют контекстные запреты PostgreSQL
-  для WHERE, CASE/COALESCE, аргументов агрегатов/окон и DML RETURNING.
-- Доступны cardinality, array_length и array_to_string; для GROUP BY по полному
-  non-deferrable PK обновите snapshot с metadata deferrability версии 3.
-- Для точных same-type casts varchar/numeric и временных колонок обновите
-  snapshot: optional typmod metadata сохраняются в версии 3. Старые snapshots
-  читаются, но неоднозначный cast без нужных metadata даёт diagnostic.
-- Custom Type Conversions, sexp config, `load_custom_from` и
-  `PGCUSTOM_CONVERTERS_CONFIG` пока не поддерживаются. Они запланированы последними
-  и требуют отдельного согласования реализации.
-- `%pgsql.query`, `%pgsql.query.object`, `%pgsql.statement` и
-  `%pgsql.statement.object` находятся в roadmap. Текущие quotations выполняют
-  запрос через `PGOCaml`, а не возвращают `Result_query.t` или `Statement.t`.
-
-Array runtime `typed-sql-pgocaml-ppx.runtime` Dune подключает автоматически.
-При ручном запуске PPX и компилятора его нужно добавить самостоятельно.
-
-## Если сборка не проходит
-
-- Ошибка отсутствующей схемы: проверьте, что в `pps` подключена именно
-  сгенерированная `app_schema_ppx`, а не только `typed-sql-pgocaml-ppx`.
-- Ошибка нескольких схем: оставьте одну schema PPX библиотеку в драйвере.
-- Не найдена таблица, колонка или native metadata: обновите snapshot актуальным
-  дампером и проверьте квалификацию имён. Snapshot версии 2 для этого PPX
-  не подходит.
-- Ошибка типа параметра: проверьте представление PG’OCaml, например `int32`
-  для `integer`. Типы OCaml не всегда совпадают с типами query builder.
-
-Подробности: [руководство](../doc/ppx.md), [roadmap](../doc/ppx_roadmap.md),
-[происхождение кода](ORIGIN.md) и [лицензия](COPYING).
-
-Для постепенного перехода к `Statement.t` и adapters появился отдельный
-[`typed-sql-ppx`](../query-ppx/README.md): query/command quotations из кеша v2
-принимают `Expr.t`, сохраняют статическую форму и не зависят от PGOCaml.
-Это отдельный этап миграции с типами typed-sql.
+Нужен PG’OCaml >= 4.3.0; на OCaml 5 — PG’OCaml >= 4.4.0.
+Для PG’OCaml 4.3.0 передавайте Unix socket из `PGHOST` явно:
+`PGOCaml.connect ?host:(Stdlib.Sys.getenv_opt "PGHOST") ()`.

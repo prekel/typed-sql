@@ -1,0 +1,2846 @@
+{
+  "version": 2,
+  "role": "fixture",
+  "search_path": "public",
+  "queries": [
+    {
+      "sql": "DELETE FROM ppx_items",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [],
+      "result": null
+    },
+    {
+      "sql": "DELETE FROM ppx_items AS i RETURNING i.*",
+      "kind": "returning",
+      "top_level_only": true,
+      "parameters": [],
+      "result": [
+        {
+          "name": "tenant",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "note",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        },
+        {
+          "name": "document",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "json",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "revision",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "DELETE FROM ppx_items RETURNING id",
+      "kind": "returning",
+      "top_level_only": true,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "DELETE FROM ppx_items RETURNING id, id",
+      "kind": "returning",
+      "top_level_only": true,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "DELETE FROM ppx_items WHERE id = $1",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "DELETE FROM ppx_items WHERE id = $1 RETURNING name",
+      "kind": "returning",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "INSERT INTO native_items (array_bool) VALUES ($1)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_bool",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "bool",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO native_items (array_bpchar) VALUES ($1)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_bpchar",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "bpchar",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO native_items (array_bytea) VALUES ($1)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_bytea",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "bytea",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO native_items (array_date) VALUES ($1)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_date",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "date",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO native_items (array_float4) VALUES ($1)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_float4",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "float4",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO native_items (array_float8) VALUES ($1)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_float8",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "float8",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO native_items (array_int2) VALUES ($1)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_int2",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "int2",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO native_items (array_int4) VALUES ($1)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_int4",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO native_items (array_int8) VALUES ($1)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_int8",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "int8",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO native_items (array_interval) VALUES ($1)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_interval",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "interval",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO native_items (array_json) VALUES ($1)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_json",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "json",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO native_items (array_jsonb) VALUES ($1)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_jsonb",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "jsonb",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO native_items (array_numeric) VALUES ($1)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_numeric",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "numeric",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO native_items (array_text) VALUES ($1)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_text",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO native_items (array_time) VALUES ($1)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_time",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "time",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO native_items (array_timestamp) VALUES ($1)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_timestamp",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "timestamp",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO native_items (array_timestamptz) VALUES ($1)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_timestamptz",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "timestamptz",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO native_items (array_uuid) VALUES ($1)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_uuid",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "uuid",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO native_items (array_varchar) VALUES ($1)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_varchar",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "varchar",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO ppx_items (id) VALUES ($1)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO ppx_items (id) VALUES ($1) ON CONFLICT DO NOTHING RETURNING id",
+      "kind": "returning",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "INSERT INTO ppx_items (id, note) VALUES ($1, $2), ($3, DEFAULT)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO ppx_items (tenant, id, name) VALUES ($1, $2, $3)",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "INSERT INTO ppx_items (tenant, id, name) VALUES ($1, $2, $3) ON CONFLICT (tenant, id) DO UPDATE SET name = EXCLUDED.name RETURNING id",
+      "kind": "returning",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "INSERT INTO ppx_items AS i (id, name) VALUES ($1, $2) RETURNING i.id AS identifier, i.name",
+      "kind": "returning",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "identifier",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "INSERT INTO ppx_items AS i (tenant, id, name) VALUES ($1, $2, $3) ON CONFLICT (id, tenant) DO UPDATE SET name = $4, note = EXCLUDED.note, revision = DEFAULT WHERE i.id = $5 AND excluded.tenant = $6 RETURNING i.id",
+      "kind": "returning",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "INSERT INTO ppx_items DEFAULT VALUES",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [],
+      "result": null
+    },
+    {
+      "sql": "SELECT \"P\".name FROM public.join_people AS \"P\" JOIN public.join_links AS \"L\" ON \"P\".id = \"L\".person_id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT \"odd\"\"name\" FROM quoted",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "odd\"name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT * FROM ROWS FROM(generate_series(1,3)) WITH ORDINALITY",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "generate_series",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        },
+        {
+          "name": "ordinality",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int8",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT * FROM generate_series(1,$1)",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "generate_series",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT * FROM generate_series(1,3) WITH ORDINALITY",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "generate_series",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        },
+        {
+          "name": "ordinality",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int8",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT * FROM join_people p INNER JOIN join_links l ON p.id = l.person_id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "note",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        },
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "person_id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "label",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        },
+        {
+          "name": "active",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "bool",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT array_bool FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "array_bool",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_bool",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "bool",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT array_bpchar FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "array_bpchar",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_bpchar",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "bpchar",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT array_bytea FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "array_bytea",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_bytea",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "bytea",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT array_date FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "array_date",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_date",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "date",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT array_float4 FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "array_float4",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_float4",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "float4",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT array_float8 FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "array_float8",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_float8",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "float8",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT array_int2 FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "array_int2",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_int2",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "int2",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT array_int4 FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "array_int4",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_int4",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "int4",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT array_int8 FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "array_int8",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_int8",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "int8",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT array_interval FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "array_interval",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_interval",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "interval",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT array_json FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "array_json",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_json",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "json",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT array_jsonb FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "array_jsonb",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_jsonb",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "jsonb",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT array_length(numbers,$1) FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "array_length",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT array_numeric FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "array_numeric",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_numeric",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "numeric",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT array_text FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "array_text",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_text",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "text",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT array_time FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "array_time",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_time",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "time",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT array_timestamp FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "array_timestamp",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_timestamp",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "timestamp",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT array_timestamptz FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "array_timestamptz",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_timestamptz",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "timestamptz",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT array_uuid FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "array_uuid",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_uuid",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "uuid",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT array_varchar FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "array_varchar",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_varchar",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "varchar",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT count(*) AS count FROM join_people",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "count",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int8",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT count(*) FROM join_people HAVING count(*) > $1",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int8",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "count",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int8",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT domain_numbers, domain_array FROM native_items WHERE domain_numbers = $1 AND domain_array = $2",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "public",
+            "name": "_nested_native",
+            "kind": "array",
+            "element": {
+              "schema": "public",
+              "name": "nested_native",
+              "kind": "domain",
+              "base": {
+                "schema": "public",
+                "name": "small_native",
+                "kind": "domain",
+                "base": {
+                  "schema": "pg_catalog",
+                  "name": "int2",
+                  "kind": "scalar"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_int4",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "domain_numbers",
+          "value": {
+            "type": {
+              "schema": "public",
+              "name": "_nested_native",
+              "kind": "array",
+              "element": {
+                "schema": "public",
+                "name": "nested_native",
+                "kind": "domain",
+                "base": {
+                  "schema": "public",
+                  "name": "small_native",
+                  "kind": "domain",
+                  "base": {
+                    "schema": "pg_catalog",
+                    "name": "int2",
+                    "kind": "scalar"
+                  }
+                }
+              }
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "domain_array",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_int4",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "int4",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT generate_series(1,$1)",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "generate_series",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT generate_series(1,3)",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "generate_series",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id FROM native_items WHERE id = ANY($1)",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_int4",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id FROM native_items WHERE id = ANY($1) AND id >= ALL($2)",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_int4",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "_int4",
+            "kind": "array",
+            "element": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id FROM people",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id FROM people LIMIT $1",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int8",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id FROM people WHERE NOT active = $1 OR id >= $2 AND name ILIKE $3 ORDER BY id LIMIT $4 OFFSET $5",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "bool",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int8",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int8",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id FROM people WHERE id = $1",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id FROM people WHERE id IN ($1, $2)",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id FROM people WHERE name = $1",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id, id FROM people",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT id, note FROM people",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "note",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "varchar",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT mood, small_value, nested_value, required_value FROM native_items WHERE mood = $1 AND small_value = $2 AND nested_value = $3",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "public",
+            "name": "mood",
+            "kind": "enum",
+            "labels": [
+              "happy",
+              "sad"
+            ]
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int2",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int2",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "mood",
+          "value": {
+            "type": {
+              "schema": "public",
+              "name": "mood",
+              "kind": "enum",
+              "labels": [
+                "happy",
+                "sad"
+              ]
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "small_value",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int2",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "nested_value",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int2",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "required_value",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT moods FROM native_items WHERE moods = $1",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "public",
+            "name": "_mood",
+            "kind": "array",
+            "element": {
+              "schema": "public",
+              "name": "mood",
+              "kind": "enum",
+              "labels": [
+                "happy",
+                "sad"
+              ]
+            }
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "moods",
+          "value": {
+            "type": {
+              "schema": "public",
+              "name": "_mood",
+              "kind": "array",
+              "element": {
+                "schema": "public",
+                "name": "mood",
+                "kind": "enum",
+                "labels": [
+                  "happy",
+                  "sad"
+                ]
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT name AS \"Upper\" FROM people",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "Upper",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT name FROM people",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT name FROM people\nWHERE (id = $1 AND id = $2) ORDER BY id DESC",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT name FROM people WHERE id = $1",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT note FROM people WHERE note = $1",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "note",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "varchar",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT ntile($1) OVER() FROM join_people",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "ntile",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT nullable_numbers FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "nullable_numbers",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_int4",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "int4",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT numbers FROM native_items",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "numbers",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "_int4",
+              "kind": "array",
+              "element": {
+                "schema": "pg_catalog",
+                "name": "int4",
+                "kind": "scalar"
+              }
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT p.* FROM join_people p JOIN join_links l ON p.id = l.person_id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "note",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT p.*, l.* FROM join_people p JOIN join_links l ON p.id = l.person_id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "note",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        },
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "person_id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "label",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        },
+        {
+          "name": "active",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "bool",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT p.id AS identifier, p.name FROM public.people AS p",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "identifier",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT p.id AS identifier, p.name, l.label FROM join_people p JOIN join_links l ON p.id = l.person_id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "identifier",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "label",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT p.id FROM join_people p JOIN join_links l ON p.id = l.person_id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT p.id FROM join_people p JOIN join_links l ON p.id = l.person_id AND l.id = $1",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT p.id FROM join_people p JOIN join_links l ON p.id = l.person_id AND l.label = $1 WHERE p.name = $2 ORDER BY l.id LIMIT $3",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int8",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "SELECT p.id, l.label FROM join_people p JOIN join_links l ON p.id = l.person_id",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "label",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT row_number() OVER() AS position FROM join_people",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "position",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int8",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT small_value, id, big_value FROM people",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [],
+      "result": [
+        {
+          "name": "small_value",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int2",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "big_value",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int8",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "sql": "UPDATE ppx_items AS i SET note = $1, name = $2 WHERE (i.id = $3) RETURNING i.id, i.note",
+      "kind": "returning",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "note",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "UPDATE ppx_items SET document = $1",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "json",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "UPDATE ppx_items SET name = $1",
+      "kind": "command",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "sql": "UPDATE ppx_items SET note = $1 WHERE id = $2 RETURNING note",
+      "kind": "returning",
+      "top_level_only": true,
+      "parameters": [
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "text",
+            "kind": "scalar"
+          }
+        },
+        {
+          "type": {
+            "schema": "pg_catalog",
+            "name": "int4",
+            "kind": "scalar"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "note",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "UPDATE ppx_items SET revision = DEFAULT RETURNING id",
+      "kind": "returning",
+      "top_level_only": true,
+      "parameters": [],
+      "result": [
+        {
+          "name": "id",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "int4",
+              "kind": "scalar"
+            }
+          },
+          "nullable": false
+        }
+      ]
+    }
+  ]
+}

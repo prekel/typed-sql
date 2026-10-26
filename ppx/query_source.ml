@@ -19,7 +19,8 @@ let collect_exn structure =
            Quotation.check_environment ~loc;
            (match Query_bind.scan sql with
             | Ok query -> queries := { query; loc } :: !queries
-            | Error error -> Location.raise_errorf ~loc "%s" (Sql.error_to_string error))
+            | Error error ->
+              Location.raise_errorf ~loc "%s" (Query_bind.error_to_string error))
          | _ -> ());
         super#expression expression
     end

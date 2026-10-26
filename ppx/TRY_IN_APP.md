@@ -1,42 +1,13 @@
-# Как попробовать оба режима в существующем приложении
+# Подключить PPX к приложению
 
-Начните с одной библиотеки приложения, в которой уже есть `[%pgsql ...]`
-и `[%pgsql.object ...]`. Ниже это каталог `src/db` и библиотека `app_db`.
-Подставьте свои имена и сохраните существующие
-`libraries`, параметры Dune и остальные PPX.
+Примеры используют библиотеку `src/db/app_db` и модуль приложения `PGOCaml`.
+Сохраните исходную сборку и тесты с upstream `pgocaml_ppx` для сравнения.
+Для подготовки metadata используйте тестовую БД с применёнными миграциями
+и ролью приложения.
 
-SQL, модуль `PGOCaml`, его Lwt-реализацию, соединения, транзакции и прикладной
-deriving для object → record менять не нужно. В частности, остаётся рабочим
-`List.map results ~f:t_of_pgocaml`. Оба режима генерируют выполнение запроса,
-а не `Statement.t` или `Result_query.t`.
+## Установить пакеты
 
-## Подготовить окружение и исходную проверку
-
-Создайте ветку в приложении и выполните его обычные сборку и тесты с upstream
-`pgocaml_ppx`, чтобы зафиксировать исходное состояние. Для дальнейших проверок
-используйте тестовую БД с применёнными миграциями и ролью приложения.
-
-Режим кеша доступен начиная с v0.5.0. Для описанных ниже возможностей,
-включая `--pp` и `inet`, в opam switch приложения закрепите необходимые
-пакеты на текущем релизе v0.5.3:
-
-```bash
-typed_sql_packages=(
-  typed-sql
-  typed-sql-schema
-  typed-sql-ppx
-  typed-sql-pgocaml-lwt
-  typed-sql-schema-pgocaml-lwt
-  typed-sql-pgocaml-ppx
-)
-for package in "${typed_sql_packages[@]}"; do
-  opam pin add -yn "$package" 'git+https://github.com/prekel/typed-sql.git#v0.5.3'
-done
-opam install typed-sql-pgocaml-ppx typed-sql-schema-pgocaml-lwt
-```
-
-Чтобы попробовать изменения из локального checkout вместо релизного тега,
-используйте path pins:
+Для локального checkout:
 
 ```sh
 TYPED_SQL_CHECKOUT=/absolute/path/to/typed-sql
@@ -44,107 +15,33 @@ TYPED_SQL_CHECKOUT=/absolute/path/to/typed-sql
 opam pin add --no-action --kind=path typed-sql "$TYPED_SQL_CHECKOUT"
 opam pin add --no-action --kind=path typed-sql-schema "$TYPED_SQL_CHECKOUT"
 opam pin add --no-action --kind=path typed-sql-ppx "$TYPED_SQL_CHECKOUT"
-opam pin add --no-action --kind=path typed-sql-pgocaml-lwt "$TYPED_SQL_CHECKOUT"
-opam pin add --no-action --kind=path typed-sql-schema-pgocaml-lwt "$TYPED_SQL_CHECKOUT"
 opam pin add --no-action --kind=path typed-sql-pgocaml-ppx "$TYPED_SQL_CHECKOUT"
-opam install typed-sql-pgocaml-ppx typed-sql-schema-pgocaml-lwt
+opam install typed-sql-pgocaml-ppx
 ```
 
-`--kind=path` берёт файлы рабочего дерева, включая ещё не закоммиченные изменения.
-Сохраняйте текущую версию `pgocaml`, если она совместима с зависимостями:
-минимальная — 4.3.0 на OCaml 4.14.1, для OCaml 5 нужна 4.4.0 или совместимая
-более новая версия. Установка adapter и дампера не требует менять способ
-работы приложения с PGOCaml. После дальнейшего изменения checkout обновляйте
-установленные pins через `opam reinstall` соответствующих пакетов.
+После изменения checkout переустановите пакет через
+`opam reinstall typed-sql-pgocaml-ppx` в switch приложения.
+PG’OCaml >= 4.3.0 поддерживается на OCaml 4.14.1; для OCaml 5 нужен >= 4.4.0.
 
-Пример подключения к тестовой БД; пароль при необходимости задайте через
-`PGPASSWORD`, не записывая его в Dune и JSON:
+## Подготовить и подключить metadata
 
-```sh
+```bash
 export PGHOST=/path/to/postgresql/socket
 export PGPORT=5432
 export PGUSER=my_app
 export PGDATABASE=my_app_test
 
-mkdir -p offline_sql_ppx/schema offline_sql_ppx/cache
-```
-
-Если приложение использует собственный `search_path`, передайте его в
-`prepare/check` через `--search-path`. Для начала удобно использовать
-`public` и запросы с явно указанными схемами. Snapshot-режим разрешает
-неквалифицированные таблицы в `public`.
-
-## Попробовать snapshot схемы
-
-Сохраните актуальную схему:
-
-```sh
-opam exec -- typed-sql-pgocaml-schema-dump > offline_sql_ppx/schema/schema.json
-```
-
-Создайте `offline_sql_ppx/schema/dune`:
-
-```lisp
-(rule
- (target schema_ppx.ml)
- (deps schema.json)
- (action
-  (with-stdout-to
-   %{target}
-   (run %{bin:typed-sql-codegen} --target pgocaml-ppx %{dep:schema.json}))))
-
-(library
- (name app_schema_ppx)
- (modules schema_ppx)
- (kind ppx_rewriter)
- (libraries base typed-sql-schema typed-sql-pgocaml-ppx))
-```
-
-В `src/db/dune` замените только `pgocaml_ppx` на `app_schema_ppx`.
-Например, существующий список:
-
-```lisp
-(preprocess (pps ppx_let pgocaml_ppx app_deriving))
-```
-
-станет таким:
-
-```lisp
-(preprocess (pps ppx_let app_schema_ppx app_deriving))
-```
-
-`app_deriving` здесь обозначает существующий PPX приложения. Сохраните его
-реальное имя; добавлять новый deriving не требуется. Соберите `app_db` и
-запустите соответствующие тесты приложения:
-
-```sh
-opam exec -- dune build src/db/app_db.cma
-```
-
-В этом режиме SQL проверяет собственный parser по snapshot. Если встретилась
-неподдержанная конструкция, сохраните diagnostic и попробуйте тот же запрос
-в режиме кеша. После изменения схемы обновляйте `schema.json`; изменение SQL
-не требует повторного дампа, если сохранённая схема всё ещё актуальна.
-
-## Попробовать кеш описаний запросов
-
-В Bash используйте рекурсивный glob для `.ml` файлов выбранной библиотеки.
-Оболочка раскроет его в список файлов, включая вложенные каталоги. Файлы без
-quotations тоже можно включать. Ограничьте glob каталогом нужных исходников,
-чтобы не захватить `_build`, копии и библиотеки, использующие другую БД:
-
-```bash
+mkdir -p offline_sql_ppx/cache
 shopt -s globstar
 
 opam exec -- typed-sql-pgocaml-queries prepare \
   --output offline_sql_ppx/cache/queries.json \
-  --search-path public \
-  src/db/**/*.ml
+  --search-path public src/db/**/*.ml
 ```
 
-PostgreSQL определит типы через Prepare/Describe. Пользовательские запросы,
-в том числе DML, не выполняются. Ошибка выводится с расположением quotation;
-исходники не обязаны собираться с новым PPX до первой подготовки кеша.
+Не включайте `_build` и исходники, относящиеся к другой БД.
+Команда описывает SQL без выполнения пользовательских запросов.
+Используйте свой `search_path`, если приложение отличается от `public`.
 
 Создайте `offline_sql_ppx/cache/dune`:
 
@@ -164,31 +61,35 @@ PostgreSQL определит типы через Prepare/Describe. Пользо
  (libraries base typed-sql-pgocaml-ppx))
 ```
 
-Теперь в том же `src/db/dune` замените `app_schema_ppx` на `app_queries_ppx`:
+В `src/db/dune` подключите `app_queries_ppx` вместо upstream `pgocaml_ppx`:
 
 ```lisp
 (preprocess (pps ppx_let app_queries_ppx app_deriving))
 ```
 
-Снова соберите `src/db/app_db.cma` и запустите те же тесты приложения.
-Собственный SQL parser в этом режиме не используется. При изменении SQL или
-схемы снова запускайте `prepare` с полным списком файлов. Для проверки
-актуальности без изменения кеша используйте ту же БД, роль и search path:
+`app_deriving` обозначает существующий deriving приложения; добавлять его
+специально для PPX не нужно. В драйвере должен быть ровно один query cache.
+Для пользовательских типов определите `PGOCaml.string_of_TYPENAME` и
+`PGOCaml.TYPENAME_of_string` в локальном модуле приложения:
+[пример и правила](README.md#конвертеры-пользовательских-типов).
+
+```sh
+opam exec -- dune build src/db/app_db.cma
+```
+
+Для проверки metadata без изменения JSON:
 
 ```bash
-shopt -s globstar
-
 opam exec -- typed-sql-pgocaml-queries check \
   --cache offline_sql_ppx/cache/queries.json \
-  --search-path public \
-  src/db/**/*.ml
+  --search-path public src/db/**/*.ml
 ```
 
 ## SQL из другого PPX
 
 Если SQL собирается другим PPX, например из общих fragments через
 `let%concat` и `[%concat ...]`, применяйте тот же preprocessing при
-`prepare` и `check` с параметром `--pp`, доступным начиная с v0.5.3.
+`prepare` и `check` с параметром `--pp`.
 
 Для `ppx_concat`, зарегистрированного через `Driver.register_transformation
 ~preprocess_impl ~rules`, создайте `offline_sql_ppx/concat_driver.ml`:
@@ -211,7 +112,7 @@ let () = Ppxlib.Driver.standalone ()
 
 `-linkall` включает модуль с регистрацией преобразования.
 Драйвер должен содержать preprocessing, создающий SQL, и оставлять `%pgsql`
-для сборщика. Не добавляйте сюда `pgocaml_ppx`, schema PPX или query-cache
+для сборщика. Не добавляйте сюда `pgocaml_ppx` или query-cache
 provider. Поэтому этот драйвер можно собрать до подготовки первого кеша:
 
 ```sh
@@ -256,53 +157,23 @@ SQL fragments становятся литералами до поиска зап
 обычного SQL literal. Та же опция работает при подготовке кеша для новых
 `.query`, `.command` и `.statement` quotations.
 
-## Сравнить результаты и проверить офлайн-сборку
+## Проверить приложение
 
-Оба каталога metadata могут существовать в проекте одновременно. Переключение
-делается одним именем в `pps`: `app_schema_ppx` либо `app_queries_ppx`.
-В один PPX-драйвер подключайте только один источник metadata и уберите из него
-upstream `pgocaml_ppx`. Остальные библиотеки приложения могут временно оставаться
-на upstream, если используют отдельные PPX-драйверы.
+Запустите тесты на той же БД. Сравните OCaml-типы, object → record converters,
+NULL, порядок строк, SQLSTATE, DML-побочные эффекты и транзакции.
+Для outer JOIN используйте `"nullable-results"`, если требуется.
 
-Для каждого режима сравните с исходным приложением OCaml-типы, object methods,
-NULL, порядок строк, побочные эффекты DML и поведение транзакций. Собственные
-соединения и транзакции приложения продолжают использоваться напрямую.
-Во время проверки особенно полезны существующие object → record converters:
-несовпадение формы результата проявится при компиляции.
-
-После перевода всех SQL PPX в зависимостях выбранной цели проверьте реальную
-пересборку с недоступной БД, например после `dune clean`:
+Проверьте сборку и LSP с недоступной БД:
 
 ```sh
 opam exec -- dune clean
 PGHOST=/nonexistent/offline-ppx opam exec -- dune build src/db/app_db.cma
 ```
 
-Этот override предназначен для сборки; тесты, выполняющие запросы, запускайте
-с настоящим подключением. Если зависимости цели всё ещё используют upstream
-PPX или иные правила с обращением к БД, они сохраняют собственную потребность
-в подключении. В Zed/LSP откройте файл и проверьте diagnostics: JSON встроен
-в драйвер, относительный путь к нему при раскрытии quotation не используется.
+Тесты, выполняющие SQL, требуют работающего подключения. Если другие зависимости
+используют upstream PPX с обращением к БД, переведите и их quotations на кеш.
+Храните JSON и Dune-конфигурацию в репозитории; генерируемый provider Dune
+создаёт сам. В приложении при выполнении JSON не нужен.
 
-Храните выбранный JSON и Dune-конфигурацию в репозитории. Сгенерированные
-`schema_ppx.ml` / `queries_ppx.ml` Dune создаёт сам; в приложении при выполнении
-не нужны ни JSON, ни дампер, ни команда подготовки кеша.
-
-Общие ограничения: статическая форма SQL, поддержанные codecs и флаги.
-`$@list`, `execute`, Custom Type Conversions пока не поддерживаются.
-В режиме кеша пользовательские типы, включая enum/domain, требуют функций
-`PGOCaml.string_of_TYPENAME` и `PGOCaml.TYPENAME_of_string` в модуле приложения;
-это отдельный механизм без sexp config.
-[Пример и правила миграции](README.md#конвертеры-пользовательских-типов).
-Для quotations, создаваемых другими PPX, используйте `--pp`, описанный выше;
-deriving, который только генерирует object → record converter, этого не требует.
-Для outer JOIN при необходимости сохраните `"nullable-results"`.
-Подробнее о nullability и codecs — в [README](README.md).
-
-## Дальше: query/command без выполнения внутри quotation
-
-После проверки совместимого PPX можно переносить по одному запросу на
-[`typed-sql-ppx`](../query-ppx/README.md). Он использует кеш v2 и `Expr.t`,
-строит `Result_query.t` / `Command.t` и выполняется через обычный Statement.
-Руководство показывает static input, сохранение object → record и переход
-на Caqti. Это отдельная миграция; для первого шага замены PPX она не нужна.
+[typed-sql-ppx](../query-ppx/README.md) позволяет создавать query/command/statement
+quotations и выполнять их через Caqti или PG’OCaml adapters.

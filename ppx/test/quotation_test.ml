@@ -1,5 +1,5 @@
 open! Base
-module Real_pgocaml = PGOCaml
+module Real_pgocaml = Pgocaml_test_codecs
 
 module PGOCaml = struct
   include (Real_pgocaml : module type of Real_pgocaml with type 'a t := 'a Real_pgocaml.t)

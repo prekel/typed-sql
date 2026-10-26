@@ -185,20 +185,15 @@ let expand ~genobject ~loc payload_ =
   let dbh, flags, sql, sql_loc = Quotation.payload ~loc payload_ in
   Quotation.check_environment ~loc:sql_loc;
   let plan =
-    match Schema_registry.source ~loc:sql_loc with
-    | Schema_registry.Schema schema ->
-      let open Result.Let_syntax in
-      let%bind sql = Sql.parse sql in
-      Statement_plan.create schema sql
-    | Queries queries ->
-      let open Result.Let_syntax in
-      let%bind query = Query_bind.scan sql in
-      Query_cache.plan queries query
+    let queries = Query_cache_registry.current ~loc:sql_loc in
+    let open Result.Let_syntax in
+    let%bind query = Query_bind.scan sql in
+    Query_cache.plan queries query
   in
   let plan =
     match plan with
     | Ok plan -> plan
-    | Error diagnostic -> error ~loc:sql_loc (Sql.error_to_string diagnostic)
+    | Error diagnostic -> error ~loc:sql_loc (Query_bind.error_to_string diagnostic)
   in
   if genobject then (
     let fields = Statement_plan.fields plan in

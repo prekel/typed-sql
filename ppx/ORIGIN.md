@@ -1,6 +1,7 @@
 # Происхождение реализации
 
-Генерация runtime-вызовов и эвристика nullability в `expand.ml` и команде `bin/typed_sql_pgocaml_queries.ml` адаптированы из
+Генерация runtime-вызовов и эвристика nullability в `expand.ml` и команде
+`bin/typed_sql_pgocaml_queries.ml` адаптированы из
 [pgocaml_ppx 4.4.0](https://github.com/darioteixeira/pgocaml/blob/v4.4.0/ppx/ppx_pgsql.ml).
 Copyright (C) 2005–2016 Richard Jones and other authors. Пакет распространяется
 под GNU Library General Public License версии 2 или позднее; текст лицензии
@@ -8,18 +9,13 @@ Copyright (C) 2005–2016 Richard Jones and other authors. Пакет распр
 
 Поддержка OCaml quoted strings при разборе аргументов перенесена по
 [PR #80](https://github.com/darioteixeira/pgocaml/pull/80), автор Voronar,
-commit `4462561`. Pattern находится в `quotation.ml` и адаптирован к AST текущего `ppxlib`. Регрессионные
-тесты сохраняют отдельные проверки обычных и delimited strings.
+commit `4462561`. Pattern находится в `quotation.ml` и адаптирован к AST ppxlib.
 
-SQL parser и разрешение metadata написаны для ограниченного offline SELECT
-и DML, включая обычный ON CONFLICT. Структурные codecs, native metadata и
-helpers одномерных arrays написаны для этого проекта; runtime-сборка SQL
-и динамические list-подстановки upstream не переносятся.
-Отдельная команда подготовки кеша описывает запросы через Prepare/Describe
-и каталоги PostgreSQL. Сборщик и формат кеша написаны для этого проекта;
-при компиляции пакет не обращается к БД. Поддержанное подмножество описано в [руководстве](../doc/ppx.md).
+Команда подготовки описывает запросы через Prepare/Describe и каталоги
+PostgreSQL. Структурные codecs, логический кеш, metadata и helpers одномерных
+arrays написаны для этого проекта. При компиляции пакет не обращается к БД.
 
-Общий scanner и логический кеш выделены в `typed-sql-ppx.cache`. Обработка
+Общий scanner и логический кеш находятся в `typed-sql-ppx.cache`. Обработка
 payload в [query_source.ml](../query-ppx/cache/query_source.ml) сохраняет ту же
-шапку происхождения и LGPL-лицензию. Выполняющий PPX читает кеши v1 и v2,
-сам вычисляя PG’OCaml codecs из логических типов.
+шапку происхождения и LGPL-лицензию. Выполняющий PPX вычисляет PG’OCaml codecs
+из логических типов. [Контракт и ограничения](../doc/ppx.md).

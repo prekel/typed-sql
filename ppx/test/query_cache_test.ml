@@ -10,7 +10,7 @@ let get = function
 ;;
 
 let scan source =
-  P.Query_bind.scan source |> Result.map_error ~f:P.Sql.error_to_string |> get
+  P.Query_bind.scan source |> Result.map_error ~f:P.Query_bind.error_to_string |> get
 ;;
 
 let scalar name =
@@ -24,6 +24,8 @@ let int4 = scalar "int4"
 
 let entry =
   { C.sql = "SELECT $1::int4 AS id"
+  ; kind = C.Select
+  ; top_level_only = false
   ; parameters = [ int4 ]
   ; result = Some [ { C.name = "id"; typ = int4; nullable = true } ]
   }
@@ -115,17 +117,8 @@ let%test "unsupported cache versions are rejected" =
     (C.of_string
        (String.substr_replace_first
           (C.to_string cache)
-          ~pattern:"\"version\": 1"
+          ~pattern:"\"version\": 2"
           ~with_:"\"version\": 3"))
-;;
-
-let%test "cached codec must match logical type" =
-  Result.is_error
-    (C.of_string
-       (String.substr_replace_first
-          (C.to_string cache)
-          ~pattern:"\"codec\": \"int32\""
-          ~with_:"\"codec\": \"arbitrary_function\""))
 ;;
 
 let%test "duplicate SQL is rejected" =
@@ -191,10 +184,10 @@ let%test "escape mode carries across newline-separated string segments" =
 let%test "missing result is not silently interpreted as a command" =
   Result.is_error
     (C.of_string
-       {json|{"version":1,"role":"fixture","search_path":"public","queries":[{"sql":"SELECT 1","parameters":[]}]}|json})
+       {json|{"version":2,"role":"fixture","search_path":"public","queries":[{"sql":"SELECT 1","parameters":[]}]}|json})
 ;;
 
-let%test "logical v2 metadata derives legacy PGOCaml codecs" =
+let%test "logical metadata selects PGOCaml codecs" =
   let module Shared = Typed_sql_ppx_cache.Query_cache in
   match
     Shared.create

@@ -4,7 +4,7 @@
 
 (name typed-sql)
 
-(version 0.5.3)
+(version 0.6.0)
 
 (generate_opam_files true)
 
@@ -160,9 +160,9 @@
 
 (package
  (name typed-sql-pgocaml-ppx)
- (synopsis "Offline PG'OCaml quotations with schema or query metadata")
+ (synopsis "Offline PG'OCaml quotations with prepared query metadata")
  (description
-  "An experimental PG'OCaml-compatible PPX using embedded schema snapshots or prepared query metadata instead of compile-time database access, with an explicit online preparation tool.")
+  "An experimental PG'OCaml-compatible PPX using embedded prepared query metadata instead of compile-time database access, with an explicit online preparation tool.")
  (license LGPL-2.0-or-later)
  (depends
   (ocaml (>= 4.14.1))

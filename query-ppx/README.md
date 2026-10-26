@@ -2,8 +2,7 @@
 
 Экспериментальный пакет `typed-sql-ppx` строит запросы для существующих
 adapters typed-sql. Сборка и LSP не подключаются к PostgreSQL. Здесь используется
-только кеш Prepare/Describe; snapshot схемы не подходит. Пакет доступен
-начиная с v0.5.1; используйте одинаковую версию ядра, schema, PPX,
+кеш Prepare/Describe. Используйте одинаковую версию ядра, schema, PPX,
 online-инструмента и выбранного adapter. API остаётся экспериментальным.
 
 - `[%pgsql.query "..."]` → `Result_query.t`, scalar или tuple.
@@ -39,7 +38,7 @@ typed-sql-pgocaml-queries prepare --output src/db/queries.json "${sources[@]}"
 
 После изменения SQL или схемы повторите `prepare`. `check --cache` проверяет
 актуальность кеша с доступом к БД. Пользовательский SQL при подготовке не
-выполняется. Кеш v1 нужно обновить: новый PPX требует kind и placement из v2.
+выполняется. Кеш содержит kind и ограничения размещения запросов.
 В кеше нет OID, значений input или credentials. При выполнении сохраняйте
 совместимые schema/search_path и роль: сохранённые metadata не меняют
 разрешение неквалифицированных имён на соединении.
@@ -212,11 +211,11 @@ fragments не должны содержать собственных placeholde
    и в той же транзакции. PGOCaml adapter поддерживает существующий модуль через
    `Typed_sql_pgocaml_lwt.Make (PGOCaml)`.
    При переносе по одному запросу оставьте оба PPX в Dune:
-   `(pps ppx_let legacy_queries_ppx app_queries_ppx)`. Первый provider
+   `(pps ppx_let pgocaml_queries_ppx app_queries_ppx)`. Первый provider
    регистрирует metadata в `Typed_sql_pgocaml_ppx`, второй — в `Typed_sql_ppx`;
-   их registry независимы. Для legacy provider можно использовать snapshot
-   или codegen кеша без `--target`. Один кеш v2 пригоден для обоих codegen.
-   В приложении пока остаются runtime dependencies старых quotations.
+   их registry независимы. PG’OCaml provider создаётся командой codegen без
+   `--target`. Один кеш пригоден для обоих codegen.
+   В приложении пока остаются runtime dependencies выполняющих quotations.
 
 3. Сохраните object → record converter, если типы методов совпадают. Здесь `int4`
    — `int`, а не `int32`; numeric — `Decimal.t`; date — `Date.t`; timestamptz —
@@ -242,6 +241,5 @@ Query.(
 
 Исполняемые примеры композиции и выполнения обоими adapters находятся в
 [test](test/queries.ml) и [integration test](test/postgresql_test.ml).
-Snapshot-frontend для новых quotations, произвольные expression holes,
-динамические lists отложены в
+Динамические lists отложены в
 [roadmap](../doc/ppx_roadmap.md). Custom Type Conversions требуют отдельного согласия.

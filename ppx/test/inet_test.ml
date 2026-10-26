@@ -17,6 +17,8 @@ let%test_module "native inet codecs" =
       let sql = "SELECT $1" in
       let entry =
         { C.sql
+        ; kind = C.Select
+        ; top_level_only = false
         ; parameters = [ typ ]
         ; result = Some [ { C.name = "address"; typ; nullable = true } ]
         }
@@ -30,11 +32,11 @@ let%test_module "native inet codecs" =
       in
       let query =
         P.Query_bind.scan "SELECT $?address"
-        |> Result.map_error ~f:P.Sql.error_to_string
+        |> Result.map_error ~f:P.Query_bind.error_to_string
         |> Result.ok_or_failwith
       in
       C.plan cache query
-      |> Result.map_error ~f:P.Sql.error_to_string
+      |> Result.map_error ~f:P.Query_bind.error_to_string
       |> Result.ok_or_failwith
     ;;
 

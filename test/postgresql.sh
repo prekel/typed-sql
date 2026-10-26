@@ -142,6 +142,11 @@ dune exec --root . caqti-lwt/test/postgresql_test.exe
 TYPED_SQL_PG_EXPECT=1 dune build --root . @runtest-typed_sql_postgresql_expect_tests
 dune exec --root . caqti-lwt/test/insert_select_test.exe -- --postgres
 dune exec --root . pgocaml-lwt/test/postgresql_test.exe
+dune build --root . ppx/bin/typed_sql_pgocaml_queries.exe
+"$pg_bindir/createdb" typed_sql_ppx_metadata
+build_dir="${DUNE_BUILD_DIR:-_build}"
+PGDATABASE=typed_sql_ppx_metadata bash ppx/test/check_fixtures.sh \
+  "$build_dir/default/ppx/bin/typed_sql_pgocaml_queries.exe"
 "$pg_bindir/createdb" typed_sql_ppx_test
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/postgresql_test.exe
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/dml_postgresql_test.exe
@@ -154,15 +159,7 @@ PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/srf_postgresql_test.ex
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/srf_select_postgresql_test.exe
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/runtime_contract_postgresql_test.exe
 PGDATABASE=typed_sql_ppx_test dune exec --root . ppx/test/mixed_transaction_postgresql_test.exe
-if [[ -n "${TYPED_SQL_UPSTREAM_PPX:-}" ]]; then
-  dune build --root . ppx/test/ppx_driver.exe ppx/runtime/typed_sql_pgocaml_runtime.cma
-  build_dir="${DUNE_BUILD_DIR:-_build}"
-  PGDATABASE=typed_sql_ppx_test bash ppx/test/upstream_contract_test.sh \
-    "$TYPED_SQL_UPSTREAM_PPX" \
-    "$build_dir/default/ppx/test/ppx_driver.exe" \
-    "$build_dir/default/ppx/runtime/typed_sql_pgocaml_runtime.cma" \
-    "$build_dir/default/ppx/runtime/.typed_sql_pgocaml_runtime.objs/byte/typed_sql_pgocaml_runtime.cmi"
-fi
+
 dune build --root . ppx/bin/typed_sql_pgocaml_queries.exe ppx/test/cache_driver.exe \
   ppx/test/query_cache/embedded_driver.exe ppx/test/query_cache/main.exe \
   ppx/test/query_cache/mixed_transaction_postgresql_test.exe \

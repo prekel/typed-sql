@@ -1,4 +1,5 @@
 open! Base
+module PGOCaml = Pgocaml_test_codecs
 
 let exec conn query =
   PGOCaml.prepare conn ~query ();

@@ -1,21 +1,38 @@
 (rule
- (target schema_ppx.ml)
- (deps schema.json)
+ (target offline_queries_ppx.ml)
+ (deps offline_queries.json)
  (action
   (with-stdout-to
    %{target}
    (run
-    %{exe:../../bin/typed_sql_codegen.exe}
-    --target
-    pgocaml-ppx
-    %{dep:schema.json}))))
+    %{exe:../bin/typed_sql_pgocaml_queries.exe}
+    codegen
+    %{dep:offline_queries.json}))))
 
 (library
- (name typed_sql_pgocaml_test_schema_ppx)
+ (name typed_sql_pgocaml_test_cache_ppx)
  (optional)
- (modules schema_ppx)
+ (modules offline_queries_ppx)
  (kind ppx_rewriter)
- (libraries typed-sql-schema typed-sql-pgocaml-ppx))
+ (libraries base typed-sql-pgocaml-ppx))
+
+(rule
+ (target integration_queries_ppx.ml)
+ (deps integration_queries.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    %{exe:../bin/typed_sql_pgocaml_queries.exe}
+    codegen
+    %{dep:integration_queries.json}))))
+
+(library
+ (name typed_sql_pgocaml_integration_test_ppx)
+ (optional)
+ (modules integration_queries_ppx)
+ (kind ppx_rewriter)
+ (libraries base typed-sql-pgocaml-ppx))
 
 (library
  (name typed_sql_pgocaml_ppx_tests)
@@ -24,64 +41,60 @@
   query_cache_test
   custom_type_cache_test
   inet_test
-  frontend_test
-  join_frontend_test
-  rich_frontend_test
-  compatibility_frontend_test
-  srf_frontend_test
-  srf_select_frontend_test
-  sql_string_test
   join_quotation_test
-  dml_frontend_test
   quotation_test
   dml_quotation_test
-  extended_frontend_test
   extended_quotation_test
   runtime_test)
- (libraries base pgocaml typed-sql-schema typed-sql-pgocaml-ppx)
- (inline_tests
-  (deps schema.json))
+ (libraries
+  base
+  pgocaml
+  pgocaml_test_codecs
+  typed-sql-schema
+  typed-sql-pgocaml-ppx)
+ (inline_tests)
  (preprocess
-  (pps ppx_expect ppx_let typed_sql_pgocaml_test_schema_ppx)))
+  (pps ppx_expect ppx_let typed_sql_pgocaml_test_cache_ppx)))
 
 (executable
  (name ppx_driver)
  (modules ppx_driver)
- (libraries ppxlib typed-sql-pgocaml-ppx typed_sql_pgocaml_test_schema_ppx))
+ (libraries ppxlib typed-sql-pgocaml-ppx typed_sql_pgocaml_test_cache_ppx))
 
 (executable
  (name postgresql_test)
  (modules postgresql_test)
  (libraries base pgocaml)
  (preprocess
-  (pps typed_sql_pgocaml_test_schema_ppx)))
+  (pps typed_sql_pgocaml_integration_test_ppx)))
 
 (executable
  (name dml_postgresql_test)
  (modules dml_postgresql_test)
  (libraries base pgocaml)
  (preprocess
-  (pps typed_sql_pgocaml_test_schema_ppx)))
+  (pps typed_sql_pgocaml_integration_test_ppx)))
 
 (executable
  (name extended_postgresql_test)
  (modules extended_postgresql_test)
- (libraries base pgocaml)
+ (libraries base pgocaml pgocaml_test_codecs)
  (preprocess
-  (pps typed_sql_pgocaml_test_schema_ppx)))
+  (pps typed_sql_pgocaml_integration_test_ppx)))
 
 (executable
  (name join_postgresql_test)
  (modules join_postgresql_test)
  (libraries base pgocaml)
  (preprocess
-  (pps typed_sql_pgocaml_test_schema_ppx)))
+  (pps typed_sql_pgocaml_integration_test_ppx)))
 
 (rule
  (alias runtest)
  (package typed-sql-pgocaml-ppx)
  (deps
   compile_fail_test.sh
+  driver_queries.ml
   (glob_files compile_fail/*.ml))
  (action
   (run
@@ -91,34 +104,12 @@
    %{bin:ocamlfind}
    %{lib:typed-sql-pgocaml-ppx.runtime:typed_sql_pgocaml_runtime.cmi})))
 
-(rule
- (alias runtest)
- (package typed-sql-pgocaml-ppx)
- (deps rebuild_test.sh rebuild_schema.json)
- (action
-  (run
-   bash
-   %{dep:rebuild_test.sh}
-   %{exe:../../bin/typed_sql_codegen.exe}
-   %{dep:rebuild_schema.json})))
-
-(rule
- (alias runtest)
- (package typed-sql-pgocaml-ppx)
- (deps codegen_cli_test.sh rebuild_schema.json)
- (action
-  (run
-   bash
-   %{dep:codegen_cli_test.sh}
-   %{exe:../../bin/typed_sql_codegen.exe}
-   %{dep:rebuild_schema.json})))
-
 (executable
  (name rich_postgresql_test)
  (modules rich_postgresql_test)
  (libraries base pgocaml)
  (preprocess
-  (pps typed_sql_pgocaml_test_schema_ppx)))
+  (pps typed_sql_pgocaml_integration_test_ppx)))
 
 (executable
  (name mixed_transaction_postgresql_test)
@@ -126,44 +117,66 @@
  (optional)
  (libraries base lwt.unix pgocaml typed-sql typed-sql-pgocaml-lwt)
  (preprocess
-  (pps ppx_let typed_sql_pgocaml_test_schema_ppx)))
+  (pps ppx_let typed_sql_pgocaml_integration_test_ppx)))
 
 (executable
  (name compatibility_postgresql_test)
  (modules compatibility_postgresql_test)
  (libraries base pgocaml)
  (preprocess
-  (pps typed_sql_pgocaml_test_schema_ppx)))
+  (pps typed_sql_pgocaml_integration_test_ppx)))
 
 (executable
  (name literal_postgresql_test)
  (modules literal_postgresql_test)
  (libraries base pgocaml)
  (preprocess
-  (pps typed_sql_pgocaml_test_schema_ppx)))
+  (pps typed_sql_pgocaml_integration_test_ppx)))
 
 (executable
  (name runtime_contract_postgresql_test)
  (modules runtime_contract_postgresql_test)
  (libraries base pgocaml)
  (preprocess
-  (pps typed_sql_pgocaml_test_schema_ppx)))
+  (pps typed_sql_pgocaml_integration_test_ppx)))
 
 (executable
  (name srf_postgresql_test)
  (modules srf_postgresql_test)
  (libraries base pgocaml)
  (preprocess
-  (pps typed_sql_pgocaml_test_schema_ppx)))
+  (pps typed_sql_pgocaml_integration_test_ppx)))
 
 (executable
  (name srf_select_postgresql_test)
  (modules srf_select_postgresql_test)
  (libraries base pgocaml)
  (preprocess
-  (pps typed_sql_pgocaml_test_schema_ppx)))
+  (pps typed_sql_pgocaml_integration_test_ppx)))
 
 (executable
  (name cache_driver)
  (modules cache_driver)
  (libraries base ppxlib typed-sql-pgocaml-ppx))
+
+(executable
+ (name no_cache_driver)
+ (modules no_cache_driver)
+ (libraries base ppxlib typed-sql-pgocaml-ppx))
+
+(library
+ (name pgocaml_test_codecs)
+ (optional)
+ (modules pgocaml_test_codecs)
+ (libraries base pgocaml typed-sql-pgocaml-ppx.runtime))
+
+(rule
+ (alias runtest)
+ (package typed-sql-pgocaml-ppx)
+ (deps registry_test.sh driver_queries.ml)
+ (action
+  (run
+   bash
+   %{dep:registry_test.sh}
+   %{exe:no_cache_driver.exe}
+   %{dep:driver_queries.ml})))

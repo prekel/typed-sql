@@ -29,10 +29,10 @@ let literal_arguments_exn ~loc expression =
     | _ -> Location.raise_errorf ~loc:expression.pexp_loc "expected SQL literal")
 ;;
 
-let payload_exn ~loc ~legacy = function
+let payload_exn ~loc ~with_connection = function
   | PStr [ { pstr_desc = Pstr_eval (expression, []); _ } ] ->
     let arguments =
-      if legacy then
+      if with_connection then
         literal_arguments_exn ~loc expression
       else (
         match
@@ -70,11 +70,14 @@ let statement_payload_exn ~loc payload =
         }
       ] ->
     let flags, sql, sql_loc =
-      payload_exn ~loc ~legacy:false (PStr [ Ast_builder.Default.pstr_eval ~loc body [] ])
+      payload_exn
+        ~loc
+        ~with_connection:false
+        (PStr [ Ast_builder.Default.pstr_eval ~loc body [] ])
     in
     Some input, flags, sql, sql_loc
   | _ ->
-    let flags, sql, sql_loc = payload_exn ~loc ~legacy:false payload in
+    let flags, sql, sql_loc = payload_exn ~loc ~with_connection:false payload in
     None, flags, sql, sql_loc
 ;;
 
@@ -108,7 +111,8 @@ let collect_exn structure =
              else
                payload_exn
                  ~loc
-                 ~legacy:(String.equal name "pgsql" || String.equal name "pgsql.object")
+                 ~with_connection:
+                   (String.equal name "pgsql" || String.equal name "pgsql.object")
                  payload
            in
            (match Query_bind.scan sql with

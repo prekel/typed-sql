@@ -61,8 +61,7 @@ SQLite и вручную созданные descriptors по умолчанию 
 `smallint` и `integer` имеют одинаковый `db_type.kind = "int"`, но разные
 native names `int2` и `int4`. Для enum/domain/array здесь сохраняется имя самого
 типа колонки; точные native types вложенных элементов или domain bases этим
-полем не задаются. Codegen использует прежний portable `db_type`; offline PPX
-требует точный тип выбранных колонок и параметров. Snapshot валидирует
+полем не задаются. Codegen использует portable `db_type`. Snapshot валидирует
 identifiers, но не проверяет соответствие native имени portable descriptor.
 
 Версия snapshot остаётся **3**. Обновлённые PostgreSQL-дамперы добавляют
@@ -73,8 +72,8 @@ identifiers, но не проверяет соответствие native име
   вложенным `base`, `array` с вложенным `element` либо `opaque` для прочих типов.
   Native имя внешнего узла должно совпадать с `postgresql_type`.
 - `postgresql_attribute_not_null` — boolean из `pg_attribute.attnotnull`.
-  Он нужен PG’OCaml PPX для nullability прямых domain-колонок независимо
-  от domain constraints и portable `nullable`.
+  Сохраняет свойство колонки независимо от domain constraints и portable
+  `nullable`.
 
 Например, domain над smallint сохраняет base `{ "schema": "pg_catalog",
 "name": "int2", "kind": "scalar" }`, а array integer — element с `int4`.
@@ -83,11 +82,6 @@ Codegen использует прежний `db_type` и не меняет пр�
 
 Когда новые metadata отсутствуют, writer опускает эти поля; reader также
 принимает для них JSON null. Прежние v3 без расширений и v2 по-прежнему читаются.
-Для новых PPX codecs enum/domain/array нужен snapshot с native type tree;
-для чтения domain-колонки также нужен attribute flag. Reader предыдущего
-выпуска, отклоняющий неизвестные поля, новые расширения v3 не прочитает:
-пакеты потребителей такого snapshot необходимо обновить.
-
 В `foreign_keys` каждый объект содержит `columns` — список имён колонок,
 `referenced_schema` — строку или `null`, `referenced_table` — строку и
 `referenced_columns` — список имён. В `unique_constraints` каждый объект
@@ -102,8 +96,7 @@ Codegen использует прежний `db_type` и не меняет пр�
 `pg_attribute.atttypmod`. Например, `varchar(10)` хранит `14`, а `numeric(8,2)` —
 `524294`. Значение `-1` означает известное отсутствие modifier; пропущенное поле
 или `null` означает отсутствие metadata. Оба дампера сохраняют его одинаково;
-SQLite его не задаёт. Schema PPX codegen переносит значение в сгенерированный
-модуль, portable codegen продолжает использовать `db_type`.
+SQLite его не задаёт. Генератор descriptors использует `db_type`.
 
 Сериализатор сохраняет порядок таблиц, колонок, ключей и колонок внутри ключей.
 Это существенно для projections и разрешения коллизий OCaml-имён. Порядок
@@ -129,10 +122,7 @@ URI-параметры отклоняет.
 
 `typed-sql-codegen` устанавливается с `typed-sql-schema`.
 `typed-sql-codegen schema.json` читает файл, `typed-sql-codegen -` читает stdin.
-По умолчанию он генерирует descriptors; `--target pgocaml-ppx` генерирует
-OCaml-модуль, который регистрирует schema при подключении библиотеки к PPX через
-Dune `(pps ...)`. Например, `typed-sql-codegen --target pgocaml-ppx schema.json
-> schema_ppx.ml`. Для этого target не поддерживаются `--type-rules`.
+Он генерирует OCaml descriptors для query DSL.
 `typed-sql-codegen --type-rules rules.json schema.json` применяет правила
 пользовательских типов. Повторяемый параметр
 `--exclude-table SCHEMA.TABLE` исключает таблицу из генерации по точной паре
@@ -207,8 +197,8 @@ Expression и partial indexes не представляются безуслов
 PostgreSQL `INCLUDE`-колонки не входят в список уникальных ключей.
 
 Optional поле таблицы `postgresql_primary_key_deferrable` хранит deferrability
-primary key: `false` разрешает PPX доказывать функциональную зависимость GROUP BY,
-`true` запрещает это доказательство. Отсутствие поля или `null` означает
+primary key: `false` означает immediate constraint, `true` — deferrable.
+Отсутствие поля или `null` означает
 отсутствие PK либо неизвестные metadata; значение не восстанавливается по
 `primary_key_position`. Оба PostgreSQL-дампера читают `pg_constraint.condeferrable`.
 Writer сохраняет версию 3; старые v2/v3 читаются. Portable descriptors не меняются.

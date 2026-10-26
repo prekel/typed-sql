@@ -52,7 +52,7 @@ val kind : operation:Query_kind.operation -> rows:bool -> kind
 (** Return the stable serialized spelling of a cache entry kind. *)
 val kind_to_string : kind -> string
 
-(** v1 remains readable with Unsupported kind, requiring refresh for query PPX. *)
+(** Decode and validate logical query metadata, statement kind and placement. *)
 val of_string : string -> (t, string) Result.t
 
 (** Serialize validated logical metadata, including operation kind and

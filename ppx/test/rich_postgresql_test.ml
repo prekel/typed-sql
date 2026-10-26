@@ -185,7 +185,7 @@ let command conn (id : int32) : unit =
       "WITH gone AS (DELETE FROM join_links WHERE id = $id RETURNING person_id) DELETE FROM join_people WHERE id IN (SELECT person_id FROM gone)"]
 ;;
 
-let inference_edges conn (id : int32) (selector : int32)
+let type_edges conn (id : int32) (selector : int32)
   : (string option * int64 option * bool option) list
   =
   let open! Stdlib in
@@ -332,8 +332,8 @@ let check_queries conn =
   check_int32 (recursive conn 2l) [ Some 1l; Some 2l ]
 ;;
 
-let check_inference conn =
-  List.iter (inference_edges conn 8l 2l) ~f:(fun (numeric, wide, selected) ->
+let check_types conn =
+  List.iter (type_edges conn 8l 2l) ~f:(fun (numeric, wide, selected) ->
     print_value (Option.value numeric ~default:"NULL");
     assert (Option.equal Int64.equal wide (Some 8L));
     print_value (Option.value_map selected ~default:"NULL" ~f:Bool.to_string));
@@ -375,6 +375,6 @@ let () =
       check_expressions conn;
       check_aggregates conn;
       check_queries conn;
-      check_inference conn;
+      check_types conn;
       check_dml conn)
 ;;

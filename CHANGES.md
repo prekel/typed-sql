@@ -2,16 +2,26 @@
 
 ## В разработке
 
+## 0.6.0 — 26 октября 2026
+
 ### Изменено
 
-- Совместимый PG’OCaml PPX в режиме query cache автоматически использует
-  `PGOCaml.string_of_TYPENAME` и `PGOCaml.TYPENAME_of_string` для пользовательских
-  scalar, enum, domain и opaque types. Domain сохраняет собственный converter,
-  native arrays используют конвертер элемента. Встроенные codecs и режим
-  snapshot сохраняют прежнее поведение. Существующим пользовательским
-  enum/domain теперь нужны собственные функции в локальном `PGOCaml`;
-  старые v1-кеши читаются с пересчётом codecs. Правила и ограничения Describe —
-  в [руководстве](ppx/README.md#конвертеры-пользовательских-типов).
+- SQL PPX использует только встроенный кеш PostgreSQL Prepare/Describe.
+  Собственный parser/inference по schema snapshot, schema-регистрация,
+  `Sql.parse`, `Statement_plan.create`, `Schema_codegen.generate_pgocaml_ppx`
+  и `typed-sql-codegen --target pgocaml-ppx` удалены без переходных API.
+- Оба PPX читают только логический кеш v2; поддержка v1 и сохранённых codecs
+  удалена. `Query_bind` содержит типы подстановок и diagnostics; модуль `Sql`
+  удалён. В PG’OCaml `Query_cache.entry` добавлены kind и top-level placement
+  из общих metadata.
+- PG’OCaml PPX использует `PGOCaml.string_of_TYPENAME` и
+  `PGOCaml.TYPENAME_of_string` для пользовательских scalar, enum, domain и
+  opaque types. Native arrays используют конвертер элемента. Встроенные codecs
+  сохраняют PG’OCaml-представления. Ограничения Describe — в
+  [руководстве](ppx/README.md#конвертеры-пользовательских-типов).
+- Runtime- и PostgreSQL-тесты переведены на встроенные серверные кеши;
+  parser/inference-тесты удалены. Решение — в
+  [ADR 0005](doc/adr/0005-cache-only-ppx.md).
 
 ## 0.5.3 — 21 октября 2026
 

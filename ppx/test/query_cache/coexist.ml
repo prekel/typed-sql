@@ -1,7 +1,7 @@
 open! Base
 open Typed_sql
 
-let legacy dbh (id : int32) : int32 option list = [%pgsql dbh "SELECT $id::int4"]
+let pgocaml dbh (id : int32) : int32 option list = [%pgsql dbh "SELECT $id::int4"]
 
 let typed : (int, < id : int ; name : string > list, [ `Postgresql ]) Statement.t =
   Statement.with_parameters ~dialect:Dialect.postgresql (fun ~params ->

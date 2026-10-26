@@ -323,6 +323,18 @@ let%test_module "logical query cache" =
          | Ok cache -> String.equal (C.to_string cache) json)
     ;;
 
+    let%test "unexpected cache format versions are rejected" =
+      let cache = make [ entry ] |> Result.ok_or_failwith in
+      let source = C.to_string cache in
+      List.for_all [ 1; 3 ] ~f:(fun version ->
+        C.of_string
+          (String.substr_replace_first
+             source
+             ~pattern:"\"version\": 2"
+             ~with_:("\"version\": " ^ Int.to_string version))
+        |> Result.is_error)
+    ;;
+
     let%test "cache cannot relabel DML as a nestable SELECT" =
       Result.is_error (make [ { entry with sql = "DELETE FROM t RETURNING id" } ])
     ;;

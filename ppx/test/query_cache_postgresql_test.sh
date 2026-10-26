@@ -84,7 +84,7 @@ grep -Fq 'run typed-sql-pgocaml-queries prepare' "$workdir/error"
 
 "$example"
 
-# Compile the same Lwt/DSL transaction fixture with either metadata provider.
+# Compile the shared Lwt/DSL transaction fixture with prepared metadata.
 # The executable creates its table itself; prepare needs it only for Describe.
 "$pg_bin/psql" -X -v ON_ERROR_STOP=1 -c \
   'CREATE TABLE public.ppx_mixed_items (id bigint PRIMARY KEY, name text NOT NULL, note text)' >/dev/null

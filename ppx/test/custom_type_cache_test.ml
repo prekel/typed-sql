@@ -19,6 +19,8 @@ let%test_module "query cache custom converters" =
         ~role:"fixture"
         ~search_path:"public"
         [ { C.sql = "SELECT $1"
+          ; kind = C.Select
+          ; top_level_only = false
           ; parameters = [ typ ]
           ; result = Some [ { C.name = "value"; typ; nullable = true } ]
           }
@@ -29,9 +31,10 @@ let%test_module "query cache custom converters" =
       let open Result.Let_syntax in
       let%bind cache = cache in
       let%bind query =
-        P.Query_bind.scan "SELECT $?value" |> Result.map_error ~f:P.Sql.error_to_string
+        P.Query_bind.scan "SELECT $?value"
+        |> Result.map_error ~f:P.Query_bind.error_to_string
       in
-      C.plan cache query |> Result.map_error ~f:P.Sql.error_to_string
+      C.plan cache query |> Result.map_error ~f:P.Query_bind.error_to_string
     ;;
 
     let uses typ expected =
@@ -92,68 +95,9 @@ let%test_module "query cache custom converters" =
       Result.is_error (cache (typ ~schema:"pg_catalog" "unknown123" Native_scalar))
     ;;
 
-    let legacy_cache typ old_codec =
-      let rec replace = function
-        | `Assoc fields ->
-          `Assoc
-            (List.map fields ~f:(fun (name, value) ->
-               ( name
-               , if String.equal name "codec" then
-                   old_codec
-                 else
-                   replace value )))
-        | `List values -> `List (List.map values ~f:replace)
-        | value -> value
-      in
-      cache typ
-      |> Result.ok_or_failwith
-      |> C.to_string
-      |> Yojson.Safe.from_string
-      |> replace
-      |> Yojson.Safe.to_string
-      |> C.of_string
-    ;;
-
     let uses_domain = function
       | Ok { P.Statement_plan.parameters = [ { codec = Scalar "typ123"; _ } ]; _ } -> true
       | _ -> false
-    ;;
-
-    let%test "legacy domain base codecs are accepted and recomputed" =
-      legacy_cache domain (`String "string") |> plan |> uses_domain
-    ;;
-
-    let%test "legacy enum string codecs are accepted and recomputed" =
-      match
-        legacy_cache (typ "mood123" (Native_enum [ "ready" ])) (`String "string") |> plan
-      with
-      | Ok { parameters = [ { codec = Scalar "mood123"; _ } ]; _ } -> true
-      | _ -> false
-    ;;
-
-    let%test "legacy integer domain codecs are accepted and recomputed" =
-      match
-        legacy_cache (typ "number123" (Native_domain int4)) (`String "int32") |> plan
-      with
-      | Ok { parameters = [ { codec = Scalar "number123"; _ } ]; _ } -> true
-      | _ -> false
-    ;;
-
-    let%test "legacy arrays accept their historical element codec" =
-      let typ = typ "_typ123" (Native_array domain) in
-      match legacy_cache typ (`Assoc [ "array", `String "string" ]) |> plan with
-      | Ok { parameters = [ { codec = Array (Scalar "typ123"); _ } ]; _ } -> true
-      | _ -> false
-    ;;
-
-    let%test "arbitrary legacy custom codecs remain errors" =
-      let json = cache domain |> Result.ok_or_failwith |> C.to_string in
-      C.of_string
-        (String.substr_replace_all
-           json
-           ~pattern:"\"codec\": \"typ123\""
-           ~with_:"\"codec\": \"arbitrary_function\"")
-      |> Result.is_error
     ;;
 
     let%test "v2 metadata selects custom converters without stored codec names" =

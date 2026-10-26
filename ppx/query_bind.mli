@@ -1,14 +1,27 @@
 open! Base
 
-(** Rewritten SQL and one bind occurrence per positional placeholder.
-    Parameters retain source spans in the original quotation. *)
-type t =
-  { sql : string
-    (** SQL rewritten to positional placeholders; OCaml values stay separate. *)
-  ; parameters : Sql.parameter list (** Bind occurrences in SQL/source order. *)
+(** Source byte offsets and diagnostics from substitution scanning or cache lookup. *)
+type error = Typed_sql_ppx_cache.Query_bind.error =
+  { offset : int
+  ; message : string
   }
 
-(** Rewrite only OCaml substitutions, preserving all other SQL bytes. Each
-    occurrence gets its own positional parameter. SQL is not parsed or typed.
-    Native positional parameters and dynamic list substitutions are rejected. *)
-val scan : string -> (t, Sql.error) Result.t
+type parameter = Typed_sql_ppx_cache.Query_bind.parameter =
+  { expression : string
+  ; optional : bool
+  ; start : int
+  ; stop : int
+  }
+
+type t = Typed_sql_ppx_cache.Query_bind.t =
+  { sql : string
+  ; parameters : parameter list
+  }
+
+(** Rewrite OCaml substitutions to numbered parameters, preserving SQL bytes.
+    Each occurrence retains its OCaml expression and source span; values are
+    never evaluated here. Dynamic lists and native positional parameters fail. *)
+val scan : string -> (t, error) Result.t
+
+(** Format the source byte offset and diagnostic message. *)
+val error_to_string : error -> string

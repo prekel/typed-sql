@@ -70,7 +70,7 @@
   ppxlib
   typed-sql-pgocaml-ppx
   query_cache_test_ppx
-  typed_sql_pgocaml_test_schema_ppx))
+  typed_sql_pgocaml_test_cache_ppx))
 
 (rule
  (alias runtest)

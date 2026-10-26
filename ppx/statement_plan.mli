@@ -9,7 +9,7 @@ type field =
 
 (** A substitution paired with the conversion required by its resolved SQL context. *)
 type parameter =
-  { value : Sql.parameter
+  { value : Query_bind.parameter
     (** The original source substitution, without evaluating its expression. *)
   ; codec : Codec.t (** Resolved PG'OCaml transport conversion for this substitution. *)
   }
@@ -28,18 +28,6 @@ type t =
   ; result : result (** Command or row-result decoding contract. *)
   ; parameters : parameter list (** Bind occurrences in SQL/source order. *)
   }
-
-(** Resolve sources and exact codecs. Only returned and parameter columns
-    need supported type metadata; unused unsupported columns and DEFAULT writes
-    are harmless. JOIN conditions see their operands; LATERAL derived queries
-    see preceding sources with PostgreSQL join restrictions. ROWS FROM functions
-    share that scope and cannot reference each other's outputs. SELECT SRFs
-    preserve a static output shape; disallowed clause/argument contexts fail
-    before runtime, while row expansion and NULL padding remain server semantics.
-    Unqualified columns must resolve uniquely; aliases hide
-    original relation names. Wildcards preserve source and snapshot column order.
-    EXCLUDED assignments require identical exact native types. *)
-val create : Typed_sql_schema.Schema_ir.t -> Sql.t -> (t, Sql.error) Result.t
 
 (** Returned fields, or an empty list for a command. *)
 val fields : t -> field list

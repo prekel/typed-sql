@@ -8,10 +8,10 @@ type t =
     (** Original quotation location for located PPX diagnostics. *)
   }
 
-(** Decode a legacy or typed SQL quotation; no code is evaluated. *)
+(** Decode a connection-based or typed SQL quotation; no code is evaluated. *)
 val payload_exn
   :  loc:Ppxlib.Location.t
-  -> legacy:bool
+  -> with_connection:bool
   -> Ppxlib.payload
   -> string list * string * Ppxlib.Location.t
 
@@ -21,6 +21,6 @@ val statement_payload_exn
   -> Ppxlib.payload
   -> Ppxlib.pattern option * string list * string * Ppxlib.Location.t
 
-(** Collect literal legacy and typed quotations from an OCaml structure.
+(** Collect literal connection-based and typed quotations from an OCaml structure.
     No code is evaluated; malformed payloads raise located PPX errors. *)
 val collect_exn : Ppxlib.structure -> t list

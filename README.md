@@ -36,12 +36,12 @@ SQL со значениями для `psql` или SQLite и выполнить 
 `graphql/test/demo.ml`.
 
 Экспериментальный `typed-sql-pgocaml-ppx` заменяет `pgocaml_ppx` без обращения
-к БД при компиляции. Можно выбрать собственный parser/inference по snapshot
-схемы или кеш описаний запросов, подготовленный через PostgreSQL Prepare/Describe.
+к БД при компиляции. Он использует встроенный кеш описаний запросов,
+подготовленный через PostgreSQL Prepare/Describe.
 Настройка и примеры — в [руководстве PPX](ppx/README.md), пробная замена в
 существующем приложении — в [пошаговой инструкции](ppx/TRY_IN_APP.md).
 
-Начиная с v0.5.1 экспериментальный `typed-sql-ppx` строит typed-sql queries
+Экспериментальный `typed-sql-ppx` строит typed-sql queries
 для Caqti или PGOCaml из кеша: `%pgsql.query`, `.query.object` и `.command`.
 Quotations `.statement` и `.statement.object` создают готовый статический
 Statement с runtime input. [Подключение, static input и миграция](query-ppx/README.md).
@@ -49,7 +49,7 @@ Statement с runtime input. [Подключение, static input и мигра�
 ## Установка из GitHub
 
 Все девять пакетов находятся в одном репозитории и требуют одинаковую версию.
-Скрипт ниже устанавливает текущий релиз `v0.5.3`, а если пакеты уже установлены —
+Скрипт ниже устанавливает текущий релиз `v0.6.0`, а если пакеты уже установлены —
 обновляет их до этой версии, предварительно заменяя существующие pin:
 
 <!-- $MDX skip -->
@@ -66,7 +66,7 @@ typed_sql_packages=(
   typed-sql-ppx
 )
 for package in "${typed_sql_packages[@]}"; do
-  opam pin add -yn "$package" 'git+https://github.com/prekel/typed-sql.git#v0.5.3'
+  opam pin add -yn "$package" 'git+https://github.com/prekel/typed-sql.git#v0.6.0'
 done
 opam install "${typed_sql_packages[@]}"
 ```

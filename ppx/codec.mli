@@ -5,7 +5,7 @@ open! Base
 type t =
   | Scalar of string
   (** PG'OCaml converter stem, such as [int32], [string], or a user-defined SQL
-      type name in query-cache mode. *)
+      type name. *)
   | Array of t (** Array conversion using the nested element converter. *)
 
 (** Diagnostic representation, not a PostgreSQL type name. *)

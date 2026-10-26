@@ -1,6 +1,6 @@
 open! Base
 
-(** Register [pgsql] and [pgsql.object] expression extensions. Expansion
-    uses the single embedded schema or query-cache provider; it never opens
-    a database connection or reads a snapshot file. *)
+(** Register [pgsql] and [pgsql.object] extensions. Expansion scans substitutions
+    and uses the sole embedded query cache. No file or database is read during
+    expansion. *)
 val register : unit -> unit

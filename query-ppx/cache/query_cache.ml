@@ -180,7 +180,7 @@ let of_string source =
   try
     let json = Yojson.Safe.from_string source in
     let version = member "version" json |> J.to_int in
-    if not (Int.equal version 1 || Int.equal version 2) then
+    if not (Int.equal version 2) then
       invalid "unsupported query cache version";
     let entries =
       member "queries" json
@@ -198,20 +198,15 @@ let of_string source =
                  ; nullable = member "nullable" json |> J.to_bool
                  }))
         in
-        let kind, top_level_only =
-          if Int.equal version 1 then
-            Unsupported, true
-          else (
-            let kind =
-              match string_field json "kind" with
-              | "select" -> Select
-              | "returning" -> Returning
-              | "command" -> Command
-              | "unsupported" -> Unsupported
-              | name -> invalid ("invalid cached statement kind: " ^ name)
-            in
-            kind, member "top_level_only" json |> J.to_bool)
+        let kind =
+          match string_field json "kind" with
+          | "select" -> Select
+          | "returning" -> Returning
+          | "command" -> Command
+          | "unsupported" -> Unsupported
+          | name -> invalid ("invalid cached statement kind: " ^ name)
         in
+        let top_level_only = member "top_level_only" json |> J.to_bool in
         { sql = string_field json "sql"
         ; kind
         ; top_level_only

@@ -25,10 +25,10 @@ grep -Fq 'PGOCaml.int64_of_string' "$workdir/changed_expansion.ml"
 # No relative JSON lookup, including when the IDE changes the working directory.
 (cd "$workdir" && "$embedded" --impl "$source_file" -o "$workdir/expanded.ml")
 if "$mixed" --impl "$source_file" -o "$workdir/mixed.ml" 2> "$workdir/error"; then
-  echo 'mixed schema and query cache unexpectedly accepted' >&2
+  echo 'multiple query caches unexpectedly accepted' >&2
   exit 1
 fi
-grep -Fq 'multiple schemas or query caches are registered' "$workdir/error"
+grep -Fq 'multiple query caches are registered' "$workdir/error"
 
 printf '%s\n' 'let q dbh = [%pgsql dbh "SELECT 999::int4"]' > "$workdir/missing.ml"
 if "$embedded" --impl "$workdir/missing.ml" -o "$workdir/missing_expansion.ml" 2> "$workdir/error"; then

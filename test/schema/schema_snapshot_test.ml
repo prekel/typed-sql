@@ -1075,13 +1075,5 @@ let%test_module "PostgreSQL primary key deferrability metadata" =
       in
       assert (String.equal (generate None) (generate (Some false)))
     ;;
-
-    let%test_unit "schema PPX codegen embeds native deferrability" =
-      let generated = Schema_codegen.generate_pgocaml_ppx (schema (Some false)) in
-      assert (
-        String.is_substring
-          generated
-          ~substring:"?postgresql_primary_key_deferrable:(Some (false))")
-    ;;
   end)
 ;;
