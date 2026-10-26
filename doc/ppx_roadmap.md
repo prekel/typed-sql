@@ -182,6 +182,10 @@ JSON → встроенный Dune-модуль → поиск точного SQ
 - [x] Выделить логические PostgreSQL metadata без PG’OCaml codecs в
   `typed-sql-ppx.cache`. Legacy-потребитель вычисляет свои codecs, новый PPX —
   descriptors typed-sql; офлайн-потребителю не нужен драйвер.
+- [x] В совместимом query-cache PPX выбирать конвертеры пользовательских типов
+  по собственному SQL-имени через локальный `PGOCaml`, включая enum/domain,
+  opaque types и элементы arrays. Sexp config и `load_custom_from` этим
+  механизмом не включаются; snapshot сохраняет прежние codecs.
 
 Критерий расширения: новые запросы готовятся сервером и собираются офлайн;
 результаты, OCaml-типы и ошибки codecs проверяются отдельными fixtures.

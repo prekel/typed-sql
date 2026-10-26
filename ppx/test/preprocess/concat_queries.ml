@@ -1,5 +1,12 @@
 open! Base
 
+module PGOCaml = struct
+  include PGOCaml
+
+  let string_of_mood = string_of_string
+  let mood_of_string = string_of_string
+end
+
 let%concat common_select =
   {sql|SELECT id, name, note, mood, tag, nums FROM query_cache_test.people|sql}
 ;;

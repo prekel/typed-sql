@@ -1,5 +1,12 @@
 open! Base
 
+module PGOCaml = struct
+  include PGOCaml
+
+  let string_of_mood = string_of_string
+  let mood_of_string = string_of_string
+end
+
 let find dbh id =
   [%pgsql.object
     dbh

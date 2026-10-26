@@ -22,6 +22,7 @@
  (optional)
  (modules
   query_cache_test
+  custom_type_cache_test
   inet_test
   frontend_test
   join_frontend_test

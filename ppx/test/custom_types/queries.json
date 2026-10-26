@@ -1,0 +1,216 @@
+{
+  "version": 2,
+  "role": "fixture",
+  "search_path": "public",
+  "queries": [
+    {
+      "sql": "SELECT $1::custom_type_test.mood123",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "custom_type_test",
+            "name": "mood123",
+            "kind": "enum",
+            "labels": [
+              "ready",
+              "done"
+            ]
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "mood123",
+          "value": {
+            "type": {
+              "schema": "custom_type_test",
+              "name": "mood123",
+              "kind": "enum",
+              "labels": [
+                "ready",
+                "done"
+              ]
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT $1::custom_type_test.point123",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "custom_type_test",
+            "name": "point123",
+            "kind": "opaque"
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "point123",
+          "value": {
+            "type": {
+              "schema": "custom_type_test",
+              "name": "point123",
+              "kind": "opaque"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT $1::custom_type_test.typ123",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "custom_type_test",
+            "name": "typ123",
+            "kind": "domain",
+            "base": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "typ123",
+          "value": {
+            "type": {
+              "schema": "pg_catalog",
+              "name": "text",
+              "kind": "scalar"
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT $1::custom_type_test.typ123[]",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "custom_type_test",
+            "name": "_typ123",
+            "kind": "array",
+            "element": {
+              "schema": "custom_type_test",
+              "name": "typ123",
+              "kind": "domain",
+              "base": {
+                "schema": "pg_catalog",
+                "name": "text",
+                "kind": "scalar"
+              }
+            }
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "typ123",
+          "value": {
+            "type": {
+              "schema": "custom_type_test",
+              "name": "_typ123",
+              "kind": "array",
+              "element": {
+                "schema": "custom_type_test",
+                "name": "typ123",
+                "kind": "domain",
+                "base": {
+                  "schema": "pg_catalog",
+                  "name": "text",
+                  "kind": "scalar"
+                }
+              }
+            }
+          },
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "sql": "SELECT value, optional_value FROM custom_type_test.items WHERE value = $1",
+      "kind": "select",
+      "top_level_only": false,
+      "parameters": [
+        {
+          "type": {
+            "schema": "custom_type_test",
+            "name": "_typ123",
+            "kind": "array",
+            "element": {
+              "schema": "custom_type_test",
+              "name": "typ123",
+              "kind": "domain",
+              "base": {
+                "schema": "pg_catalog",
+                "name": "text",
+                "kind": "scalar"
+              }
+            }
+          }
+        }
+      ],
+      "result": [
+        {
+          "name": "value",
+          "value": {
+            "type": {
+              "schema": "custom_type_test",
+              "name": "_typ123",
+              "kind": "array",
+              "element": {
+                "schema": "custom_type_test",
+                "name": "typ123",
+                "kind": "domain",
+                "base": {
+                  "schema": "pg_catalog",
+                  "name": "text",
+                  "kind": "scalar"
+                }
+              }
+            }
+          },
+          "nullable": false
+        },
+        {
+          "name": "optional_value",
+          "value": {
+            "type": {
+              "schema": "custom_type_test",
+              "name": "_typ123",
+              "kind": "array",
+              "element": {
+                "schema": "custom_type_test",
+                "name": "typ123",
+                "kind": "domain",
+                "base": {
+                  "schema": "pg_catalog",
+                  "name": "text",
+                  "kind": "scalar"
+                }
+              }
+            }
+          },
+          "nullable": true
+        }
+      ]
+    }
+  ]
+}

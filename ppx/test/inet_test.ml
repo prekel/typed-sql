@@ -49,12 +49,19 @@ let%test_module "native inet codecs" =
 
     let%test "inet uses the PGOCaml inet encoder and decoder" = has_inet_codecs inet
 
-    let%test "domains retain the builtin inet codec" =
-      has_inet_codecs
-        { S.schema = I.of_string_exn "public"
-        ; name = I.of_string_exn "host_address"
-        ; kind = S.Native_domain inet
-        }
+    let%test "domains use their own converter instead of the builtin inet codec" =
+      match
+        codec
+          { S.schema = I.of_string_exn "public"
+          ; name = I.of_string_exn "host_address"
+          ; kind = S.Native_domain inet
+          }
+      with
+      | { parameters = [ { codec = Scalar "host_address"; _ } ]
+        ; result = Rows [ { codec = Scalar "host_address"; nullable = true; _ } ]
+        ; _
+        } -> true
+      | _ -> false
     ;;
 
     let%test "inet arrays retain nullable element codecs" =

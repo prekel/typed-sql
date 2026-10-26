@@ -211,6 +211,13 @@ clauses и отдельный OFFSET; повторный clause отклоняе
 
 ## Enum, domain и arrays
 
+В режиме query cache пользовательские типы выбирают собственные конвертеры
+`PGOCaml.string_of_TYPENAME` и `PGOCaml.TYPENAME_of_string`, включая domain
+без разворачивания base. Правила выбора, миграция со string/base codecs и
+ограничения PostgreSQL Describe описаны в
+[руководстве query cache](../ppx/README.md#конвертеры-пользовательских-типов).
+Далее описано представление типов в режиме snapshot.
+
 Enum сохраняет представление PG’OCaml `string`; допустимые labels и их порядок
 содержатся в snapshot. Domain рекурсивно использует представление base:
 например, domain над int2 имеет тип `int`, а над int4 — `int32`. Ограничения

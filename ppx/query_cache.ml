@@ -21,13 +21,39 @@ type t =
   ; entries : entry list
   }
 
-let codec typ =
+let legacy_codec typ =
   let open Result.Let_syntax in
   let%map native =
     Native_type.of_info ~offset:0 typ
     |> Result.map_error ~f:(fun error -> error.Sql.message)
   in
   Native_type.codec native
+;;
+
+let rec codec (typ : Type_info.postgresql_type_info) =
+  match typ.kind with
+  | Native_array element ->
+    let open Result.Let_syntax in
+    let%map element = codec element in
+    Codec.Array element
+  | Native_scalar | Native_enum _ | Native_domain _ | Native_opaque ->
+    if String.equal (I.to_string typ.schema) "pg_catalog" then
+      legacy_codec typ
+    else (
+      let name = I.to_string typ.name in
+      if
+        String.for_all name ~f:(fun char ->
+          Char.is_alphanum char || Char.equal char '_' || Char.equal char '\'')
+      then
+        Ok (Codec.Scalar name)
+      else
+        Error
+          ("PostgreSQL type "
+           ^ I.to_string typ.schema
+           ^ "."
+           ^ name
+           ^ " cannot form an OCaml converter name; expected only ASCII letters, digits, underscores or apostrophes"
+          ))
 ;;
 
 let create ~role ~search_path entries =
@@ -148,6 +174,7 @@ let rec decode_type_exn depth json =
     | "enum" -> Native_enum (member "labels" json |> J.to_list |> List.map ~f:J.to_string)
     | "domain" -> Native_domain (nested "base")
     | "array" -> Native_array (nested "element")
+    | "opaque" -> Native_opaque
     | kind -> invalid ("unsupported cached type kind: " ^ kind)
   in
   { Type_info.schema = identifier_exn (string_field json "schema")
@@ -168,8 +195,16 @@ let decode_typed_exn ?(legacy = true) json =
   (match codec typ with
    | Error message -> invalid message
    | Ok expected ->
-     if legacy && not (codec_matches expected (member "codec" json)) then
-       invalid "cached codec does not match its PostgreSQL type");
+     if legacy then (
+       let cached = member "codec" json in
+       if not (codec_matches expected cached) then (
+         let matches_legacy =
+           match legacy_codec typ with
+           | Ok codec -> codec_matches codec cached
+           | Error _ -> false
+         in
+         if not matches_legacy then
+           invalid "cached codec does not match its PostgreSQL type")));
   typ
 ;;
 

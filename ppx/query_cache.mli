@@ -27,11 +27,17 @@ type t
 
 (** One cache describes one PostgreSQL role and configured search path.
     Entries contain logical types, never database-specific OIDs. Duplicate SQL,
-    unsupported codecs and zero-column row results are rejected. *)
+    unsupported built-in codecs, custom type names unsuitable for OCaml converter
+    identifiers, and zero-column row results are rejected. User-defined types
+    select [PGOCaml.string_of_TYPENAME] and [PGOCaml.TYPENAME_of_string], including
+    domains without unwrapping their base. Schemas do not qualify these functions;
+    native arrays recursively select their element converter. *)
 val create : role:string -> search_path:string -> entry list -> (t, string) Result.t
 
 (** Decode and validate cached JSON metadata, rejecting unsupported
-    codecs and inconsistent entries as in [create]. *)
+    codecs and inconsistent entries as in [create]. Legacy v1 string/base codecs
+    are accepted but conversion is recomputed from the exact logical type using
+    the current rules. Version 2 stores only logical metadata. *)
 val of_string : string -> (t, string) Result.t
 
 (** Serialize logical metadata for offline reuse; no database OIDs or

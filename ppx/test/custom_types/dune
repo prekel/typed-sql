@@ -1,0 +1,56 @@
+(rule
+ (target queries_ppx.ml)
+ (deps queries.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    %{exe:../../bin/typed_sql_pgocaml_queries.exe}
+    codegen
+    %{dep:queries.json}))))
+
+(library
+ (name custom_types_ppx)
+ (optional)
+ (kind ppx_rewriter)
+ (modules queries_ppx)
+ (libraries base typed-sql-pgocaml-ppx))
+
+(library
+ (name custom_queries)
+ (optional)
+ (modules queries)
+ (libraries base pgocaml)
+ (preprocess
+  (pps custom_types_ppx)))
+
+(executable
+ (name driver)
+ (optional)
+ (modules driver)
+ (libraries base ppxlib typed-sql-pgocaml-ppx custom_types_ppx))
+
+(rule
+ (target expanded.ml)
+ (deps queries.ml)
+ (action
+  (setenv
+   PGHOST
+   /nonexistent/typed-sql-offline
+   (run %{exe:driver.exe} --impl %{dep:queries.ml} -o %{target}))))
+
+(library
+ (name custom_type_offline_tests)
+ (optional)
+ (modules offline_test)
+ (libraries base pgocaml ppxlib custom_queries)
+ (inline_tests
+  (deps expanded.ml))
+ (preprocess
+  (pps ppx_expect custom_types_ppx)))
+
+(executable
+ (name main)
+ (optional)
+ (modules main)
+ (libraries base pgocaml custom_queries))
