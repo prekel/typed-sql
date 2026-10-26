@@ -1,6 +1,6 @@
 # Дорожная карта SQL PPX
 
-PPX используют PostgreSQL Prepare/Describe и встроенный query cache версии 2.
+PPX используют PostgreSQL Prepare/Describe и встроенный query cache версии 3.
 `typed-sql-pgocaml-ppx` выполняет quotations через модуль `PGOCaml` приложения;
 `typed-sql-ppx` строит `Result_query.t`, `Command.t` и статические `Statement.t`.
 
@@ -15,6 +15,8 @@ PPX используют PostgreSQL Prepare/Describe и встроенный que
 - [x] Сохранять точные логические PostgreSQL types, enum/domain/array metadata,
   nullability, kind и ограничения размещения, без OID и credentials.
 - [x] Предоставить `prepare/check/codegen` с атомарным обновлением metadata.
+- [x] Хранить общую таблицу типов со стабильными именами и ссылки из запросов;
+  сохранять читаемый JSON, встраивать компактный JSON и индексировать SQL.
 - [x] Встраивать JSON в Dune provider; сборка и LSP не требуют БД или чтения JSON.
 - [x] Поддержать `--pp COMMAND` для SQL, создаваемого другими PPX, включая
   OCaml source и binary AST с locations.

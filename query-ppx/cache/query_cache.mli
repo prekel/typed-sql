@@ -37,13 +37,16 @@ type entry =
 (** Validated logical metadata for one role and search-path configuration. *)
 type t
 
-(** Logical metadata only; no driver or PGOCaml codec is used here. *)
+(** Logical metadata only; no driver or PGOCaml codec is used here.
+    Type definitions are interned by their qualified PostgreSQL name. Conflicting
+    definitions and type nesting deeper than 64 are rejected. *)
 val create : role:string -> search_path:string -> entry list -> (t, string) Result.t
 
 (** Return entries in cache order without performing database access. *)
 val entries : t -> entry list
 
-(** Look up exact rewritten SQL; whitespace and other source bytes are significant. *)
+(** Look up exact rewritten SQL through an immutable index. Whitespace and other
+    source bytes are significant. *)
 val find : t -> sql:string -> entry option
 
 (** Classify an operation and whether it returns rows for PPX embedding. *)
@@ -52,13 +55,19 @@ val kind : operation:Query_kind.operation -> rows:bool -> kind
 (** Return the stable serialized spelling of a cache entry kind. *)
 val kind_to_string : kind -> string
 
-(** Decode and validate logical query metadata, statement kind and placement. *)
+(** Decode version 3 metadata, resolving shared type references once. Unknown
+    references, duplicate definitions, cycles, invalid qualified type keys and
+    excessive nesting are errors, including in unused definitions. *)
 val of_string : string -> (t, string) Result.t
 
-(** Serialize validated logical metadata, including operation kind and
-    top-level placement restrictions. Runtime values and database OIDs are absent. *)
+(** Serialize version 3 metadata with a shared [types] dictionary, named type
+    references, and stable ordering. Qualified keys quote components containing
+    uppercase letters, dots, quotes or other non-simple identifier characters.
+    Query properties have separate lines; type definitions and result fields
+    remain on individual lines. Runtime values and database OIDs are absent. *)
 val to_string : t -> string
 
-(** Generate OCaml registration source for the selected PPX driver.
-    Metadata is embedded; the generated module does not open a JSON file. *)
+(** Generate OCaml registration source for the selected PPX driver. The embedded
+    version 3 JSON is compact regardless of the on-disk formatting. The generated
+    module does not open a JSON file. *)
 val codegen : target:[ `Pgocaml_ppx | `Typed_sql_ppx ] -> t -> string

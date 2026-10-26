@@ -13,7 +13,22 @@ export PGHOST=/nonexistent/typed-sql-offline
 "$prepare" codegen "$fixture" > "$workdir/first.ml"
 "$prepare" codegen "$fixture" > "$workdir/second.ml"
 cmp "$workdir/first.ml" "$workdir/second.ml"
-sed 's/"int4"/"int8"/g; s/"int32"/"int64"/g' "$fixture" > "$workdir/changed.json"
+python3 - "$fixture" "$workdir/changed.json" <<'PYMETADATA'
+import json
+import sys
+from pathlib import Path
+
+def replace(value):
+    if isinstance(value, dict):
+        return {key: replace(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [replace(item) for item in value]
+    return 'pg_catalog.int8' if value == 'pg_catalog.int4' else value
+
+data = replace(json.loads(Path(sys.argv[1]).read_text()))
+data['types'].pop('pg_catalog.int4')
+Path(sys.argv[2]).write_text(json.dumps(data))
+PYMETADATA
 "$prepare" codegen "$workdir/changed.json" > "$workdir/changed.ml"
 if cmp -s "$workdir/first.ml" "$workdir/changed.ml"; then
   echo 'changed metadata did not change the generated module' >&2

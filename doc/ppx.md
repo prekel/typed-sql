@@ -2,7 +2,7 @@
 
 `typed-sql-pgocaml-ppx` сохраняет выполняющие quotations `[%pgsql ...]` и
 `[%pgsql.object ...]`. `typed-sql-ppx` создаёт `Result_query.t`, `Command.t`
-и `Statement.t`. Оба используют кеш версии 2, подготовленный через PostgreSQL
+и `Statement.t`. Оба используют кеш версии 3, подготовленный через PostgreSQL
 Prepare/Describe.
 
 - [Подключение выполняющего PG’OCaml PPX](../ppx/README.md).
@@ -26,7 +26,8 @@ SQL проверяет PostgreSQL. `prepare/check` используют read-onl
 
 Кеш хранит логические имена типов, их nested metadata, поля результата,
 nullability, statement kind и ограничения вложения. Значения binds, OID,
-connections и credentials в нём отсутствуют.
+connections и credentials в нём отсутствуют. Общая таблица типов исключает
+повторение metadata; [формат файла](query_cache.md) описывает ссылки и порядок.
 
 ## Выполняющие quotations
 

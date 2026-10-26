@@ -43,11 +43,11 @@ type t
     native arrays recursively select their element converter. *)
 val create : role:string -> search_path:string -> entry list -> (t, string) Result.t
 
-(** Decode and validate logical query metadata and transport converters. *)
+(** Decode version 3 query metadata and validate transport converters. *)
 val of_string : string -> (t, string) Result.t
 
-(** Serialize logical metadata for offline reuse; no database OIDs or
-    runtime parameter values are persisted. *)
+(** Serialize readable version 3 metadata with shared type definitions; no
+    database OIDs or runtime parameter values are persisted. *)
 val to_string : t -> string
 
 (** Emit a module registering validated, embedded metadata. No JSON file is

@@ -313,7 +313,7 @@ let%test_module "logical query cache" =
       | Ok cache -> not (String.is_substring (C.to_string cache) ~substring:"codec")
     ;;
 
-    let%test "v2 roundtrip is deterministic" =
+    let%test "v3 roundtrip is deterministic" =
       match make [ entry ] with
       | Error _ -> false
       | Ok cache ->
@@ -326,11 +326,11 @@ let%test_module "logical query cache" =
     let%test "unexpected cache format versions are rejected" =
       let cache = make [ entry ] |> Result.ok_or_failwith in
       let source = C.to_string cache in
-      List.for_all [ 1; 3 ] ~f:(fun version ->
+      List.for_all [ 1; 2; 4 ] ~f:(fun version ->
         C.of_string
           (String.substr_replace_first
              source
-             ~pattern:"\"version\": 2"
+             ~pattern:"\"version\": 3"
              ~with_:("\"version\": " ^ Int.to_string version))
         |> Result.is_error)
     ;;

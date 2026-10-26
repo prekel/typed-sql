@@ -1,191 +1,69 @@
 {
-  "version": 2,
+  "version": 3,
   "role": "fixture",
   "search_path": "public",
+  "types": {
+    "pg_catalog._int4": {"kind": "array", "element": "pg_catalog.int4"},
+    "pg_catalog.int4": {"kind": "scalar"},
+    "pg_catalog.json": {"kind": "scalar"},
+    "pg_catalog.jsonb": {"kind": "scalar"},
+    "pg_catalog.numeric": {"kind": "scalar"},
+    "pg_catalog.text": {"kind": "scalar"},
+    "public.typed_sql_query_mood": {"kind": "enum", "labels": ["ready", "done"]},
+    "public.typed_sql_query_tag": {"kind": "domain", "base": "pg_catalog.int4"}
+  },
   "queries": [
     {
       "sql": "DELETE FROM typed_sql_query_items WHERE id = $1",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": null
     },
     {
       "sql": "INSERT INTO typed_sql_query_items (id, name) VALUES ($1, $2) RETURNING id, name",
       "kind": "returning",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4", "pg_catalog.text"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "name", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
       "sql": "SELECT $1::int4[] AS numbers",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_int4",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._int4"],
       "result": [
-        {
-          "name": "numbers",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_int4",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "int4",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": true
-        }
+        {"name": "numbers", "type": "pg_catalog._int4", "nullable": true}
       ]
     },
     {
       "sql": "SELECT $1::text AS name; -- trailing comment",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.text"],
       "result": [
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "name", "type": "pg_catalog.text", "nullable": true}
       ]
     },
     {
       "sql": "SELECT $1::typed_sql_query_mood",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "public",
-            "name": "typed_sql_query_mood",
-            "kind": "enum",
-            "labels": [ "ready", "done" ]
-          }
-        }
-      ],
+      "parameters": ["public.typed_sql_query_mood"],
       "result": [
-        {
-          "name": "typed_sql_query_mood",
-          "value": {
-            "type": {
-              "schema": "public",
-              "name": "typed_sql_query_mood",
-              "kind": "enum",
-              "labels": [ "ready", "done" ]
-            }
-          },
-          "nullable": true
-        }
+        {"name": "typed_sql_query_mood", "type": "public.typed_sql_query_mood", "nullable": true}
       ]
     },
     {
       "sql": "SELECT $1::typed_sql_query_tag",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "public",
-            "name": "typed_sql_query_tag",
-            "kind": "domain",
-            "base": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["public.typed_sql_query_tag"],
       "result": [
-        {
-          "name": "typed_sql_query_tag",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "typed_sql_query_tag", "type": "pg_catalog.int4", "nullable": true}
       ]
     },
     {
@@ -194,45 +72,9 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "amount",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "numeric",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        },
-        {
-          "name": "numbers",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_int4",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "int4",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": true
-        },
-        {
-          "name": "mood",
-          "value": {
-            "type": {
-              "schema": "public",
-              "name": "typed_sql_query_mood",
-              "kind": "enum",
-              "labels": [ "ready", "done" ]
-            }
-          },
-          "nullable": true
-        }
+        {"name": "amount", "type": "pg_catalog.numeric", "nullable": true},
+        {"name": "numbers", "type": "pg_catalog._int4", "nullable": true},
+        {"name": "mood", "type": "public.typed_sql_query_mood", "nullable": true}
       ]
     },
     {
@@ -241,17 +83,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": true}
       ]
     },
     {
@@ -260,55 +92,17 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
       "sql": "SELECT id, name FROM typed_sql_query_items WHERE id = $1",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "name", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
@@ -317,17 +111,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "value",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "jsonb",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "value", "type": "pg_catalog.jsonb", "nullable": true}
       ]
     },
     {
@@ -336,39 +120,14 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "value",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "json",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "value", "type": "pg_catalog.json", "nullable": true}
       ]
     },
     {
       "sql": "UPDATE typed_sql_query_items SET name = $1 WHERE id = $2",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.text", "pg_catalog.int4"],
       "result": null
     },
     {
@@ -377,17 +136,7 @@
       "top_level_only": true,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
@@ -396,17 +145,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     }
   ]

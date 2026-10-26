@@ -1,166 +1,50 @@
 {
-  "version": 2,
+  "version": 3,
   "role": "typed_sql_survey",
   "search_path": "public",
+  "types": {
+    "pg_catalog._int4": {"kind": "array", "element": "pg_catalog.int4"},
+    "pg_catalog._text": {"kind": "array", "element": "pg_catalog.text"},
+    "pg_catalog.int4": {"kind": "scalar"},
+    "pg_catalog.int8": {"kind": "scalar"},
+    "pg_catalog.text": {"kind": "scalar"}
+  },
   "queries": [
     {
       "sql": "DELETE FROM posts WHERE score < $1",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": null
     },
     {
       "sql": "INSERT INTO users (id, name) SELECT * FROM UNNEST($1::int4[], $2::text[]) RETURNING id, name",
       "kind": "returning",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_int4",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_text",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._int4", "pg_catalog._text"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "name", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
       "sql": "INSERT INTO users (id, name) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name RETURNING id, name",
       "kind": "returning",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4", "pg_catalog.text"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "name", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
       "sql": "INSERT INTO users (id, name) VALUES ($1, $2) RETURNING id, name",
       "kind": "returning",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4", "pg_catalog.text"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "name", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
@@ -169,73 +53,18 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "user_id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "title",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "user_id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "title", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
       "sql": "SELECT id FROM posts WHERE score < $1 ORDER BY id LIMIT $2 FOR UPDATE SKIP LOCKED",
       "kind": "select",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int8",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4", "pg_catalog.int8"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
@@ -244,17 +73,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": true}
       ]
     },
     {
@@ -263,89 +82,26 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": true}
       ]
     },
     {
       "sql": "SELECT id FROM users WHERE id < $1 UNION ALL SELECT user_id AS id FROM posts WHERE user_id >= $2 ORDER BY id",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4", "pg_catalog.int4"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": true}
       ]
     },
     {
       "sql": "SELECT id, CASE WHEN age IS NULL THEN 'unknown' WHEN age >= $1 THEN 'adult' ELSE 'child' END AS category FROM users ORDER BY id",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "category",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "category", "type": "pg_catalog.text", "nullable": true}
       ]
     },
     {
@@ -354,28 +110,8 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "rank",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int8",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "rank", "type": "pg_catalog.int8", "nullable": true}
       ]
     },
     {
@@ -384,264 +120,67 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "running_total",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int8",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "running_total", "type": "pg_catalog.int8", "nullable": true}
       ]
     },
     {
       "sql": "SELECT id, name FROM users ORDER BY name, id LIMIT $1 OFFSET $2",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int8",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int8",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int8", "pg_catalog.int8"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "name", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
       "sql": "SELECT id, name FROM users WHERE age IS NOT DISTINCT FROM $1 ORDER BY id",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "name", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
       "sql": "SELECT id, name FROM users WHERE id = ANY($1::int4[]) ORDER BY id",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_int4",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._int4"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "name", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
       "sql": "SELECT id, name FROM users WHERE id > $1 AND name LIKE $2 ORDER BY id",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4", "pg_catalog.text"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "name", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
       "sql": "SELECT id, name FROM users WHERE name = $1 ORDER BY id",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.text"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "name", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
       "sql": "SELECT u.id FROM users u WHERE EXISTS (SELECT 1 FROM posts p WHERE p.user_id = u.id AND p.score > $1) ORDER BY u.id",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
@@ -650,17 +189,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
@@ -669,28 +198,8 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "total",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int8",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "total", "type": "pg_catalog.int8", "nullable": true}
       ]
     },
     {
@@ -699,66 +208,18 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "post_id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "post_id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
       "sql": "SELECT u.id, p.title FROM users u JOIN posts p ON p.user_id = u.id WHERE p.score >= $1 ORDER BY u.id, p.id",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "title",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "title", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
@@ -767,28 +228,8 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "title",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "title", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
@@ -797,66 +238,18 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "total",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int8",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "total", "type": "pg_catalog.int8", "nullable": true}
       ]
     },
     {
       "sql": "SELECT user_id, COUNT(*) AS total FROM posts GROUP BY user_id HAVING COUNT(*) >= $1 ORDER BY user_id",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int8",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int8"],
       "result": [
-        {
-          "name": "user_id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "total",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int8",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "user_id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "total", "type": "pg_catalog.int8", "nullable": true}
       ]
     },
     {
@@ -865,183 +258,47 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "user_id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "total",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int8",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "user_id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "total", "type": "pg_catalog.int8", "nullable": true}
       ]
     },
     {
       "sql": "UPDATE posts SET score = score + $1 WHERE user_id = $2 RETURNING id, score",
       "kind": "returning",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4", "pg_catalog.int4"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "score",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "score", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
       "sql": "UPDATE posts p SET score = $1 FROM users u WHERE p.user_id = u.id AND u.name = $2 RETURNING p.id, p.score",
       "kind": "returning",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4", "pg_catalog.text"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "score",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "score", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
       "sql": "WITH RECURSIVE tree AS (SELECT id, parent_id FROM users WHERE id = $1 UNION ALL SELECT u.id, u.parent_id FROM users u JOIN tree t ON u.parent_id = t.id) SELECT id FROM tree ORDER BY id",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": true}
       ]
     },
     {
       "sql": "WITH popular AS (SELECT user_id FROM posts GROUP BY user_id HAVING COUNT(*) >= $1) SELECT u.id, u.name FROM users u JOIN popular p ON p.user_id = u.id ORDER BY u.id",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int8",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int8"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "name", "type": "pg_catalog.text", "nullable": false}
       ]
     }
   ]

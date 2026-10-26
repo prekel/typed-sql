@@ -30,7 +30,7 @@
 (library
  (optional)
  (name cached_queries_tests)
- (modules offline_test)
+ (modules offline_test cache_format_test)
  (libraries base ppxlib typed-sql cached_queries typed-sql-ppx.cache)
  (inline_tests)
  (preprocess

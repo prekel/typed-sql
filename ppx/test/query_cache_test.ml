@@ -117,8 +117,8 @@ let%test "unsupported cache versions are rejected" =
     (C.of_string
        (String.substr_replace_first
           (C.to_string cache)
-          ~pattern:"\"version\": 2"
-          ~with_:"\"version\": 3"))
+          ~pattern:"\"version\": 3"
+          ~with_:"\"version\": 2"))
 ;;
 
 let%test "duplicate SQL is rejected" =
@@ -184,7 +184,7 @@ let%test "escape mode carries across newline-separated string segments" =
 let%test "missing result is not silently interpreted as a command" =
   Result.is_error
     (C.of_string
-       {json|{"version":2,"role":"fixture","search_path":"public","queries":[{"sql":"SELECT 1","parameters":[]}]}|json})
+       {json|{"version":3,"types":{},"role":"fixture","search_path":"public","queries":[{"sql":"SELECT 1","parameters":[]}]}|json})
 ;;
 
 let%test "logical metadata selects PGOCaml codecs" =

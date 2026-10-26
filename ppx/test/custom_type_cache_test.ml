@@ -100,7 +100,7 @@ let%test_module "query cache custom converters" =
       | _ -> false
     ;;
 
-    let%test "v2 metadata selects custom converters without stored codec names" =
+    let%test "shared metadata selects custom converters without stored codec names" =
       let module Shared = Typed_sql_ppx_cache.Query_cache in
       let shared =
         Shared.create

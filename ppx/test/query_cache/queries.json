@@ -1,102 +1,38 @@
 {
-  "version": 2,
+  "version": 3,
   "role": "fixture",
   "search_path": "public",
+  "types": {
+    "pg_catalog._int4": {"kind": "array", "element": "pg_catalog.int4"},
+    "pg_catalog.int4": {"kind": "scalar"},
+    "pg_catalog.int8": {"kind": "scalar"},
+    "pg_catalog.text": {"kind": "scalar"},
+    "query_cache_test._mood": {"kind": "array", "element": "query_cache_test.mood"},
+    "query_cache_test.mood": {"kind": "enum", "labels": ["happy", "sad"]},
+    "query_cache_test.tag": {"kind": "domain", "base": "pg_catalog.int4"}
+  },
   "queries": [
     {
       "sql": "DELETE FROM query_cache_test.people WHERE id = $1",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": null
     },
     {
       "sql": "INSERT INTO query_cache_test.people (id, name, mood, tag, nums) VALUES ($1, $2, $3, $4, $5)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "query_cache_test",
-            "name": "mood",
-            "kind": "enum",
-            "labels": [ "happy", "sad" ]
-          }
-        },
-        {
-          "type": {
-            "schema": "query_cache_test",
-            "name": "tag",
-            "kind": "domain",
-            "base": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_int4",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4", "pg_catalog.text", "query_cache_test.mood", "query_cache_test.tag", "pg_catalog._int4"],
       "result": null
     },
     {
       "sql": "SELECT $1::int4",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": [
-        {
-          "name": "int4",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "int4", "type": "pg_catalog.int4", "nullable": true}
       ]
     },
     {
@@ -105,17 +41,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "missing",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "missing", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
@@ -124,226 +50,57 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "count",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int8",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "count", "type": "pg_catalog.int8", "nullable": true}
       ]
     },
     {
       "sql": "SELECT id FROM query_cache_test.people WHERE id = $1",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
       "sql": "SELECT id FROM query_cache_test.people WHERE mood = ANY($1) ORDER BY id",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "query_cache_test",
-            "name": "_mood",
-            "kind": "array",
-            "element": {
-              "schema": "query_cache_test",
-              "name": "mood",
-              "kind": "enum",
-              "labels": [ "happy", "sad" ]
-            }
-          }
-        }
-      ],
+      "parameters": ["query_cache_test._mood"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
       "sql": "SELECT id, name, note, mood, tag, nums FROM query_cache_test.people WHERE id = $1",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "note",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        },
-        {
-          "name": "mood",
-          "value": {
-            "type": {
-              "schema": "query_cache_test",
-              "name": "mood",
-              "kind": "enum",
-              "labels": [ "happy", "sad" ]
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "tag",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "nums",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_int4",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "int4",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "name", "type": "pg_catalog.text", "nullable": false},
+        {"name": "note", "type": "pg_catalog.text", "nullable": true},
+        {"name": "mood", "type": "query_cache_test.mood", "nullable": false},
+        {"name": "tag", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "nums", "type": "pg_catalog._int4", "nullable": false}
       ]
     },
     {
       "sql": "SELECT substring('abc123' from $1)",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.text"],
       "result": [
-        {
-          "name": "substring",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "substring", "type": "pg_catalog.text", "nullable": true}
       ]
     },
     {
       "sql": "UPDATE query_cache_test.people SET note = $1 WHERE id = $2 RETURNING note",
       "kind": "returning",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.text", "pg_catalog.int4"],
       "result": [
-        {
-          "name": "note",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "note", "type": "pg_catalog.text", "nullable": true}
       ]
     }
   ]

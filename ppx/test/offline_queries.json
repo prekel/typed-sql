@@ -1,7 +1,52 @@
 {
-  "version": 2,
+  "version": 3,
   "role": "fixture",
   "search_path": "public",
+  "types": {
+    "pg_catalog._bool": {"kind": "array", "element": "pg_catalog.bool"},
+    "pg_catalog._bpchar": {"kind": "array", "element": "pg_catalog.bpchar"},
+    "pg_catalog._bytea": {"kind": "array", "element": "pg_catalog.bytea"},
+    "pg_catalog._date": {"kind": "array", "element": "pg_catalog.date"},
+    "pg_catalog._float4": {"kind": "array", "element": "pg_catalog.float4"},
+    "pg_catalog._float8": {"kind": "array", "element": "pg_catalog.float8"},
+    "pg_catalog._int2": {"kind": "array", "element": "pg_catalog.int2"},
+    "pg_catalog._int4": {"kind": "array", "element": "pg_catalog.int4"},
+    "pg_catalog._int8": {"kind": "array", "element": "pg_catalog.int8"},
+    "pg_catalog._interval": {"kind": "array", "element": "pg_catalog.interval"},
+    "pg_catalog._json": {"kind": "array", "element": "pg_catalog.json"},
+    "pg_catalog._jsonb": {"kind": "array", "element": "pg_catalog.jsonb"},
+    "pg_catalog._numeric": {"kind": "array", "element": "pg_catalog.numeric"},
+    "pg_catalog._text": {"kind": "array", "element": "pg_catalog.text"},
+    "pg_catalog._time": {"kind": "array", "element": "pg_catalog.time"},
+    "pg_catalog._timestamp": {"kind": "array", "element": "pg_catalog.timestamp"},
+    "pg_catalog._timestamptz": {"kind": "array", "element": "pg_catalog.timestamptz"},
+    "pg_catalog._uuid": {"kind": "array", "element": "pg_catalog.uuid"},
+    "pg_catalog._varchar": {"kind": "array", "element": "pg_catalog.varchar"},
+    "pg_catalog.bool": {"kind": "scalar"},
+    "pg_catalog.bpchar": {"kind": "scalar"},
+    "pg_catalog.bytea": {"kind": "scalar"},
+    "pg_catalog.date": {"kind": "scalar"},
+    "pg_catalog.float4": {"kind": "scalar"},
+    "pg_catalog.float8": {"kind": "scalar"},
+    "pg_catalog.int2": {"kind": "scalar"},
+    "pg_catalog.int4": {"kind": "scalar"},
+    "pg_catalog.int8": {"kind": "scalar"},
+    "pg_catalog.interval": {"kind": "scalar"},
+    "pg_catalog.json": {"kind": "scalar"},
+    "pg_catalog.jsonb": {"kind": "scalar"},
+    "pg_catalog.numeric": {"kind": "scalar"},
+    "pg_catalog.text": {"kind": "scalar"},
+    "pg_catalog.time": {"kind": "scalar"},
+    "pg_catalog.timestamp": {"kind": "scalar"},
+    "pg_catalog.timestamptz": {"kind": "scalar"},
+    "pg_catalog.uuid": {"kind": "scalar"},
+    "pg_catalog.varchar": {"kind": "scalar"},
+    "public._mood": {"kind": "array", "element": "public.mood"},
+    "public._nested_native": {"kind": "array", "element": "public.nested_native"},
+    "public.mood": {"kind": "enum", "labels": ["happy", "sad"]},
+    "public.nested_native": {"kind": "domain", "base": "public.small_native"},
+    "public.small_native": {"kind": "domain", "base": "pg_catalog.int2"}
+  },
   "queries": [
     {
       "sql": "DELETE FROM ppx_items",
@@ -16,72 +61,12 @@
       "top_level_only": true,
       "parameters": [],
       "result": [
-        {
-          "name": "tenant",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "note",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        },
-        {
-          "name": "document",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "json",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "revision",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "tenant", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "name", "type": "pg_catalog.text", "nullable": false},
+        {"name": "note", "type": "pg_catalog.text", "nullable": true},
+        {"name": "document", "type": "pg_catalog.json", "nullable": false},
+        {"name": "revision", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
@@ -90,17 +75,7 @@
       "top_level_only": true,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
@@ -109,698 +84,215 @@
       "top_level_only": true,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
       "sql": "DELETE FROM ppx_items WHERE id = $1",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": null
     },
     {
       "sql": "DELETE FROM ppx_items WHERE id = $1 RETURNING name",
       "kind": "returning",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": [
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "name", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
       "sql": "INSERT INTO native_items (array_bool) VALUES ($1)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_bool",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "bool",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._bool"],
       "result": null
     },
     {
       "sql": "INSERT INTO native_items (array_bpchar) VALUES ($1)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_bpchar",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "bpchar",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._bpchar"],
       "result": null
     },
     {
       "sql": "INSERT INTO native_items (array_bytea) VALUES ($1)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_bytea",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "bytea",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._bytea"],
       "result": null
     },
     {
       "sql": "INSERT INTO native_items (array_date) VALUES ($1)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_date",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "date",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._date"],
       "result": null
     },
     {
       "sql": "INSERT INTO native_items (array_float4) VALUES ($1)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_float4",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "float4",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._float4"],
       "result": null
     },
     {
       "sql": "INSERT INTO native_items (array_float8) VALUES ($1)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_float8",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "float8",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._float8"],
       "result": null
     },
     {
       "sql": "INSERT INTO native_items (array_int2) VALUES ($1)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_int2",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "int2",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._int2"],
       "result": null
     },
     {
       "sql": "INSERT INTO native_items (array_int4) VALUES ($1)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_int4",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._int4"],
       "result": null
     },
     {
       "sql": "INSERT INTO native_items (array_int8) VALUES ($1)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_int8",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "int8",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._int8"],
       "result": null
     },
     {
       "sql": "INSERT INTO native_items (array_interval) VALUES ($1)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_interval",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "interval",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._interval"],
       "result": null
     },
     {
       "sql": "INSERT INTO native_items (array_json) VALUES ($1)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_json",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "json",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._json"],
       "result": null
     },
     {
       "sql": "INSERT INTO native_items (array_jsonb) VALUES ($1)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_jsonb",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "jsonb",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._jsonb"],
       "result": null
     },
     {
       "sql": "INSERT INTO native_items (array_numeric) VALUES ($1)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_numeric",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "numeric",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._numeric"],
       "result": null
     },
     {
       "sql": "INSERT INTO native_items (array_text) VALUES ($1)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_text",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._text"],
       "result": null
     },
     {
       "sql": "INSERT INTO native_items (array_time) VALUES ($1)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_time",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "time",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._time"],
       "result": null
     },
     {
       "sql": "INSERT INTO native_items (array_timestamp) VALUES ($1)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_timestamp",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "timestamp",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._timestamp"],
       "result": null
     },
     {
       "sql": "INSERT INTO native_items (array_timestamptz) VALUES ($1)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_timestamptz",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "timestamptz",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._timestamptz"],
       "result": null
     },
     {
       "sql": "INSERT INTO native_items (array_uuid) VALUES ($1)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_uuid",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "uuid",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._uuid"],
       "result": null
     },
     {
       "sql": "INSERT INTO native_items (array_varchar) VALUES ($1)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_varchar",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "varchar",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._varchar"],
       "result": null
     },
     {
       "sql": "INSERT INTO ppx_items (id) VALUES ($1)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": null
     },
     {
       "sql": "INSERT INTO ppx_items (id) VALUES ($1) ON CONFLICT DO NOTHING RETURNING id",
       "kind": "returning",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
       "sql": "INSERT INTO ppx_items (id, note) VALUES ($1, $2), ($3, DEFAULT)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4", "pg_catalog.text", "pg_catalog.int4"],
       "result": null
     },
     {
       "sql": "INSERT INTO ppx_items (tenant, id, name) VALUES ($1, $2, $3)",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4", "pg_catalog.int4", "pg_catalog.text"],
       "result": null
     },
     {
       "sql": "INSERT INTO ppx_items (tenant, id, name) VALUES ($1, $2, $3) ON CONFLICT (tenant, id) DO UPDATE SET name = EXCLUDED.name RETURNING id",
       "kind": "returning",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4", "pg_catalog.int4", "pg_catalog.text"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
       "sql": "INSERT INTO ppx_items AS i (id, name) VALUES ($1, $2) RETURNING i.id AS identifier, i.name",
       "kind": "returning",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4", "pg_catalog.text"],
       "result": [
-        {
-          "name": "identifier",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "identifier", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "name", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
       "sql": "INSERT INTO ppx_items AS i (tenant, id, name) VALUES ($1, $2, $3) ON CONFLICT (id, tenant) DO UPDATE SET name = $4, note = EXCLUDED.note, revision = DEFAULT WHERE i.id = $5 AND excluded.tenant = $6 RETURNING i.id",
       "kind": "returning",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4", "pg_catalog.int4", "pg_catalog.text", "pg_catalog.text", "pg_catalog.int4", "pg_catalog.int4"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
@@ -816,17 +308,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "name", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
@@ -835,17 +317,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "odd\"name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "odd\"name", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
@@ -854,55 +326,17 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "generate_series",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        },
-        {
-          "name": "ordinality",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int8",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "generate_series", "type": "pg_catalog.int4", "nullable": true},
+        {"name": "ordinality", "type": "pg_catalog.int8", "nullable": true}
       ]
     },
     {
       "sql": "SELECT * FROM generate_series(1,$1)",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": [
-        {
-          "name": "generate_series",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "generate_series", "type": "pg_catalog.int4", "nullable": true}
       ]
     },
     {
@@ -911,28 +345,8 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "generate_series",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        },
-        {
-          "name": "ordinality",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int8",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "generate_series", "type": "pg_catalog.int4", "nullable": true},
+        {"name": "ordinality", "type": "pg_catalog.int8", "nullable": true}
       ]
     },
     {
@@ -941,83 +355,13 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "note",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        },
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "person_id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "label",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        },
-        {
-          "name": "active",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "bool",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "name", "type": "pg_catalog.text", "nullable": false},
+        {"name": "note", "type": "pg_catalog.text", "nullable": true},
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "person_id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "label", "type": "pg_catalog.text", "nullable": true},
+        {"name": "active", "type": "pg_catalog.bool", "nullable": false}
       ]
     },
     {
@@ -1026,22 +370,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "array_bool",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_bool",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "bool",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "array_bool", "type": "pg_catalog._bool", "nullable": false}
       ]
     },
     {
@@ -1050,22 +379,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "array_bpchar",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_bpchar",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "bpchar",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "array_bpchar", "type": "pg_catalog._bpchar", "nullable": false}
       ]
     },
     {
@@ -1074,22 +388,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "array_bytea",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_bytea",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "bytea",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "array_bytea", "type": "pg_catalog._bytea", "nullable": false}
       ]
     },
     {
@@ -1098,22 +397,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "array_date",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_date",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "date",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "array_date", "type": "pg_catalog._date", "nullable": false}
       ]
     },
     {
@@ -1122,22 +406,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "array_float4",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_float4",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "float4",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "array_float4", "type": "pg_catalog._float4", "nullable": false}
       ]
     },
     {
@@ -1146,22 +415,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "array_float8",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_float8",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "float8",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "array_float8", "type": "pg_catalog._float8", "nullable": false}
       ]
     },
     {
@@ -1170,22 +424,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "array_int2",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_int2",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "int2",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "array_int2", "type": "pg_catalog._int2", "nullable": false}
       ]
     },
     {
@@ -1194,22 +433,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "array_int4",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_int4",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "int4",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "array_int4", "type": "pg_catalog._int4", "nullable": false}
       ]
     },
     {
@@ -1218,22 +442,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "array_int8",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_int8",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "int8",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "array_int8", "type": "pg_catalog._int8", "nullable": false}
       ]
     },
     {
@@ -1242,22 +451,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "array_interval",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_interval",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "interval",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "array_interval", "type": "pg_catalog._interval", "nullable": false}
       ]
     },
     {
@@ -1266,22 +460,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "array_json",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_json",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "json",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "array_json", "type": "pg_catalog._json", "nullable": false}
       ]
     },
     {
@@ -1290,49 +469,16 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "array_jsonb",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_jsonb",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "jsonb",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "array_jsonb", "type": "pg_catalog._jsonb", "nullable": false}
       ]
     },
     {
       "sql": "SELECT array_length(numbers,$1) FROM native_items",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": [
-        {
-          "name": "array_length",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "array_length", "type": "pg_catalog.int4", "nullable": true}
       ]
     },
     {
@@ -1341,22 +487,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "array_numeric",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_numeric",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "numeric",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "array_numeric", "type": "pg_catalog._numeric", "nullable": false}
       ]
     },
     {
@@ -1365,22 +496,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "array_text",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_text",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "text",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "array_text", "type": "pg_catalog._text", "nullable": false}
       ]
     },
     {
@@ -1389,22 +505,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "array_time",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_time",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "time",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "array_time", "type": "pg_catalog._time", "nullable": false}
       ]
     },
     {
@@ -1413,22 +514,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "array_timestamp",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_timestamp",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "timestamp",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "array_timestamp", "type": "pg_catalog._timestamp", "nullable": false}
       ]
     },
     {
@@ -1437,22 +523,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "array_timestamptz",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_timestamptz",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "timestamptz",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "array_timestamptz", "type": "pg_catalog._timestamptz", "nullable": false}
       ]
     },
     {
@@ -1461,22 +532,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "array_uuid",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_uuid",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "uuid",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "array_uuid", "type": "pg_catalog._uuid", "nullable": false}
       ]
     },
     {
@@ -1485,22 +541,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "array_varchar",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_varchar",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "varchar",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "array_varchar", "type": "pg_catalog._varchar", "nullable": false}
       ]
     },
     {
@@ -1509,156 +550,35 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "count",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int8",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "count", "type": "pg_catalog.int8", "nullable": true}
       ]
     },
     {
       "sql": "SELECT count(*) FROM join_people HAVING count(*) > $1",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int8",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int8"],
       "result": [
-        {
-          "name": "count",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int8",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "count", "type": "pg_catalog.int8", "nullable": true}
       ]
     },
     {
       "sql": "SELECT domain_numbers, domain_array FROM native_items WHERE domain_numbers = $1 AND domain_array = $2",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "public",
-            "name": "_nested_native",
-            "kind": "array",
-            "element": {
-              "schema": "public",
-              "name": "nested_native",
-              "kind": "domain",
-              "base": {
-                "schema": "public",
-                "name": "small_native",
-                "kind": "domain",
-                "base": {
-                  "schema": "pg_catalog",
-                  "name": "int2",
-                  "kind": "scalar"
-                }
-              }
-            }
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_int4",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["public._nested_native", "pg_catalog._int4"],
       "result": [
-        {
-          "name": "domain_numbers",
-          "value": {
-            "type": {
-              "schema": "public",
-              "name": "_nested_native",
-              "kind": "array",
-              "element": {
-                "schema": "public",
-                "name": "nested_native",
-                "kind": "domain",
-                "base": {
-                  "schema": "public",
-                  "name": "small_native",
-                  "kind": "domain",
-                  "base": {
-                    "schema": "pg_catalog",
-                    "name": "int2",
-                    "kind": "scalar"
-                  }
-                }
-              }
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "domain_array",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_int4",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "int4",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "domain_numbers", "type": "public._nested_native", "nullable": false},
+        {"name": "domain_array", "type": "pg_catalog._int4", "nullable": false}
       ]
     },
     {
       "sql": "SELECT generate_series(1,$1)",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": [
-        {
-          "name": "generate_series",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "generate_series", "type": "pg_catalog.int4", "nullable": true}
       ]
     },
     {
@@ -1667,93 +587,25 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "generate_series",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "generate_series", "type": "pg_catalog.int4", "nullable": true}
       ]
     },
     {
       "sql": "SELECT id FROM native_items WHERE id = ANY($1)",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_int4",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._int4"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
       "sql": "SELECT id FROM native_items WHERE id = ANY($1) AND id >= ALL($2)",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_int4",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "_int4",
-            "kind": "array",
-            "element": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          }
-        }
-      ],
+      "parameters": ["pg_catalog._int4", "pg_catalog._int4"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
@@ -1762,187 +614,52 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
       "sql": "SELECT id FROM people LIMIT $1",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int8",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int8"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
       "sql": "SELECT id FROM people WHERE NOT active = $1 OR id >= $2 AND name ILIKE $3 ORDER BY id LIMIT $4 OFFSET $5",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "bool",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int8",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int8",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.bool", "pg_catalog.int4", "pg_catalog.text", "pg_catalog.int8", "pg_catalog.int8"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
       "sql": "SELECT id FROM people WHERE id = $1",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
       "sql": "SELECT id FROM people WHERE id IN ($1, $2)",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4", "pg_catalog.int4"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
       "sql": "SELECT id FROM people WHERE name = $1",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.text"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
@@ -1951,28 +668,8 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
@@ -1981,155 +678,29 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "note",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "varchar",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "note", "type": "pg_catalog.varchar", "nullable": true}
       ]
     },
     {
       "sql": "SELECT mood, small_value, nested_value, required_value FROM native_items WHERE mood = $1 AND small_value = $2 AND nested_value = $3",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "public",
-            "name": "mood",
-            "kind": "enum",
-            "labels": [
-              "happy",
-              "sad"
-            ]
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int2",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int2",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["public.mood", "pg_catalog.int2", "pg_catalog.int2"],
       "result": [
-        {
-          "name": "mood",
-          "value": {
-            "type": {
-              "schema": "public",
-              "name": "mood",
-              "kind": "enum",
-              "labels": [
-                "happy",
-                "sad"
-              ]
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "small_value",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int2",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "nested_value",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int2",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "required_value",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "mood", "type": "public.mood", "nullable": false},
+        {"name": "small_value", "type": "pg_catalog.int2", "nullable": false},
+        {"name": "nested_value", "type": "pg_catalog.int2", "nullable": false},
+        {"name": "required_value", "type": "pg_catalog.text", "nullable": true}
       ]
     },
     {
       "sql": "SELECT moods FROM native_items WHERE moods = $1",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "public",
-            "name": "_mood",
-            "kind": "array",
-            "element": {
-              "schema": "public",
-              "name": "mood",
-              "kind": "enum",
-              "labels": [
-                "happy",
-                "sad"
-              ]
-            }
-          }
-        }
-      ],
+      "parameters": ["public._mood"],
       "result": [
-        {
-          "name": "moods",
-          "value": {
-            "type": {
-              "schema": "public",
-              "name": "_mood",
-              "kind": "array",
-              "element": {
-                "schema": "public",
-                "name": "mood",
-                "kind": "enum",
-                "labels": [
-                  "happy",
-                  "sad"
-                ]
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "moods", "type": "public._mood", "nullable": false}
       ]
     },
     {
@@ -2138,17 +709,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "Upper",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "Upper", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
@@ -2157,132 +718,43 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "name", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
       "sql": "SELECT name FROM people\nWHERE (id = $1 AND id = $2) ORDER BY id DESC",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4", "pg_catalog.int4"],
       "result": [
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "name", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
       "sql": "SELECT name FROM people WHERE id = $1",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": [
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "name", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
       "sql": "SELECT note FROM people WHERE note = $1",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.text"],
       "result": [
-        {
-          "name": "note",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "varchar",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "note", "type": "pg_catalog.varchar", "nullable": true}
       ]
     },
     {
       "sql": "SELECT ntile($1) OVER() FROM join_people",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": [
-        {
-          "name": "ntile",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "ntile", "type": "pg_catalog.int4", "nullable": true}
       ]
     },
     {
@@ -2291,22 +763,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "nullable_numbers",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_int4",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "int4",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": true
-        }
+        {"name": "nullable_numbers", "type": "pg_catalog._int4", "nullable": true}
       ]
     },
     {
@@ -2315,22 +772,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "numbers",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "_int4",
-              "kind": "array",
-              "element": {
-                "schema": "pg_catalog",
-                "name": "int4",
-                "kind": "scalar"
-              }
-            }
-          },
-          "nullable": false
-        }
+        {"name": "numbers", "type": "pg_catalog._int4", "nullable": false}
       ]
     },
     {
@@ -2339,39 +781,9 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "note",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "name", "type": "pg_catalog.text", "nullable": false},
+        {"name": "note", "type": "pg_catalog.text", "nullable": true}
       ]
     },
     {
@@ -2380,83 +792,13 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "note",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        },
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "person_id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "label",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        },
-        {
-          "name": "active",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "bool",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "name", "type": "pg_catalog.text", "nullable": false},
+        {"name": "note", "type": "pg_catalog.text", "nullable": true},
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "person_id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "label", "type": "pg_catalog.text", "nullable": true},
+        {"name": "active", "type": "pg_catalog.bool", "nullable": false}
       ]
     },
     {
@@ -2465,28 +807,8 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "identifier",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "identifier", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "name", "type": "pg_catalog.text", "nullable": false}
       ]
     },
     {
@@ -2495,39 +817,9 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "identifier",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "name",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "label",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "identifier", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "name", "type": "pg_catalog.text", "nullable": false},
+        {"name": "label", "type": "pg_catalog.text", "nullable": true}
       ]
     },
     {
@@ -2536,85 +828,25 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
       "sql": "SELECT p.id FROM join_people p JOIN join_links l ON p.id = l.person_id AND l.id = $1",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.int4"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
       "sql": "SELECT p.id FROM join_people p JOIN join_links l ON p.id = l.person_id AND l.label = $1 WHERE p.name = $2 ORDER BY l.id LIMIT $3",
       "kind": "select",
       "top_level_only": false,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int8",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.text", "pg_catalog.text", "pg_catalog.int8"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     },
     {
@@ -2623,28 +855,8 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "label",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "label", "type": "pg_catalog.text", "nullable": true}
       ]
     },
     {
@@ -2653,17 +865,7 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "position",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int8",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "position", "type": "pg_catalog.int8", "nullable": true}
       ]
     },
     {
@@ -2672,155 +874,42 @@
       "top_level_only": false,
       "parameters": [],
       "result": [
-        {
-          "name": "small_value",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int2",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "big_value",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int8",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "small_value", "type": "pg_catalog.int2", "nullable": false},
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "big_value", "type": "pg_catalog.int8", "nullable": false}
       ]
     },
     {
       "sql": "UPDATE ppx_items AS i SET note = $1, name = $2 WHERE (i.id = $3) RETURNING i.id, i.note",
       "kind": "returning",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.text", "pg_catalog.text", "pg_catalog.int4"],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        },
-        {
-          "name": "note",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false},
+        {"name": "note", "type": "pg_catalog.text", "nullable": true}
       ]
     },
     {
       "sql": "UPDATE ppx_items SET document = $1",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "json",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.json"],
       "result": null
     },
     {
       "sql": "UPDATE ppx_items SET name = $1",
       "kind": "command",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.text"],
       "result": null
     },
     {
       "sql": "UPDATE ppx_items SET note = $1 WHERE id = $2 RETURNING note",
       "kind": "returning",
       "top_level_only": true,
-      "parameters": [
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "text",
-            "kind": "scalar"
-          }
-        },
-        {
-          "type": {
-            "schema": "pg_catalog",
-            "name": "int4",
-            "kind": "scalar"
-          }
-        }
-      ],
+      "parameters": ["pg_catalog.text", "pg_catalog.int4"],
       "result": [
-        {
-          "name": "note",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "text",
-              "kind": "scalar"
-            }
-          },
-          "nullable": true
-        }
+        {"name": "note", "type": "pg_catalog.text", "nullable": true}
       ]
     },
     {
@@ -2829,17 +918,7 @@
       "top_level_only": true,
       "parameters": [],
       "result": [
-        {
-          "name": "id",
-          "value": {
-            "type": {
-              "schema": "pg_catalog",
-              "name": "int4",
-              "kind": "scalar"
-            }
-          },
-          "nullable": false
-        }
+        {"name": "id", "type": "pg_catalog.int4", "nullable": false}
       ]
     }
   ]
