@@ -134,6 +134,44 @@ fi
 test ! -s "$workdir/missing_pgocaml_table.json"
 grep -Fq 'excluded table not found: public.missing' "$workdir/missing_pgocaml_table.stderr"
 
+for dumper in caqti-lwt/schema/typed_sql_schema_dump.exe schema-pgocaml-lwt/typed_sql_pgocaml_schema_dump.exe; do
+  dump_name="$(basename "$dumper" .exe)"
+  PGDATABASE=typed_sql_schema_fixture_test \
+    dune exec --root . "$dumper" -- \
+    --include-table public.filter_child \
+    --include-table archive.filter_parent \
+    --include-table 'public."USER PROFILE"' \
+    --include-table public.filter_child \
+    --include-table public.filter_parent \
+    --exclude-table public.filter_parent \
+    --exclude-table public.advanced \
+    > "$workdir/$dump_name.selected.json"
+  python3 - "$workdir/$dump_name.selected.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1]) as source:
+    tables = json.load(source)["tables"]
+assert [(table["schema"], table["name"]) for table in tables] == [
+    ("archive", "filter_parent"),
+    ("public", "USER PROFILE"),
+    ("public", "filter_child"),
+]
+child = tables[2]
+assert child["foreign_keys"][0]["referenced_table"] == "filter_parent"
+assert child["foreign_keys"][0]["referenced_schema"] == "public"
+PY
+  if PGDATABASE=typed_sql_schema_fixture_test \
+    dune exec --root . "$dumper" -- \
+    --include-table public.missing > "$workdir/$dump_name.missing.json" 2> "$workdir/$dump_name.missing.stderr"; then
+    echo 'dump accepted a missing table inclusion' >&2
+    exit 1
+  fi
+  test ! -s "$workdir/$dump_name.missing.json"
+  grep -Fq 'included table not found: public.missing' "$workdir/$dump_name.missing.stderr"
+done
+diff -u "$workdir/typed_sql_schema_dump.selected.json" "$workdir/typed_sql_pgocaml_schema_dump.selected.json"
+
 PGDATABASE=typed_sql_schema_fixture_test \
   dune exec --root . caqti-lwt/schema/test/postgresql_schema_test.exe
 PGDATABASE=typed_sql_schema_fixture_test \

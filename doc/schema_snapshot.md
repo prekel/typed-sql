@@ -114,7 +114,8 @@ JSON относятся к корню `$`.
 `typed-sql-schema-dump` из пакета `typed-sql-schema-caqti-lwt` и
 `typed-sql-pgocaml-schema-dump` из `typed-sql-schema-pgocaml-lwt` читают PostgreSQL
 схему и создают одинаковый JSON snapshot. Оба принимают необязательный
-PostgreSQL URI и повторяемый `--exclude-table SCHEMA.TABLE`. Без URI
+PostgreSQL URI и повторяемые `--include-table SCHEMA.TABLE` и
+`--exclude-table SCHEMA.TABLE`. Без URI
 подключение берёт параметры из `PGHOST`, `PGPORT`, `PGUSER`, `PGDATABASE` и
 `PGPASSWORD`. PG’OCaml дампер поддерживает стандартные host, port, user,
 password и database в URI, а также `?host=/path/to/socket`; остальные
@@ -125,14 +126,43 @@ URI-параметры отклоняет.
 Он генерирует OCaml descriptors для query DSL.
 `typed-sql-codegen --type-rules rules.json schema.json` применяет правила
 пользовательских типов. Повторяемый параметр
-`--exclude-table SCHEMA.TABLE` исключает таблицу из генерации по точной паре
-имён схемы и таблицы. Для имён с точкой, кавычкой или пробелом используйте
-quoted SQL identifiers: `--exclude-table '"schema.name"."table name"'`.
-Исключение отсутствующей таблицы завершает CLI с ошибкой. FK-метаданные
-оставшихся таблиц сохраняются, даже если они ссылаются на исключённую таблицу.
-Не повторяйте в codegen исключение, уже применённое при создании snapshot:
-таблица там отсутствует и поэтому считается неизвестной. Чтобы сохранить полный
-snapshot и фильтровать только `.ml`, не задавайте `--exclude-table` у dump CLI.
+`--include-table SCHEMA.TABLE` оставляет только перечисленные таблицы,
+`--exclude-table SCHEMA.TABLE` исключает перечисленные таблицы. Оба параметра
+можно повторять и сочетать: без `--include-table` выбираются все таблицы,
+затем применяются исключения. При пересечении списков исключение имеет
+приоритет. Повторение одного имени не дублирует таблицу; порядок таблиц остаётся
+таким же, как в исходной схеме, независимо от порядка аргументов.
+Имена сопоставляются по точной паре схемы и таблицы с учётом регистра.
+Для имён с точкой, кавычкой или пробелом используйте quoted SQL identifiers:
+`--include-table '"schema.name"."table name"'`.
+
+Например, получить snapshot только двух таблиц и сгенерировать descriptors:
+
+```sh
+typed-sql-pgocaml-schema-dump \
+  --include-table public.users \
+  --include-table public.orders > schema.json
+typed-sql-codegen schema.json > generated_schema.ml
+```
+
+Чтобы сохранить полный snapshot и выбирать таблицы только при генерации `.ml`,
+задавайте фильтры у codegen:
+
+```sh
+typed-sql-codegen \
+  --include-table public.users \
+  --include-table public.orders schema.json > generated_schema.ml
+```
+
+Оба списка проверяются по исходной схеме до фильтрации. Любое отсутствующее
+имя завершает CLI с ошибкой, даже если другое правило фильтрации скрывает эту
+таблицу. Не повторяйте в codegen исключение, уже применённое при создании
+snapshot: таблица там отсутствует и поэтому считается неизвестной.
+FK-метаданные выбранных таблиц сохраняются, даже если они ссылаются на
+невыбранную таблицу; связанные таблицы автоматически не добавляются.
+Фильтры дампера применяются после интроспекции: чтение каталогов PostgreSQL
+по-прежнему охватывает всю доступную схему.
+
 Файл правил имеет вид:
 
 ```json

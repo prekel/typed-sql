@@ -3,6 +3,7 @@ open Typed_sql_schema
 
 type options =
   { uri : string option
+  ; included_tables : (Identifier.t * Identifier.t) list
   ; excluded_tables : (Identifier.t * Identifier.t) list
   }
 
@@ -65,42 +66,57 @@ let parse_qualified_table source =
 ;;
 
 let parse_args arguments =
-  let rec loop uri excluded_tables = function
-    | [] -> Ok { uri; excluded_tables = List.rev excluded_tables }
+  let rec loop uri included_tables excluded_tables = function
+    | [] ->
+      Ok
+        { uri
+        ; included_tables = List.rev included_tables
+        ; excluded_tables = List.rev excluded_tables
+        }
     | [ "--help" ] | [ "-h" ] -> Error Help
+    | "--include-table" :: table_name :: rest ->
+      (match parse_qualified_table table_name with
+       | Error _ -> Error Usage
+       | Ok table -> loop uri (table :: included_tables) excluded_tables rest)
     | "--exclude-table" :: table_name :: rest ->
       (match parse_qualified_table table_name with
        | Error _ -> Error Usage
-       | Ok table -> loop uri (table :: excluded_tables) rest)
-    | "--exclude-table" :: [] -> Error Usage
+       | Ok table -> loop uri included_tables (table :: excluded_tables) rest)
+    | ("--include-table" | "--exclude-table") :: [] -> Error Usage
     | uri_arg :: rest
       when (not (String.is_prefix uri_arg ~prefix:"-")) && Option.is_none uri ->
-      loop (Some uri_arg) excluded_tables rest
+      loop (Some uri_arg) included_tables excluded_tables rest
     | _ -> Error Usage
   in
-  loop None [] arguments
+  loop None [] [] arguments
 ;;
 
-let exclude_tables excluded_tables schema =
+let filter_tables ~included_tables ~excluded_tables schema =
   let tables = Schema_ir.tables schema in
   let has_table (schema_name, table_name) table =
     Option.equal Identifier.equal (Schema_ir.table_schema table) (Some schema_name)
     && Identifier.equal (Schema_ir.table_name table) table_name
   in
-  match
-    List.find excluded_tables ~f:(fun excluded ->
-      not (List.exists tables ~f:(has_table excluded)))
-  with
-  | Some (schema_name, table_name) ->
-    Error
-      ("excluded table not found: "
-       ^ Identifier.to_string schema_name
-       ^ "."
-       ^ Identifier.to_string table_name)
-  | None ->
-    Ok
-      (Schema_ir.v
-         (List.filter tables ~f:(fun table ->
-            not
-              (List.exists excluded_tables ~f:(fun excluded -> has_table excluded table)))))
+  let validate kind requested =
+    match
+      List.find requested ~f:(fun requested ->
+        not (List.exists tables ~f:(has_table requested)))
+    with
+    | Some (schema_name, table_name) ->
+      Error
+        (kind
+         ^ " table not found: "
+         ^ Identifier.to_string schema_name
+         ^ "."
+         ^ Identifier.to_string table_name)
+    | None -> Ok ()
+  in
+  let open Result.Let_syntax in
+  let%bind () = validate "included" included_tables in
+  let%map () = validate "excluded" excluded_tables in
+  Schema_ir.v
+    (List.filter tables ~f:(fun table ->
+       (List.is_empty included_tables
+        || List.exists included_tables ~f:(fun included -> has_table included table))
+       && not (List.exists excluded_tables ~f:(fun excluded -> has_table excluded table))))
 ;;

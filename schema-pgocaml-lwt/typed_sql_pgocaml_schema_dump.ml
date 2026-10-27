@@ -4,7 +4,8 @@ open Typed_sql_schema_backend.Schema_dump_options
 module Pgocaml = Typed_sql_pgocaml_lwt.Pgocaml
 
 let usage =
-  "Usage: typed-sql-pgocaml-schema-dump [--exclude-table SCHEMA.TABLE]... [POSTGRESQL_URI]"
+  "Usage: typed-sql-pgocaml-schema-dump [--include-table SCHEMA.TABLE]... "
+  ^ "[--exclude-table SCHEMA.TABLE]... [POSTGRESQL_URI]"
 ;;
 
 type connection_options =
@@ -73,7 +74,7 @@ let connection_options source =
   Ok { host; port = Uri.port uri; user; password; database; unix_domain_socket_dir }
 ;;
 
-let dump uri excluded_tables =
+let dump uri included_tables excluded_tables =
   let open Lwt.Syntax in
   match connection_options uri with
   | Error message -> Lwt.return (Error message)
@@ -99,7 +100,7 @@ let dump uri excluded_tables =
                    Error (Typed_sql_schema_pgocaml_lwt.error_to_string error)
                  | Ok schema ->
                    Result.map
-                     (exclude_tables excluded_tables schema)
+                     (filter_tables ~included_tables ~excluded_tables schema)
                      ~f:Schema_snapshot.to_string))
            (fun () -> Pgocaml.close conn))
       (fun exn -> Lwt.return (Error (Exn.to_string exn)))
@@ -115,9 +116,9 @@ let () =
   | Error Usage ->
     Stdlib.prerr_endline usage;
     Stdlib.exit 2
-  | Ok { uri; excluded_tables } ->
+  | Ok { uri; included_tables; excluded_tables } ->
     let uri = Option.value uri ~default:"postgresql://" in
-    (match Lwt_main.run (dump uri excluded_tables) with
+    (match Lwt_main.run (dump uri included_tables excluded_tables) with
      | Ok snapshot -> Stdlib.print_string snapshot
      | Error message ->
        Stdlib.prerr_endline ("typed-sql-pgocaml-schema-dump: " ^ message);

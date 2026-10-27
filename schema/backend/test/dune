@@ -1,8 +1,8 @@
 (library
  (name typed_sql_native_introspection_tests)
  (optional)
- (modules native_introspection_test)
- (libraries base typed-sql-schema typed-sql-schema.backend)
+ (modules native_introspection_test schema_dump_options_test)
+ (libraries base typed-sql typed-sql-schema typed-sql-schema.backend)
  (inline_tests)
  (preprocess
   (pps ppx_expect)))

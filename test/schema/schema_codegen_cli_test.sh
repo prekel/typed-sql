@@ -38,6 +38,40 @@ if grep -Fq 'module Type_public_mood = struct' "$test_dir/filtered.ml"; then
   exit 1
 fi
 
+"$codegen" --include-table public.user_profile schema_fixture.json > "$test_dir/included.ml"
+test "$(grep -c 'Table.v_exn' "$test_dir/included.ml")" -eq 1
+grep -Fq 'Table.v_exn ~schema:"public" "user_profile"' "$test_dir/included.ml"
+if grep -Fq 'module Type_public_mood = struct' "$test_dir/included.ml"; then
+  echo 'type used only by an unselected table was generated' >&2
+  exit 1
+fi
+
+"$codegen" \
+  --include-table public.user_profile \
+  --include-table 'public."USER PROFILE"' \
+  --include-table public.user_profile \
+  schema_fixture.json > "$test_dir/multiple_included.ml"
+test "$(grep -c 'Table.v_exn' "$test_dir/multiple_included.ml")" -eq 2
+grep -Fq 'Table.v_exn ~schema:"public" "USER PROFILE"' "$test_dir/multiple_included.ml"
+grep -Fq 'Table.v_exn ~schema:"public" "user_profile"' "$test_dir/multiple_included.ml"
+
+"$codegen" \
+  --include-table 'public."USER PROFILE"' \
+  --include-table public.user_profile \
+  --exclude-table public.advanced \
+  --exclude-table 'public."USER PROFILE"' \
+  schema_fixture.json > "$test_dir/include_exclude.ml"
+cmp "$test_dir/included.ml" "$test_dir/include_exclude.ml"
+
+"$codegen" \
+  --include-table public.user_profile \
+  --exclude-table public.user_profile \
+  schema_fixture.json > "$test_dir/empty_selection.ml"
+if grep -Fq 'Table.v_exn' "$test_dir/empty_selection.ml"; then
+  echo 'table excluded from the inclusion set was generated' >&2
+  exit 1
+fi
+
 "$codegen" --exclude-table public.parent schema_fixture.json > "$test_dir/no_match.ml" 2> "$test_dir/no_match.stderr" && {
   echo 'unknown table exclusion unexpectedly succeeded' >&2
   exit 1
@@ -131,6 +165,11 @@ expect_failure 2 'Usage:'
 expect_failure 2 'Usage:' schema_fixture.json extra
 expect_failure 2 'Usage:' --exclude-table schema_fixture.json
 expect_failure 2 'Usage:' --exclude-table 'public."unterminated' schema_fixture.json
+expect_failure 2 'Usage:' --include-table
+expect_failure 2 'Usage:' --include-table user_profile schema_fixture.json
+expect_failure 2 'Usage:' --include-table 'public."unterminated' schema_fixture.json
+expect_failure 1 'included table not found: public.missing' --include-table public.missing schema_fixture.json
+expect_failure 1 'excluded table not found: public.missing' --include-table public.user_profile --exclude-table public.missing schema_fixture.json
 expect_failure 1 'invalid JSON' - <<'JSON'
 {
 JSON
